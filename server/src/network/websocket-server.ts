@@ -258,6 +258,9 @@ export class ConstellationWebSocketServer {
     const starterSystem = generateStarterSystem(galaxy.id, galaxy.seed);
     this.db.createStarSystem(starterSystem);
 
+    // Reset game time to 0 for new galaxy
+    this.gameState.resetTime();
+
     // Create player
     this.createPlayerInGalaxy(client, galaxy.id, galaxyName);
 
@@ -300,6 +303,9 @@ export class ConstellationWebSocketServer {
     // Generate new starter system
     const starterSystem = generateStarterSystem(galaxy.id, galaxy.seed);
     this.db.createStarSystem(starterSystem);
+
+    // Reset game time to 0
+    this.gameState.resetTime();
 
     console.log(`Galaxy reset complete: ${galaxyName} (new ID: ${galaxy.id})`);
     this.send(client.ws, { type: "galaxyReset", galaxyId: galaxy.id });

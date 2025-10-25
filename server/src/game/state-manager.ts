@@ -199,6 +199,11 @@ export class GameStateManager {
     return this.currentTime;
   }
 
+  resetTime(): void {
+    this.currentTime = 0;
+    this.lastUpdateTime = Date.now();
+  }
+
   updateShipOrbit(shipId: string, systemId: string, ship: Ship): void {
     const ships = this.ships.get(systemId) || [];
     const index = ships.findIndex((s) => s.id === shipId);
