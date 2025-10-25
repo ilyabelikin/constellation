@@ -13,6 +13,7 @@ class ConstellationClient {
   private ship: Ship | null = null;
   private isPaused = false;
   private lastGalaxyName: string = "";
+  private isConnected = false;
 
   constructor() {
     const container = document.getElementById("canvas-container")!;
@@ -26,7 +27,9 @@ class ConstellationClient {
     this.setupSceneHandlers();
     this.setupKeyboardHandlers();
 
+    // Connect on load
     this.connect();
+
     this.startRenderLoop();
   }
 
@@ -94,15 +97,37 @@ class ConstellationClient {
     this.network.onGalaxyJoined = (galaxyId) => {
       console.log("Galaxy joined:", galaxyId);
       this.hud.clearError();
+      this.hud.hideAuthModal();
+    };
+
+    this.network.onGalaxyReset = (galaxyId) => {
+      console.log("Galaxy reset:", galaxyId);
+      this.hud.clearError();
+      // After reset, automatically join the galaxy
+      this.network.joinGalaxy(this.lastGalaxyName);
     };
   }
 
   private setupHUDHandlers(): void {
-    this.hud.onExploreGalaxy = (name) => {
+    this.hud.onExploreGalaxy = async (name) => {
+      // Connect if not already connected
+      if (!this.isConnected) {
+        await this.connect();
+      }
       // Store the name and try to join first
       // If it doesn't exist, it will be created automatically
       this.lastGalaxyName = name;
       this.network.joinGalaxy(name);
+    };
+
+    this.hud.onResetGalaxy = async (name) => {
+      // Connect if not already connected
+      if (!this.isConnected) {
+        await this.connect();
+      }
+      // Reset (delete and recreate) the galaxy
+      this.lastGalaxyName = name;
+      this.network.resetGalaxy(name);
     };
 
     this.hud.onNavigateHome = () => {
@@ -156,10 +181,11 @@ class ConstellationClient {
   private async connect(): Promise<void> {
     try {
       await this.network.connect();
+      this.isConnected = true;
       console.log("Connected to server");
     } catch (error) {
       console.error("Failed to connect to server:", error);
-      this.hud.showError("Failed to connect to server. Retrying...");
+      this.hud.showError("Failed to connect to server. Please try again.");
     }
   }
 
@@ -168,6 +194,13 @@ class ConstellationClient {
       requestAnimationFrame(animate);
       this.scene.update();
       this.scene.render();
+
+      // Update HUD with current interpolated game time
+      this.hud.updateTime(
+        this.scene.getGameTime(),
+        this.scene.getIsPaused(),
+        this.scene.getTimeScale()
+      );
     };
     animate();
   }

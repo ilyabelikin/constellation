@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from "uuid";
 import { SeededRandom } from "./random.js";
+import { generatePlanetName, generateStarName } from "./name-generator.js";
 import {
   CelestialBodyType,
   OrbitalElements,
@@ -74,7 +75,7 @@ export function generateStar(rng: SeededRandom): CelestialBodyType {
 
   return {
     id: uuidv4(),
-    name: `${starClass.type}-class Star`,
+    name: generateStarName(rng, starClass.type),
     type: "star",
     mass: massMultiplier * SOLAR_MASS,
     radius: radiusMultiplier * SOLAR_RADIUS,
@@ -90,40 +91,125 @@ export function generatePlanet(
   index: number,
   totalPlanets: number
 ): CelestialBodyType {
-  // Planetary types
+  // Planetary types with varied sizes
   const types = [
+    // Small terrestrial planets
+    {
+      name: "Barren",
+      massRange: [0.05, 0.5],
+      radiusRange: [0.3, 0.7],
+      color: "#7a6a5a",
+      atmosphereChance: 0.0,
+    },
     {
       name: "Rocky",
-      massRange: [0.1, 3],
-      radiusRange: [0.5, 1.5],
+      massRange: [0.3, 2],
+      radiusRange: [0.6, 1.2],
       color: "#8b7355",
+      atmosphereChance: 0.2,
     },
+    {
+      name: "Desert",
+      massRange: [0.5, 3],
+      radiusRange: [0.7, 1.3],
+      color: "#d4a574",
+      atmosphereChance: 0.3,
+    },
+    {
+      name: "Ocean",
+      massRange: [0.8, 4],
+      radiusRange: [0.9, 1.4],
+      color: "#4a90c8",
+      atmosphereChance: 0.9,
+    },
+    {
+      name: "Terrestrial",
+      massRange: [0.5, 3],
+      radiusRange: [0.7, 1.3],
+      color: "#6b8e4e",
+      atmosphereChance: 0.8,
+    },
+    // Medium planets
     {
       name: "Super-Earth",
-      massRange: [2, 10],
-      radiusRange: [1.3, 2.5],
+      massRange: [3, 10],
+      radiusRange: [1.4, 2.2],
       color: "#a0937d",
+      atmosphereChance: 0.7,
     },
     {
-      name: "Gas Giant",
-      massRange: [50, 400],
-      radiusRange: [3, 12],
-      color: "#d4a373",
+      name: "Ice",
+      massRange: [2, 8],
+      radiusRange: [1.2, 2.0],
+      color: "#c8e6f5",
+      atmosphereChance: 0.5,
+    },
+    {
+      name: "Lava",
+      massRange: [1, 5],
+      radiusRange: [0.8, 1.6],
+      color: "#ff6347",
+      atmosphereChance: 0.2,
+    },
+    // Large ice/gas planets
+    {
+      name: "Mini-Neptune",
+      massRange: [5, 20],
+      radiusRange: [2.0, 3.5],
+      color: "#7cb3d9",
+      atmosphereChance: 1.0,
     },
     {
       name: "Ice Giant",
-      massRange: [10, 50],
-      radiusRange: [2.5, 5],
+      massRange: [15, 50],
+      radiusRange: [3.5, 5.5],
       color: "#74b9d8",
+      atmosphereChance: 1.0,
+    },
+    // Giant planets
+    {
+      name: "Gas Giant",
+      massRange: [80, 200],
+      radiusRange: [8, 12],
+      color: "#d4a373",
+      atmosphereChance: 1.0,
+    },
+    {
+      name: "Jupiter-like",
+      massRange: [200, 400],
+      radiusRange: [10, 14],
+      color: "#c9a96e",
+      atmosphereChance: 1.0,
+    },
+    {
+      name: "Hot Jupiter",
+      massRange: [100, 300],
+      radiusRange: [9, 13],
+      color: "#f5deb3",
+      atmosphereChance: 1.0,
     },
   ];
 
-  // Inner planets tend to be rocky, outer planets tend to be gas giants
+  // Select planet type based on position (inner vs outer system)
   let planetType;
-  if (index < totalPlanets / 2) {
-    planetType = rng.next() < 0.7 ? types[0] : types[1]; // Rocky or Super-Earth
+  const position = index / totalPlanets; // 0 = innermost, 1 = outermost
+
+  if (position < 0.3) {
+    // Inner system: small terrestrial planets (0-4)
+    const innerTypes = types.slice(0, 5);
+    planetType = innerTypes[rng.nextInt(0, innerTypes.length - 1)];
+  } else if (position < 0.6) {
+    // Middle system: medium planets (5-7)
+    const middleTypes = types.slice(5, 8);
+    planetType = middleTypes[rng.nextInt(0, middleTypes.length - 1)];
+  } else if (position < 0.8) {
+    // Outer system: ice giants and mini-neptunes (8-9)
+    const outerTypes = types.slice(8, 10);
+    planetType = outerTypes[rng.nextInt(0, outerTypes.length - 1)];
   } else {
-    planetType = rng.next() < 0.5 ? types[2] : types[3]; // Gas Giant or Ice Giant
+    // Far outer system: gas giants (10-12)
+    const giantTypes = types.slice(10, 13);
+    planetType = giantTypes[rng.nextInt(0, giantTypes.length - 1)];
   }
 
   const mass =
@@ -154,15 +240,23 @@ export function generatePlanet(
     epoch: 0,
   };
 
+  // Determine if planet has atmosphere
+  const hasAtmosphere = rng.next() < planetType.atmosphereChance;
+
+  // Generate procedural name
+  const planetName = generatePlanetName(rng);
+
   return {
     id: uuidv4(),
-    name: `${planetType.name} Planet ${index + 1}`,
+    name: planetName,
     type: "planet",
     mass,
     radius,
     parentId: "", // Will be set to star ID
     orbitalElements,
     color: planetType.color,
+    hasAtmosphere,
+    planetType: planetType.name,
   };
 }
 

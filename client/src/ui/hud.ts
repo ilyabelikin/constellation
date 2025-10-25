@@ -16,6 +16,7 @@ export class HUDManager {
   private errorMessage: HTMLElement;
   private galaxyNameInput: HTMLInputElement;
   private exploreGalaxyButton: HTMLElement;
+  private resetGalaxyButton: HTMLElement;
 
   private navHomeButton: HTMLElement;
   private navSystemButton: HTMLElement;
@@ -40,6 +41,7 @@ export class HUDManager {
 
   // Callbacks
   public onExploreGalaxy: ((name: string) => void) | null = null;
+  public onResetGalaxy: ((name: string) => void) | null = null;
   public onNavigateHome: (() => void) | null = null;
   public onNavigateSystem: (() => void) | null = null;
   public onTimeToggle: (() => void) | null = null;
@@ -53,6 +55,7 @@ export class HUDManager {
       "galaxy-name"
     ) as HTMLInputElement;
     this.exploreGalaxyButton = document.getElementById("explore-galaxy")!;
+    this.resetGalaxyButton = document.getElementById("reset-galaxy")!;
 
     // Navigation
     this.navHomeButton = document.getElementById("nav-home")!;
@@ -85,6 +88,13 @@ export class HUDManager {
       const name = this.galaxyNameInput.value.trim() || "the Milky Way";
       if (this.onExploreGalaxy) {
         this.onExploreGalaxy(name);
+      }
+    });
+
+    this.resetGalaxyButton.addEventListener("click", () => {
+      const name = this.galaxyNameInput.value.trim() || "the Milky Way";
+      if (this.onResetGalaxy) {
+        this.onResetGalaxy(name);
       }
     });
 
@@ -152,7 +162,8 @@ export class HUDManager {
     this.system.planets.forEach((planet, index) => {
       const planetItem = document.createElement("div");
       planetItem.className = "outline-item planet";
-      planetItem.textContent = `${index + 1}. ${planet.name}`;
+      const planetType = planet.planetType ? ` - ${planet.planetType}` : "";
+      planetItem.textContent = `${index + 1}. ${planet.name}${planetType}`;
       planetItem.dataset.objectId = planet.id;
       planetItem.addEventListener("click", () => {
         if (this.onSelectObject) {

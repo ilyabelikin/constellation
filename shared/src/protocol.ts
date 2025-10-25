@@ -4,8 +4,10 @@ import { SystemState, Player, StarSystem, Ship } from "./types";
 export type ClientMessage =
   | { type: "authenticate"; uuid: string | null }
   | { type: "setName"; name: string }
+  | { type: "queryGalaxy"; galaxyName: string }
   | { type: "joinGalaxy"; galaxyName: string }
   | { type: "createGalaxy"; galaxyName: string }
+  | { type: "resetGalaxy"; galaxyName: string }
   | { type: "requestSystemState"; systemId: string }
   | { type: "setTimeScale"; scale: number }
   | { type: "pauseTime" }
@@ -33,7 +35,14 @@ export type ServerMessage =
     }
   | { type: "shipData"; ship: Ship }
   | { type: "galaxyCreated"; galaxyId: string }
-  | { type: "galaxyJoined"; galaxyId: string };
+  | { type: "galaxyJoined"; galaxyId: string }
+  | { type: "galaxyReset"; galaxyId: string }
+  | {
+      type: "galaxyInfo";
+      galaxyName: string;
+      exists: boolean;
+      currentTime: number;
+    };
 
 // Helper to serialize/deserialize messages
 export function serializeMessage(msg: ClientMessage | ServerMessage): string {
@@ -45,4 +54,3 @@ export function deserializeMessage(
 ): ClientMessage | ServerMessage {
   return JSON.parse(data);
 }
-

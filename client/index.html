@@ -45,6 +45,7 @@
         .hud-top-right {
             top: 10px;
             right: 10px;
+            min-width: 150px;
         }
 
         .hud-bottom-left {
@@ -209,7 +210,10 @@
         <h2>Constellation</h2>
         <div id="error-message" class="hidden"></div>
         <input type="text" id="galaxy-name" placeholder="Galaxy Name (default: the Milky Way)" />
-        <button class="hud-button" id="explore-galaxy">Explore</button>
+        <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <button class="hud-button" id="reset-galaxy" style="flex: 1;">Reset Galaxy</button>
+            <button class="hud-button" id="explore-galaxy" style="flex: 1;">Explore</button>
+        </div>
     </div>
 
     <!-- Top Left Navigation -->

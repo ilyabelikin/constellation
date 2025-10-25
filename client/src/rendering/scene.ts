@@ -18,11 +18,16 @@ export class SceneManager {
   private ships: Map<string, THREE.Mesh> = new Map();
   private orbitLines: Map<string, THREE.Line> = new Map();
   private starMaterials: THREE.ShaderMaterial[] = [];
+  private starfield: THREE.Points | null = null;
+
+  // Store previous and target positions for smooth interpolation
+  private bodyPreviousPositions: Map<string, THREE.Vector3> = new Map();
+  private bodyTargetPositions: Map<string, THREE.Vector3> = new Map();
 
   private system: StarSystem | null = null;
   private selectedObjectId: string | null = null;
   private cameraTarget: THREE.Vector3 = new THREE.Vector3();
-  private cameraDistance: number = 500;
+  private cameraDistance: number = 3000;
   private cameraTheta: number = Math.PI / 4; // Horizontal angle
   private cameraPhi: number = Math.PI / 4; // Vertical angle
 
@@ -38,9 +43,21 @@ export class SceneManager {
   // Scale factor for visualization (1 AU = 1000 units in Three.js)
   private readonly SCALE = 1000 / ASTRONOMICAL_UNIT;
   // Multiplier for celestial body sizes (make them visible)
-  private readonly BODY_SIZE_MULTIPLIER = 100;
+  private readonly BODY_SIZE_MULTIPLIER = 70;
 
   public onObjectSelected: ((objectId: string) => void) | null = null;
+
+  getGameTime(): number {
+    return this.gameTime;
+  }
+
+  getIsPaused(): boolean {
+    return this.isPaused;
+  }
+
+  getTimeScale(): number {
+    return this.timeScale;
+  }
 
   constructor(container: HTMLElement) {
     // Scene setup
@@ -54,7 +71,7 @@ export class SceneManager {
       0.1,
       1000000
     );
-    this.camera.position.set(0, 500, 500);
+    this.camera.position.set(0, 3000, 3000);
     this.camera.lookAt(0, 0, 0);
 
     // Renderer setup
@@ -91,22 +108,50 @@ export class SceneManager {
   private addStarfield(): void {
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
-    const size = 50000; // Scaled to match new coordinate system
+    const colors = [];
+    const radius = 50000; // Sphere radius
+
+    // Star color palette (different star types)
+    const starColors = [
+      { r: 0.6, g: 0.7, b: 1.0 }, // Blue (hot stars)
+      { r: 0.8, g: 0.9, b: 1.0 }, // Blue-white
+      { r: 1.0, g: 1.0, b: 1.0 }, // White
+      { r: 1.0, g: 1.0, b: 0.9 }, // Yellowish-white
+      { r: 1.0, g: 0.9, b: 0.7 }, // Yellow
+      { r: 1.0, g: 0.8, b: 0.6 }, // Orange
+      { r: 1.0, g: 0.7, b: 0.5 }, // Red-orange
+    ];
 
     for (let i = 0; i < 10000; i++) {
-      const x = (Math.random() - 0.5) * size;
-      const y = (Math.random() - 0.5) * size;
-      const z = (Math.random() - 0.5) * size;
+      // Generate random point on sphere surface
+      const theta = Math.random() * Math.PI * 2; // Azimuthal angle
+      const phi = Math.acos(2 * Math.random() - 1); // Polar angle
+
+      const x = radius * Math.sin(phi) * Math.cos(theta);
+      const y = radius * Math.sin(phi) * Math.sin(theta);
+      const z = radius * Math.cos(phi);
+
       vertices.push(x, y, z);
+
+      // Random color from palette
+      const color = starColors[Math.floor(Math.random() * starColors.length)];
+      colors.push(color.r, color.g, color.b);
     }
 
     geometry.setAttribute(
       "position",
       new THREE.Float32BufferAttribute(vertices, 3)
     );
-    const material = new THREE.PointsMaterial({ color: 0xffffff, size: 5 });
-    const stars = new THREE.Points(geometry, material);
-    this.scene.add(stars);
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+
+    const material = new THREE.PointsMaterial({
+      size: 5,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.9,
+    });
+    this.starfield = new THREE.Points(geometry, material);
+    this.scene.add(this.starfield);
   }
 
   loadSystem(system: StarSystem): void {
@@ -143,6 +188,8 @@ export class SceneManager {
     this.ships.clear();
     this.orbitLines.clear();
     this.starMaterials = [];
+    this.bodyPreviousPositions.clear();
+    this.bodyTargetPositions.clear();
   }
 
   private generateSunTexture(baseColor: number): THREE.CanvasTexture {
@@ -349,27 +396,196 @@ export class SceneManager {
     this.scene.add(ambient);
   }
 
+  private generatePlanetTexture(baseColor: number): THREE.CanvasTexture {
+    const size = 512;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d")!;
+
+    // Convert hex color to RGB
+    const r = (baseColor >> 16) & 255;
+    const g = (baseColor >> 8) & 255;
+    const b = baseColor & 255;
+
+    // Fill with base color
+    ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+    ctx.fillRect(0, 0, size, size);
+
+    // Add horizontal bands (like latitude lines or cloud bands)
+    ctx.globalAlpha = 0.5;
+    for (let y = 0; y < size; y += 30) {
+      const bandHeight = 10 + Math.sin(y * 0.1) * 5;
+      const variation = Math.sin(y * 0.05) * 30;
+      ctx.fillStyle = `rgb(${Math.floor(r * 0.7)}, ${Math.floor(
+        g * 0.7
+      )}, ${Math.floor(b * 0.7)})`;
+      ctx.fillRect(0, y, size, bandHeight);
+    }
+
+    // Add some vertical streaks and spots for variety
+    ctx.globalAlpha = 0.4;
+    for (let i = 0; i < 20; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const width = 20 + Math.random() * 40;
+      const height = 30 + Math.random() * 60;
+
+      ctx.fillStyle = `rgb(${Math.min(255, Math.floor(r * 1.2))}, ${Math.min(
+        255,
+        Math.floor(g * 1.2)
+      )}, ${Math.min(255, Math.floor(b * 1.2))})`;
+      ctx.fillRect(x, y, width, height);
+    }
+
+    // Add darker spots (like continents or storm systems)
+    ctx.globalAlpha = 0.4;
+    for (let i = 0; i < 15; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const radius = 20 + Math.random() * 50;
+
+      ctx.fillStyle = `rgb(${Math.floor(r * 0.5)}, ${Math.floor(
+        g * 0.5
+      )}, ${Math.floor(b * 0.5)})`;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.globalAlpha = 1.0;
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.needsUpdate = true;
+    return texture;
+  }
+
   private createPlanet(planet: any): void {
     const radius = planet.radius * this.SCALE * this.BODY_SIZE_MULTIPLIER;
-    const geometry = new THREE.SphereGeometry(radius, 32, 32);
+    const geometry = new THREE.SphereGeometry(radius, 64, 64);
 
-    const material = new THREE.MeshStandardMaterial({
-      color: planet.color || 0x888888,
-      roughness: 0.7,
-      metalness: 0.1,
-      emissive: planet.color || 0x888888,
-      emissiveIntensity: 0.05, // Slight self-illumination so they're never completely black
+    // Create shader material with procedural texture
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        baseColor: { value: new THREE.Color(planet.color || 0x888888) },
+        lightPosition: { value: new THREE.Vector3(0, 0, 0) }, // Sun at origin
+        rotation: { value: 0.0 }, // Planet rotation angle
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        varying vec3 vWorldPosition;
+        varying vec3 vWorldNormal;
+        
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          vPosition = position;
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vWorldPosition = worldPosition.xyz;
+          // Calculate world space normal for lighting
+          vWorldNormal = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 baseColor;
+        uniform vec3 lightPosition;
+        uniform float rotation;
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        varying vec3 vWorldPosition;
+        varying vec3 vWorldNormal;
+        
+        // Simple noise for surface features
+        float noise(vec2 p) {
+          return sin(p.x * 10.0) * cos(p.y * 8.0) * 0.5 + 0.5;
+        }
+        
+        void main() {
+          // Calculate spherical coordinates for texture mapping
+          vec3 norm = normalize(vPosition);
+          // Add rotation to the horizontal coordinate
+          float u = atan(norm.z, norm.x) / (2.0 * 3.14159) + 0.5 + rotation / (2.0 * 3.14159);
+          float v = asin(norm.y) / 3.14159 + 0.5;
+          
+          // Base color intensity
+          float intensity = 1.0;
+          
+          // Add horizontal bands (latitude-based) - smoother, lower frequency
+          float bands = sin(v * 8.0) * 0.5 + 0.5;
+          float bandPattern = smoothstep(0.3, 0.7, bands);
+          intensity *= 0.9 + bandPattern * 0.1;
+          
+          // Add some spots/continents - lower frequency, smoother
+          float spot1 = noise(vec2(u * 3.0, v * 3.0));
+          float spot2 = noise(vec2(u * 5.0 + 1.5, v * 5.0 + 2.3));
+          float spotPattern = smoothstep(0.55, 0.75, spot1) * 0.08 + smoothstep(0.6, 0.8, spot2) * 0.06;
+          intensity -= spotPattern;
+          
+          // Basic lighting from sun using world space normal and position
+          vec3 lightDir = normalize(lightPosition - vWorldPosition);
+          float diffuse = max(dot(vWorldNormal, lightDir), 0.0);
+          
+          // Enhance the lighting difference between day and night side
+          float lighting = diffuse * 0.85 + 0.15; // Less ambient, more contrast
+          
+          // Add slight emissive on dark side for visibility
+          float emissive = 0.1;
+          
+          vec3 finalColor = baseColor * intensity * (lighting + emissive);
+          
+          gl_FragColor = vec4(finalColor, 1.0);
+        }
+      `,
     });
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData = { id: planet.id, type: "planet", body: planet };
 
-    // Make sure planets cast and receive shadows
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-
     this.scene.add(mesh);
     this.bodies.set(planet.id, mesh);
+
+    // Add atmosphere if planet has one
+    if (planet.hasAtmosphere) {
+      const atmosphereRadius = radius * 1.05; // 5% larger than planet
+      const atmosphereGeometry = new THREE.SphereGeometry(
+        atmosphereRadius,
+        32,
+        32
+      );
+
+      const atmosphereMaterial = new THREE.ShaderMaterial({
+        uniforms: {
+          atmosphereColor: { value: new THREE.Color(planet.color || 0x88ccff) },
+        },
+        vertexShader: `
+          varying vec3 vNormal;
+          void main() {
+            vNormal = normalize(normalMatrix * normal);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `,
+        fragmentShader: `
+          uniform vec3 atmosphereColor;
+          varying vec3 vNormal;
+          
+          void main() {
+            // Fresnel effect - atmosphere is more visible at edges
+            float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
+            gl_FragColor = vec4(atmosphereColor, intensity * 0.6);
+          }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        side: THREE.BackSide,
+      });
+
+      const atmosphereMesh = new THREE.Mesh(
+        atmosphereGeometry,
+        atmosphereMaterial
+      );
+      mesh.add(atmosphereMesh); // Attach to planet so it rotates together
+    }
   }
 
   private createOrbitLine(planet: any): void {
@@ -432,15 +648,26 @@ export class SceneManager {
     this.lastServerTime = state.currentTime;
     this.lastUpdateRealTime = performance.now() / 1000;
 
-    // Update body positions
+    // Update body positions with interpolation tracking
     for (const bodyState of state.bodies) {
       const mesh = this.bodies.get(bodyState.id);
       if (mesh) {
-        mesh.position.set(
+        const newPosition = new THREE.Vector3(
           bodyState.position.x * this.SCALE,
           bodyState.position.z * this.SCALE,
           bodyState.position.y * this.SCALE
         );
+
+        // If this is the first update for this body, set position directly
+        if (!this.bodyTargetPositions.has(bodyState.id)) {
+          mesh.position.copy(newPosition);
+          this.bodyPreviousPositions.set(bodyState.id, newPosition.clone());
+          this.bodyTargetPositions.set(bodyState.id, newPosition.clone());
+        } else {
+          // Store current position as previous, and new position as target
+          this.bodyPreviousPositions.set(bodyState.id, mesh.position.clone());
+          this.bodyTargetPositions.set(bodyState.id, newPosition);
+        }
       }
     }
 
@@ -566,6 +793,12 @@ export class SceneManager {
   }
 
   update(): void {
+    // Rotate starfield slowly (independent of game time)
+    if (this.starfield) {
+      const realTime = performance.now() / 1000;
+      this.starfield.rotation.y = realTime * 0.01; // Slow rotation
+    }
+
     // Interpolate game time smoothly between server updates
     if (!this.isPaused) {
       const currentRealTime = performance.now() / 1000;
@@ -578,6 +811,54 @@ export class SceneManager {
     // Update star shader time uniforms for animation using interpolated game time
     for (const material of this.starMaterials) {
       material.uniforms.time.value = this.gameTime;
+    }
+
+    // Smooth interpolation factor for orbital positions (lerp over 200ms)
+    const currentRealTime = performance.now() / 1000;
+    const timeSinceUpdate = currentRealTime - this.lastUpdateRealTime;
+    const lerpFactor = Math.min(timeSinceUpdate / 0.2, 1.0); // Interpolate over 200ms
+
+    // Update planet positions and rotations
+    for (const [bodyId, mesh] of this.bodies.entries()) {
+      // Smooth orbital motion interpolation
+      const prevPos = this.bodyPreviousPositions.get(bodyId);
+      const targetPos = this.bodyTargetPositions.get(bodyId);
+
+      if (prevPos && targetPos) {
+        mesh.position.lerpVectors(prevPos, targetPos, lerpFactor);
+      }
+
+      // Add planet rotation via shader uniform for smooth animation
+      if (mesh.userData.type === "planet") {
+        // Rotate based on game time (arbitrary rotation periods for visual effect)
+        // Different planets rotate at different speeds based on their ID
+        const rotationSpeed = 0.0005 + (bodyId.charCodeAt(0) % 10) * 0.00025;
+        const rotation = this.gameTime * rotationSpeed;
+
+        // Update shader uniform if using ShaderMaterial
+        if (
+          mesh.material instanceof THREE.ShaderMaterial &&
+          mesh.material.uniforms.rotation
+        ) {
+          mesh.material.uniforms.rotation.value = rotation;
+
+          // Debug: log to verify smooth updates
+          if (
+            bodyId === this.bodies.keys().next().value &&
+            Math.random() < 0.01
+          ) {
+            console.log(
+              "Rotation:",
+              rotation.toFixed(4),
+              "GameTime:",
+              this.gameTime.toFixed(2)
+            );
+          }
+        }
+      } else if (mesh.userData.type === "star") {
+        // Stars rotate very slowly
+        mesh.rotation.y = this.gameTime * 0.00001;
+      }
     }
 
     // Calculate camera position based on spherical coordinates
@@ -598,8 +879,8 @@ export class SceneManager {
     );
 
     // Smooth camera movement
-    const lerpFactor = 0.1;
-    this.camera.position.lerp(targetPosition, lerpFactor);
+    const cameraLerpFactor = 0.1;
+    this.camera.position.lerp(targetPosition, cameraLerpFactor);
     this.camera.lookAt(this.cameraTarget);
   }
 

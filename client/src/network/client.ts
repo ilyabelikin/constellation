@@ -29,6 +29,10 @@ export class NetworkClient {
   public onError: ((message: string) => void) | null = null;
   public onGalaxyCreated: ((galaxyId: string) => void) | null = null;
   public onGalaxyJoined: ((galaxyId: string) => void) | null = null;
+  public onGalaxyReset: ((galaxyId: string) => void) | null = null;
+  public onGalaxyInfo:
+    | ((galaxyName: string, exists: boolean, currentTime: number) => void)
+    | null = null;
 
   constructor() {
     // Load UUID from localStorage
@@ -139,6 +143,22 @@ export class NetworkClient {
             this.onGalaxyJoined(message.galaxyId);
           }
           break;
+
+        case "galaxyReset":
+          if (this.onGalaxyReset) {
+            this.onGalaxyReset(message.galaxyId);
+          }
+          break;
+
+        case "galaxyInfo":
+          if (this.onGalaxyInfo) {
+            this.onGalaxyInfo(
+              message.galaxyName,
+              message.exists,
+              message.currentTime
+            );
+          }
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -167,6 +187,14 @@ export class NetworkClient {
     this.send({ type: "createGalaxy", galaxyName });
   }
 
+  resetGalaxy(galaxyName: string): void {
+    this.send({ type: "resetGalaxy", galaxyName });
+  }
+
+  queryGalaxy(galaxyName: string): void {
+    this.send({ type: "queryGalaxy", galaxyName });
+  }
+
   requestSystemState(systemId: string): void {
     this.send({ type: "requestSystemState", systemId });
   }
@@ -183,4 +211,3 @@ export class NetworkClient {
     this.send({ type: "resumeTime" });
   }
 }
-

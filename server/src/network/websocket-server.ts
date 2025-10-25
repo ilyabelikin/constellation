@@ -39,6 +39,9 @@ export class ConstellationWebSocketServer {
     this.wss.on("connection", (ws) => this.handleConnection(ws));
     this.startStateUpdates();
 
+    // Start with game paused (no players yet)
+    this.gameState.pause();
+
     console.log(`WebSocket server started on port ${WEBSOCKET_PORT}`);
   }
 
@@ -71,11 +74,17 @@ export class ConstellationWebSocketServer {
         case "setName":
           this.handleSetName(client, message.name);
           break;
+        case "queryGalaxy":
+          this.handleQueryGalaxy(client, message.galaxyName);
+          break;
         case "joinGalaxy":
           this.handleJoinGalaxy(client, message.galaxyName);
           break;
         case "createGalaxy":
           this.handleCreateGalaxy(client, message.galaxyName);
+          break;
+        case "resetGalaxy":
+          this.handleResetGalaxy(client, message.galaxyName);
           break;
         case "requestSystemState":
           this.handleRequestSystemState(client, message.systemId);
@@ -121,31 +130,13 @@ export class ConstellationWebSocketServer {
       client.playerId = player.id;
       client.currentSystemId = player.currentSystemId;
 
-      // Load system into game state
-      const system = this.db.getStarSystem(player.currentSystemId);
-      if (system) {
-        this.gameState.loadSystem(system);
-        const ships = this.db.getShipsBySystem(system.id);
-        this.gameState.loadShips(system.id, ships);
-      }
-
+      // Just authenticate, don't auto-load game state
+      // Player needs to explicitly join/explore to load their game
       this.send(client.ws, {
         type: "authenticated",
         uuid,
         playerId: player.id,
       });
-      this.send(client.ws, { type: "playerData", player });
-
-      // Send system data
-      if (system) {
-        this.send(client.ws, { type: "systemData", system });
-      }
-
-      // Send ship data
-      const ship = this.db.getShipByPlayerId(player.id);
-      if (ship) {
-        this.send(client.ws, { type: "shipData", ship });
-      }
     } else {
       this.send(client.ws, { type: "authenticated", uuid, playerId: null });
       client.uuid = uuid;
@@ -162,6 +153,32 @@ export class ConstellationWebSocketServer {
     // For now, just acknowledge
   }
 
+  private handleQueryGalaxy(
+    client: ClientConnection,
+    galaxyName: string
+  ): void {
+    const galaxy = this.db.getGalaxyByName(galaxyName);
+
+    if (!galaxy) {
+      // Galaxy doesn't exist, return 0 time
+      this.send(client.ws, {
+        type: "galaxyInfo",
+        galaxyName,
+        exists: false,
+        currentTime: 0,
+      });
+      return;
+    }
+
+    // Galaxy exists, return current game time
+    this.send(client.ws, {
+      type: "galaxyInfo",
+      galaxyName,
+      exists: true,
+      currentTime: this.gameState.getCurrentTime(),
+    });
+  }
+
   private handleJoinGalaxy(client: ClientConnection, galaxyName: string): void {
     if (!client.uuid) {
       this.sendError(client.ws, "Not authenticated");
@@ -174,7 +191,46 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    this.createPlayerInGalaxy(client, galaxy.id, galaxyName);
+    // Check if player already exists
+    const existingPlayer = this.db.getPlayerByUuid(client.uuid);
+    if (existingPlayer) {
+      // Player exists, load their data
+      client.playerId = existingPlayer.id;
+      client.currentSystemId = existingPlayer.currentSystemId;
+
+      // Load system into game state
+      const system = this.db.getStarSystem(existingPlayer.currentSystemId);
+      if (system) {
+        this.gameState.loadSystem(system);
+        const ships = this.db.getShipsBySystem(system.id);
+        this.gameState.loadShips(system.id, ships);
+      }
+
+      // Send data to client
+      this.send(client.ws, { type: "playerData", player: existingPlayer });
+      if (system) {
+        this.send(client.ws, { type: "systemData", system });
+      }
+      const ship = this.db.getShipByPlayerId(existingPlayer.id);
+      if (ship) {
+        this.send(client.ws, { type: "shipData", ship });
+      }
+    } else {
+      // New player, create them
+      this.createPlayerInGalaxy(client, galaxy.id, galaxyName);
+    }
+
+    // Send initial time state to the joining player
+    this.send(client.ws, {
+      type: "timeUpdate",
+      currentTime: this.gameState.getCurrentTime(),
+      isPaused: this.gameState.isPausedState(),
+      timeScale: this.gameState.getTimeScale(),
+    });
+
+    console.log(
+      `Player joined galaxy: ${galaxyName} (active players: ${this.getActivePlayerCount()})`
+    );
     this.send(client.ws, { type: "galaxyJoined", galaxyId: galaxy.id });
   }
 
@@ -204,7 +260,49 @@ export class ConstellationWebSocketServer {
 
     // Create player
     this.createPlayerInGalaxy(client, galaxy.id, galaxyName);
+
+    // Send initial time state to the joining player
+    this.send(client.ws, {
+      type: "timeUpdate",
+      currentTime: this.gameState.getCurrentTime(),
+      isPaused: this.gameState.isPausedState(),
+      timeScale: this.gameState.getTimeScale(),
+    });
+
     this.send(client.ws, { type: "galaxyCreated", galaxyId: galaxy.id });
+  }
+
+  private handleResetGalaxy(
+    client: ClientConnection,
+    galaxyName: string
+  ): void {
+    if (!client.uuid) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    // Check if galaxy exists
+    const existingGalaxy = this.db.getGalaxyByName(galaxyName);
+    if (!existingGalaxy) {
+      this.sendError(client.ws, "Galaxy not found");
+      return;
+    }
+
+    console.log(`Resetting galaxy: ${galaxyName}`);
+
+    // Delete old galaxy data (systems, players, ships, etc.)
+    this.db.deleteGalaxy(existingGalaxy.id);
+
+    // Create new galaxy with same name but new seed
+    const galaxy = generateGalaxy(galaxyName);
+    this.db.createGalaxy(galaxy);
+
+    // Generate new starter system
+    const starterSystem = generateStarterSystem(galaxy.id, galaxy.seed);
+    this.db.createStarSystem(starterSystem);
+
+    console.log(`Galaxy reset complete: ${galaxyName} (new ID: ${galaxy.id})`);
+    this.send(client.ws, { type: "galaxyReset", galaxyId: galaxy.id });
   }
 
   private createPlayerInGalaxy(
@@ -299,6 +397,28 @@ export class ConstellationWebSocketServer {
   private handleDisconnect(ws: WebSocket): void {
     this.clients.delete(ws);
     console.log("Client disconnected");
+    this.checkPlayerCountAndPause();
+  }
+
+  private getActivePlayerCount(): number {
+    let count = 0;
+    for (const client of this.clients.values()) {
+      if (client.playerId !== null) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private checkPlayerCountAndPause(): void {
+    const activePlayerCount = this.getActivePlayerCount();
+    console.log(`Active players: ${activePlayerCount}`);
+
+    if (activePlayerCount === 0 && !this.gameState.isPausedState()) {
+      console.log("No active players, pausing game");
+      this.gameState.pause();
+      this.broadcastTimeUpdate();
+    }
   }
 
   private startStateUpdates(): void {

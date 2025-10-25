@@ -25,6 +25,8 @@ export interface CelestialBodyType {
   parentId: string | null; // null for stars
   orbitalElements: OrbitalElements | null; // null for stars
   color?: string; // hex color for rendering
+  hasAtmosphere?: boolean; // whether planet has atmosphere
+  planetType?: string; // planet type like "Super-Earth", "Gas Giant", etc.
 }
 
 export interface Ship {
@@ -90,4 +92,3 @@ export interface LagrangePoint {
   primaryBodyId: string;
   secondaryBodyId: string;
 }
-

@@ -23,6 +23,20 @@ export class DatabaseQueries {
     stmt.run(galaxy.id, galaxy.name, galaxy.seed, galaxy.createdAt);
   }
 
+  deleteGalaxy(galaxyId: string): void {
+    // Delete in reverse order of dependencies
+    this.db
+      .prepare(
+        "DELETE FROM ships WHERE system_id IN (SELECT id FROM star_systems WHERE galaxy_id = ?)"
+      )
+      .run(galaxyId);
+    this.db.prepare("DELETE FROM players WHERE galaxy_id = ?").run(galaxyId);
+    this.db
+      .prepare("DELETE FROM star_systems WHERE galaxy_id = ?")
+      .run(galaxyId);
+    this.db.prepare("DELETE FROM galaxies WHERE id = ?").run(galaxyId);
+  }
+
   getGalaxyByName(name: string): Galaxy | null {
     const stmt = this.db.prepare("SELECT * FROM galaxies WHERE name = ?");
     const row = stmt.get(name) as any;
@@ -201,4 +215,3 @@ export class DatabaseQueries {
     }));
   }
 }
-
