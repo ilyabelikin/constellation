@@ -14,6 +14,8 @@ class ConstellationClient {
   private isPaused = false;
   private lastGalaxyName: string = "";
   private isConnected = false;
+  private animationFrameId: number | null = null;
+  private keyboardHandler: ((e: KeyboardEvent) => void) | null = null;
 
   constructor() {
     const container = document.getElementById("canvas-container")!;
@@ -165,7 +167,7 @@ class ConstellationClient {
   }
 
   private setupKeyboardHandlers(): void {
-    window.addEventListener("keydown", (event) => {
+    this.keyboardHandler = (event: KeyboardEvent) => {
       // Spacebar to toggle pause/play
       if (event.code === "Space") {
         event.preventDefault(); // Prevent page scroll
@@ -175,7 +177,8 @@ class ConstellationClient {
           this.network.pauseTime();
         }
       }
-    });
+    };
+    window.addEventListener("keydown", this.keyboardHandler);
   }
 
   private async connect(): Promise<void> {
@@ -191,7 +194,7 @@ class ConstellationClient {
 
   private startRenderLoop(): void {
     const animate = () => {
-      requestAnimationFrame(animate);
+      this.animationFrameId = requestAnimationFrame(animate);
       this.scene.update();
       this.scene.render();
 
@@ -203,6 +206,36 @@ class ConstellationClient {
       );
     };
     animate();
+  }
+
+  /**
+   * Cleanup method to prevent memory leaks
+   * Call this when shutting down the application
+   */
+  dispose(): void {
+    // Cancel animation frame
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+
+    // Remove keyboard listener
+    if (this.keyboardHandler) {
+      window.removeEventListener("keydown", this.keyboardHandler);
+      this.keyboardHandler = null;
+    }
+
+    // Dispose components
+    this.scene.dispose();
+    this.hud.dispose();
+    this.network.disconnect();
+
+    // Clear references
+    this.player = null;
+    this.system = null;
+    this.ship = null;
+
+    console.log("ConstellationClient disposed - all resources cleaned up");
   }
 }
 

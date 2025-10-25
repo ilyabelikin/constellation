@@ -210,4 +210,39 @@ export class NetworkClient {
   resumeTime(): void {
     this.send({ type: "resumeTime" });
   }
+
+  /**
+   * Disconnect from the server and cleanup
+   */
+  disconnect(): void {
+    if (this.ws) {
+      // Remove event listeners before closing
+      this.ws.onopen = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+
+      // Close connection
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.close();
+      }
+
+      this.ws = null;
+    }
+
+    // Clear all callbacks
+    this.onAuthenticated = null;
+    this.onPlayerData = null;
+    this.onSystemData = null;
+    this.onStateUpdate = null;
+    this.onTimeUpdate = null;
+    this.onShipData = null;
+    this.onError = null;
+    this.onGalaxyCreated = null;
+    this.onGalaxyJoined = null;
+    this.onGalaxyReset = null;
+    this.onGalaxyInfo = null;
+
+    console.log("NetworkClient disconnected and cleaned up");
+  }
 }

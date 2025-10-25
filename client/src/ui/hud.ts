@@ -39,6 +39,13 @@ export class HUDManager {
 
   private isPaused = false;
 
+  // Event handler references for cleanup
+  private exploreGalaxyHandler: () => void;
+  private resetGalaxyHandler: () => void;
+  private navHomeHandler: () => void;
+  private navSystemHandler: () => void;
+  private timeToggleHandler: () => void;
+
   // Callbacks
   public onExploreGalaxy: ((name: string) => void) | null = null;
   public onResetGalaxy: ((name: string) => void) | null = null;
@@ -80,41 +87,51 @@ export class HUDManager {
     this.systemOutline = document.getElementById("system-outline")!;
     this.outlineList = document.getElementById("outline-list")!;
 
-    this.setupEventListeners();
-  }
-
-  private setupEventListeners(): void {
-    this.exploreGalaxyButton.addEventListener("click", () => {
+    // Create event handler references
+    this.exploreGalaxyHandler = () => {
       const name = this.galaxyNameInput.value.trim() || "the Milky Way";
       if (this.onExploreGalaxy) {
         this.onExploreGalaxy(name);
       }
-    });
+    };
 
-    this.resetGalaxyButton.addEventListener("click", () => {
+    this.resetGalaxyHandler = () => {
       const name = this.galaxyNameInput.value.trim() || "the Milky Way";
       if (this.onResetGalaxy) {
         this.onResetGalaxy(name);
       }
-    });
+    };
 
-    this.navHomeButton.addEventListener("click", () => {
+    this.navHomeHandler = () => {
       if (this.onNavigateHome) {
         this.onNavigateHome();
       }
-    });
+    };
 
-    this.navSystemButton.addEventListener("click", () => {
+    this.navSystemHandler = () => {
       if (this.onNavigateSystem) {
         this.onNavigateSystem();
       }
-    });
+    };
 
-    this.timeToggleButton.addEventListener("click", () => {
+    this.timeToggleHandler = () => {
       if (this.onTimeToggle) {
         this.onTimeToggle();
       }
-    });
+    };
+
+    this.setupEventListeners();
+  }
+
+  private setupEventListeners(): void {
+    this.exploreGalaxyButton.addEventListener(
+      "click",
+      this.exploreGalaxyHandler
+    );
+    this.resetGalaxyButton.addEventListener("click", this.resetGalaxyHandler);
+    this.navHomeButton.addEventListener("click", this.navHomeHandler);
+    this.navSystemButton.addEventListener("click", this.navSystemHandler);
+    this.timeToggleButton.addEventListener("click", this.timeToggleHandler);
   }
 
   hideAuthModal(): void {
@@ -194,12 +211,11 @@ export class HUDManager {
   updateTime(currentTime: number, isPaused: boolean, timeScale: number): void {
     this.isPaused = isPaused;
 
-    // Convert to days, hours, minutes
+    // Convert to days and hours (skip minutes - too fast at 10000x scale)
     const days = Math.floor(currentTime / 86400);
     const hours = Math.floor((currentTime % 86400) / 3600);
-    const minutes = Math.floor((currentTime % 3600) / 60);
 
-    this.timeDisplay.textContent = `${days}d ${hours}h ${minutes}m`;
+    this.timeDisplay.textContent = `${days}d ${hours}h`;
     this.timeScaleDisplay.textContent = `${timeScale.toFixed(0)}x`;
     this.timeToggleButton.textContent = isPaused ? "Resume" : "Pause";
   }
@@ -310,5 +326,39 @@ export class HUDManager {
     } else {
       return `${distance.toFixed(2)} m`;
     }
+  }
+
+  /**
+   * Cleanup method to prevent memory leaks
+   * Removes all event listeners
+   */
+  dispose(): void {
+    // Remove event listeners
+    this.exploreGalaxyButton.removeEventListener(
+      "click",
+      this.exploreGalaxyHandler
+    );
+    this.resetGalaxyButton.removeEventListener(
+      "click",
+      this.resetGalaxyHandler
+    );
+    this.navHomeButton.removeEventListener("click", this.navHomeHandler);
+    this.navSystemButton.removeEventListener("click", this.navSystemHandler);
+    this.timeToggleButton.removeEventListener("click", this.timeToggleHandler);
+
+    // Clear callbacks
+    this.onExploreGalaxy = null;
+    this.onResetGalaxy = null;
+    this.onNavigateHome = null;
+    this.onNavigateSystem = null;
+    this.onTimeToggle = null;
+    this.onSelectObject = null;
+
+    // Clear references
+    this.player = null;
+    this.system = null;
+    this.currentState = null;
+
+    console.log("HUDManager disposed - all event listeners removed");
   }
 }

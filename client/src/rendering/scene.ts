@@ -34,6 +34,7 @@ export class SceneManager {
   private orbitLines: Map<string, THREE.Line> = new Map();
   private starMaterials: THREE.ShaderMaterial[] = [];
   private starfield: THREE.Points | null = null;
+  private lights: THREE.Light[] = []; // Track lights for cleanup
 
   private system: StarSystem | null = null;
 
@@ -43,6 +44,13 @@ export class SceneManager {
   private readonly BODY_SIZE_MULTIPLIER = 70;
 
   public onObjectSelected: ((objectId: string) => void) | null = null;
+
+  // Event listener references for cleanup
+  private resizeHandler: () => void;
+  private mouseDownHandler: (e: MouseEvent) => void;
+  private mouseMoveHandler: (e: MouseEvent) => void;
+  private mouseUpHandler: () => void;
+  private mouseWheelHandler: (e: WheelEvent) => void;
 
   // Expose getters for external access
   getGameTime(): number {
@@ -94,20 +102,25 @@ export class SceneManager {
     this.starfield = this.starfieldGenerator.createStarfield();
     this.scene.add(this.starfield);
 
-    // Event listeners
-    window.addEventListener("resize", () => this.onWindowResize());
-    this.renderer.domElement.addEventListener("mousedown", (e: MouseEvent) =>
-      this.onMouseDown(e)
+    // Create event listeners and store references for cleanup
+    this.resizeHandler = () => this.onWindowResize();
+    this.mouseDownHandler = (e: MouseEvent) => this.onMouseDown(e);
+    this.mouseMoveHandler = (e: MouseEvent) => this.onMouseMove(e);
+    this.mouseUpHandler = () => this.onMouseUp();
+    this.mouseWheelHandler = (e: WheelEvent) => this.onMouseWheel(e);
+
+    // Add event listeners
+    window.addEventListener("resize", this.resizeHandler);
+    this.renderer.domElement.addEventListener(
+      "mousedown",
+      this.mouseDownHandler
     );
-    this.renderer.domElement.addEventListener("mousemove", (e: MouseEvent) =>
-      this.onMouseMove(e)
+    this.renderer.domElement.addEventListener(
+      "mousemove",
+      this.mouseMoveHandler
     );
-    this.renderer.domElement.addEventListener("mouseup", () =>
-      this.onMouseUp()
-    );
-    this.renderer.domElement.addEventListener("wheel", (e: WheelEvent) =>
-      this.onMouseWheel(e)
-    );
+    this.renderer.domElement.addEventListener("mouseup", this.mouseUpHandler);
+    this.renderer.domElement.addEventListener("wheel", this.mouseWheelHandler);
   }
 
   loadSystem(system: StarSystem): void {
@@ -127,6 +140,13 @@ export class SceneManager {
       this.starMaterials.push(starMesh.material);
     }
 
+    // Track lights added by createStar
+    this.scene.traverse((object) => {
+      if (object instanceof THREE.Light && !this.lights.includes(object)) {
+        this.lights.push(object);
+      }
+    });
+
     // Create planets
     for (const planet of system.planets) {
       const planetMesh = this.celestialBodyFactory.createPlanet(planet);
@@ -143,22 +163,89 @@ export class SceneManager {
   }
 
   private clearScene(): void {
-    // Remove all bodies, ships, and orbits
+    // Dispose and remove all bodies
     for (const mesh of this.bodies.values()) {
+      this.disposeMesh(mesh);
       this.scene.remove(mesh);
     }
+
+    // Dispose and remove all ships
     for (const mesh of this.ships.values()) {
+      this.disposeMesh(mesh);
       this.scene.remove(mesh);
     }
+
+    // Dispose and remove all orbit lines
     for (const line of this.orbitLines.values()) {
+      if (line.geometry) {
+        line.geometry.dispose();
+      }
+      if (line.material instanceof THREE.Material) {
+        line.material.dispose();
+      }
       this.scene.remove(line);
     }
+
+    // Remove and clear lights (except ambient light which we keep)
+    for (const light of this.lights) {
+      if (!(light instanceof THREE.AmbientLight)) {
+        this.scene.remove(light);
+      }
+    }
+    this.lights = this.lights.filter(
+      (light) => light instanceof THREE.AmbientLight
+    );
 
     this.bodies.clear();
     this.ships.clear();
     this.orbitLines.clear();
     this.starMaterials = [];
     this.timeInterpolator.clearPositions();
+  }
+
+  /**
+   * Properly disposes of a mesh and all its resources
+   */
+  private disposeMesh(mesh: THREE.Mesh): void {
+    // Dispose geometry
+    if (mesh.geometry) {
+      mesh.geometry.dispose();
+    }
+
+    // Dispose materials
+    if (mesh.material) {
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach((material) => this.disposeMaterial(material));
+      } else {
+        this.disposeMaterial(mesh.material);
+      }
+    }
+
+    // Dispose children (like atmosphere meshes)
+    mesh.children.forEach((child) => {
+      if (child instanceof THREE.Mesh) {
+        this.disposeMesh(child);
+      }
+    });
+  }
+
+  /**
+   * Properly disposes of a material and its textures
+   */
+  private disposeMaterial(material: THREE.Material): void {
+    // Dispose textures
+    if (material instanceof THREE.MeshStandardMaterial) {
+      if (material.map) material.map.dispose();
+      if (material.emissiveMap) material.emissiveMap.dispose();
+      if (material.normalMap) material.normalMap.dispose();
+      if (material.roughnessMap) material.roughnessMap.dispose();
+      if (material.metalnessMap) material.metalnessMap.dispose();
+    } else if (material instanceof THREE.MeshBasicMaterial) {
+      if (material.map) material.map.dispose();
+    }
+
+    // Dispose material itself
+    material.dispose();
   }
 
   setTimeState(isPaused: boolean, timeScale: number): void {
@@ -345,5 +432,60 @@ export class SceneManager {
 
   getSystem(): StarSystem | null {
     return this.system;
+  }
+
+  /**
+   * Cleanup method to prevent memory leaks
+   * Call this when the scene manager is no longer needed
+   */
+  dispose(): void {
+    // Remove event listeners
+    window.removeEventListener("resize", this.resizeHandler);
+    this.renderer.domElement.removeEventListener(
+      "mousedown",
+      this.mouseDownHandler
+    );
+    this.renderer.domElement.removeEventListener(
+      "mousemove",
+      this.mouseMoveHandler
+    );
+    this.renderer.domElement.removeEventListener(
+      "mouseup",
+      this.mouseUpHandler
+    );
+    this.renderer.domElement.removeEventListener(
+      "wheel",
+      this.mouseWheelHandler
+    );
+
+    // Clear scene
+    this.clearScene();
+
+    // Dispose starfield
+    if (this.starfield) {
+      if (this.starfield.geometry) {
+        this.starfield.geometry.dispose();
+      }
+      if (this.starfield.material instanceof THREE.Material) {
+        this.starfield.material.dispose();
+      }
+      this.scene.remove(this.starfield);
+      this.starfield = null;
+    }
+
+    // Dispose all remaining lights
+    for (const light of this.lights) {
+      this.scene.remove(light);
+    }
+    this.lights = [];
+
+    // Dispose renderer
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+
+    // Clear scene
+    this.scene.clear();
+
+    console.log("SceneManager disposed - all resources cleaned up");
   }
 }
