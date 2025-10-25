@@ -35,6 +35,7 @@ export class CelestialBodyFactory {
     scene.add(light);
 
     // Add multiple layers of glow around the star for enhanced radiance
+    // Attach them to the star mesh so they're automatically cleaned up
     const glowLayers = [
       { size: 1.1, opacity: 0.8 },
       { size: 1.2, opacity: 0.6 },
@@ -52,7 +53,7 @@ export class CelestialBodyFactory {
         layer.opacity
       );
       const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-      scene.add(glow);
+      mesh.add(glow); // Attach to star mesh instead of scene
     });
 
     // Add ambient light for the system (so planets are always somewhat visible)
@@ -160,6 +161,90 @@ export class CelestialBodyFactory {
     const geometry = new THREE.ConeGeometry(2, 6, 4);
     const material = this.materialFactory.createShipMaterial();
     return new THREE.Mesh(geometry, material);
+  }
+
+  /**
+   * Creates a star gate mesh with futuristic design
+   */
+  createGate(gate: any, isExplored: boolean): THREE.Group {
+    const gateGroup = new THREE.Group();
+    gateGroup.userData = { id: gate.id, type: "gate", gate };
+
+    // Gate color based on exploration status
+    const gateColor = isExplored ? 0xfbbf24 : 0xa855f7; // Yellow vs Purple
+
+    // Main outer ring (torus) - 3x smaller than before
+    const ringRadius = 5;
+    const tubeRadius = 0.7;
+    const ringGeometry = new THREE.TorusGeometry(
+      ringRadius,
+      tubeRadius,
+      16,
+      32
+    );
+    const ringMaterial = this.materialFactory.createGateMaterial(
+      gateColor,
+      isExplored
+    );
+    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
+    gateGroup.add(ring);
+
+    // Inner rotating cylinder (the "portal" core)
+    const coreRadius = ringRadius * 0.7;
+    const coreHeight = 1.3;
+    const coreGeometry = new THREE.CylinderGeometry(
+      coreRadius,
+      coreRadius,
+      coreHeight,
+      32
+    );
+    const coreMaterial = this.materialFactory.createGateMaterial(
+      gateColor,
+      isExplored
+    );
+    const core = new THREE.Mesh(coreGeometry, coreMaterial);
+    core.rotation.x = Math.PI / 2; // Rotate to align with ring
+    core.userData.rotatingCore = true; // Mark for animation
+    gateGroup.add(core);
+
+    // Decorative spheres at cardinal points
+    const spherePositions = [
+      { x: ringRadius + tubeRadius + 0.7, y: 0, z: 0 },
+      { x: -(ringRadius + tubeRadius + 0.7), y: 0, z: 0 },
+      { x: 0, y: ringRadius + tubeRadius + 0.7, z: 0 },
+      { x: 0, y: -(ringRadius + tubeRadius + 0.7), z: 0 },
+    ];
+
+    for (const pos of spherePositions) {
+      const sphereGeometry = new THREE.SphereGeometry(0.4, 16, 16);
+      const sphereMaterial = new THREE.MeshStandardMaterial({
+        color: gateColor,
+        emissive: gateColor,
+        emissiveIntensity: 1.5,
+        metalness: 0.8,
+        roughness: 0.2,
+      });
+      const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+      sphere.position.set(pos.x, pos.y, pos.z);
+      gateGroup.add(sphere);
+
+      // Add glow around spheres
+      const glowGeometry = new THREE.SphereGeometry(0.6, 16, 16);
+      const glowMaterial = this.materialFactory.createGlowMaterial(
+        gateColor,
+        0.4
+      );
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+      glow.position.set(pos.x, pos.y, pos.z);
+      gateGroup.add(glow);
+    }
+
+    // Add a point light for the gate
+    const gateLight = new THREE.PointLight(gateColor, 5, 100);
+    gateLight.position.set(0, 0, 0);
+    gateGroup.add(gateLight);
+
+    return gateGroup;
   }
 
   /**

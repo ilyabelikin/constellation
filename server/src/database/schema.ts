@@ -49,12 +49,30 @@ export function initializeDatabase(dbPath: string): Database.Database {
       FOREIGN KEY (system_id) REFERENCES star_systems(id)
     );
 
+    CREATE TABLE IF NOT EXISTS star_gates (
+      id TEXT PRIMARY KEY,
+      system_id TEXT NOT NULL,
+      destination_system_id TEXT NOT NULL,
+      orbital_elements TEXT NOT NULL,
+      name TEXT NOT NULL,
+      FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS explored_gates (
+      player_id TEXT NOT NULL,
+      gate_id TEXT NOT NULL,
+      PRIMARY KEY (player_id, gate_id),
+      FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+      FOREIGN KEY (gate_id) REFERENCES star_gates(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_players_uuid ON players(uuid);
     CREATE INDEX IF NOT EXISTS idx_players_galaxy ON players(galaxy_id);
     CREATE INDEX IF NOT EXISTS idx_systems_galaxy ON star_systems(galaxy_id);
     CREATE INDEX IF NOT EXISTS idx_ships_player ON ships(player_id);
+    CREATE INDEX IF NOT EXISTS idx_gates_system ON star_gates(system_id);
+    CREATE INDEX IF NOT EXISTS idx_explored_gates_player ON explored_gates(player_id);
   `);
 
   return db;
 }
-

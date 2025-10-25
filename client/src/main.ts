@@ -48,6 +48,10 @@ class ConstellationClient {
       console.log("Player data received:", player);
       this.player = player;
       this.hud.setPlayer(player);
+      // Update explored gates in the scene
+      if (player.exploredGateIds) {
+        this.scene.setExploredGates(player.exploredGateIds);
+      }
     };
 
     this.network.onSystemData = (system) => {
@@ -55,6 +59,8 @@ class ConstellationClient {
       this.system = system;
       this.scene.loadSystem(system);
       this.hud.setSystem(system);
+      // Show nice system overview when first arriving
+      this.scene.showSystemView();
     };
 
     this.network.onStateUpdate = (state) => {
@@ -108,6 +114,40 @@ class ConstellationClient {
       // After reset, automatically join the galaxy
       this.network.joinGalaxy(this.lastGalaxyName);
     };
+
+    this.network.onGateTravel = (
+      destinationSystem,
+      exploredGateIds,
+      exitGateId
+    ) => {
+      console.log("Gate travel to system:", destinationSystem.id);
+      console.log("Exit gate ID:", exitGateId);
+      console.log("Explored gate IDs:", exploredGateIds);
+      console.log(
+        "System gates:",
+        destinationSystem.gates.map((g) => ({ id: g.id, name: g.name }))
+      );
+
+      // Update explored gates FIRST (before rendering UI)
+      if (this.player) {
+        this.player.exploredGateIds = exploredGateIds;
+        this.scene.setExploredGates(exploredGateIds);
+      }
+
+      // Update system data in memory but don't show HUD yet
+      this.system = destinationSystem;
+      this.scene.loadSystem(destinationSystem);
+
+      // Hide HUD outline during travel
+      this.hud.hideOutline();
+
+      // Animate from exit gate to normal view, passing a callback for when done
+      this.scene.animateExitGate(exitGateId, () => {
+        // Animation complete - show HUD and select exit gate
+        this.hud.setSystem(destinationSystem);
+        this.scene.centerOnObject(exitGateId);
+      });
+    };
   }
 
   private setupHUDHandlers(): void {
@@ -139,9 +179,8 @@ class ConstellationClient {
     };
 
     this.hud.onNavigateSystem = () => {
-      if (this.player) {
-        this.network.requestSystemState(this.player.currentSystemId);
-      }
+      // Show nice system overview
+      this.scene.showSystemView();
     };
 
     this.hud.onTimeToggle = () => {
@@ -163,6 +202,13 @@ class ConstellationClient {
     this.scene.onObjectSelected = (objectId) => {
       console.log("Object selected:", objectId);
       this.hud.updateObjectDetails(objectId);
+    };
+
+    this.scene.onGateUse = (gateId) => {
+      console.log("Using gate:", gateId);
+      // Store entry gate ID for animation
+      this.scene.setEntryGate(gateId);
+      this.network.useGate(gateId);
     };
   }
 

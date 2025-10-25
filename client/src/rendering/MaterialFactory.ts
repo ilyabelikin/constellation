@@ -227,4 +227,57 @@ export class MaterialFactory {
       side: THREE.BackSide,
     });
   }
+
+  /**
+   * Creates a shader material for star gates with pulsing glow and energy effects
+   */
+  createGateMaterial(color: number, isExplored: boolean): THREE.ShaderMaterial {
+    return new THREE.ShaderMaterial({
+      uniforms: {
+        baseColor: { value: new THREE.Color(color) },
+        time: { value: 0 },
+        glowIntensity: { value: isExplored ? 1.2 : 0.8 },
+      },
+      vertexShader: `
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          vPosition = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 baseColor;
+        uniform float time;
+        uniform float glowIntensity;
+        varying vec3 vNormal;
+        varying vec3 vPosition;
+        
+        void main() {
+          // Fresnel effect - brighter at edges
+          vec3 viewDirection = normalize(cameraPosition - vPosition);
+          float fresnel = pow(1.0 - abs(dot(viewDirection, vNormal)), 2.0);
+          
+          // Pulsing effect (very slow)
+          float pulse = sin(time * 0.0002) * 0.1 + 0.9;
+          
+          // Energy ripples (very slow)
+          float ripple = sin(vPosition.y * 3.0 + time * 0.0003) * 0.3 + 0.7;
+          ripple = smoothstep(0.4, 0.8, ripple);
+          
+          // Combine effects
+          float intensity = (fresnel * 0.5 + ripple * 0.2 + 0.6) * pulse * glowIntensity;
+          
+          vec3 finalColor = baseColor * intensity;
+          
+          // Add emissive glow
+          gl_FragColor = vec4(finalColor, 0.9);
+        }
+      `,
+      transparent: true,
+      side: THREE.DoubleSide,
+    });
+  }
 }

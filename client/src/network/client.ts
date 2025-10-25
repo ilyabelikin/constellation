@@ -33,6 +33,13 @@ export class NetworkClient {
   public onGalaxyInfo:
     | ((galaxyName: string, exists: boolean, currentTime: number) => void)
     | null = null;
+  public onGateTravel:
+    | ((
+        destinationSystem: StarSystem,
+        exploredGateIds: string[],
+        exitGateId: string
+      ) => void)
+    | null = null;
 
   constructor() {
     // Load UUID from localStorage
@@ -159,6 +166,16 @@ export class NetworkClient {
             );
           }
           break;
+
+        case "gateTravel":
+          if (this.onGateTravel) {
+            this.onGateTravel(
+              message.destinationSystem,
+              message.exploredGateIds,
+              message.exitGateId
+            );
+          }
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -211,6 +228,10 @@ export class NetworkClient {
     this.send({ type: "resumeTime" });
   }
 
+  useGate(gateId: string): void {
+    this.send({ type: "useGate", gateId });
+  }
+
   /**
    * Disconnect from the server and cleanup
    */
@@ -242,6 +263,7 @@ export class NetworkClient {
     this.onGalaxyJoined = null;
     this.onGalaxyReset = null;
     this.onGalaxyInfo = null;
+    this.onGateTravel = null;
 
     console.log("NetworkClient disconnected and cleaned up");
   }

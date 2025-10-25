@@ -19,7 +19,7 @@ export interface OrbitalElements {
 export interface CelestialBodyType {
   id: string;
   name: string;
-  type: "star" | "planet" | "moon";
+  type: "star" | "planet" | "moon" | "gate";
   mass: number; // kg
   radius: number; // meters
   parentId: string | null; // null for stars
@@ -27,6 +27,14 @@ export interface CelestialBodyType {
   color?: string; // hex color for rendering
   hasAtmosphere?: boolean; // whether planet has atmosphere
   planetType?: string; // planet type like "Super-Earth", "Gas Giant", etc.
+}
+
+export interface StarGate {
+  id: string;
+  name: string;
+  systemId: string;
+  destinationSystemId: string;
+  orbitalElements: OrbitalElements;
 }
 
 export interface Ship {
@@ -46,6 +54,7 @@ export interface Player {
   homeSystemId: string;
   currentSystemId: string;
   shipId: string;
+  exploredGateIds: string[];
 }
 
 export interface StarSystem {
@@ -55,6 +64,7 @@ export interface StarSystem {
   seed: number;
   star: CelestialBodyType;
   planets: CelestialBodyType[];
+  gates: StarGate[];
 }
 
 export interface Galaxy {
@@ -76,6 +86,7 @@ export interface SystemState {
   currentTime: number; // game time in seconds since epoch
   bodies: CelestialBodyState[];
   ships: ShipState[];
+  gates: CelestialBodyState[];
 }
 
 export interface ShipState {

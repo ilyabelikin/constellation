@@ -12,7 +12,8 @@ export type ClientMessage =
   | { type: "setTimeScale"; scale: number }
   | { type: "pauseTime" }
   | { type: "resumeTime" }
-  | { type: "shipManeuver"; maneuver: ShipManeuverCommand };
+  | { type: "shipManeuver"; maneuver: ShipManeuverCommand }
+  | { type: "useGate"; gateId: string };
 
 export interface ShipManeuverCommand {
   shipId: string;
@@ -42,6 +43,12 @@ export type ServerMessage =
       galaxyName: string;
       exists: boolean;
       currentTime: number;
+    }
+  | {
+      type: "gateTravel";
+      destinationSystem: StarSystem;
+      exploredGateIds: string[];
+      exitGateId: string;
     };
 
 // Helper to serialize/deserialize messages

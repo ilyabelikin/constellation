@@ -16,6 +16,7 @@ import { GameStateManager } from "../game/state-manager.js";
 import {
   generateGalaxy,
   generateStarterSystem,
+  generateNewSystem,
 } from "../generation/galaxy-generator.js";
 
 interface ClientConnection {
@@ -104,9 +105,19 @@ export class ConstellationWebSocketServer {
         case "shipManeuver":
           this.handleShipManeuver(client, message.maneuver);
           break;
+        case "useGate":
+          this.handleUseGate(client, message.gateId);
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
+      console.error("Raw message data:", data);
+      try {
+        const parsedMessage = JSON.parse(data);
+        console.error("Parsed message:", parsedMessage);
+      } catch (e) {
+        console.error("Could not parse message as JSON");
+      }
       this.sendError(ws, "Invalid message format");
     }
   }
@@ -258,6 +269,11 @@ export class ConstellationWebSocketServer {
     const starterSystem = generateStarterSystem(galaxy.id, galaxy.seed);
     this.db.createStarSystem(starterSystem);
 
+    // Save gates for the starter system
+    for (const gate of starterSystem.gates) {
+      this.db.createGate(gate);
+    }
+
     // Reset game time to 0 for new galaxy
     this.gameState.resetTime();
 
@@ -304,6 +320,11 @@ export class ConstellationWebSocketServer {
     const starterSystem = generateStarterSystem(galaxy.id, galaxy.seed);
     this.db.createStarSystem(starterSystem);
 
+    // Save gates for the starter system
+    for (const gate of starterSystem.gates) {
+      this.db.createGate(gate);
+    }
+
     // Reset game time to 0
     this.gameState.resetTime();
 
@@ -336,6 +357,7 @@ export class ConstellationWebSocketServer {
       homeSystemId: starterSystem.id,
       currentSystemId: starterSystem.id,
       shipId: "",
+      exploredGateIds: [], // New player has not explored any gates yet
     };
 
     this.db.createPlayer(player);
@@ -398,6 +420,145 @@ export class ConstellationWebSocketServer {
     // TODO: Implement ship maneuver logic
     // This would involve calculating new orbital elements based on delta-v
     // For now, just acknowledge
+  }
+
+  private handleUseGate(client: ClientConnection, gateId: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    // Get player data
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get the gate
+    const gate = this.db.getGateById(gateId);
+    if (!gate) {
+      this.sendError(client.ws, "Gate not found");
+      return;
+    }
+
+    // Verify gate is in player's current system
+    if (gate.systemId !== player.currentSystemId) {
+      this.sendError(client.ws, "Gate not in current system");
+      return;
+    }
+
+    // Get current system
+    const currentSystem = this.db.getStarSystem(gate.systemId);
+    if (!currentSystem) {
+      this.sendError(client.ws, "Current system not found");
+      return;
+    }
+
+    // Check if destination system exists, or if it's a placeholder
+    let destinationSystem = this.db.getStarSystem(gate.destinationSystemId);
+
+    // Generate destination system on-demand if it's a placeholder
+    if (
+      !destinationSystem &&
+      gate.destinationSystemId.startsWith("PLACEHOLDER_")
+    ) {
+      console.log(`Generating new system for placeholder gate ${gateId}`);
+
+      // Get galaxy to use seed
+      const galaxy = this.db.getGalaxyById(player.galaxyId);
+      if (!galaxy) {
+        this.sendError(client.ws, "Galaxy not found");
+        return;
+      }
+
+      // Generate new system with connection back to current system
+      destinationSystem = generateNewSystem(
+        galaxy.id,
+        galaxy.seed + Date.now(), // Use time as additional seed entropy
+        [currentSystem.id] // First gate connects back to current system
+      );
+
+      // Save the new system
+      this.db.createStarSystem(destinationSystem);
+
+      // Save all gates
+      for (const newGate of destinationSystem.gates) {
+        this.db.createGate(newGate);
+      }
+
+      // Update the current gate to point to the new system
+      this.db.updateGateDestination(gateId, destinationSystem.id);
+
+      console.log(
+        `Generated new system ${destinationSystem.id} with ${
+          destinationSystem.gates.length
+        } gate(s) (1 return, ${destinationSystem.gates.length - 1} unexplored)`
+      );
+    } else if (!destinationSystem) {
+      this.sendError(client.ws, "Destination system not found");
+      return;
+    }
+
+    // Find the exit gate (the one that connects back to current system)
+    const exitGate = destinationSystem.gates.find(
+      (g) => g.destinationSystemId === currentSystem.id
+    );
+    if (!exitGate) {
+      console.error(
+        `No exit gate found in destination system ${destinationSystem.id} pointing back to ${currentSystem.id}`
+      );
+      this.sendError(client.ws, "Invalid gate configuration");
+      return;
+    }
+
+    // Mark BOTH gates as explored for this player
+    this.db.markGateExploredSingle(player.id, gateId);
+    this.db.markGateExploredSingle(player.id, exitGate.id);
+
+    // Update gate names to reflect their destinations
+    const destinationStarName = `Gate to ${destinationSystem.star.name}`;
+    this.db.updateGateName(gateId, destinationStarName);
+    gate.name = destinationStarName; // Update in memory
+
+    const currentStarName = `Gate to ${currentSystem.star.name}`;
+    this.db.updateGateName(exitGate.id, currentStarName);
+    exitGate.name = currentStarName; // Update in memory
+
+    // Update player's current system
+    this.db.updatePlayerCurrentSystem(player.id, destinationSystem.id);
+    client.currentSystemId = destinationSystem.id;
+
+    // Load destination system into game state
+    this.gameState.loadSystem(destinationSystem);
+    const ships = this.db.getShipsBySystem(destinationSystem.id);
+    this.gameState.loadShips(destinationSystem.id, ships);
+
+    // Get updated explored gates
+    const exploredGateIds = this.db.getExploredGates(player.id);
+
+    console.log(
+      `Player ${player.name} explored gates:`,
+      exploredGateIds,
+      `Exit gate ID: ${exitGate.id}`
+    );
+
+    // Send travel response to client
+    this.send(client.ws, {
+      type: "gateTravel",
+      destinationSystem,
+      exploredGateIds,
+      exitGateId: exitGate.id,
+    });
+
+    // Update player data with new exploredGateIds and currentSystemId
+    player.exploredGateIds = exploredGateIds;
+    player.currentSystemId = destinationSystem.id;
+    this.send(client.ws, { type: "playerData", player });
+
+    console.log(
+      `Player ${player.name} traveled through gate to system ${destinationSystem.id}`
+    );
   }
 
   private handleDisconnect(ws: WebSocket): void {

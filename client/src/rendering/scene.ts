@@ -31,12 +31,15 @@ export class SceneManager {
   // Scene objects
   private bodies: Map<string, THREE.Mesh> = new Map();
   private ships: Map<string, THREE.Mesh> = new Map();
+  private gates: Map<string, THREE.Group> = new Map();
   private orbitLines: Map<string, THREE.Line> = new Map();
   private starMaterials: THREE.ShaderMaterial[] = [];
+  private gateMaterials: THREE.ShaderMaterial[] = [];
   private starfield: THREE.Points | null = null;
   private lights: THREE.Light[] = []; // Track lights for cleanup
 
   private system: StarSystem | null = null;
+  private exploredGateIds: Set<string> = new Set();
 
   // Scale factor for visualization (1 AU = 1000 units in Three.js)
   private readonly SCALE = 1000 / ASTRONOMICAL_UNIT;
@@ -44,6 +47,18 @@ export class SceneManager {
   private readonly BODY_SIZE_MULTIPLIER = 70;
 
   public onObjectSelected: ((objectId: string) => void) | null = null;
+  public onGateUse: ((gateId: string) => void) | null = null;
+
+  // Gate travel animation state
+  private isTraveling = false;
+  private travelStartTime = 0;
+  private travelDuration = 2000; // 2 seconds
+  private flashPlane: THREE.Mesh | null = null;
+  private travelCompleteCallback: (() => void) | null = null;
+  private entryGateId: string | null = null;
+  private exitGateId: string | null = null;
+  private systemViewDistance = 0;
+  private exitGateStartDistance = 0;
 
   // Event listener references for cleanup
   private resizeHandler: () => void;
@@ -160,6 +175,35 @@ export class SceneManager {
       this.scene.add(orbitLine);
       this.orbitLines.set(planet.id, orbitLine);
     }
+
+    // Create gates
+    for (const gate of system.gates) {
+      const isExplored = this.exploredGateIds.has(gate.id);
+      const gateGroup = this.celestialBodyFactory.createGate(gate, isExplored);
+      this.scene.add(gateGroup);
+      this.gates.set(gate.id, gateGroup);
+
+      // Collect gate materials for animation
+      gateGroup.traverse((child) => {
+        if (
+          child instanceof THREE.Mesh &&
+          child.material instanceof THREE.ShaderMaterial
+        ) {
+          this.gateMaterials.push(child.material);
+        }
+      });
+
+      // Track lights added by createGate
+      gateGroup.traverse((object) => {
+        if (object instanceof THREE.Light && !this.lights.includes(object)) {
+          this.lights.push(object);
+        }
+      });
+    }
+  }
+
+  setExploredGates(exploredGateIds: string[]): void {
+    this.exploredGateIds = new Set(exploredGateIds);
   }
 
   private clearScene(): void {
@@ -173,6 +217,16 @@ export class SceneManager {
     for (const mesh of this.ships.values()) {
       this.disposeMesh(mesh);
       this.scene.remove(mesh);
+    }
+
+    // Dispose and remove all gates
+    for (const gateGroup of this.gates.values()) {
+      gateGroup.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          this.disposeMesh(child);
+        }
+      });
+      this.scene.remove(gateGroup);
     }
 
     // Dispose and remove all orbit lines
@@ -198,8 +252,10 @@ export class SceneManager {
 
     this.bodies.clear();
     this.ships.clear();
+    this.gates.clear();
     this.orbitLines.clear();
     this.starMaterials = [];
+    this.gateMaterials = [];
     this.timeInterpolator.clearPositions();
   }
 
@@ -293,6 +349,26 @@ export class SceneManager {
         shipState.position.y * this.SCALE
       );
     }
+
+    // Update gate positions (gates orbit like planets)
+    for (const gateState of state.gates) {
+      const newPosition = new THREE.Vector3(
+        gateState.position.x * this.SCALE,
+        gateState.position.z * this.SCALE,
+        gateState.position.y * this.SCALE
+      );
+
+      this.timeInterpolator.setBodyTargetPosition(gateState.id, newPosition);
+
+      // If this is the first update for this gate, set position directly
+      const gateGroup = this.gates.get(gateState.id);
+      if (
+        gateGroup &&
+        !this.timeInterpolator.getInterpolatedPosition(gateState.id, 0)
+      ) {
+        gateGroup.position.copy(newPosition);
+      }
+    }
   }
 
   private onMouseDown(event: MouseEvent): void {
@@ -318,7 +394,11 @@ export class SceneManager {
   }
 
   private updateHoverState(): void {
-    const allObjects = [...this.bodies.values(), ...this.ships.values()];
+    const allObjects = [
+      ...this.bodies.values(),
+      ...this.ships.values(),
+      ...this.gates.values(),
+    ];
     const isHovering = this.interactionManager.isHoveringOverObject(
       this.camera,
       allObjects
@@ -332,7 +412,11 @@ export class SceneManager {
   }
 
   private handleObjectClick(): void {
-    const allObjects = [...this.bodies.values(), ...this.ships.values()];
+    const allObjects = [
+      ...this.bodies.values(),
+      ...this.ships.values(),
+      ...this.gates.values(),
+    ];
     const objectId = this.interactionManager.getIntersectedObjectId(
       this.camera,
       allObjects
@@ -365,6 +449,112 @@ export class SceneManager {
     // Update star shader time uniforms for animation using interpolated game time
     for (const material of this.starMaterials) {
       material.uniforms.time.value = this.timeInterpolator.getGameTime();
+    }
+
+    // Update gate shader time uniforms for animation
+    for (const material of this.gateMaterials) {
+      material.uniforms.time.value = this.timeInterpolator.getGameTime();
+    }
+
+    // Handle gate travel animation
+    if (this.isTraveling) {
+      const elapsed = performance.now() - this.travelStartTime;
+      const progress = Math.min(elapsed / this.travelDuration, 1);
+
+      // Update white flash effect
+      // Phase 1 (0-40%): Fade in to white (zooming into entry gate)
+      // Phase 2 (40-50%): Full white (repositioning to exit gate)
+      // Phase 3 (50-100%): Fade out from white (zooming out from exit gate)
+      if (this.flashPlane) {
+        const flashMaterial = this.flashPlane
+          .material as THREE.MeshBasicMaterial;
+        if (progress < 0.4) {
+          // Fade in
+          flashMaterial.opacity = progress / 0.4; // 0 to 1 over first 40%
+        } else if (progress < 0.5) {
+          // Stay white during reposition
+          flashMaterial.opacity = 1;
+        } else {
+          // Fade out
+          flashMaterial.opacity = (1 - progress) / 0.5; // 1 to 0 over last 50%
+        }
+      }
+
+      // At 30% progress, hide the entry gate as flash intensifies
+      if (progress >= 0.3 && this.entryGateId) {
+        const entryGateGroup = this.gates.get(this.entryGateId);
+        if (entryGateGroup && entryGateGroup.visible) {
+          entryGateGroup.visible = false;
+        }
+      }
+
+      // At 45% progress (middle of white flash), reposition to exit gate and show scene
+      if (progress >= 0.45 && this.exitGateId) {
+        const exitGateGroup = this.gates.get(this.exitGateId);
+        if (exitGateGroup && !exitGateGroup.visible) {
+          // Show all objects again (starfield was never hidden, so it stays visible)
+          for (const mesh of this.bodies.values()) {
+            mesh.visible = true;
+          }
+          for (const mesh of this.ships.values()) {
+            mesh.visible = true;
+          }
+          for (const gateGroup of this.gates.values()) {
+            gateGroup.visible = true;
+          }
+          for (const line of this.orbitLines.values()) {
+            line.visible = true;
+          }
+
+          // Position camera near exit gate
+          this.exitGateStartDistance = 10;
+          this.cameraController.setPositionNearObject(
+            exitGateGroup,
+            this.exitGateStartDistance
+          );
+
+          // Calculate target system view distance
+          this.systemViewDistance = this.calculateSystemViewDistance();
+
+          // Clear exit gate ID so we don't reposition again
+          this.exitGateId = null;
+        }
+      }
+
+      // From 50% onwards, smoothly transition to system view
+      if (progress >= 0.5 && progress < 1) {
+        const zoomProgress = (progress - 0.5) / 0.5; // 0 to 1 over last 50%
+        const easedZoom = this.easeInOutCubic(zoomProgress);
+
+        // Smoothly interpolate camera distance
+        const currentDistance =
+          this.exitGateStartDistance +
+          (this.systemViewDistance - this.exitGateStartDistance) * easedZoom;
+
+        // Smoothly transition to system view (distance, target, and angles)
+        this.cameraController.transitionToSystemView(
+          currentDistance,
+          easedZoom
+        );
+      }
+
+      // End animation
+      if (progress >= 1) {
+        this.isTraveling = false;
+        this.removeFlash();
+
+        // Clear entry gate ID
+        this.entryGateId = null;
+
+        // Ensure we're at the final system view
+        this.cameraController.setSystemView(this.systemViewDistance);
+
+        // Call completion callback if provided
+        if (this.travelCompleteCallback) {
+          this.travelCompleteCallback();
+          this.travelCompleteCallback = null;
+        }
+      }
     }
 
     // Get interpolation factor for smooth orbital motion
@@ -402,10 +592,34 @@ export class SceneManager {
       }
     }
 
+    // Update gate positions and animations
+    for (const [gateId, gateGroup] of this.gates.entries()) {
+      // Smooth orbital motion interpolation
+      const interpolatedPos = this.timeInterpolator.getInterpolatedPosition(
+        gateId,
+        lerpFactor
+      );
+      if (interpolatedPos) {
+        gateGroup.position.copy(interpolatedPos);
+      }
+
+      // Rotate the gate's inner core (very slow rotation)
+      gateGroup.traverse((child) => {
+        if (child.userData.rotatingCore) {
+          child.rotation.z = this.timeInterpolator.getGameTime() * 0.0001;
+        }
+      });
+
+      // Rotate the entire gate structure extremely slowly for visual interest
+      gateGroup.rotation.y = this.timeInterpolator.getGameTime() * 0.00005;
+    }
+
     // Update camera with tracked object if tracking is enabled
     const selectedObjectId = this.cameraController.getSelectedObjectId();
     const trackedMesh = selectedObjectId
-      ? this.bodies.get(selectedObjectId) || this.ships.get(selectedObjectId)
+      ? this.bodies.get(selectedObjectId) ||
+        this.ships.get(selectedObjectId) ||
+        this.gates.get(selectedObjectId)
       : undefined;
     this.cameraController.update(trackedMesh);
   }
@@ -415,15 +629,127 @@ export class SceneManager {
   }
 
   centerOnObject(objectId: string): void {
-    const mesh = this.bodies.get(objectId) || this.ships.get(objectId);
+    const mesh =
+      this.bodies.get(objectId) ||
+      this.ships.get(objectId) ||
+      this.gates.get(objectId);
     if (mesh) {
-      this.cameraController.centerOnObject(objectId, mesh);
+      const shouldUseGate = this.cameraController.centerOnObject(
+        objectId,
+        mesh
+      );
 
       // Notify listeners
       if (this.onObjectSelected) {
         this.onObjectSelected(objectId);
       }
+
+      // Check if this is a gate being used (second click)
+      if (shouldUseGate && this.onGateUse) {
+        this.onGateUse(objectId);
+      }
     }
+  }
+
+  /**
+   * Easing function for smooth animation (ease-in-out cubic)
+   */
+  private easeInOutCubic(t: number): number {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+
+  /**
+   * Create white flash plane for gate travel effect
+   */
+  private createFlash(): void {
+    const geometry = new THREE.PlaneGeometry(2, 2);
+    const material = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      depthTest: false,
+    });
+
+    this.flashPlane = new THREE.Mesh(geometry, material);
+    this.flashPlane.position.set(0, 0, -0.1); // Just in front of camera
+    this.camera.add(this.flashPlane); // Attach to camera so it moves with it
+  }
+
+  /**
+   * Remove flash effect
+   */
+  private removeFlash(): void {
+    if (this.flashPlane) {
+      this.camera.remove(this.flashPlane);
+      if (this.flashPlane.geometry) {
+        this.flashPlane.geometry.dispose();
+      }
+      if (this.flashPlane.material instanceof THREE.Material) {
+        this.flashPlane.material.dispose();
+      }
+      this.flashPlane = null;
+    }
+  }
+
+  /**
+   * Set the entry gate ID (the gate we're traveling through)
+   */
+  setEntryGate(gateId: string): void {
+    this.entryGateId = gateId;
+  }
+
+  /**
+   * Animate gate travel with zoom and flash effect
+   * @param exitGateId - The ID of the exit gate to arrive at
+   * @param onComplete - Optional callback to run when animation completes
+   */
+  animateExitGate(exitGateId: string, onComplete?: () => void): void {
+    // Get the entry gate (the one we're traveling through)
+    const entryGateGroup = this.entryGateId
+      ? this.gates.get(this.entryGateId)
+      : null;
+
+    if (!entryGateGroup) {
+      console.warn(`Entry gate not found, skipping animation`);
+      // Still call completion callback
+      if (onComplete) {
+        onComplete();
+      }
+      return;
+    }
+
+    // Store exit gate ID for repositioning during animation
+    this.exitGateId = exitGateId;
+
+    // Start travel animation
+    this.isTraveling = true;
+    this.travelStartTime = performance.now();
+    this.travelCompleteCallback = onComplete || null;
+
+    // Hide all celestial bodies, ships, and orbit lines EXCEPT the entry gate (for now)
+    // Keep starfield visible throughout
+    for (const mesh of this.bodies.values()) {
+      mesh.visible = false;
+    }
+    for (const mesh of this.ships.values()) {
+      mesh.visible = false;
+    }
+    for (const [gateId, gateGroup] of this.gates.entries()) {
+      // Hide all gates except the entry gate
+      if (gateId !== this.entryGateId) {
+        gateGroup.visible = false;
+      }
+    }
+    for (const line of this.orbitLines.values()) {
+      line.visible = false;
+    }
+
+    // Zoom INTO the entry gate (extremely close)
+    this.cameraController.setPositionNearObject(entryGateGroup, 1);
+
+    // Create white flash effect
+    this.createFlash();
   }
 
   getSelectedObjectId(): string | null {
@@ -432,6 +758,44 @@ export class SceneManager {
 
   getSystem(): StarSystem | null {
     return this.system;
+  }
+
+  /**
+   * Calculate the optimal camera distance for system view
+   * @returns The camera distance to see the whole system
+   */
+  private calculateSystemViewDistance(): number {
+    if (!this.system) return 1000;
+
+    // Calculate the furthest object in the system
+    let maxDistance = 0;
+
+    // Check planets
+    for (const planet of this.system.planets) {
+      if (planet.orbitalElements) {
+        const distance = planet.orbitalElements.semiMajorAxis * this.SCALE;
+        maxDistance = Math.max(maxDistance, distance);
+      }
+    }
+
+    // Check gates
+    for (const gate of this.system.gates) {
+      const distance = gate.orbitalElements.semiMajorAxis * this.SCALE;
+      maxDistance = Math.max(maxDistance, distance);
+    }
+
+    // 1.2x the furthest object for a closer, more intimate view
+    return maxDistance * 1.2;
+  }
+
+  /**
+   * Show a nice overview of the entire star system
+   * Positions camera to see the whole system at once
+   */
+  showSystemView(): void {
+    const cameraDistance = this.calculateSystemViewDistance();
+    // Use camera controller to animate to system view
+    this.cameraController.setSystemView(cameraDistance);
   }
 
   /**
@@ -472,6 +836,9 @@ export class SceneManager {
       this.scene.remove(this.starfield);
       this.starfield = null;
     }
+
+    // Dispose flash plane if active
+    this.removeFlash();
 
     // Dispose all remaining lights
     for (const light of this.lights) {

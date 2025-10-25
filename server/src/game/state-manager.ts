@@ -166,11 +166,28 @@ export class GameStateManager {
       };
     });
 
+    // Calculate gate positions (gates orbit like planets)
+    const gateStates: CelestialBodyState[] = [];
+    for (const gate of system.gates) {
+      const state = calculateStateVectors(
+        gate.orbitalElements,
+        this.currentTime,
+        system.star.mass
+      );
+
+      gateStates.push({
+        id: gate.id,
+        position: state.position,
+        velocity: state.velocity,
+      });
+    }
+
     return {
       systemId,
       currentTime: this.currentTime,
       bodies,
       ships: shipStates,
+      gates: gateStates,
     };
   }
 

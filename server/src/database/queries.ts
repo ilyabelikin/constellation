@@ -4,6 +4,7 @@ import {
   StarSystem,
   Player,
   Ship,
+  StarGate,
   Vector3,
   OrbitalElements,
 } from "@constellation/shared";
@@ -82,6 +83,7 @@ export class DatabaseQueries {
     const row = stmt.get(id) as any;
     if (!row) return null;
     const data = JSON.parse(row.generated_data);
+    const gates = this.getGatesBySystem(row.id);
     return {
       id: row.id,
       galaxyId: row.galaxy_id,
@@ -89,6 +91,7 @@ export class DatabaseQueries {
       seed: row.seed,
       star: data.star,
       planets: data.planets,
+      gates,
     };
   }
 
@@ -99,6 +102,7 @@ export class DatabaseQueries {
     const rows = stmt.all(galaxyId) as any[];
     return rows.map((row) => {
       const data = JSON.parse(row.generated_data);
+      const gates = this.getGatesBySystem(row.id);
       return {
         id: row.id,
         galaxyId: row.galaxy_id,
@@ -106,6 +110,7 @@ export class DatabaseQueries {
         seed: row.seed,
         star: data.star,
         planets: data.planets,
+        gates,
       };
     });
   }
@@ -129,6 +134,7 @@ export class DatabaseQueries {
     const stmt = this.db.prepare("SELECT * FROM players WHERE uuid = ?");
     const row = stmt.get(uuid) as any;
     if (!row) return null;
+    const exploredGateIds = this.getExploredGates(row.id);
     return {
       id: row.id,
       uuid: row.uuid,
@@ -137,6 +143,7 @@ export class DatabaseQueries {
       homeSystemId: row.home_system_id,
       currentSystemId: row.current_system_id,
       shipId: "", // Will be loaded separately
+      exploredGateIds,
     };
   }
 
@@ -144,6 +151,7 @@ export class DatabaseQueries {
     const stmt = this.db.prepare("SELECT * FROM players WHERE id = ?");
     const row = stmt.get(id) as any;
     if (!row) return null;
+    const exploredGateIds = this.getExploredGates(row.id);
     return {
       id: row.id,
       uuid: row.uuid,
@@ -152,6 +160,7 @@ export class DatabaseQueries {
       homeSystemId: row.home_system_id,
       currentSystemId: row.current_system_id,
       shipId: "",
+      exploredGateIds,
     };
   }
 
@@ -213,5 +222,107 @@ export class DatabaseQueries {
       orbitalElements: JSON.parse(row.orbital_elements),
       deltaV: row.delta_v,
     }));
+  }
+
+  // Star Gate operations
+  createGate(gate: StarGate): void {
+    const stmt = this.db.prepare(
+      "INSERT INTO star_gates (id, system_id, destination_system_id, orbital_elements, name) VALUES (?, ?, ?, ?, ?)"
+    );
+    stmt.run(
+      gate.id,
+      gate.systemId,
+      gate.destinationSystemId,
+      JSON.stringify(gate.orbitalElements),
+      gate.name
+    );
+  }
+
+  getGatesBySystem(systemId: string): StarGate[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM star_gates WHERE system_id = ?"
+    );
+    const rows = stmt.all(systemId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      systemId: row.system_id,
+      destinationSystemId: row.destination_system_id,
+      orbitalElements: JSON.parse(row.orbital_elements),
+    }));
+  }
+
+  getGateById(gateId: string): StarGate | null {
+    const stmt = this.db.prepare("SELECT * FROM star_gates WHERE id = ?");
+    const row = stmt.get(gateId) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      name: row.name,
+      systemId: row.system_id,
+      destinationSystemId: row.destination_system_id,
+      orbitalElements: JSON.parse(row.orbital_elements),
+    };
+  }
+
+  getExploredGates(playerId: string): string[] {
+    const stmt = this.db.prepare(
+      "SELECT gate_id FROM explored_gates WHERE player_id = ?"
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => row.gate_id);
+  }
+
+  markGateExploredSingle(playerId: string, gateId: string): void {
+    // Mark a single gate as explored (no symmetric marking)
+    const stmt = this.db.prepare(
+      "INSERT OR IGNORE INTO explored_gates (player_id, gate_id) VALUES (?, ?)"
+    );
+    stmt.run(playerId, gateId);
+  }
+
+  markGateExplored(playerId: string, gateId: string): void {
+    // Mark the gate as explored
+    this.markGateExploredSingle(playerId, gateId);
+
+    // Also mark the reverse gate (symmetric exploration)
+    const gate = this.getGateById(gateId);
+    if (gate) {
+      // Find the reverse gate
+      const reverseGates = this.getGatesBySystem(gate.destinationSystemId);
+      const reverseGate = reverseGates.find(
+        (g) => g.destinationSystemId === gate.systemId
+      );
+      if (reverseGate) {
+        this.markGateExploredSingle(playerId, reverseGate.id);
+      }
+    }
+  }
+
+  updateGateDestination(gateId: string, newDestinationSystemId: string): void {
+    const stmt = this.db.prepare(
+      "UPDATE star_gates SET destination_system_id = ? WHERE id = ?"
+    );
+    stmt.run(newDestinationSystemId, gateId);
+  }
+
+  updateGateName(gateId: string, newName: string): void {
+    const stmt = this.db.prepare("UPDATE star_gates SET name = ? WHERE id = ?");
+    stmt.run(newName, gateId);
+  }
+
+  getConnectedSystems(playerId: string): string[] {
+    const exploredGates = this.getExploredGates(playerId);
+    const systemIds = new Set<string>();
+
+    for (const gateId of exploredGates) {
+      const gate = this.getGateById(gateId);
+      if (gate) {
+        systemIds.add(gate.systemId);
+        systemIds.add(gate.destinationSystemId);
+      }
+    }
+
+    return Array.from(systemIds);
   }
 }

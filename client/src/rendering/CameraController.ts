@@ -84,9 +84,10 @@ export class CameraController {
   /**
    * Centers camera on an object with three-level zoom system
    * @param objectId - ID of the object to center on
-   * @param mesh - The Three.js mesh of the object
+   * @param mesh - The Three.js mesh or group of the object
+   * @returns true if this is a gate ready to travel through (second click), false otherwise
    */
-  centerOnObject(objectId: string, mesh: THREE.Mesh): void {
+  centerOnObject(objectId: string, mesh: THREE.Mesh | THREE.Group): boolean {
     this.cameraTarget.copy(mesh.position);
 
     // Check if this is the same object being clicked again
@@ -94,22 +95,43 @@ export class CameraController {
     const wasTracking = this.isTrackingObject;
     this.selectedObjectId = objectId;
 
+    let shouldTravelThroughGate = false;
+
     // Three-level zoom system for planets:
     // 1. First click: uniform distance to compare sizes, no tracking
     // 2. Second click (same object): size-based zoom to fill screen + track object
     // 3. Third click (same object, already tracking): back to uniform distance, stop tracking
     if (mesh.userData.type === "star") {
       // Stars always use size-based zoom (they're huge)
-      const objectRadius = mesh.geometry.boundingSphere?.radius || 10;
+      const objectRadius =
+        mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
+          ? mesh.geometry.boundingSphere.radius
+          : 10;
       this.cameraDistance = objectRadius * 5;
       this.isTrackingObject = false; // Don't track stars (they don't move)
+    } else if (mesh.userData.type === "gate") {
+      // Gates: two-click system
+      // First click: zoom in and track
+      // Second click: trigger gate travel (handled in SceneManager)
+      if (isAlreadySelected && wasTracking) {
+        // Second click: keep tracking and signal ready to travel
+        this.isTrackingObject = true;
+        shouldTravelThroughGate = true;
+      } else {
+        // First click: zoom close and start tracking
+        this.cameraDistance = 40; // Close enough to see details
+        this.isTrackingObject = true; // Track gates as they orbit
+      }
     } else if (isAlreadySelected && wasTracking) {
       // Third click: already tracking, reset to uniform distance and stop tracking
       this.cameraDistance = 80;
       this.isTrackingObject = false;
     } else if (isAlreadySelected) {
       // Second click on same planet: zoom to fill screen and start tracking
-      const objectRadius = mesh.geometry.boundingSphere?.radius || 10;
+      const objectRadius =
+        mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
+          ? mesh.geometry.boundingSphere.radius
+          : 10;
       this.cameraDistance = objectRadius * 3;
       this.isTrackingObject = true; // Start tracking the planet
     } else {
@@ -117,13 +139,91 @@ export class CameraController {
       this.cameraDistance = 80;
       this.isTrackingObject = false;
     }
+
+    return shouldTravelThroughGate;
+  }
+
+  /**
+   * Position camera near an object (for gate exit animation)
+   * @param object - The object to position near
+   * @param distance - Distance from the object
+   */
+  setPositionNearObject(
+    object: THREE.Mesh | THREE.Group,
+    distance: number
+  ): void {
+    this.cameraTarget.copy(object.position);
+    this.cameraDistance = distance;
+    this.isTrackingObject = false;
+    this.selectedObjectId = null;
+
+    // Immediately update camera position (no lerp)
+    const x =
+      this.cameraDistance *
+      Math.sin(this.cameraPhi) *
+      Math.cos(this.cameraTheta);
+    const y = this.cameraDistance * Math.cos(this.cameraPhi);
+    const z =
+      this.cameraDistance *
+      Math.sin(this.cameraPhi) *
+      Math.sin(this.cameraTheta);
+
+    this.camera.position.set(
+      this.cameraTarget.x + x,
+      this.cameraTarget.y + y,
+      this.cameraTarget.z + z
+    );
+    this.camera.lookAt(this.cameraTarget);
+  }
+
+  /**
+   * Set camera to system overview position
+   * @param distance - Distance from system center
+   */
+  setSystemView(distance: number): void {
+    // Center on origin (system center)
+    this.cameraTarget.set(0, 0, 0);
+    this.cameraDistance = distance;
+    this.isTrackingObject = false;
+    this.selectedObjectId = null;
+
+    // Set a nice viewing angle (slightly above and to the side)
+    this.cameraPhi = Math.PI / 3; // 60 degrees from top
+    this.cameraTheta = Math.PI / 4; // 45 degrees around
+  }
+
+  /**
+   * Smoothly transition to system view during gate travel animation
+   * @param distance - Current camera distance
+   * @param progress - Animation progress from 0 to 1
+   */
+  transitionToSystemView(distance: number, progress: number): void {
+    // Stop tracking any object
+    this.isTrackingObject = false;
+    this.selectedObjectId = null;
+
+    // Smoothly interpolate camera target to origin (0,0,0)
+    // This assumes we're starting from an object position
+    this.cameraTarget.lerp(new THREE.Vector3(0, 0, 0), progress);
+
+    // Set the camera distance
+    this.cameraDistance = distance;
+
+    // Smoothly interpolate camera angles to system view angles
+    const targetPhi = Math.PI / 3; // 60 degrees from top
+    const targetTheta = Math.PI / 4; // 45 degrees around
+
+    // Use linear interpolation for angles
+    this.cameraPhi = this.cameraPhi + (targetPhi - this.cameraPhi) * progress;
+    this.cameraTheta =
+      this.cameraTheta + (targetTheta - this.cameraTheta) * progress;
   }
 
   /**
    * Updates camera position and tracking
-   * @param trackedObject - Optional mesh to track (if tracking is enabled)
+   * @param trackedObject - Optional mesh or group to track (if tracking is enabled)
    */
-  update(trackedObject?: THREE.Mesh): void {
+  update(trackedObject?: THREE.Mesh | THREE.Group): void {
     // Update camera target to follow selected object if tracking is enabled
     if (this.isTrackingObject && trackedObject) {
       this.cameraTarget.copy(trackedObject.position);

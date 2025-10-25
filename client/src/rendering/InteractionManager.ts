@@ -23,18 +23,23 @@ export class InteractionManager {
   /**
    * Checks for intersections with objects and returns the first intersected object's ID
    * @param camera - The camera to use for raycasting
-   * @param objects - Array of THREE.Mesh objects to check for intersections
+   * @param objects - Array of THREE.Mesh or THREE.Group objects to check for intersections
    * @returns The ID of the first intersected object, or null if none
    */
   getIntersectedObjectId(
     camera: THREE.PerspectiveCamera,
-    objects: THREE.Mesh[]
+    objects: (THREE.Mesh | THREE.Group)[]
   ): string | null {
     this.raycaster.setFromCamera(this.mouse, camera);
-    const intersects = this.raycaster.intersectObjects(objects);
+    // Use recursive: true to handle Groups (gates) that contain multiple meshes
+    const intersects = this.raycaster.intersectObjects(objects, true);
 
     if (intersects.length > 0) {
-      const object = intersects[0].object as THREE.Mesh;
+      // For groups, traverse up to find the root group with userData
+      let object: THREE.Object3D = intersects[0].object;
+      while (object.parent && !object.userData.id) {
+        object = object.parent;
+      }
       return object.userData.id || null;
     }
 
@@ -44,15 +49,16 @@ export class InteractionManager {
   /**
    * Checks if mouse is hovering over any object
    * @param camera - The camera to use for raycasting
-   * @param objects - Array of THREE.Mesh objects to check
+   * @param objects - Array of THREE.Mesh or THREE.Group objects to check
    * @returns true if hovering over an object, false otherwise
    */
   isHoveringOverObject(
     camera: THREE.PerspectiveCamera,
-    objects: THREE.Mesh[]
+    objects: (THREE.Mesh | THREE.Group)[]
   ): boolean {
     this.raycaster.setFromCamera(this.mouse, camera);
-    const intersects = this.raycaster.intersectObjects(objects);
+    // Use recursive: true to handle Groups (gates) that contain multiple meshes
+    const intersects = this.raycaster.intersectObjects(objects, true);
     return intersects.length > 0;
   }
 
