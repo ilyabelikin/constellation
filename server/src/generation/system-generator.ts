@@ -11,6 +11,7 @@ import {
   ASTRONOMICAL_UNIT,
   MIN_PLANETS,
   MAX_PLANETS,
+  GRAVITATIONAL_CONSTANT,
 } from "@constellation/shared";
 
 interface StarClass {
@@ -223,6 +224,18 @@ export function generatePlanet(
   // Use Titius-Bode-like law with randomness for orbital distances
   const baseDistance = 0.4 * Math.pow(1.6, index) * ASTRONOMICAL_UNIT;
   const semiMajorAxis = baseDistance * rng.nextFloat(0.8, 1.2);
+
+  // Calculate orbital period for debugging (Kepler's Third Law: T = 2π√(a³/GM))
+  const orbitalPeriod =
+    2 *
+    Math.PI *
+    Math.sqrt(Math.pow(semiMajorAxis, 3) / (GRAVITATIONAL_CONSTANT * starMass));
+  const orbitalPeriodDays = orbitalPeriod / 86400;
+  console.log(
+    `Planet ${index}: Distance ${(semiMajorAxis / ASTRONOMICAL_UNIT).toFixed(
+      2
+    )} AU, Period ${orbitalPeriodDays.toFixed(1)} days`
+  );
 
   const eccentricity = rng.nextFloat(0.0, 0.2); // Most orbits are nearly circular
   const inclination = rng.nextGaussian(0, 0.05); // Small inclinations (in radians)

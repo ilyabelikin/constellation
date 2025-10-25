@@ -769,9 +769,15 @@ export class SceneManager {
       // Set camera target to selected object and zoom in
       this.cameraTarget.copy(object.position);
 
-      // Calculate appropriate zoom distance based on object size
-      const objectRadius = object.geometry.boundingSphere?.radius || 10;
-      this.cameraDistance = objectRadius * 5; // 5x the object radius
+      // Use uniform zoom distance for planets to show relative sizes
+      // Use size-based zoom only for stars (which are much larger)
+      if (object.userData.type === "star") {
+        const objectRadius = object.geometry.boundingSphere?.radius || 10;
+        this.cameraDistance = objectRadius * 5;
+      } else {
+        // Uniform distance for planets to show relative sizes
+        this.cameraDistance = 150;
+      }
     }
   }
 
@@ -830,9 +836,12 @@ export class SceneManager {
 
       // Add planet rotation via shader uniform for smooth animation
       if (mesh.userData.type === "planet") {
-        // Rotate based on game time (arbitrary rotation periods for visual effect)
-        // Different planets rotate at different speeds based on their ID
-        const rotationSpeed = 0.0005 + (bodyId.charCodeAt(0) % 10) * 0.00025;
+        // Rotate based on game time with realistic rotation periods
+        // Earth-like rotation: 1 day = 2π radians / 86400 seconds ≈ 0.0000727 rad/s
+        // Vary rotation periods from 0.5 to 2 Earth days
+        const baseRotationSpeed = (2 * Math.PI) / 86400; // One Earth day
+        const speedMultiplier = 0.5 + (bodyId.charCodeAt(0) % 10) * 0.15; // 0.5x to 2.0x Earth rotation
+        const rotationSpeed = baseRotationSpeed * speedMultiplier;
         const rotation = this.gameTime * rotationSpeed;
 
         // Update shader uniform if using ShaderMaterial
@@ -894,9 +903,15 @@ export class SceneManager {
       this.cameraTarget.copy(mesh.position);
       this.selectedObjectId = objectId;
 
-      // Set appropriate zoom distance
-      const objectRadius = mesh.geometry.boundingSphere?.radius || 10;
-      this.cameraDistance = objectRadius * 5;
+      // Use uniform zoom distance for planets to show relative sizes
+      // Use size-based zoom only for stars (which are much larger)
+      if (mesh.userData.type === "star") {
+        const objectRadius = mesh.geometry.boundingSphere?.radius || 10;
+        this.cameraDistance = objectRadius * 5;
+      } else {
+        // Uniform distance for planets to show relative sizes
+        this.cameraDistance = 150;
+      }
     }
   }
 

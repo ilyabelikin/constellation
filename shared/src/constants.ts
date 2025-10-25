@@ -12,11 +12,10 @@ export const DAYS_PER_YEAR = 365.25;
 
 // Game constants
 export const SERVER_TICK_RATE = 10; // Hz
-export const TIME_SCALE_DEFAULT = 1000; // 1 second real time = 1000 seconds game time
+export const TIME_SCALE_DEFAULT = 10000; // 1 second real time = 10000 seconds game time
 export const MAX_PLANETS = 8;
 export const MIN_PLANETS = 3;
 
 // Network constants
 export const WEBSOCKET_PORT = 8080;
 export const STATE_UPDATE_RATE = 5; // Hz (send state updates to clients)
-
