@@ -26,6 +26,7 @@ export class SceneManager {
 
   private system: StarSystem | null = null;
   private selectedObjectId: string | null = null;
+  private isTrackingObject: boolean = false; // Whether camera follows the selected object
   private cameraTarget: THREE.Vector3 = new THREE.Vector3();
   private cameraDistance: number = 3000;
   private cameraTheta: number = Math.PI / 4; // Horizontal angle
@@ -721,6 +722,13 @@ export class SceneManager {
   }
 
   private onMouseMove(event: MouseEvent): void {
+    // Update mouse position for raycasting (for hover detection)
+    this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    // Check for hover over objects and update cursor
+    this.updateHoverState();
+
     if (event.buttons === 1) {
       // Left mouse button is pressed
       const deltaX = event.clientX - this.previousMousePosition.x;
@@ -729,10 +737,11 @@ export class SceneManager {
       // Mark as dragging if moved enough
       if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
         this.isDragging = true;
+        // Keep tracking enabled - user can rotate around tracked object
       }
 
       if (this.isDragging) {
-        // Rotate camera around target
+        // Rotate camera around target (works both with and without tracking)
         const rotationSpeed = 0.005;
         this.cameraTheta -= deltaX * rotationSpeed;
         this.cameraPhi -= deltaY * rotationSpeed;
@@ -742,6 +751,22 @@ export class SceneManager {
       }
 
       this.previousMousePosition = { x: event.clientX, y: event.clientY };
+    }
+  }
+
+  private updateHoverState(): void {
+    // Update raycaster
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+
+    // Check for intersections with clickable objects
+    const allObjects = [...this.bodies.values(), ...this.ships.values()];
+    const intersects = this.raycaster.intersectObjects(allObjects);
+
+    // Change cursor based on whether hovering over an object
+    if (intersects.length > 0) {
+      this.renderer.domElement.style.cursor = "pointer";
+    } else {
+      this.renderer.domElement.style.cursor = "default";
     }
   }
 
@@ -761,23 +786,8 @@ export class SceneManager {
       const object = intersects[0].object as THREE.Mesh;
       const objectId = object.userData.id;
 
-      this.selectedObjectId = objectId;
-      if (this.onObjectSelected) {
-        this.onObjectSelected(objectId);
-      }
-
-      // Set camera target to selected object and zoom in
-      this.cameraTarget.copy(object.position);
-
-      // Use uniform zoom distance for planets to show relative sizes
-      // Use size-based zoom only for stars (which are much larger)
-      if (object.userData.type === "star") {
-        const objectRadius = object.geometry.boundingSphere?.radius || 10;
-        this.cameraDistance = objectRadius * 5;
-      } else {
-        // Uniform distance for planets to show relative sizes
-        this.cameraDistance = 150;
-      }
+      // Use the centralized method to handle object selection and zoom
+      this.centerOnObject(objectId);
     }
   }
 
@@ -870,6 +880,16 @@ export class SceneManager {
       }
     }
 
+    // Update camera target to follow selected object if tracking is enabled
+    if (this.isTrackingObject && this.selectedObjectId) {
+      const trackedMesh =
+        this.bodies.get(this.selectedObjectId) ||
+        this.ships.get(this.selectedObjectId);
+      if (trackedMesh) {
+        this.cameraTarget.copy(trackedMesh.position);
+      }
+    }
+
     // Calculate camera position based on spherical coordinates
     const x =
       this.cameraDistance *
@@ -901,16 +921,39 @@ export class SceneManager {
     const mesh = this.bodies.get(objectId) || this.ships.get(objectId);
     if (mesh) {
       this.cameraTarget.copy(mesh.position);
+
+      // Check if this is the same object being clicked again
+      const isAlreadySelected = this.selectedObjectId === objectId;
+      const wasTracking = this.isTrackingObject;
       this.selectedObjectId = objectId;
 
-      // Use uniform zoom distance for planets to show relative sizes
-      // Use size-based zoom only for stars (which are much larger)
+      // Three-level zoom system for planets:
+      // 1. First click: uniform distance to compare sizes, no tracking
+      // 2. Second click (same object): size-based zoom to fill screen + track object
+      // 3. Third click (same object, already tracking): back to uniform distance, stop tracking
       if (mesh.userData.type === "star") {
+        // Stars always use size-based zoom (they're huge)
         const objectRadius = mesh.geometry.boundingSphere?.radius || 10;
         this.cameraDistance = objectRadius * 5;
+        this.isTrackingObject = false; // Don't track stars (they don't move)
+      } else if (isAlreadySelected && wasTracking) {
+        // Third click: already tracking, reset to uniform distance and stop tracking
+        this.cameraDistance = 80;
+        this.isTrackingObject = false;
+      } else if (isAlreadySelected) {
+        // Second click on same planet: zoom to fill screen and start tracking
+        const objectRadius = mesh.geometry.boundingSphere?.radius || 10;
+        this.cameraDistance = objectRadius * 3;
+        this.isTrackingObject = true; // Start tracking the planet
       } else {
-        // Uniform distance for planets to show relative sizes
-        this.cameraDistance = 150;
+        // First click: uniform distance to show relative sizes, no tracking
+        this.cameraDistance = 80;
+        this.isTrackingObject = false;
+      }
+
+      // Notify listeners
+      if (this.onObjectSelected) {
+        this.onObjectSelected(objectId);
       }
     }
   }
