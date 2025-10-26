@@ -1,0 +1,122 @@
+{
+  "planetTypes": [
+    {
+      "name": "Barren",
+      "weight": 1.0,
+      "massRange": [0.05, 0.5],
+      "radiusRange": [0.3, 0.8],
+      "color": "#8b7355",
+      "atmosphereChance": 0.0,
+      "surfaceType": "cratered"
+    },
+    {
+      "name": "Rocky",
+      "weight": 1.0,
+      "massRange": [0.4, 1.5],
+      "radiusRange": [0.7, 1.1],
+      "color": "#a0937d",
+      "atmosphereChance": 0.3,
+      "surfaceType": "cratered"
+    },
+    {
+      "name": "Terrestrial",
+      "weight": 0.8,
+      "massRange": [0.8, 2.0],
+      "radiusRange": [0.9, 1.3],
+      "color": "#6b8e9f",
+      "atmosphereChance": 0.8,
+      "surfaceType": "smooth"
+    },
+    {
+      "name": "Desert",
+      "weight": 0.9,
+      "massRange": [0.5, 1.8],
+      "radiusRange": [0.8, 1.2],
+      "color": "#d4a373",
+      "atmosphereChance": 0.4,
+      "surfaceType": "smooth"
+    },
+    {
+      "name": "Super-Earth",
+      "weight": 0.7,
+      "massRange": [3, 10],
+      "radiusRange": [1.4, 2.2],
+      "color": "#a0937d",
+      "atmosphereChance": 0.7,
+      "surfaceType": "smooth"
+    },
+    {
+      "name": "Ice",
+      "weight": 0.6,
+      "massRange": [2, 8],
+      "radiusRange": [1.2, 2.0],
+      "color": "#c8e6f5",
+      "atmosphereChance": 0.0,
+      "surfaceType": "icy"
+    },
+    {
+      "name": "Lava",
+      "weight": 0.5,
+      "massRange": [0.3, 1.2],
+      "radiusRange": [0.6, 1.0],
+      "color": "#ff6b35",
+      "atmosphereChance": 0.1,
+      "surfaceType": "volcanic"
+    },
+    {
+      "name": "Ocean",
+      "weight": 0.6,
+      "massRange": [0.8, 3.0],
+      "radiusRange": [1.0, 1.5],
+      "color": "#4a90e2",
+      "atmosphereChance": 0.9,
+      "surfaceType": "oceanic"
+    },
+    {
+      "name": "Mini-Neptune",
+      "weight": 0.7,
+      "massRange": [5, 20],
+      "radiusRange": [2.0, 3.5],
+      "color": "#7cb3d9",
+      "atmosphereChance": 1.0,
+      "surfaceType": "banded"
+    },
+    {
+      "name": "Ice Giant",
+      "weight": 0.6,
+      "massRange": [15, 50],
+      "radiusRange": [3.5, 5.5],
+      "color": "#74b9d8",
+      "atmosphereChance": 1.0,
+      "surfaceType": "banded"
+    },
+    {
+      "name": "Gas Giant",
+      "weight": 0.5,
+      "massRange": [80, 200],
+      "radiusRange": [8, 12],
+      "color": "#d4a373",
+      "atmosphereChance": 1.0,
+      "surfaceType": "banded"
+    },
+    {
+      "name": "Jupiter-like",
+      "weight": 0.4,
+      "massRange": [200, 400],
+      "radiusRange": [10, 14],
+      "color": "#c9a96e",
+      "atmosphereChance": 1.0,
+      "surfaceType": "banded"
+    },
+    {
+      "name": "Super-Jupiter",
+      "weight": 0.3,
+      "massRange": [400, 800],
+      "radiusRange": [12, 16],
+      "color": "#b8956a",
+      "atmosphereChance": 1.0,
+      "surfaceType": "banded"
+    }
+  ]
+}
+

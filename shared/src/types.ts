@@ -1,5 +1,28 @@
 // Core game types
 
+// Surface type definitions (shared between server generation and client rendering)
+export const SurfaceType = {
+  SMOOTH: "smooth",
+  CRATERED: "cratered",
+  BANDED: "banded",
+  ICY: "icy",
+  VOLCANIC: "volcanic",
+  OCEANIC: "oceanic",
+} as const;
+
+export type SurfaceTypeName = (typeof SurfaceType)[keyof typeof SurfaceType];
+
+// Shader uniform values for each surface type
+// These map surface type strings to shader float constants
+export const SurfaceTypeShaderValue: Record<SurfaceTypeName, number> = {
+  [SurfaceType.SMOOTH]: 0.0,
+  [SurfaceType.CRATERED]: 1.0,
+  [SurfaceType.BANDED]: 2.0,
+  [SurfaceType.ICY]: 3.0,
+  [SurfaceType.VOLCANIC]: 4.0,
+  [SurfaceType.OCEANIC]: 5.0,
+};
+
 export interface Vector3 {
   x: number;
   y: number;
@@ -27,7 +50,7 @@ export interface CelestialBodyType {
   color?: string; // hex color for rendering
   hasAtmosphere?: boolean; // whether planet has atmosphere
   cloudCoverage?: number; // 0-1, how much cloud coverage for planets with atmosphere
-  surfaceType?: "cratered" | "smooth" | "volcanic" | "banded"; // surface appearance type
+  surfaceType?: SurfaceTypeName; // surface appearance type
   planetType?: string; // planet type like "Super-Earth", "Gas Giant", etc.
   // Asteroid-specific properties
   asteroidBeltId?: string; // if this is an asteroid, the belt it belongs to

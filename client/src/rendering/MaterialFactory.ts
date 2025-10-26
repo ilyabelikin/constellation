@@ -1,4 +1,176 @@
 import * as THREE from "three";
+import { SurfaceTypeShaderValue, SurfaceTypeName } from "@constellation/shared";
+
+/**
+ * Generate ice planet crack texture using Canvas 2D API
+ * Following the exact algorithm from the documentation
+ */
+function generateIcePlanetTexture(
+  seed: number,
+  baseColor: string
+): THREE.Texture {
+  const width = 2048;
+  const height = 1024;
+
+  // Create canvas
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+
+  // Seeded random number generator
+  const seededRandom = (s: number): number => {
+    const x = Math.sin(s) * 10000;
+    return x - Math.floor(x);
+  };
+
+  // Fill with base ice color
+  ctx.fillStyle = baseColor;
+  ctx.fillRect(0, 0, width, height);
+
+  // Ice planet crack styling
+  const crackColor = "rgba(10, 10, 20, 0.6)"; // Dark blue-black
+
+  // Use seed to create variety in crack parameters for each planet
+  const crackDensitySeed = seededRandom(seed * 1.1);
+  const crackLengthSeed = seededRandom(seed * 1.3);
+  const crackBendSeed = seededRandom(seed * 1.7);
+  const fineCrackSeed = seededRandom(seed * 2.1);
+
+  // Vary number of crack systems (10-40 range based on density seed)
+  const numCrackSystems = 10 + Math.floor(crackDensitySeed * 30);
+
+  // Vary crack length multiplier (0.7 to 1.3)
+  const lengthMultiplier = 0.7 + crackLengthSeed * 0.6;
+
+  // Vary bend/jaggedness (0.3 to 0.9 radians)
+  const bendAmount = 0.3 + crackBendSeed * 0.6;
+
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+
+  // Main crack systems
+  for (let i = 0; i < numCrackSystems; i++) {
+    const startX = seededRandom(seed + i * 123) * width;
+    const startY = seededRandom(seed + i * 456) * height;
+    // Vary branches: use density seed to affect branch count (1-6 branches)
+    const numBranches =
+      1 +
+      Math.floor(
+        seededRandom(seed + i * 789) * 5 * (0.5 + crackDensitySeed * 0.5)
+      );
+
+    for (let b = 0; b < numBranches; b++) {
+      const branchSeed = seed + i * 1000 + b * 100;
+      let angle = seededRandom(branchSeed) * Math.PI * 2;
+      let x = startX;
+      let y = startY;
+
+      const segments = 8 + Math.floor(seededRandom(branchSeed + 1) * 15); // 8-23 segments
+      const segmentLength =
+        (3 + seededRandom(branchSeed + 2) * 8) * lengthMultiplier; // Vary length per planet
+
+      const path: Array<{ x: number; y: number; widthFactor: number }> = [
+        { x, y, widthFactor: 1 },
+      ];
+
+      // Build crack path
+      for (let s = 0; s < segments; s++) {
+        angle += (seededRandom(branchSeed + s * 7) - 0.5) * bendAmount; // Vary bend per planet
+        x += Math.cos(angle) * segmentLength;
+        y += Math.sin(angle) * segmentLength;
+
+        // Wrap around horizontally (sphere mapping)
+        if (x < 0) x += width;
+        if (x > width) x -= width;
+        if (y < 0 || y > height) break;
+
+        const widthFactor = 1 - s / segments;
+        path.push({ x, y, widthFactor });
+      }
+
+      // Draw crack
+      ctx.strokeStyle = crackColor;
+      ctx.beginPath();
+      ctx.moveTo(path[0].x, path[0].y);
+      for (let p = 1; p < path.length; p++) {
+        ctx.lineTo(path[p].x, path[p].y);
+        // Taper from 2.5 to 0.5 pixels
+        ctx.lineWidth = 2.0 * path[p].widthFactor + 0.5;
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(path[p].x, path[p].y);
+      }
+
+      // Sub-branches (30% chance)
+      if (seededRandom(branchSeed + 999) > 0.6 && path.length > 5) {
+        const subBranchAngle =
+          angle + (seededRandom(branchSeed + 888) - 0.5) * Math.PI * 0.5;
+        const subSegments = 3 + Math.floor(seededRandom(branchSeed + 777) * 6); // 3-8 segments
+
+        let subX = path[path.length - 1].x;
+        let subY = path[path.length - 1].y;
+        const subPath: Array<{ x: number; y: number; widthFactor: number }> = [
+          { x: subX, y: subY, widthFactor: 1 },
+        ];
+
+        for (let ss = 0; ss < subSegments; ss++) {
+          subX += Math.cos(subBranchAngle) * segmentLength * 0.7; // 70% of parent length
+          subY += Math.sin(subBranchAngle) * segmentLength * 0.7;
+
+          if (subX < 0) subX += width;
+          if (subX > width) subX -= width;
+          if (subY < 0 || subY > height) break;
+
+          const widthFactor = 1 - ss / subSegments;
+          subPath.push({ x: subX, y: subY, widthFactor });
+        }
+
+        ctx.strokeStyle = crackColor;
+        ctx.beginPath();
+        ctx.moveTo(subPath[0].x, subPath[0].y);
+        for (let p = 1; p < subPath.length; p++) {
+          ctx.lineTo(subPath[p].x, subPath[p].y);
+          // Taper from 1.3 to 0.3 pixels for sub-branches
+          ctx.lineWidth = 1.0 * subPath[p].widthFactor + 0.3;
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(subPath[p].x, subPath[p].y);
+        }
+      }
+    }
+  }
+
+  // Fine detail cracks - vary count based on seed (20-80 range)
+  const numFineCracks = 20 + Math.floor(fineCrackSeed * 60);
+
+  for (let i = 0; i < numFineCracks; i++) {
+    const fx = seededRandom(seed + i * 234 + 5000) * width;
+    const fy = seededRandom(seed + i * 567 + 5000) * height;
+    const fAngle = seededRandom(seed + i * 890 + 5000) * Math.PI * 2;
+    // Vary fine crack length using length multiplier (7-45 pixel range)
+    const fLength =
+      (10 + seededRandom(seed + i * 111 + 5000) * 25) * lengthMultiplier;
+
+    const endX = fx + Math.cos(fAngle) * fLength;
+    const endY = fy + Math.sin(fAngle) * fLength;
+
+    ctx.strokeStyle = crackColor;
+    ctx.beginPath();
+    ctx.moveTo(fx, fy);
+    ctx.lineTo(endX, endY);
+    ctx.lineWidth = 1.0;
+    ctx.stroke();
+  }
+
+  // Create Three.js texture
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping; // Horizontal wrap for sphere
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+
+  return texture;
+}
 
 /**
  * Factory for creating shader materials for celestial bodies and ships
@@ -93,24 +265,46 @@ export class MaterialFactory {
   }
 
   /**
-   * Creates a shader material for planets with procedural texture and lighting
+   * Creates a material for planets with procedural texture and lighting
+   * Ice planets use MeshPhongMaterial with canvas-generated crack textures
+   * Other planets use custom ShaderMaterial
    */
   createPlanetMaterial(
     color: number,
-    surfaceType: string = "smooth"
-  ): THREE.ShaderMaterial {
+    surfaceType: SurfaceTypeName = "smooth",
+    seed?: string
+  ): THREE.Material {
+    // Ice planets use MeshPhongMaterial with canvas-generated textures
+    if (surfaceType === "icy" && seed) {
+      // Generate unique seed number from string id
+      const numericSeed = seed
+        .split("")
+        .reduce((acc, char) => acc + char.charCodeAt(0), 0);
+
+      // Generate crack texture
+      const crackTexture = generateIcePlanetTexture(
+        numericSeed,
+        new THREE.Color(color).getStyle()
+      );
+
+      // Create MeshPhongMaterial with high shininess and reflectivity for ice
+      return new THREE.MeshPhongMaterial({
+        map: crackTexture,
+        shininess: 100, // High shininess for glossy ice surface
+        specular: new THREE.Color("#ffffff"), // White specular highlights
+        emissive: new THREE.Color(color),
+        emissiveIntensity: 0.1, // Subtle self-illumination
+      });
+    }
+
+    // All other planets use custom shader
     return new THREE.ShaderMaterial({
       uniforms: {
         baseColor: { value: new THREE.Color(color) },
         lightPosition: { value: new THREE.Vector3(0, 0, 0) }, // Sun at origin
         rotation: { value: 0.0 }, // Planet rotation angle
         surfaceType: {
-          value:
-            surfaceType === "cratered"
-              ? 1.0
-              : surfaceType === "banded"
-              ? 2.0
-              : 0.0,
+          value: SurfaceTypeShaderValue[surfaceType] || 0.0,
         },
       },
       vertexShader: `
@@ -118,10 +312,12 @@ export class MaterialFactory {
         varying vec3 vPosition;
         varying vec3 vWorldPosition;
         varying vec3 vWorldNormal;
+        varying vec2 vUv;
         
         void main() {
           vNormal = normalize(normalMatrix * normal);
           vPosition = position;
+          vUv = uv; // Pass through geometry UVs
           vec4 worldPosition = modelMatrix * vec4(position, 1.0);
           vWorldPosition = worldPosition.xyz;
           // Calculate world space normal for lighting
@@ -138,6 +334,18 @@ export class MaterialFactory {
         varying vec3 vPosition;
         varying vec3 vWorldPosition;
         varying vec3 vWorldNormal;
+        varying vec2 vUv;
+        
+        // Note: cameraPosition is automatically provided by Three.js
+        
+        // Surface type constants
+        // IMPORTANT: These must match SurfaceTypeShaderValue in shared/src/types.ts
+        const float SURFACE_SMOOTH = 0.0;
+        const float SURFACE_CRATERED = 1.0;
+        const float SURFACE_BANDED = 2.0;
+        const float SURFACE_ICY = 3.0;
+        const float SURFACE_VOLCANIC = 4.0;
+        const float SURFACE_OCEANIC = 5.0;
         
         // Hash function for pseudo-random numbers
         float hash(vec2 p) {
@@ -222,18 +430,17 @@ export class MaterialFactory {
         }
         
         void main() {
-          // Calculate spherical coordinates for texture mapping
-          vec3 norm = normalize(vPosition);
-          // Add rotation to the horizontal coordinate
-          float u = atan(norm.z, norm.x) / (2.0 * 3.14159) + 0.5 + rotation / (2.0 * 3.14159);
-          float v = asin(norm.y) / 3.14159 + 0.5;
+          // Use geometry UVs with rotation applied
+          // This keeps the texture fixed to the surface when the planet rotates
+          float u = vUv.x + rotation / (2.0 * 3.14159);
+          float v = vUv.y;
           
           // Base color intensity
           float intensity = 1.0;
           vec3 colorModulation = vec3(1.0);
           
           // Gas giant thick colorful bands
-          if(surfaceType > 1.5) {
+          if(surfaceType == SURFACE_BANDED) {
             // Create flowing turbulent bands
             float flow = turbulence(vec2(u * 8.0, v * 6.0), 6);
             float distortion = turbulence(vec2(u * 12.0 + flow * 0.5, v * 4.0), 4) * 0.3;
@@ -315,7 +522,7 @@ export class MaterialFactory {
             }
           }
           // Add craters for barren/rocky planets
-          else if(surfaceType > 0.5 && surfaceType < 1.5) {
+          else if(surfaceType == SURFACE_CRATERED) {
             // Multiple layers of craters at different scales
             float largeCraters = craters(vec2(u, v), 8.0);
             float mediumCraters = craters(vec2(u, v), 16.0) * 0.7;
@@ -323,7 +530,206 @@ export class MaterialFactory {
             
             intensity += largeCraters + mediumCraters + smallCraters;
           }
-          // Smooth planets
+          // Icy planets with thin branching crack networks
+          else if(surfaceType == SURFACE_ICY) {
+            // Smooth ice base with very subtle variation
+            float baseIce = turbulence(vec2(u * 3.0, v * 3.0), 2) * 0.05;
+            
+            // Create thin, interconnected crack networks
+            float totalCracks = 0.0;
+            
+            // Main crack systems - more cracks, thinner lines
+            for(int i = 0; i < 30; i++) {
+              float seed = float(i) * 123.456;
+              
+              // Random crack origin point
+              vec2 origin = vec2(
+                hash(vec2(seed, seed * 2.0)),
+                hash(vec2(seed * 3.0, seed * 4.0))
+              );
+              
+              // Random crack direction angle
+              float angle = hash(vec2(seed * 5.0, seed * 6.0)) * 6.28318;
+              vec2 crackDir = vec2(cos(angle), sin(angle));
+              
+              // Create a directed crack from origin
+              vec2 toPoint = vec2(u, v) - origin;
+              
+              // Project point onto crack direction
+              float alongCrack = dot(toPoint, crackDir);
+              
+              // Perpendicular distance from crack line
+              float perpDist = abs(dot(toPoint, vec2(-crackDir.y, crackDir.x)));
+              
+              // Add jagged noise to make crack irregular and zigzag
+              // Multiple frequencies for realistic jagged appearance
+              float jaggedNoise1 = turbulence(vec2(alongCrack * 30.0, seed), 3) * 0.005;
+              float jaggedNoise2 = turbulence(vec2(alongCrack * 60.0, seed * 1.3), 2) * 0.003;
+              float jaggedNoise3 = noise(vec2(alongCrack * 120.0, seed * 1.7)) * 0.0015;
+              
+              // Combine multiple noise layers for jagged effect with wider detection
+              perpDist = perpDist + jaggedNoise1 + jaggedNoise2 + jaggedNoise3;
+              
+              // Draw longer cracks with thinner width
+              if(alongCrack > 0.0 && alongCrack < 0.5) {
+                // Thinner cracks with subtle taper, wider to accommodate jaggedness
+                float widthTaper = 1.0 - (alongCrack / 0.5) * 0.3; // Less tapering
+                float crackWidth = 0.004 * widthTaper + 0.0015; // Slightly wider for jagged lines
+                
+                float crack = smoothstep(crackWidth, crackWidth * 0.3, perpDist);
+                totalCracks += crack * 0.2;
+                
+                // Add multiple sub-branches for network effect
+                // Branch 1 at 1/3 along crack
+                float branch1Point = 0.17;
+                if(alongCrack > branch1Point && alongCrack < branch1Point + 0.25) {
+                  float branchAngle1 = angle + 0.8; // Branch at ~45 degrees
+                  vec2 branchDir1 = vec2(cos(branchAngle1), sin(branchAngle1));
+                  vec2 branchOrigin1 = origin + crackDir * branch1Point;
+                  vec2 toBranch1 = vec2(u, v) - branchOrigin1;
+                  
+                  float alongBranch1 = dot(toBranch1, branchDir1);
+                  float perpBranch1 = abs(dot(toBranch1, vec2(-branchDir1.y, branchDir1.x)));
+                  
+                  // Add jagged noise to sub-branch
+                  float branchJagged1 = turbulence(vec2(alongBranch1 * 50.0, seed * 2.1), 2) * 0.003;
+                  perpBranch1 += branchJagged1;
+                  
+                  if(alongBranch1 > 0.0 && alongBranch1 < 0.2) {
+                    float branchWidth1 = 0.0025; // Slightly wider
+                    totalCracks += smoothstep(branchWidth1, branchWidth1 * 0.3, perpBranch1) * 0.15;
+                  }
+                }
+                
+                // Branch 2 at 2/3 along crack (opposite side)
+                float branch2Point = 0.33;
+                if(alongCrack > branch2Point && alongCrack < branch2Point + 0.2) {
+                  float branchAngle2 = angle - 0.7; // Branch at opposite angle
+                  vec2 branchDir2 = vec2(cos(branchAngle2), sin(branchAngle2));
+                  vec2 branchOrigin2 = origin + crackDir * branch2Point;
+                  vec2 toBranch2 = vec2(u, v) - branchOrigin2;
+                  
+                  float alongBranch2 = dot(toBranch2, branchDir2);
+                  float perpBranch2 = abs(dot(toBranch2, vec2(-branchDir2.y, branchDir2.x)));
+                  
+                  // Add jagged noise to sub-branch
+                  float branchJagged2 = turbulence(vec2(alongBranch2 * 50.0, seed * 2.7), 2) * 0.003;
+                  perpBranch2 += branchJagged2;
+                  
+                  if(alongBranch2 > 0.0 && alongBranch2 < 0.15) {
+                    float branchWidth2 = 0.0025; // Slightly wider
+                    totalCracks += smoothstep(branchWidth2, branchWidth2 * 0.3, perpBranch2) * 0.12;
+                  }
+                }
+              }
+            }
+            
+            // More fine random cracks for network density
+            for(int i = 0; i < 70; i++) {
+              float seed = float(i) * 456.789 + 1000.0;
+              vec2 crackPos = vec2(
+                hash(vec2(seed, seed * 1.1)),
+                hash(vec2(seed * 1.2, seed * 1.3))
+              );
+              float crackAngle = hash(vec2(seed * 1.4, seed * 1.5)) * 6.28318;
+              vec2 crackDir = vec2(cos(crackAngle), sin(crackAngle));
+              
+              vec2 toPoint = vec2(u, v) - crackPos;
+              float alongCrack = dot(toPoint, crackDir);
+              float perpDist = abs(dot(toPoint, vec2(-crackDir.y, crackDir.x)));
+              
+              // Add jagged noise to fine cracks
+              float fineJagged = turbulence(vec2(alongCrack * 80.0, seed * 0.5), 2) * 0.002;
+              perpDist += fineJagged;
+              
+              // Longer fine cracks for better connectivity
+              if(alongCrack > 0.0 && alongCrack < 0.12) {
+                float fineCrack = smoothstep(0.002, 0.0008, perpDist); // Slightly wider
+                totalCracks += fineCrack * 0.12;
+              }
+            }
+            
+            totalCracks = clamp(totalCracks, 0.0, 1.0);
+            
+            // Base intensity: bright ice surface
+            intensity = 0.95 + baseIce;
+            intensity -= totalCracks * 0.6; // Slightly darker cracks for visibility
+            
+            // Crack color modulation - slightly darker for denser network
+            vec3 iceSurface = vec3(1.0, 1.0, 1.02);
+            vec3 crackColor = vec3(0.03, 0.03, 0.06); // Darker blue-black
+            colorModulation = mix(iceSurface, crackColor, totalCracks * 0.7);
+          }
+          // Volcanic planets with lava flows
+          else if(surfaceType == SURFACE_VOLCANIC) {
+            // Dark rocky base with turbulent variation
+            float baseRock = turbulence(vec2(u * 8.0, v * 8.0), 4) * 0.2;
+            
+            // Create glowing lava veins at multiple scales
+            // Large lava flows - main rivers of lava
+            float lava1 = abs(turbulence(vec2(u * 6.0, v * 6.0), 4) - 0.5);
+            float lava2 = abs(turbulence(vec2(u * 6.0 + 8.0, v * 6.0 + 4.0), 4) - 0.5);
+            float largeLava = smoothstep(0.08, 0.0, lava1) * 1.2;
+            largeLava += smoothstep(0.08, 0.0, lava2) * 1.2;
+            
+            // Medium lava cracks - branching flows
+            float lava3 = abs(turbulence(vec2(u * 12.0 + 2.0, v * 12.0 + 5.0), 3) - 0.5);
+            float mediumLava = smoothstep(0.06, 0.0, lava3) * 0.9;
+            
+            // Fine lava cracks - small glowing veins
+            float lava4 = abs(turbulence(vec2(u * 24.0 + 10.0, v * 24.0 + 15.0), 2) - 0.5);
+            float fineLava = smoothstep(0.04, 0.0, lava4) * 0.6;
+            
+            // Combine all lava flows
+            float totalLava = largeLava + mediumLava + fineLava;
+            
+            // Hot spots - pulsing lava pools
+            float hotSpots = turbulence(vec2(u * 10.0, v * 10.0), 5);
+            float poolPattern = smoothstep(0.7, 0.85, hotSpots) * 0.8;
+            
+            // Dark rocky base with glowing lava
+            intensity = 0.3 + baseRock; // Dark base
+            intensity += totalLava + poolPattern; // Add glowing lava
+            
+            // Color: dark gray rock transitions to bright orange/red lava
+            vec3 darkRock = vec3(0.2, 0.2, 0.2);
+            vec3 glowingLava = vec3(2.0, 0.6, 0.1); // Bright orange-red
+            colorModulation = mix(darkRock, glowingLava, clamp(totalLava + poolPattern, 0.0, 1.0));
+          }
+          // Oceanic planets with water currents
+          else if(surfaceType == SURFACE_OCEANIC) {
+            // Smooth water base with subtle variation
+            float baseNoise = turbulence(vec2(u * 5.0, v * 5.0), 3) * 0.1;
+            
+            // Create water current patterns at multiple scales
+            // Large currents - main flow patterns
+            float current1 = abs(turbulence(vec2(u * 8.0, v * 8.0), 4) - 0.5);
+            float current2 = abs(turbulence(vec2(u * 8.0 + 10.0, v * 8.0 + 5.0), 4) - 0.5);
+            float largeCurrent = smoothstep(0.05, 0.0, current1) * 0.25;
+            largeCurrent += smoothstep(0.05, 0.0, current2) * 0.25;
+            
+            // Medium currents - secondary flows
+            float current3 = abs(turbulence(vec2(u * 16.0 + 3.0, v * 16.0 + 7.0), 3) - 0.5);
+            float mediumCurrent = smoothstep(0.04, 0.0, current3) * 0.15;
+            
+            // Fine currents - small details
+            float current4 = abs(turbulence(vec2(u * 32.0 + 15.0, v * 32.0 + 20.0), 2) - 0.5);
+            float fineCurrent = smoothstep(0.03, 0.0, current4) * 0.1;
+            
+            // Combine all currents
+            float totalCurrents = largeCurrent + mediumCurrent + fineCurrent;
+            
+            // Create depth variation - deeper water is darker
+            float depthVariation = turbulence(vec2(u * 6.0, v * 6.0), 4);
+            
+            // Keep intensity lower to preserve water color (0.6 - 0.9 range)
+            intensity = 0.6 + baseNoise + depthVariation * 0.15;
+            intensity += totalCurrents * 0.3; // Currents create lighter areas
+            
+            // Enhance water color saturation - preserve base blue/green
+            colorModulation = baseColor * 1.15; // Boost saturation
+          }
+          // Smooth planets (terrestrial, desert)
           else {
             // Add horizontal bands (latitude-based) - smoother, lower frequency
             float bands = sin(v * 8.0) * 0.5 + 0.5;
@@ -347,8 +753,25 @@ export class MaterialFactory {
           // Add slight emissive on dark side for visibility
           float emissive = 0.1;
           
-          // Apply color modulation for gas giants
-          vec3 finalColor = colorModulation * intensity * (lighting + emissive);
+          // Add specular reflection for icy and oceanic planets
+          vec3 specular = vec3(0.0);
+          if(surfaceType == SURFACE_ICY) {
+            // Ice is very reflective
+            vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+            vec3 reflectDir = reflect(-lightDir, vWorldNormal);
+            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+            specular = vec3(1.0) * spec * 0.6; // Bright white specular highlights
+          }
+          else if(surfaceType == SURFACE_OCEANIC) {
+            // Water is moderately reflective
+            vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+            vec3 reflectDir = reflect(-lightDir, vWorldNormal);
+            float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
+            specular = baseColor * spec * 0.4; // Colored specular highlights matching water
+          }
+          
+          // Apply color modulation
+          vec3 finalColor = colorModulation * intensity * (lighting + emissive) + specular;
           
           gl_FragColor = vec4(finalColor, 1.0);
         }

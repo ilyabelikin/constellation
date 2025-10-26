@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp src/generation/planet-types.json dist/generation/planet-types.json",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js"
   },

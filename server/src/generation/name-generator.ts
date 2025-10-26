@@ -4,12 +4,10 @@ import { SeededRandom } from "./random.js";
 const PLANET_PREFIXES = [
   "Astra",
   "Vela",
-  "Orion",
   "Cygn",
   "Lyra",
   "Draco",
   "Seren",
-  "Altair",
   "Ceres",
   "Nexa",
   "Zeta",
@@ -24,7 +22,6 @@ const PLANET_PREFIXES = [
   "Kepla",
   "Lux",
   "Nyx",
-  "Sol",
   "Pax",
   "Vex",
   "Zar",
@@ -32,6 +29,9 @@ const PLANET_PREFIXES = [
   "Myr",
   "Eos",
   "Thel",
+  "Titan",
+  "Dione",
+  "Helios",
 ];
 
 const PLANET_CORES = [
@@ -45,7 +45,6 @@ const PLANET_CORES = [
   "tor",
   "vyn",
   "mer",
-  "sol",
   "gai",
   "zan",
   "vok",
@@ -59,6 +58,7 @@ const PLANET_CORES = [
   "kan",
   "rix",
   "mor",
+  "dax",
 ];
 
 const PLANET_SUFFIXES = [
@@ -104,12 +104,12 @@ const SHORT_NAMES = [
   "Vos",
   "Zen",
   "Rho",
-  "Sol",
   "Vor",
   "Kax",
   "Nex",
   "Hex",
   "Ren",
+  "Dax",
 ];
 
 export function generatePlanetName(rng: SeededRandom): string {

@@ -581,6 +581,15 @@ export class SceneManager {
           mesh.material.uniforms.rotation.value = rotation;
         }
 
+        // For MeshPhongMaterial (ice planets), rotate the texture
+        if (
+          mesh.material instanceof THREE.MeshPhongMaterial &&
+          mesh.material.map
+        ) {
+          // Rotate texture by offsetting U coordinate
+          mesh.material.map.offset.x = rotation / (2 * Math.PI);
+        }
+
         // Update cloud layer rotations if planet has atmosphere
         mesh.children.forEach((child) => {
           if (child.userData.cloudLayer && child instanceof THREE.Mesh) {

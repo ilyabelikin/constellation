@@ -72,7 +72,8 @@ export class CelestialBodyFactory {
 
     const material = this.materialFactory.createPlanetMaterial(
       planet.color || 0x888888,
-      planet.surfaceType || "smooth"
+      planet.surfaceType || "smooth",
+      planet.id // Pass planet ID as seed for unique textures
     );
 
     const mesh = new THREE.Mesh(geometry, material);
