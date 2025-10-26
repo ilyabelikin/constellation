@@ -462,13 +462,20 @@ export class MaterialFactory {
    */
   createPlanetMaterial(
     color: number,
-    surfaceType: SurfaceTypeName = "smooth",
-    seed?: string
+    surfaceType: SurfaceTypeName = "cratered",
+    seed?: string,
+    orbitalDistance?: number
   ): THREE.Material {
     // Generate unique seed number from string id
     const numericSeed = seed
       ? seed.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
       : 0;
+
+    // Normalize orbital distance for shader (typical habitable zone: 0.9-1.5 AU = 1.35e11 - 2.25e11 m)
+    // Map to 0.0 (close) to 1.0+ (far) for easier shader use
+    const normalizedDistance = orbitalDistance
+      ? Math.max(0, (orbitalDistance - 1.0e11) / 2.0e11) // 0 at 1.0e11m, 1.0 at 3.0e11m
+      : 0.5; // Default to mid-range
 
     // Ice planets use MeshPhongMaterial with canvas-generated textures
     if (surfaceType === "icy" && seed) {
@@ -516,6 +523,8 @@ export class MaterialFactory {
         surfaceType: {
           value: SurfaceTypeShaderValue[surfaceType] || 0.0,
         },
+        planetSeed: { value: numericSeed }, // Planet seed for consistent variety
+        orbitalDistance: { value: normalizedDistance }, // Normalized distance from star (0-1+)
       },
       vertexShader: `
         varying vec3 vNormal;
@@ -540,6 +549,8 @@ export class MaterialFactory {
         uniform vec3 lightPosition;
         uniform float rotation;
         uniform float surfaceType;
+        uniform float planetSeed;
+        uniform float orbitalDistance; // 0.0 (close to star) to 1.0+ (far from star)
         varying vec3 vNormal;
         varying vec3 vPosition;
         varying vec3 vWorldPosition;
@@ -550,16 +561,22 @@ export class MaterialFactory {
         
         // Surface type constants
         // IMPORTANT: These must match SurfaceTypeShaderValue in shared/src/types.ts
-        const float SURFACE_SMOOTH = 0.0;
-        const float SURFACE_CRATERED = 1.0;
-        const float SURFACE_BANDED = 2.0;
-        const float SURFACE_ICY = 3.0;
-        const float SURFACE_VOLCANIC = 4.0;
-        const float SURFACE_OCEANIC = 5.0;
+        const float SURFACE_TERRESTRIAL = 0.0;
+        const float SURFACE_DESERT = 1.0;
+        const float SURFACE_CRATERED = 2.0;
+        const float SURFACE_BANDED = 3.0;
+        const float SURFACE_ICY = 4.0;
+        const float SURFACE_VOLCANIC = 5.0;
+        const float SURFACE_OCEANIC = 6.0;
         
         // Hash function for pseudo-random numbers
         float hash(vec2 p) {
           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+        
+        // Seeded random for consistent variation per planet
+        float seededRandom(float seed) {
+          return fract(sin(seed) * 43758.5453123);
         }
         
         // Simple noise for surface features
@@ -581,7 +598,40 @@ export class MaterialFactory {
           return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
         }
         
-        // Turbulent flow for gas giants
+        // 3D hash for seamless sphere noise
+        float hash3D(vec3 p) {
+          p = fract(p * vec3(127.1, 311.7, 74.7));
+          p += dot(p, p.yzx + 19.19);
+          return fract((p.x + p.y) * p.z);
+        }
+        
+        // 3D noise for seamless spheres
+        float noise3D(vec3 p) {
+          vec3 i = floor(p);
+          vec3 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          
+          float n000 = hash3D(i);
+          float n100 = hash3D(i + vec3(1.0, 0.0, 0.0));
+          float n010 = hash3D(i + vec3(0.0, 1.0, 0.0));
+          float n110 = hash3D(i + vec3(1.0, 1.0, 0.0));
+          float n001 = hash3D(i + vec3(0.0, 0.0, 1.0));
+          float n101 = hash3D(i + vec3(1.0, 0.0, 1.0));
+          float n011 = hash3D(i + vec3(0.0, 1.0, 1.0));
+          float n111 = hash3D(i + vec3(1.0, 1.0, 1.0));
+          
+          float nx00 = mix(n000, n100, f.x);
+          float nx10 = mix(n010, n110, f.x);
+          float nx01 = mix(n001, n101, f.x);
+          float nx11 = mix(n011, n111, f.x);
+          
+          float nxy0 = mix(nx00, nx10, f.y);
+          float nxy1 = mix(nx01, nx11, f.y);
+          
+          return mix(nxy0, nxy1, f.z);
+        }
+        
+        // Turbulent flow for gas giants (2D)
         float turbulence(vec2 p, int octaves) {
           float value = 0.0;
           float amplitude = 0.5;
@@ -590,6 +640,22 @@ export class MaterialFactory {
           for(int i = 0; i < 8; i++) {
             if(i >= octaves) break;
             value += amplitude * abs(noise2D(p * frequency));
+            frequency *= 2.0;
+            amplitude *= 0.5;
+          }
+          
+          return value;
+        }
+        
+        // 3D turbulence for seamless spheres
+        float turbulence3D(vec3 p, int octaves) {
+          float value = 0.0;
+          float amplitude = 0.5;
+          float frequency = 1.0;
+          
+          for(int i = 0; i < 8; i++) {
+            if(i >= octaves) break;
+            value += amplitude * abs(noise3D(p * frequency));
             frequency *= 2.0;
             amplitude *= 0.5;
           }
@@ -939,21 +1005,73 @@ export class MaterialFactory {
             // Enhance water color saturation - preserve base blue/green
             colorModulation = baseColor * 1.15; // Boost saturation
           }
-          // Smooth planets (terrestrial) - continents, oceans, and ice caps
-          else {
-            // Generate continents using turbulence (similar to clouds)
-            float continentNoise = turbulence(vec2(u * 4.0, v * 4.0), 5);
+          // Terrestrial planets - continents, oceans, and ice caps
+          else if(surfaceType == SURFACE_TERRESTRIAL) {
+            // Generate seed-based variety parameters for this planet
+            float continentScaleSeed = seededRandom(planetSeed * 1.1);
+            float waterLevelSeed = seededRandom(planetSeed * 1.3);
+            float iceCapSizeSeed = seededRandom(planetSeed * 1.7);
             
-            // Threshold to determine land vs ocean (0.5 = 50% land, 50% ocean)
-            float landThreshold = 0.48;
+            // Vary continent scale (2-6 range) for different sized landmasses
+            float continentScale = 2.5 + continentScaleSeed * 3.5;
+            
+            // Use 3D position for seamless noise (no UV seam)
+            // Apply rotation to the sampling position
+            vec3 rotatedPos = vPosition;
+            float cosRot = cos(rotation);
+            float sinRot = sin(rotation);
+            rotatedPos = vec3(
+              vPosition.x * cosRot - vPosition.z * sinRot,
+              vPosition.y,
+              vPosition.x * sinRot + vPosition.z * cosRot
+            );
+            
+            // Normalize and scale for continent generation
+            vec3 samplePos = normalize(rotatedPos) * continentScale;
+            
+            // Generate continents using 3D turbulence for seamless wrapping
+            float continentNoise = turbulence3D(samplePos, 5);
+            
+            // Vary water level (0.40 to 0.55) for different ocean coverage
+            // 0.40 = ~60% water (oceanic), 0.55 = ~45% water (more land)
+            float landThreshold = 0.40 + waterLevelSeed * 0.15;
             bool isLand = continentNoise > landThreshold;
             
             // Check if we're near poles for ice caps with irregular boundaries
             float distanceFromPole = abs(v - 0.5) * 2.0; // 0 at poles, 1 at equator
             
-            // Add noise to ice cap boundary for irregular shape
-            float iceNoise = turbulence(vec2(u * 8.0, v * 8.0), 4) * 0.15;
-            float iceThreshold = 0.85 - iceNoise; // Vary threshold (0.70 to 1.0)
+            // Ice cap size varies with orbital distance (temperature)
+            // Close planets (hot): small ice caps (0.85-0.92)
+            // Mid-range planets (temperate): medium ice caps (0.70-0.85)
+            // Far planets (cold): large ice caps (0.10-0.50), up to 90% coverage
+            
+            float temperatureFactor = clamp(orbitalDistance, 0.0, 2.0);
+            float minIceThreshold, maxIceThreshold;
+            
+            if (temperatureFactor < 0.5) {
+              // Hot planets (close to star) - tiny ice caps
+              minIceThreshold = 0.85;
+              maxIceThreshold = 0.92;
+            } else if (temperatureFactor < 1.0) {
+              // Temperate planets (habitable zone) - moderate ice caps
+              minIceThreshold = 0.70;
+              maxIceThreshold = 0.85;
+            } else if (temperatureFactor < 1.5) {
+              // Cool planets - large ice caps
+              minIceThreshold = 0.30;
+              maxIceThreshold = 0.70;
+            } else {
+              // Frozen planets (far from star) - massive ice caps up to 90%
+              minIceThreshold = 0.10;
+              maxIceThreshold = 0.30;
+            }
+            
+            // Apply seed-based variety within the temperature range
+            float baseIceThreshold = minIceThreshold + iceCapSizeSeed * (maxIceThreshold - minIceThreshold);
+            
+            // Add noise to ice cap boundary for irregular shape using 3D noise
+            float iceNoise = turbulence3D(samplePos * 0.8, 4) * 0.12;
+            float iceThreshold = baseIceThreshold - iceNoise;
             
             bool isIceCap = distanceFromPole > iceThreshold; // Ice caps with uneven edges
             
@@ -980,8 +1098,8 @@ export class MaterialFactory {
                 intensity = 1.0;
               }
               
-              // Add some crack detail to ice caps
-              float iceCracks = turbulence(vec2(u * 20.0, v * 20.0), 3);
+              // Add some crack detail to ice caps using 3D noise
+              float iceCracks = turbulence3D(samplePos * 2.0, 3);
               intensity -= smoothstep(0.45, 0.55, iceCracks) * 0.08;
             }
             else if (isLand) {
@@ -989,8 +1107,8 @@ export class MaterialFactory {
               // Vary color by latitude (greener at equator, browner near poles)
               float latitude = abs(v - 0.5) * 2.0;
               
-              // Add terrain variation
-              float terrainDetail = turbulence(vec2(u * 15.0, v * 15.0), 4) * 0.15;
+              // Add terrain variation using 3D noise
+              float terrainDetail = turbulence3D(samplePos * 1.5, 4) * 0.15;
               
               // Greener at equator, more brown/tan at higher latitudes
               float greenAmount = 1.0 - latitude * 0.5;
@@ -1001,8 +1119,8 @@ export class MaterialFactory {
               );
               intensity = 0.9 + terrainDetail;
               
-              // Add mountain ranges (darker, higher elevation)
-              float mountains = turbulence(vec2(u * 8.0, v * 8.0), 6);
+              // Add mountain ranges (darker, higher elevation) using 3D noise
+              float mountains = turbulence3D(samplePos * 0.8, 6);
               if (mountains > 0.65) {
                 colorModulation *= 0.7; // Darker for mountains
                 intensity += 0.1;
@@ -1021,10 +1139,53 @@ export class MaterialFactory {
               );
               intensity = 0.8 + oceanDepth * 0.2;
               
-              // Add wave patterns
-              float waves = turbulence(vec2(u * 25.0, v * 25.0), 3) * 0.1;
+              // Add wave patterns using 3D noise
+              float waves = turbulence3D(samplePos * 2.5, 3) * 0.1;
               intensity += waves;
             }
+          }
+          // Desert planets - arid terrain with dunes
+          else if(surfaceType == SURFACE_DESERT) {
+            // Use 3D noise for seamless desert terrain
+            vec3 rotatedPos = vPosition;
+            float cosRot = cos(rotation);
+            float sinRot = sin(rotation);
+            rotatedPos = vec3(
+              vPosition.x * cosRot - vPosition.z * sinRot,
+              vPosition.y,
+              vPosition.x * sinRot + vPosition.z * cosRot
+            );
+            vec3 samplePos = normalize(rotatedPos) * 5.0;
+            
+            // Rocky desert base with dune patterns
+            float desertNoise = turbulence3D(samplePos, 5) * 0.3;
+            
+            // Add dune patterns - larger features
+            float dunes = turbulence3D(samplePos * 0.5, 4) * 0.2;
+            
+            // Rocky outcrops
+            float rocks = turbulence3D(samplePos * 2.0, 6);
+            float rockPattern = smoothstep(0.6, 0.75, rocks) * 0.15;
+            
+            intensity = 0.8 + desertNoise + dunes - rockPattern;
+            colorModulation = baseColor; // Use planet's desert color
+          }
+          // Cratered planets - rocky with impact craters
+          else if(surfaceType == SURFACE_CRATERED) {
+            // Use cratered shader
+            float craterPattern = craters(vec2(u, v), 15.0);
+            intensity = 0.7 + craterPattern * 0.3;
+            
+            // Add some noise for terrain variation
+            float terrainNoise = noise(vec2(u * 8.0, v * 8.0));
+            intensity += terrainNoise * 0.1;
+            
+            colorModulation = baseColor; // Use planet's rock color
+          }
+          // Fallback for any unhandled surface types
+          else {
+            intensity = 0.8;
+            colorModulation = baseColor;
           }
           
           // Basic lighting from sun using world space normal and position
@@ -1053,20 +1214,58 @@ export class MaterialFactory {
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
             specular = baseColor * spec * 0.4; // Colored specular highlights matching water
           }
-          else if(surfaceType == SURFACE_SMOOTH) {
+          else if(surfaceType == SURFACE_TERRESTRIAL) {
             // Terrestrial planets - specular on oceans and ice caps
             vec3 viewDir = normalize(cameraPosition - vWorldPosition);
             vec3 reflectDir = reflect(-lightDir, vWorldNormal);
             
-            // Recalculate if this is water or ice for specular
-            float continentNoise = turbulence(vec2(u * 4.0, v * 4.0), 5);
+            // Recalculate terrain parameters using same seed-based values and 3D noise
+            float continentScaleSeed = seededRandom(planetSeed * 1.1);
+            float waterLevelSeed = seededRandom(planetSeed * 1.3);
+            float iceCapSizeSeed = seededRandom(planetSeed * 1.7);
+            
+            float continentScale = 2.5 + continentScaleSeed * 3.5;
+            float landThreshold = 0.40 + waterLevelSeed * 0.15;
+            
+            // Use same distance-based ice threshold as main shader
+            float temperatureFactor = clamp(orbitalDistance, 0.0, 2.0);
+            float minIceThreshold, maxIceThreshold;
+            
+            if (temperatureFactor < 0.5) {
+              minIceThreshold = 0.85;
+              maxIceThreshold = 0.92;
+            } else if (temperatureFactor < 1.0) {
+              minIceThreshold = 0.70;
+              maxIceThreshold = 0.85;
+            } else if (temperatureFactor < 1.5) {
+              minIceThreshold = 0.30;
+              maxIceThreshold = 0.70;
+            } else {
+              minIceThreshold = 0.10;
+              maxIceThreshold = 0.30;
+            }
+            
+            float baseIceThreshold = minIceThreshold + iceCapSizeSeed * (maxIceThreshold - minIceThreshold);
+            
+            // Use 3D position for seamless noise
+            vec3 rotatedPos2 = vPosition;
+            float cosRot2 = cos(rotation);
+            float sinRot2 = sin(rotation);
+            rotatedPos2 = vec3(
+              vPosition.x * cosRot2 - vPosition.z * sinRot2,
+              vPosition.y,
+              vPosition.x * sinRot2 + vPosition.z * cosRot2
+            );
+            vec3 samplePos2 = normalize(rotatedPos2) * continentScale;
+            
+            float continentNoise = turbulence3D(samplePos2, 5);
             float distanceFromPole = abs(v - 0.5) * 2.0;
             
-            // Match irregular ice cap boundary
-            float iceNoise = turbulence(vec2(u * 8.0, v * 8.0), 4) * 0.15;
-            float iceThreshold = 0.85 - iceNoise;
+            // Match irregular ice cap boundary using 3D noise
+            float iceNoise = turbulence3D(samplePos2 * 0.8, 4) * 0.12;
+            float iceThreshold = baseIceThreshold - iceNoise;
             
-            bool isWater = continentNoise <= 0.48;
+            bool isWater = continentNoise <= landThreshold;
             bool isPolarIce = distanceFromPole > iceThreshold;
             
             if (isPolarIce) {
@@ -1104,28 +1303,60 @@ export class MaterialFactory {
   }
 
   /**
-   * Creates a shader material for planet atmospheres with Fresnel effect
+   * Creates a shader material for planet atmospheres with enhanced Fresnel effect
    */
   createAtmosphereMaterial(color: number): THREE.ShaderMaterial {
+    const atmosphereColor = new THREE.Color(color);
+
+    // Brighten and saturate the atmosphere color for more inviting look
+    atmosphereColor.multiplyScalar(1.3); // Brighter
+
+    // For Earth-like colors (blue/green), add slight cyan tint
+    if (atmosphereColor.b > atmosphereColor.r) {
+      atmosphereColor.g = Math.min(atmosphereColor.g * 1.2, 1.0);
+    }
+
     return new THREE.ShaderMaterial({
       uniforms: {
-        atmosphereColor: { value: new THREE.Color(color) },
+        atmosphereColor: { value: atmosphereColor },
       },
       vertexShader: `
         varying vec3 vNormal;
+        varying vec3 vPosition;
         void main() {
           vNormal = normalize(normalMatrix * normal);
+          vPosition = position;
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: `
         uniform vec3 atmosphereColor;
         varying vec3 vNormal;
+        varying vec3 vPosition;
         
         void main() {
-          // Fresnel effect - atmosphere is more visible at edges
-          float intensity = pow(0.7 - dot(vNormal, vec3(0.0, 0.0, 1.0)), 2.0);
-          gl_FragColor = vec4(atmosphereColor, intensity * 0.6);
+          // Enhanced Fresnel effect - stronger glow at edges
+          float edgeFactor = dot(vNormal, vec3(0.0, 0.0, 1.0));
+          
+          // Multi-layer atmospheric glow
+          // Inner glow - subtle and smooth
+          float innerGlow = pow(0.8 - edgeFactor, 1.5) * 0.4;
+          
+          // Outer glow - more intense at the very edge
+          float outerGlow = pow(0.7 - edgeFactor, 2.5) * 0.8;
+          
+          // Atmospheric scattering - brightest near horizon
+          float scattering = smoothstep(0.0, 0.4, 1.0 - edgeFactor) * 0.3;
+          
+          // Combine glows
+          float intensity = innerGlow + outerGlow + scattering;
+          
+          // Add slight color shift at edge (atmospheric scattering effect)
+          vec3 finalColor = atmosphereColor;
+          float edgeShift = smoothstep(0.3, 0.0, edgeFactor);
+          finalColor = mix(atmosphereColor, atmosphereColor * vec3(1.2, 1.1, 1.0), edgeShift * 0.3);
+          
+          gl_FragColor = vec4(finalColor, intensity);
         }
       `,
       transparent: true,
@@ -1247,8 +1478,9 @@ export class MaterialFactory {
         }
         
         void main() {
-          // Apply rotation to UV coordinates (subtract to match planet rotation direction)
-          float u = vUv.x - rotation;
+          // Apply rotation to UV coordinates (add to match planet rotation direction)
+          // Clouds rotate slightly faster (1.1x) to create changing weather patterns
+          float u = vUv.x + rotation * 1.1;
           
           // Map UV to sphere coordinates for seamless wrapping
           // Convert u (0-1) to angle (0-2π) and use sin/cos for seamless tiling

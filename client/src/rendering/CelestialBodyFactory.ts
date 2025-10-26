@@ -70,10 +70,14 @@ export class CelestialBodyFactory {
     const radius = planet.radius * this.scale * this.bodySizeMultiplier;
     const geometry = new THREE.SphereGeometry(radius, 64, 64);
 
+    // Calculate orbital distance for temperature-based features
+    const orbitalDistance = planet.orbitalElements?.semiMajorAxis || 0;
+
     const material = this.materialFactory.createPlanetMaterial(
       planet.color || 0x888888,
       planet.surfaceType || "smooth",
-      planet.id // Pass planet ID as seed for unique textures
+      planet.id, // Pass planet ID as seed for unique textures
+      orbitalDistance // Pass orbital distance for environmental effects
     );
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -81,7 +85,7 @@ export class CelestialBodyFactory {
 
     // Add atmosphere if planet has one
     if (planet.hasAtmosphere) {
-      const atmosphereRadius = radius * 1.05; // 5% larger than planet
+      const atmosphereRadius = radius * 1.08; // 8% larger than planet for more visible glow
       const atmosphereGeometry = new THREE.SphereGeometry(
         atmosphereRadius,
         32,

@@ -24,8 +24,8 @@
       "massRange": [0.8, 2.0],
       "radiusRange": [0.9, 1.3],
       "color": "#6b8e9f",
-      "atmosphereChance": 0.8,
-      "surfaceType": "smooth"
+      "atmosphereChance": 1,
+      "surfaceType": "terrestrial"
     },
     {
       "name": "Desert",
@@ -34,16 +34,16 @@
       "radiusRange": [0.8, 1.2],
       "color": "#d4a373",
       "atmosphereChance": 0.4,
-      "surfaceType": "smooth"
+      "surfaceType": "desert"
     },
     {
-      "name": "Super-Earth",
+      "name": "Mega-Terrestrial",
       "weight": 0.7,
       "massRange": [3, 10],
       "radiusRange": [1.4, 2.2],
-      "color": "#a0937d",
-      "atmosphereChance": 0.7,
-      "surfaceType": "smooth"
+      "color": "#5a8fa8",
+      "atmosphereChance": 1,
+      "surfaceType": "terrestrial"
     },
     {
       "name": "Ice",
@@ -51,7 +51,7 @@
       "massRange": [2, 8],
       "radiusRange": [1.2, 2.0],
       "color": "#c8e6f5",
-      "atmosphereChance": 0.0,
+      "atmosphereChance": 0.1,
       "surfaceType": "icy"
     },
     {
@@ -73,7 +73,7 @@
       "surfaceType": "oceanic"
     },
     {
-      "name": "Mini-Neptune",
+      "name": "Sub-Giant",
       "weight": 0.7,
       "massRange": [5, 20],
       "radiusRange": [2.0, 3.5],
@@ -100,7 +100,7 @@
       "surfaceType": "banded"
     },
     {
-      "name": "Jupiter-like",
+      "name": "Massive Giant",
       "weight": 0.4,
       "massRange": [200, 400],
       "radiusRange": [10, 14],
@@ -109,7 +109,7 @@
       "surfaceType": "banded"
     },
     {
-      "name": "Super-Jupiter",
+      "name": "Ultra Giant",
       "weight": 0.3,
       "massRange": [400, 800],
       "radiusRange": [12, 16],
@@ -119,4 +119,3 @@
     }
   ]
 }
-
