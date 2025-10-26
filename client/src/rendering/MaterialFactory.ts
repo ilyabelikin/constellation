@@ -1404,6 +1404,7 @@ export class MaterialFactory {
         baseColor: { value: new THREE.Color(baseColor) },
         rotation: { value: 0 },
         cloudCoverage: { value: cloudCoverage },
+        time: { value: 0 }, // Time for evolving cloud patterns
       },
       vertexShader: `
         varying vec3 vPosition;
@@ -1421,6 +1422,7 @@ export class MaterialFactory {
         uniform vec3 baseColor;
         uniform float rotation;
         uniform float cloudCoverage;
+        uniform float time; // Time for cloud pattern evolution
         varying vec3 vPosition;
         varying vec3 vNormal;
         varying vec2 vUv;
@@ -1479,9 +1481,9 @@ export class MaterialFactory {
         }
         
         void main() {
-          // Apply rotation to UV coordinates (add to match planet rotation direction)
-          // Clouds rotate slightly faster (1.1x) to create changing weather patterns
-          float u = vUv.x + rotation * 1.1;
+          // Apply rotation to UV coordinates (subtract to match planet rotation direction)
+          // Clouds move slightly faster (1.05x) to simulate slow weather drift
+          float u = vUv.x - rotation * 1.05;
           
           // Map UV to sphere coordinates for seamless wrapping
           // Convert u (0-1) to angle (0-2π) and use sin/cos for seamless tiling
@@ -1489,11 +1491,17 @@ export class MaterialFactory {
           float latitude = (vUv.y - 0.5) * 3.14159265359; // -π/2 to π/2
           
           // Create 3D position on a torus-like surface for seamless noise
+          // Add very slow time evolution to the sample position for changing patterns
           vec3 samplePos = vec3(
             cos(angle) * 2.0,
             sin(angle) * 2.0,
             latitude * 1.5
           );
+          
+          // Add very slow temporal evolution (scaled way down for slow changes)
+          // This makes cloud patterns evolve over time - 10x slower
+          vec3 timeOffset = vec3(time * 0.000002, time * 0.0000015, time * 0.000001);
+          samplePos += timeOffset;
           
           // Add animated polar storm vortex effect
           float polarDistance = abs(vUv.y - 0.5) * 2.0; // 0 at equator, 1 at poles

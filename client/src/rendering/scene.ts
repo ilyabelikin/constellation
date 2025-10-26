@@ -712,6 +712,12 @@ export class SceneManager {
                 baseRotationSpeed * child.userData.rotationSpeed;
               cloudMaterial.uniforms.rotation.value =
                 this.timeInterpolator.getGameTime() * cloudRotationSpeed;
+
+              // Update time uniform for evolving cloud patterns
+              if (cloudMaterial.uniforms.time) {
+                cloudMaterial.uniforms.time.value =
+                  this.timeInterpolator.getGameTime();
+              }
             }
           }
         });
