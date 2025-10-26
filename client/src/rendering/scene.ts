@@ -35,6 +35,7 @@ export class SceneManager {
   private gates: Map<string, THREE.Group> = new Map();
   private asteroids: Map<string, THREE.Mesh> = new Map();
   private moons: Map<string, THREE.Mesh> = new Map();
+  private rings: Map<string, THREE.Group> = new Map(); // Planetary ring systems
   private orbitLines: Map<string, THREE.Line> = new Map();
   private moonOrbitLines: Map<string, THREE.Line> = new Map(); // Moon orbit lines (shown conditionally)
   private starMaterials: THREE.ShaderMaterial[] = [];
@@ -175,6 +176,15 @@ export class SceneManager {
       const planetMesh = this.celestialBodyFactory.createPlanet(planet);
       this.scene.add(planetMesh);
       this.bodies.set(planet.id, planetMesh);
+
+      // Create rings if planet has them
+      if (planet.rings && planet.rings.length > 0) {
+        const ringGroup = this.celestialBodyFactory.createRings(planet);
+        if (ringGroup) {
+          this.scene.add(ringGroup);
+          this.rings.set(planet.id, ringGroup);
+        }
+      }
     }
 
     // Create orbit lines
@@ -271,6 +281,16 @@ export class SceneManager {
       this.scene.remove(mesh);
     }
 
+    // Dispose and remove all rings
+    for (const ringGroup of this.rings.values()) {
+      ringGroup.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          this.disposeMesh(child);
+        }
+      });
+      this.scene.remove(ringGroup);
+    }
+
     // Dispose and remove all orbit lines
     for (const line of this.orbitLines.values()) {
       if (line.geometry) {
@@ -308,6 +328,7 @@ export class SceneManager {
     this.gates.clear();
     this.asteroids.clear();
     this.moons.clear();
+    this.rings.clear();
     this.orbitLines.clear();
     this.moonOrbitLines.clear();
     this.starMaterials = [];
@@ -615,6 +636,9 @@ export class SceneManager {
         for (const mesh of this.moons.values()) {
           mesh.visible = true;
         }
+        for (const ringGroup of this.rings.values()) {
+          ringGroup.visible = true;
+        }
         for (const line of this.orbitLines.values()) {
           line.visible = true;
         }
@@ -645,6 +669,12 @@ export class SceneManager {
       );
       if (interpolatedPos) {
         mesh.position.copy(interpolatedPos);
+
+        // Update ring position to follow planet
+        const ringGroup = this.rings.get(bodyId);
+        if (ringGroup) {
+          ringGroup.position.copy(interpolatedPos);
+        }
       }
 
       // Add planet rotation via shader uniform for smooth animation

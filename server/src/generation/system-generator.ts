@@ -5,6 +5,7 @@ import {
   CelestialBodyType,
   OrbitalElements,
   AsteroidBelt,
+  PlanetaryRing,
   SOLAR_MASS,
   SOLAR_RADIUS,
   EARTH_MASS,
@@ -97,6 +98,92 @@ export function generateStar(rng: SeededRandom): CelestialBodyType {
     orbitalElements: null,
     color: starClass.color,
   };
+}
+
+/**
+ * Generates a ring system for a gas giant
+ * Creates multiple ring bands with varying colors and opacity
+ */
+function generateRings(
+  rng: SeededRandom,
+  planetRadius: number,
+  planetColor: string
+): PlanetaryRing[] {
+  const rings: PlanetaryRing[] = [];
+
+  // Decide on ring complexity: 2-7 ring bands (including thin rings)
+  const numBands = Math.floor(rng.nextFloat(2, 7.5));
+
+  // Ring starts at 1.5-2.5x planet radius
+  const ringStartMultiplier = rng.nextFloat(1.5, 2.5);
+  const innerRadius = planetRadius * ringStartMultiplier;
+
+  // Ring extends to 2.5-4.5x planet radius
+  const ringEndMultiplier = rng.nextFloat(2.5, 4.5);
+  const outerRadius = planetRadius * ringEndMultiplier;
+
+  // Ring inclination (tilt relative to orbital plane)
+  // 70% chance: nearly aligned (0-10 degrees)
+  // 30% chance: tilted (10-30 degrees)
+  const inclinationChance = rng.next();
+  const inclination =
+    inclinationChance < 0.7
+      ? rng.nextFloat(0, 0.175) // 0-10 degrees
+      : rng.nextFloat(0.175, 0.524); // 10-30 degrees
+
+  // Parse planet color to create ring variations
+  const baseColor = parseInt(planetColor.replace("#", ""), 16);
+  const r = (baseColor >> 16) & 0xff;
+  const g = (baseColor >> 8) & 0xff;
+  const b = baseColor & 0xff;
+
+  // Create ring bands with varying shades and widths
+  const bandWidth = (outerRadius - innerRadius) / numBands;
+
+  for (let i = 0; i < numBands; i++) {
+    const bandInnerRadius = innerRadius + i * bandWidth;
+    let bandOuterRadius = innerRadius + (i + 1) * bandWidth;
+
+    // 30% chance for this to be a very thin ring
+    const isThinRing = rng.next() < 0.3;
+    if (isThinRing) {
+      // Make it very thin (5-15% of normal width)
+      const thinFactor = rng.nextFloat(0.05, 0.15);
+      bandOuterRadius = bandInnerRadius + bandWidth * thinFactor;
+    }
+
+    // Add gaps between bands (larger gaps for regular rings, smaller for thin rings)
+    const gapSize = isThinRing ? bandWidth * 0.05 : bandWidth * 0.1;
+    const adjustedInnerRadius =
+      i > 0 ? bandInnerRadius + gapSize / 2 : bandInnerRadius;
+    const adjustedOuterRadius =
+      i < numBands - 1 ? bandOuterRadius - gapSize / 2 : bandOuterRadius;
+
+    // Vary shade for each band (darker to lighter or vice versa)
+    const shadeFactor = rng.nextFloat(0.6, 1.2);
+    const bandR = Math.min(255, Math.floor(r * shadeFactor));
+    const bandG = Math.min(255, Math.floor(g * shadeFactor));
+    const bandB = Math.min(255, Math.floor(b * shadeFactor));
+
+    const bandColor = `#${((1 << 24) + (bandR << 16) + (bandG << 8) + bandB)
+      .toString(16)
+      .slice(1)}`;
+
+    // Vary opacity: thin rings are more translucent (0.2-0.4), regular rings (0.3-0.7)
+    const opacity = isThinRing
+      ? rng.nextFloat(0.2, 0.4)
+      : rng.nextFloat(0.3, 0.7);
+
+    rings.push({
+      innerRadius: adjustedInnerRadius,
+      outerRadius: adjustedOuterRadius,
+      color: bandColor,
+      opacity,
+      inclination, // All bands share same inclination
+    });
+  }
+
+  return rings;
 }
 
 export function generatePlanet(
@@ -202,7 +289,7 @@ export function generatePlanet(
   // Generate procedural name
   const planetName = generatePlanetName(rng);
 
-  return {
+  const planet: CelestialBodyType = {
     id: uuidv4(),
     name: planetName,
     type: "planet",
@@ -217,6 +304,19 @@ export function generatePlanet(
     planetType: planetType.name,
     moons: [], // Will be populated later
   };
+
+  // Generate rings for some gas giants
+  // Gas giants: mass > 15 Earth masses
+  const massInEarthMasses = mass / EARTH_MASS;
+  if (massInEarthMasses > 15) {
+    const ringChance = rng.next();
+    // 40% chance for rings
+    if (ringChance < 0.4) {
+      planet.rings = generateRings(rng, radius, planetType.color);
+    }
+  }
+
+  return planet;
 }
 
 function generateMoon(
@@ -226,7 +326,8 @@ function generateMoon(
   planetRadius: number,
   index: number,
   totalMoons: number,
-  isSuperMoon: boolean = false
+  isSuperMoon: boolean = false,
+  planetRings?: PlanetaryRing[]
 ): CelestialBodyType {
   // Moon names (using Roman numerals)
   const moonNames = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
@@ -335,20 +436,35 @@ function generateMoon(
   const eccentricity = rng.nextFloat(0.0, 0.15);
 
   // Inclination: varied orbital planes for visual interest
-  // 60% low inclination, 25% moderate inclination, 15% extreme/polar inclination
+  // Special case: if planet has rings, some moons may align with ring plane
   let inclination: number;
-  const inclinationRoll = rng.next();
 
-  if (inclinationRoll < 0.6) {
-    // Most moons: low inclination (within 10 degrees of planet's orbital plane)
-    inclination = rng.nextGaussian(0, 0.087); // ~5 degrees std dev
-  } else if (inclinationRoll < 0.85) {
-    // Some moons: moderate inclination (10-45 degrees) - like Earth's Moon
-    inclination = rng.nextFloat(0.175, 0.785); // 10-45 degrees in radians
+  if (planetRings && planetRings.length > 0 && rng.next() < 0.4) {
+    // 40% chance for moons to orbit in ring plane if planet has rings
+    const ringInclination = planetRings[0].inclination;
+    inclination = ringInclination + rng.nextGaussian(0, 0.035); // Near ring plane ±2 degrees
+    console.log(
+      `Moon ${name} aligned with ring plane (inclination: ${(
+        (inclination * 180) /
+        Math.PI
+      ).toFixed(1)}°)`
+    );
   } else {
-    // Rare moons: extreme/polar inclination (45-85 degrees) - dramatic angles
-    // These orbit at steep angles to the system plane
-    inclination = rng.nextFloat(0.785, 1.484); // 45-85 degrees in radians
+    // Normal moon inclination distribution
+    // 60% low inclination, 25% moderate inclination, 15% extreme/polar inclination
+    const inclinationRoll = rng.next();
+
+    if (inclinationRoll < 0.6) {
+      // Most moons: low inclination (within 10 degrees of planet's orbital plane)
+      inclination = rng.nextGaussian(0, 0.087); // ~5 degrees std dev
+    } else if (inclinationRoll < 0.85) {
+      // Some moons: moderate inclination (10-45 degrees) - like Earth's Moon
+      inclination = rng.nextFloat(0.175, 0.785); // 10-45 degrees in radians
+    } else {
+      // Rare moons: extreme/polar inclination (45-85 degrees) - dramatic angles
+      // These orbit at steep angles to the system plane
+      inclination = rng.nextFloat(0.785, 1.484); // 45-85 degrees in radians
+    }
   }
 
   const longitudeOfAscendingNode = rng.nextFloat(0, 2 * Math.PI);
@@ -632,7 +748,8 @@ export function generateStarSystem(seed: number): {
           planet.radius,
           i,
           numMoons,
-          isSuperMoon
+          isSuperMoon,
+          planet.rings // Pass ring information for potential alignment
         );
         planet.moons!.push(moon);
         allMoons.push(moon);

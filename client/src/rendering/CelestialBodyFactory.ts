@@ -505,6 +505,69 @@ export class CelestialBodyFactory {
   }
 
   /**
+   * Creates planetary rings for a gas giant
+   * Returns a Group containing all ring bands with proper inclination
+   */
+  createRings(planet: any): THREE.Group | null {
+    if (!planet.rings || planet.rings.length === 0) {
+      return null;
+    }
+
+    const ringGroup = new THREE.Group();
+    ringGroup.userData = {
+      id: `${planet.id}-rings`,
+      type: "rings",
+      parentId: planet.id,
+    };
+
+    // Create each ring band as a separate mesh
+    for (const ring of planet.rings) {
+      // Apply same scaling as the planet itself (scale + bodySizeMultiplier)
+      const innerRadius =
+        ring.innerRadius * this.scale * this.bodySizeMultiplier;
+      const outerRadius =
+        ring.outerRadius * this.scale * this.bodySizeMultiplier;
+
+      // Create ring geometry
+      const geometry = new THREE.RingGeometry(
+        innerRadius,
+        outerRadius,
+        128, // segments (high for smooth rings)
+        8 // phi segments (radial detail)
+      );
+
+      // Rotate UV coordinates to make the ring texture radial
+      const uvs = geometry.attributes.uv.array;
+      for (let i = 0; i < uvs.length; i += 2) {
+        const u = uvs[i];
+        const v = uvs[i + 1];
+        // Keep radial UVs for potential texture mapping
+        uvs[i] = u;
+        uvs[i + 1] = v;
+      }
+
+      // Create semi-transparent material with the ring's color
+      const material = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(ring.color),
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: ring.opacity,
+        depthWrite: false, // Important for proper transparency blending
+      });
+
+      const ringMesh = new THREE.Mesh(geometry, material);
+      ringMesh.renderOrder = 1; // Render after opaque objects but in order
+
+      // Apply inclination (tilt) to the ring
+      ringMesh.rotation.x = Math.PI / 2 + ring.inclination; // Rotate from vertical to horizontal + tilt
+
+      ringGroup.add(ringMesh);
+    }
+
+    return ringGroup;
+  }
+
+  /**
    * Gets the material factory (for updating shader uniforms)
    */
   getMaterialFactory(): MaterialFactory {

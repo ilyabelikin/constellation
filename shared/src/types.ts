@@ -62,6 +62,16 @@ export interface CelestialBodyType {
   isTumbling?: boolean; // whether moon/asteroid has chaotic tumbling rotation (vs stable single-axis)
   // Moon-specific properties
   moons?: CelestialBodyType[]; // moons orbiting this planet
+  // Ring system properties (for gas giants)
+  rings?: PlanetaryRing[];
+}
+
+export interface PlanetaryRing {
+  innerRadius: number; // meters (actual radius, not scaled)
+  outerRadius: number; // meters (actual radius, not scaled)
+  color: string; // hex color
+  opacity: number; // 0-1, overall opacity
+  inclination: number; // radians, tilt relative to planet's orbital plane
 }
 
 export interface StarGate {
