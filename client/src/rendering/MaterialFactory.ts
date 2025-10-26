@@ -95,12 +95,16 @@ export class MaterialFactory {
   /**
    * Creates a shader material for planets with procedural texture and lighting
    */
-  createPlanetMaterial(color: number): THREE.ShaderMaterial {
+  createPlanetMaterial(
+    color: number,
+    surfaceType: string = "smooth"
+  ): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
       uniforms: {
         baseColor: { value: new THREE.Color(color) },
         lightPosition: { value: new THREE.Vector3(0, 0, 0) }, // Sun at origin
         rotation: { value: 0.0 }, // Planet rotation angle
+        surfaceType: { value: surfaceType === "cratered" ? 1.0 : 0.0 },
       },
       vertexShader: `
         varying vec3 vNormal;
@@ -122,14 +126,62 @@ export class MaterialFactory {
         uniform vec3 baseColor;
         uniform vec3 lightPosition;
         uniform float rotation;
+        uniform float surfaceType;
         varying vec3 vNormal;
         varying vec3 vPosition;
         varying vec3 vWorldPosition;
         varying vec3 vWorldNormal;
         
+        // Hash function for pseudo-random numbers
+        float hash(vec2 p) {
+          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+        }
+        
         // Simple noise for surface features
         float noise(vec2 p) {
           return sin(p.x * 10.0) * cos(p.y * 8.0) * 0.5 + 0.5;
+        }
+        
+        // Generate craters
+        float craters(vec2 uv, float scale) {
+          vec2 grid = floor(uv * scale);
+          vec2 localUV = fract(uv * scale);
+          
+          float craterEffect = 0.0;
+          
+          // Check this cell and neighboring cells
+          for(float y = -1.0; y <= 1.0; y++) {
+            for(float x = -1.0; x <= 1.0; x++) {
+              vec2 neighbor = grid + vec2(x, y);
+              
+              // Generate random position for crater in this cell
+              vec2 craterPos = vec2(
+                hash(neighbor),
+                hash(neighbor + vec2(13.7, 27.3))
+              );
+              
+              // Generate random size
+              float craterSize = 0.2 + hash(neighbor + vec2(50.1, 60.2)) * 0.3;
+              
+              // Calculate distance to crater center
+              vec2 toCenter = (localUV - vec2(x, y)) - craterPos;
+              float dist = length(toCenter);
+              
+              // Only create crater if random value is above threshold (controls density)
+              float shouldExist = hash(neighbor + vec2(100.0, 200.0));
+              if(shouldExist > 0.6) {
+                // Crater bowl with raised rim
+                if(dist < craterSize) {
+                  float rimDist = abs(dist - craterSize * 0.85) / (craterSize * 0.15);
+                  float rimHeight = smoothstep(1.0, 0.0, rimDist) * 0.15;
+                  float bowlDepth = smoothstep(craterSize, 0.0, dist) * -0.25;
+                  craterEffect += bowlDepth + rimHeight;
+                }
+              }
+            }
+          }
+          
+          return craterEffect;
         }
         
         void main() {
@@ -141,6 +193,16 @@ export class MaterialFactory {
           
           // Base color intensity
           float intensity = 1.0;
+          
+          // Add craters for barren/rocky planets
+          if(surfaceType > 0.5) {
+            // Multiple layers of craters at different scales
+            float largeCraters = craters(vec2(u, v), 8.0);
+            float mediumCraters = craters(vec2(u, v), 16.0) * 0.7;
+            float smallCraters = craters(vec2(u, v), 32.0) * 0.5;
+            
+            intensity += largeCraters + mediumCraters + smallCraters;
+          }
           
           // Add horizontal bands (latitude-based) - smoother, lower frequency
           float bands = sin(v * 8.0) * 0.5 + 0.5;

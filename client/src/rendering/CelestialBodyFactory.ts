@@ -71,7 +71,8 @@ export class CelestialBodyFactory {
     const geometry = new THREE.SphereGeometry(radius, 64, 64);
 
     const material = this.materialFactory.createPlanetMaterial(
-      planet.color || 0x888888
+      planet.color || 0x888888,
+      planet.surfaceType || "smooth"
     );
 
     const mesh = new THREE.Mesh(geometry, material);

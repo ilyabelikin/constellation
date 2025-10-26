@@ -101,6 +101,7 @@ export function generatePlanet(
       radiusRange: [0.3, 0.7],
       color: "#7a6a5a",
       atmosphereChance: 0.0,
+      surfaceType: "cratered" as const,
     },
     {
       name: "Rocky",
@@ -108,6 +109,7 @@ export function generatePlanet(
       radiusRange: [0.6, 1.2],
       color: "#8b7355",
       atmosphereChance: 0.2,
+      surfaceType: "cratered" as const,
     },
     {
       name: "Desert",
@@ -115,6 +117,7 @@ export function generatePlanet(
       radiusRange: [0.7, 1.3],
       color: "#d4a574",
       atmosphereChance: 0.3,
+      surfaceType: "smooth" as const,
     },
     {
       name: "Ocean",
@@ -122,6 +125,7 @@ export function generatePlanet(
       radiusRange: [0.9, 1.4],
       color: "#4a90c8",
       atmosphereChance: 0.9,
+      surfaceType: "smooth" as const,
     },
     {
       name: "Terrestrial",
@@ -129,6 +133,7 @@ export function generatePlanet(
       radiusRange: [0.7, 1.3],
       color: "#6b8e4e",
       atmosphereChance: 0.8,
+      surfaceType: "smooth" as const,
     },
     // Medium planets
     {
@@ -137,6 +142,7 @@ export function generatePlanet(
       radiusRange: [1.4, 2.2],
       color: "#a0937d",
       atmosphereChance: 0.7,
+      surfaceType: "smooth" as const,
     },
     {
       name: "Ice",
@@ -144,6 +150,7 @@ export function generatePlanet(
       radiusRange: [1.2, 2.0],
       color: "#c8e6f5",
       atmosphereChance: 0.5,
+      surfaceType: "smooth" as const,
     },
     {
       name: "Lava",
@@ -151,6 +158,7 @@ export function generatePlanet(
       radiusRange: [0.8, 1.6],
       color: "#ff6347",
       atmosphereChance: 0.2,
+      surfaceType: "volcanic" as const,
     },
     // Large ice/gas planets
     {
@@ -159,6 +167,7 @@ export function generatePlanet(
       radiusRange: [2.0, 3.5],
       color: "#7cb3d9",
       atmosphereChance: 1.0,
+      surfaceType: "banded" as const,
     },
     {
       name: "Ice Giant",
@@ -166,6 +175,7 @@ export function generatePlanet(
       radiusRange: [3.5, 5.5],
       color: "#74b9d8",
       atmosphereChance: 1.0,
+      surfaceType: "banded" as const,
     },
     // Giant planets
     {
@@ -174,6 +184,7 @@ export function generatePlanet(
       radiusRange: [8, 12],
       color: "#d4a373",
       atmosphereChance: 1.0,
+      surfaceType: "banded" as const,
     },
     {
       name: "Jupiter-like",
@@ -181,6 +192,7 @@ export function generatePlanet(
       radiusRange: [10, 14],
       color: "#c9a96e",
       atmosphereChance: 1.0,
+      surfaceType: "banded" as const,
     },
     {
       name: "Hot Jupiter",
@@ -188,6 +200,7 @@ export function generatePlanet(
       radiusRange: [9, 13],
       color: "#f5deb3",
       atmosphereChance: 1.0,
+      surfaceType: "banded" as const,
     },
   ];
 
@@ -273,6 +286,7 @@ export function generatePlanet(
     color: planetType.color,
     hasAtmosphere,
     cloudCoverage,
+    surfaceType: planetType.surfaceType,
     planetType: planetType.name,
   };
 }

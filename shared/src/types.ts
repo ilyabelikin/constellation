@@ -27,6 +27,7 @@ export interface CelestialBodyType {
   color?: string; // hex color for rendering
   hasAtmosphere?: boolean; // whether planet has atmosphere
   cloudCoverage?: number; // 0-1, how much cloud coverage for planets with atmosphere
+  surfaceType?: "cratered" | "smooth" | "volcanic" | "banded"; // surface appearance type
   planetType?: string; // planet type like "Super-Earth", "Gas Giant", etc.
 }
 
