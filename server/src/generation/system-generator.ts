@@ -256,6 +256,9 @@ export function generatePlanet(
   // Determine if planet has atmosphere
   const hasAtmosphere = rng.next() < planetType.atmosphereChance;
 
+  // Generate cloud coverage for planets with atmosphere (0.3 to 0.9)
+  const cloudCoverage = hasAtmosphere ? rng.nextFloat(0.3, 0.9) : undefined;
+
   // Generate procedural name
   const planetName = generatePlanetName(rng);
 
@@ -269,6 +272,7 @@ export function generatePlanet(
     orbitalElements,
     color: planetType.color,
     hasAtmosphere,
+    cloudCoverage,
     planetType: planetType.name,
   };
 }

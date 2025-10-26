@@ -193,6 +193,22 @@ export class CameraController {
   }
 
   /**
+   * Get the current camera distance
+   * @returns Current distance from camera target
+   */
+  getCameraDistance(): number {
+    return this.cameraDistance;
+  }
+
+  /**
+   * Set the camera distance without changing target or angles
+   * @param distance - New camera distance
+   */
+  setCameraDistance(distance: number): void {
+    this.cameraDistance = distance;
+  }
+
+  /**
    * Smoothly transition to system view during gate travel animation
    * @param distance - Current camera distance
    * @param progress - Animation progress from 0 to 1

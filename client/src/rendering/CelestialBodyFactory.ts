@@ -95,6 +95,33 @@ export class CelestialBodyFactory {
         atmosphereMaterial
       );
       mesh.add(atmosphereMesh); // Attach to planet so it rotates together
+
+      // Add weather/cloud layers
+      const cloudCoverage = planet.cloudCoverage || 0.5;
+
+      // Layer 1: Lower clouds (faster rotation)
+      const cloudRadius1 = radius * 1.02; // Just above surface
+      const cloudGeometry1 = new THREE.SphereGeometry(cloudRadius1, 48, 48);
+      const cloudMaterial1 = this.materialFactory.createCloudMaterial(
+        0xffffff,
+        cloudCoverage
+      );
+      const cloudMesh1 = new THREE.Mesh(cloudGeometry1, cloudMaterial1);
+      cloudMesh1.userData.cloudLayer = 1;
+      cloudMesh1.userData.rotationSpeed = 0.3; // Faster rotation
+      mesh.add(cloudMesh1);
+
+      // Layer 2: Upper clouds (slower rotation, less dense)
+      const cloudRadius2 = radius * 1.035; // Between surface and atmosphere
+      const cloudGeometry2 = new THREE.SphereGeometry(cloudRadius2, 48, 48);
+      const cloudMaterial2 = this.materialFactory.createCloudMaterial(
+        0xffffff,
+        cloudCoverage * 0.6 // Upper layer has 60% of base coverage
+      );
+      const cloudMesh2 = new THREE.Mesh(cloudGeometry2, cloudMaterial2);
+      cloudMesh2.userData.cloudLayer = 2;
+      cloudMesh2.userData.rotationSpeed = 0.15; // Slower rotation
+      mesh.add(cloudMesh2);
     }
 
     return mesh;
