@@ -215,6 +215,224 @@ export function generatePlanet(
     cloudCoverage,
     surfaceType: planetType.surfaceType,
     planetType: planetType.name,
+    moons: [], // Will be populated later
+  };
+}
+
+function generateMoon(
+  rng: SeededRandom,
+  planetId: string,
+  planetMass: number,
+  planetRadius: number,
+  index: number,
+  totalMoons: number,
+  isSuperMoon: boolean = false
+): CelestialBodyType {
+  // Moon names (using Roman numerals)
+  const moonNames = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
+  const name = moonNames[index] || `Moon ${index + 1}`;
+
+  const massRatio = planetMass / EARTH_MASS;
+
+  let radius: number;
+
+  if (isSuperMoon) {
+    // Super moon: like Earth's Moon (about 27% of Earth's radius)
+    // Now that moons are farther away, we can make super moons more impressive
+    radius = planetRadius * rng.nextFloat(0.15, 0.28);
+  } else {
+    // Regular moons: size depends on planet type and moon count
+    let minRadius: number;
+    let maxRadius: number;
+
+    if (massRatio > 50) {
+      // Gas giants: larger, more substantial moons (like Ganymede, Titan, Io, Europa)
+      // With many moons, create size variety
+      if (totalMoons > 3) {
+        minRadius = 400_000; // 400 km
+        maxRadius = 2_600_000; // 2600 km (Ganymede-sized)
+      } else {
+        // Few moons on gas giant: make them medium-large
+        minRadius = 800_000; // 800 km
+        maxRadius = 2_200_000; // 2200 km
+      }
+    } else if (massRatio > 10) {
+      // Ice giants: medium moons (like Triton, Titania)
+      if (totalMoons > 2) {
+        minRadius = 300_000; // 300 km
+        maxRadius = 1_400_000; // 1400 km
+      } else {
+        minRadius = 500_000; // 500 km
+        maxRadius = 1_200_000; // 1200 km
+      }
+    } else if (massRatio > 2) {
+      // Large terrestrial: small to medium moons
+      if (totalMoons > 2) {
+        minRadius = 200_000; // 200 km
+        maxRadius = 800_000; // 800 km
+      } else {
+        minRadius = 300_000; // 300 km
+        maxRadius = 600_000; // 600 km
+      }
+    } else {
+      // Earth-sized: small moons (unless it's the super moon)
+      if (totalMoons > 1) {
+        minRadius = 150_000; // 150 km
+        maxRadius = 500_000; // 500 km
+      } else {
+        // Single small moon
+        minRadius = 200_000; // 200 km
+        maxRadius = 400_000; // 400 km
+      }
+    }
+
+    radius = rng.nextFloat(minRadius, maxRadius);
+  }
+
+  // Moon mass based on rocky composition (density ~3000 kg/m³)
+  const density = 3000;
+  const volume = (4 / 3) * Math.PI * Math.pow(radius, 3);
+  const mass = volume * density;
+
+  // Orbital distance: Account for visual scaling in rendering
+  // Planets are rendered 50x larger for visibility, so moons need to orbit farther out
+  const visualScaleFactor = 50; // BODY_SIZE_MULTIPLIER from client
+
+  // Calculate the visual radius of the planet (real radius * visual scale)
+  const visualPlanetRadius = planetRadius * visualScaleFactor;
+
+  // Ensure moon never orbits inside the visual planet radius
+  // Add safety margin of 20% beyond visual radius
+  const safeMinDistance = visualPlanetRadius * 1.2;
+
+  // Orbital ranges - moons need good clearance from visually scaled planets
+  // Inner moons orbit faster (like Phobos at 2.76 Mars radii = 7.65 hours)
+  // Outer moons still visible but slower (like our Moon at 60 Earth radii = 27 days)
+  const standardMinDistance = planetRadius * 120; // Doubled for more clearance
+  const standardMaxDistance = planetRadius * 400; // Doubled for more spread
+
+  // Use whichever is larger to guarantee safety
+  const minDistance = Math.max(safeMinDistance, standardMinDistance);
+  const maxDistance = Math.max(minDistance * 1.5, standardMaxDistance); // Ensure max > min
+
+  // Calculate spacing to prevent moon collisions
+  // Each moon needs its own "slot" in the orbital range
+  // Add buffer zones between moons (at least 30% of the range between slots)
+  const totalSlots = Math.max(totalMoons, 1);
+  const distanceRange = maxDistance - minDistance;
+  const slotSize = distanceRange / totalSlots;
+  const bufferSize = slotSize * 0.3; // 30% buffer between moons
+  const usableSlotSize = slotSize - bufferSize;
+
+  // Assign this moon to its slot with small random variation within the slot
+  const slotStart = minDistance + index * slotSize + bufferSize / 2;
+  const semiMajorAxis = slotStart + rng.nextFloat(0, usableSlotSize);
+
+  // Final safety check: ensure semiMajorAxis is never less than safe minimum
+  const finalSemiMajorAxis = Math.max(semiMajorAxis, safeMinDistance);
+
+  // Eccentricity: mostly circular orbits but some variation
+  const eccentricity = rng.nextFloat(0.0, 0.15);
+
+  // Inclination: varied orbital planes for visual interest
+  // 60% low inclination, 25% moderate inclination, 15% extreme/polar inclination
+  let inclination: number;
+  const inclinationRoll = rng.next();
+
+  if (inclinationRoll < 0.6) {
+    // Most moons: low inclination (within 10 degrees of planet's orbital plane)
+    inclination = rng.nextGaussian(0, 0.087); // ~5 degrees std dev
+  } else if (inclinationRoll < 0.85) {
+    // Some moons: moderate inclination (10-45 degrees) - like Earth's Moon
+    inclination = rng.nextFloat(0.175, 0.785); // 10-45 degrees in radians
+  } else {
+    // Rare moons: extreme/polar inclination (45-85 degrees) - dramatic angles
+    // These orbit at steep angles to the system plane
+    inclination = rng.nextFloat(0.785, 1.484); // 45-85 degrees in radians
+  }
+
+  const longitudeOfAscendingNode = rng.nextFloat(0, 2 * Math.PI);
+  const argumentOfPeriapsis = rng.nextFloat(0, 2 * Math.PI);
+  const meanAnomalyAtEpoch = rng.nextFloat(0, 2 * Math.PI);
+
+  const orbitalElements: OrbitalElements = {
+    semiMajorAxis: finalSemiMajorAxis,
+    eccentricity: Math.abs(eccentricity),
+    inclination: Math.abs(inclination),
+    longitudeOfAscendingNode,
+    argumentOfPeriapsis,
+    meanAnomalyAtEpoch,
+    epoch: 0,
+  };
+
+  // Moon shape variety (similar to asteroids but less extreme)
+  // Larger moons are more spherical, smaller ones more irregular
+  const shapes = ["spherical", "elliptical", "rugged"] as const;
+  let shape: (typeof shapes)[number];
+
+  if (radius > 1_000_000) {
+    // Large moons (>1000km) are mostly spherical
+    shape = rng.next() < 0.8 ? "spherical" : "elliptical";
+  } else if (radius > 500_000) {
+    // Medium moons: mix of shapes
+    const rand = rng.next();
+    if (rand < 0.4) shape = "spherical";
+    else if (rand < 0.7) shape = "elliptical";
+    else shape = "rugged";
+  } else {
+    // Small moons: more irregular
+    const rand = rng.next();
+    if (rand < 0.2) shape = "spherical";
+    else if (rand < 0.5) shape = "elliptical";
+    else shape = "rugged";
+  }
+
+  // Composition
+  const compositions = ["water", "silica", "metal"] as const;
+  const compositionWeights = [0.3, 0.6, 0.1]; // Most are rocky (silica)
+  let totalWeight = rng.next();
+  let composition: (typeof compositions)[number] = "silica";
+
+  for (let i = 0; i < compositions.length; i++) {
+    totalWeight -= compositionWeights[i];
+    if (totalWeight <= 0) {
+      composition = compositions[i];
+      break;
+    }
+  }
+
+  // Rotation: Most moons rotate stably on a single axis
+  // Only small, irregular moons have chaotic tumbling
+  const rotationRate = rng.nextFloat(0.0001, 0.001);
+
+  // Determine rotation stability (95% stable, 5% tumbling)
+  const isStableRotation = rng.next() > 0.05;
+
+  // Small irregular moons are more likely to tumble
+  const isTumbling =
+    !isStableRotation ||
+    (radius < 300_000 && shape === "rugged" && rng.next() < 0.15);
+
+  // Color based on composition
+  const colors = {
+    water: "#d4e8f0", // icy white-blue
+    metal: "#a0a0a0", // gray
+    silica: "#8b7355", // rocky brown
+  };
+
+  return {
+    id: uuidv4(),
+    name,
+    type: "moon",
+    mass,
+    radius,
+    parentId: planetId,
+    orbitalElements,
+    composition,
+    shape,
+    rotationRate,
+    isTumbling, // New property to indicate chaotic rotation
+    color: colors[composition],
   };
 }
 
@@ -349,6 +567,7 @@ function generateAsteroidBelt(
 export function generateStarSystem(seed: number): {
   star: CelestialBodyType;
   planets: CelestialBodyType[];
+  moons: CelestialBodyType[];
   asteroidBelts: AsteroidBelt[];
 } {
   const rng = new SeededRandom(seed);
@@ -369,6 +588,59 @@ export function generateStarSystem(seed: number): {
     const bAxis = b.orbitalElements?.semiMajorAxis || 0;
     return aAxis - bAxis;
   });
+
+  // Generate moons for some planets
+  // Larger planets are more likely to have moons
+  // About 50% of planets get moons
+  const allMoons: CelestialBodyType[] = [];
+  for (const planet of planets) {
+    const planetMassRatio = planet.mass / EARTH_MASS;
+
+    // Probability of having moons increases with planet mass
+    let moonChance = 0.3; // Base 30% chance
+    if (planetMassRatio > 10)
+      moonChance = 0.9; // Gas giants almost always have moons
+    else if (planetMassRatio > 2)
+      moonChance = 0.7; // Large planets often have moons
+    else if (planetMassRatio > 0.5) moonChance = 0.5; // Earth-like planets sometimes have moons
+
+    if (rng.next() < moonChance) {
+      // Determine number of moons (1-5, with larger planets having more)
+      let numMoons: number;
+      if (planetMassRatio > 50) {
+        numMoons = rng.nextInt(3, 6); // Jupiter-sized: 3-6 moons
+      } else if (planetMassRatio > 10) {
+        numMoons = rng.nextInt(2, 4); // Neptune-sized: 2-4 moons
+      } else if (planetMassRatio > 2) {
+        numMoons = rng.nextInt(1, 3); // Large terrestrial: 1-3 moons
+      } else {
+        numMoons = rng.nextInt(1, 2); // Earth-sized: 1-2 moons
+      }
+
+      // Chance for a "super moon" (like Earth's Moon) - only for smaller planets with few moons
+      const canHaveSuperMoon = planetMassRatio < 5 && numMoons <= 2;
+      const hasSuperMoon = canHaveSuperMoon && rng.next() < 0.3; // 30% chance
+      const superMoonIndex = hasSuperMoon ? rng.nextInt(0, numMoons - 1) : -1;
+
+      // Generate moons for this planet
+      for (let i = 0; i < numMoons; i++) {
+        const isSuperMoon = i === superMoonIndex;
+        const moon = generateMoon(
+          rng,
+          planet.id,
+          planet.mass,
+          planet.radius,
+          i,
+          numMoons,
+          isSuperMoon
+        );
+        planet.moons!.push(moon);
+        allMoons.push(moon);
+      }
+
+      console.log(`Planet ${planet.name}: Generated ${numMoons} moon(s)`);
+    }
+  }
 
   // Generate asteroid belts (0 to 2 belts)
   const asteroidBelts: AsteroidBelt[] = [];
@@ -415,5 +687,5 @@ export function generateStarSystem(seed: number): {
     asteroidBelts.push(belt);
   }
 
-  return { star, planets, asteroidBelts };
+  return { star, planets, moons: allMoons, asteroidBelts };
 }

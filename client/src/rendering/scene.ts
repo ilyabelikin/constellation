@@ -34,7 +34,9 @@ export class SceneManager {
   private ships: Map<string, THREE.Mesh> = new Map();
   private gates: Map<string, THREE.Group> = new Map();
   private asteroids: Map<string, THREE.Mesh> = new Map();
+  private moons: Map<string, THREE.Mesh> = new Map();
   private orbitLines: Map<string, THREE.Line> = new Map();
+  private moonOrbitLines: Map<string, THREE.Line> = new Map(); // Moon orbit lines (shown conditionally)
   private starMaterials: THREE.ShaderMaterial[] = [];
   private gateMaterials: THREE.ShaderMaterial[] = [];
   private starfield: THREE.Points | null = null;
@@ -96,6 +98,11 @@ export class SceneManager {
     this.renderer.setPixelRatio(window.devicePixelRatio);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
+
+    // Enable shadow mapping
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Soft shadows
+
     container.appendChild(this.renderer.domElement);
 
     // Initialize components
@@ -210,6 +217,19 @@ export class SceneManager {
         this.asteroids.set(asteroid.id, asteroidMesh);
       }
     }
+
+    // Create moons
+    for (const moon of system.moons) {
+      const moonMesh = this.celestialBodyFactory.createMoon(moon);
+      this.scene.add(moonMesh);
+      this.moons.set(moon.id, moonMesh);
+
+      // Create moon orbit line (initially hidden)
+      const moonOrbitLine = this.celestialBodyFactory.createOrbitLine(moon);
+      moonOrbitLine.visible = false; // Hide by default
+      this.scene.add(moonOrbitLine);
+      this.moonOrbitLines.set(moon.id, moonOrbitLine);
+    }
   }
 
   setExploredGates(exploredGateIds: string[]): void {
@@ -245,8 +265,25 @@ export class SceneManager {
       this.scene.remove(mesh);
     }
 
+    // Dispose and remove all moons
+    for (const mesh of this.moons.values()) {
+      this.disposeMesh(mesh);
+      this.scene.remove(mesh);
+    }
+
     // Dispose and remove all orbit lines
     for (const line of this.orbitLines.values()) {
+      if (line.geometry) {
+        line.geometry.dispose();
+      }
+      if (line.material instanceof THREE.Material) {
+        line.material.dispose();
+      }
+      this.scene.remove(line);
+    }
+
+    // Dispose and remove all moon orbit lines
+    for (const line of this.moonOrbitLines.values()) {
       if (line.geometry) {
         line.geometry.dispose();
       }
@@ -270,7 +307,9 @@ export class SceneManager {
     this.ships.clear();
     this.gates.clear();
     this.asteroids.clear();
+    this.moons.clear();
     this.orbitLines.clear();
+    this.moonOrbitLines.clear();
     this.starMaterials = [];
     this.gateMaterials = [];
     this.timeInterpolator.clearPositions();
@@ -409,6 +448,44 @@ export class SceneManager {
         asteroidMesh.position.copy(newPosition);
       }
     }
+
+    // Update moon positions (moons orbit their parent planet)
+    for (const moonState of state.moons) {
+      const newPosition = new THREE.Vector3(
+        moonState.position.x * this.SCALE,
+        moonState.position.z * this.SCALE,
+        moonState.position.y * this.SCALE
+      );
+
+      this.timeInterpolator.setBodyTargetPosition(moonState.id, newPosition);
+
+      // If this is the first update for this moon, set position directly
+      const moonMesh = this.moons.get(moonState.id);
+      if (
+        moonMesh &&
+        !this.timeInterpolator.getInterpolatedPosition(moonState.id, 0)
+      ) {
+        moonMesh.position.copy(newPosition);
+      }
+
+      // Position moon orbit line at parent planet's position
+      if (this.system && moonMesh) {
+        const moon = this.system.moons.find((m) => m.id === moonState.id);
+        if (moon && moon.parentId) {
+          const parentBody = state.bodies.find((b) => b.id === moon.parentId);
+          if (parentBody) {
+            const moonOrbitLine = this.moonOrbitLines.get(moonState.id);
+            if (moonOrbitLine) {
+              moonOrbitLine.position.set(
+                parentBody.position.x * this.SCALE,
+                parentBody.position.z * this.SCALE,
+                parentBody.position.y * this.SCALE
+              );
+            }
+          }
+        }
+      }
+    }
   }
 
   private onMouseDown(event: MouseEvent): void {
@@ -458,6 +535,7 @@ export class SceneManager {
       ...this.ships.values(),
       ...this.gates.values(),
       ...this.asteroids.values(),
+      ...this.moons.values(),
     ];
     const objectId = this.interactionManager.getIntersectedObjectId(
       this.camera,
@@ -534,9 +612,13 @@ export class SceneManager {
         for (const mesh of this.asteroids.values()) {
           mesh.visible = true;
         }
+        for (const mesh of this.moons.values()) {
+          mesh.visible = true;
+        }
         for (const line of this.orbitLines.values()) {
           line.visible = true;
         }
+        // Moon orbit lines remain hidden (only shown when parent planet selected)
 
         // Position camera at exit gate
         this.gateTravelAnimator.positionAtExitGate(exitGateGroup);
@@ -653,13 +735,64 @@ export class SceneManager {
       }
     }
 
+    // Update moon positions and rotations
+    for (const [moonId, mesh] of this.moons.entries()) {
+      // Smooth orbital motion interpolation
+      const interpolatedPos = this.timeInterpolator.getInterpolatedPosition(
+        moonId,
+        lerpFactor
+      );
+      if (interpolatedPos) {
+        mesh.position.copy(interpolatedPos);
+      }
+
+      // Update moon orbit line position to follow parent planet
+      if (this.system) {
+        const moon = this.system.moons.find((m) => m.id === moonId);
+        if (moon && moon.parentId) {
+          const moonOrbitLine = this.moonOrbitLines.get(moonId);
+          if (moonOrbitLine) {
+            // Get parent planet's interpolated position
+            const parentInterpolatedPos =
+              this.timeInterpolator.getInterpolatedPosition(
+                moon.parentId,
+                lerpFactor
+              );
+            if (parentInterpolatedPos) {
+              moonOrbitLine.position.copy(parentInterpolatedPos);
+            }
+          }
+        }
+      }
+
+      // Add moon rotation if it has a rotation rate
+      if (mesh.userData.rotationRate && mesh.userData.rotationRate > 0) {
+        const rotation =
+          this.timeInterpolator.getGameTime() * mesh.userData.rotationRate;
+
+        // Check if this moon has chaotic tumbling or stable rotation
+        const isTumbling = mesh.userData.body?.isTumbling || false;
+
+        if (isTumbling) {
+          // Chaotic tumbling: rotate around multiple axes (rare)
+          mesh.rotation.x = rotation;
+          mesh.rotation.y = rotation * 0.7;
+          mesh.rotation.z = rotation * 0.5;
+        } else {
+          // Stable rotation: single axis (most common)
+          mesh.rotation.y = rotation;
+        }
+      }
+    }
+
     // Update camera with tracked object if tracking is enabled
     const selectedObjectId = this.cameraController.getSelectedObjectId();
     const trackedMesh = selectedObjectId
       ? this.bodies.get(selectedObjectId) ||
         this.ships.get(selectedObjectId) ||
         this.gates.get(selectedObjectId) ||
-        this.asteroids.get(selectedObjectId)
+        this.asteroids.get(selectedObjectId) ||
+        this.moons.get(selectedObjectId)
       : undefined;
     this.cameraController.update(trackedMesh);
   }
@@ -673,12 +806,16 @@ export class SceneManager {
       this.bodies.get(objectId) ||
       this.ships.get(objectId) ||
       this.gates.get(objectId) ||
-      this.asteroids.get(objectId);
+      this.asteroids.get(objectId) ||
+      this.moons.get(objectId);
     if (mesh) {
       const shouldUseGate = this.cameraController.centerOnObject(
         objectId,
         mesh
       );
+
+      // Handle moon orbit line visibility based on planet selection
+      this.updateMoonOrbitVisibility(objectId);
 
       // Notify listeners
       if (this.onObjectSelected) {
@@ -688,6 +825,33 @@ export class SceneManager {
       // Check if this is a gate being used (second click)
       if (shouldUseGate && this.onGateUse) {
         this.onGateUse(objectId);
+      }
+    }
+  }
+
+  /**
+   * Show/hide moon orbit lines based on whether their parent planet is selected
+   */
+  private updateMoonOrbitVisibility(selectedObjectId: string): void {
+    if (!this.system) return;
+
+    // Check if selected object is a planet
+    const selectedPlanet = this.system.planets.find(
+      (p) => p.id === selectedObjectId
+    );
+
+    // Hide all moon orbit lines first
+    for (const line of this.moonOrbitLines.values()) {
+      line.visible = false;
+    }
+
+    // If a planet is selected, show its moons' orbit lines
+    if (selectedPlanet && selectedPlanet.moons) {
+      for (const moon of selectedPlanet.moons) {
+        const moonOrbitLine = this.moonOrbitLines.get(moon.id);
+        if (moonOrbitLine) {
+          moonOrbitLine.visible = true;
+        }
       }
     }
   }

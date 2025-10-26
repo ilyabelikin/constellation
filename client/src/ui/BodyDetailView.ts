@@ -5,7 +5,7 @@ import {
 } from "@constellation/shared";
 
 /**
- * Manages the detail view for celestial bodies (stars, planets, asteroids)
+ * Manages the detail view for celestial bodies (stars, planets, moons, asteroids)
  */
 export class BodyDetailView {
   private panel: HTMLElement;
@@ -43,8 +43,8 @@ export class BodyDetailView {
     this.massElement.textContent = this.formatMass(body.mass);
     this.radiusElement.textContent = this.formatDistance(body.radius);
 
-    // Show asteroid-specific properties if this is an asteroid
-    if (body.type === "asteroid") {
+    // Show composition and shape properties for asteroids and moons
+    if (body.type === "asteroid" || body.type === "moon") {
       if (this.compositionElement) {
         this.compositionElement.style.display = "block";
         this.compositionElement.textContent = `Composition: ${this.formatComposition(
@@ -58,7 +58,7 @@ export class BodyDetailView {
         )}`;
       }
     } else {
-      // Hide asteroid-specific properties for other body types
+      // Hide composition/shape properties for other body types
       if (this.compositionElement) {
         this.compositionElement.style.display = "none";
       }

@@ -106,6 +106,43 @@ export class GameStateManager {
       }
     }
 
+    // Calculate moon positions (moons orbit their parent planet)
+    const moonStates: CelestialBodyState[] = [];
+    for (const moon of system.moons) {
+      if (moon.orbitalElements && moon.parentId) {
+        // Find the parent planet
+        const parentPlanet = planetStates.find((p) => p.id === moon.parentId);
+        if (parentPlanet) {
+          // Speed up moon orbits for visual effect (3x faster than realistic)
+          // This compensates for visual scaling adjustments
+          const moonTimeAcceleration = 40.0;
+          const acceleratedTime = this.currentTime * moonTimeAcceleration;
+
+          // Calculate moon's position relative to its parent planet
+          const state = calculateStateVectors(
+            moon.orbitalElements,
+            acceleratedTime,
+            parentPlanet.mass
+          );
+
+          // Add parent planet's position to get moon's absolute position
+          moonStates.push({
+            id: moon.id,
+            position: {
+              x: state.position.x + parentPlanet.position.x,
+              y: state.position.y + parentPlanet.position.y,
+              z: state.position.z + parentPlanet.position.z,
+            },
+            velocity: {
+              x: state.velocity.x + parentPlanet.velocity.x,
+              y: state.velocity.y + parentPlanet.velocity.y,
+              z: state.velocity.z + parentPlanet.velocity.z,
+            },
+          });
+        }
+      }
+    }
+
     // Calculate ship positions
     const ships = this.ships.get(systemId) || [];
     const shipStates: ShipState[] = ships.map((ship) => {
@@ -209,6 +246,7 @@ export class GameStateManager {
       ships: shipStates,
       gates: gateStates,
       asteroids: asteroidStates,
+      moons: moonStates,
     };
   }
 

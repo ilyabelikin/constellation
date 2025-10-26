@@ -526,6 +526,7 @@ export class MaterialFactory {
         planetSeed: { value: numericSeed }, // Planet seed for consistent variety
         orbitalDistance: { value: normalizedDistance }, // Normalized distance from star (0-1+)
       },
+      lights: false, // Disable Three.js lighting system (we do custom lighting)
       vertexShader: `
         varying vec3 vNormal;
         varying vec3 vPosition;

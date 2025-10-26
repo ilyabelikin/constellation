@@ -32,6 +32,16 @@ export class CelestialBodyFactory {
     // Add bright point light from the star (no distance limit, minimal decay for visibility)
     const light = new THREE.PointLight(star.color || 0xffff00, 30, 0, 0.5);
     light.position.set(0, 0, 0);
+
+    // Enable shadows from the star with high quality settings
+    light.castShadow = true;
+    light.shadow.mapSize.width = 4096; // Higher resolution for better moon shadows
+    light.shadow.mapSize.height = 4096;
+    light.shadow.camera.near = 1;
+    light.shadow.camera.far = 1000000;
+    light.shadow.bias = -0.00001; // Fine-tuned to prevent shadow acne
+    light.shadow.radius = 2; // Soft shadow edges
+
     scene.add(light);
 
     // Add multiple layers of glow around the star for enhanced radiance
@@ -82,6 +92,10 @@ export class CelestialBodyFactory {
 
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData = { id: planet.id, type: "planet", body: planet };
+
+    // Enable shadows for planets
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
 
     // Add atmosphere if planet has one
     if (planet.hasAtmosphere) {
@@ -204,8 +218,8 @@ export class CelestialBodyFactory {
 
     const geometry = new THREE.BufferGeometry().setFromPoints(points);
     const material = new THREE.LineBasicMaterial({
-      color: 0x00ff00,
-      opacity: 0.3,
+      color: 0x888888, // Gray color for better visibility
+      opacity: 0.5,
       transparent: true,
     });
     const line = new THREE.Line(geometry, material);
@@ -351,6 +365,10 @@ export class CelestialBodyFactory {
       rotationRate: asteroid.rotationRate || 0,
     };
 
+    // Enable shadows for asteroids
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
     return mesh;
   }
 
@@ -380,6 +398,99 @@ export class CelestialBodyFactory {
         Math.sin(nz * 3.9 + nx * 5.1);
 
       const displacement = radius * (0.7 + noise * 0.3); // 70-100% of radius
+
+      positions.setXYZ(
+        i,
+        nx * displacement,
+        ny * displacement,
+        nz * displacement
+      );
+    }
+
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+
+  /**
+   * Creates a moon mesh with shape and composition variation
+   * Similar to asteroids but with less extreme ruggedness
+   */
+  createMoon(moon: any): THREE.Mesh {
+    // Moons use similar size multiplier to asteroids but scaled for visibility
+    const moonSizeMultiplier = this.bodySizeMultiplier * 2.5;
+    let radius = moon.radius * this.scale * moonSizeMultiplier;
+
+    // Ensure minimum visible size
+    const minVisibleRadius = 0.3;
+    radius = Math.max(radius, minVisibleRadius);
+
+    let geometry: THREE.BufferGeometry;
+
+    // Create geometry based on shape
+    if (moon.shape === "spherical") {
+      // Spherical moons (like Earth's moon)
+      geometry = new THREE.SphereGeometry(radius, 24, 24);
+    } else if (moon.shape === "elliptical") {
+      // Elliptical moons (slightly elongated)
+      geometry = new THREE.SphereGeometry(radius, 24, 24);
+      geometry.scale(1.3, 0.9, 1.0);
+    } else {
+      // Rugged/irregular moons (like Phobos/Deimos)
+      // Less extreme than asteroids - angular but not spiky
+      geometry = this.createRuggedMoonGeometry(radius);
+    }
+
+    const composition = moon.composition || "silica";
+    const shape = moon.shape || "rugged";
+    const material = this.materialFactory.createAsteroidMaterial(
+      composition,
+      moon.color || 0x888888,
+      shape
+    );
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData = {
+      id: moon.id,
+      type: "moon",
+      body: moon,
+      rotationRate: moon.rotationRate || 0,
+    };
+
+    // Enable shadows for moons
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+
+    return mesh;
+  }
+
+  /**
+   * Creates a rugged moon geometry with moderate irregularity
+   * Less extreme than asteroids - angular but not spiky
+   */
+  private createRuggedMoonGeometry(radius: number): THREE.BufferGeometry {
+    const geometry = new THREE.SphereGeometry(radius, 20, 20);
+    const positions = geometry.attributes.position;
+
+    // Apply moderate displacement for angular appearance
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i);
+      const y = positions.getY(i);
+      const z = positions.getZ(i);
+
+      // Normalize to get direction
+      const length = Math.sqrt(x * x + y * y + z * z);
+      const nx = x / length;
+      const ny = y / length;
+      const nz = z / length;
+
+      // Apply noise-based displacement (less extreme than asteroids)
+      const noise =
+        Math.sin(nx * 4.0 + ny * 2.5) *
+        Math.cos(ny * 3.2 + nz * 4.8) *
+        Math.sin(nz * 3.0 + nx * 3.8);
+
+      // More moderate displacement: 80-100% of radius (vs 70-100% for asteroids)
+      const displacement = radius * (0.8 + noise * 0.2);
 
       positions.setXYZ(
         i,

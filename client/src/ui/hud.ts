@@ -221,6 +221,53 @@ export class HUDManager {
           }
         });
         this.outlineList.appendChild(planetItem);
+
+        // Add moons similar to asteroid belt behavior
+        if (planet.moons && planet.moons.length > 0) {
+          if (planet.moons.length === 1) {
+            // Single moon: show directly
+            const moon = planet.moons[0];
+            const moonItem = document.createElement("div");
+            moonItem.className = "outline-item moon";
+            moonItem.textContent = `  └ ${planet.name} ${moon.name}`;
+            moonItem.dataset.objectId = moon.id;
+            moonItem.addEventListener("click", () => {
+              if (this.onSelectObject) {
+                this.onSelectObject(moon.id);
+              }
+            });
+            this.outlineList.appendChild(moonItem);
+          } else {
+            // Multiple moons: show "Moons - #" and cycle through them
+            const moonItem = document.createElement("div");
+            moonItem.className = "outline-item moon";
+            moonItem.textContent = `  └ Moons - ${planet.moons.length}`;
+            moonItem.dataset.planetId = planet.id;
+            moonItem.dataset.moonIndex = "0"; // Track which moon to show next
+            moonItem.addEventListener("click", () => {
+              // Cycle through moons
+              const currentIndex = parseInt(moonItem.dataset.moonIndex || "0");
+              const moons = planet.moons;
+
+              if (moons && moons.length > 0) {
+                const moon = moons[currentIndex];
+                if (this.onSelectObject) {
+                  this.onSelectObject(moon.id);
+                }
+
+                // Update index for next click
+                const nextIndex = (currentIndex + 1) % moons.length;
+                moonItem.dataset.moonIndex = nextIndex.toString();
+
+                // Update display to show current moon
+                moonItem.textContent = `  └ Moons - ${currentIndex + 1}/${
+                  moons.length
+                }`;
+              }
+            });
+            this.outlineList.appendChild(moonItem);
+          }
+        }
       } else if (obj.type === "asteroidBelt") {
         const belt = obj.data;
         const beltItem = document.createElement("div");
@@ -343,15 +390,21 @@ export class HUDManager {
       if (body) {
         bodyState = this.currentState.bodies.find((b) => b.id === objectId);
       } else {
-        // Check asteroids
-        for (const belt of this.system.asteroidBelts) {
-          const asteroid = belt.asteroids.find((a) => a.id === objectId);
-          if (asteroid) {
-            body = asteroid;
-            bodyState = this.currentState.asteroids.find(
-              (a) => a.id === objectId
-            );
-            break;
+        // Check moons
+        body = this.system.moons.find((m) => m.id === objectId);
+        if (body) {
+          bodyState = this.currentState.moons.find((m) => m.id === objectId);
+        } else {
+          // Check asteroids
+          for (const belt of this.system.asteroidBelts) {
+            const asteroid = belt.asteroids.find((a) => a.id === objectId);
+            if (asteroid) {
+              body = asteroid;
+              bodyState = this.currentState.asteroids.find(
+                (a) => a.id === objectId
+              );
+              break;
+            }
           }
         }
       }

@@ -133,6 +133,16 @@ export class CameraController {
       // Zoom very close to asteroids since they're small
       this.cameraDistance = objectRadius * 5;
       this.isTrackingObject = true; // Always track asteroids
+    } else if (mesh.userData.type === "moon") {
+      // Moons: single-click zoom system (similar to asteroids)
+      // Always zoom in close on first click and track them
+      const objectRadius =
+        mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
+          ? mesh.geometry.boundingSphere.radius
+          : 10;
+      // Zoom close to moons since they're relatively small
+      this.cameraDistance = objectRadius * 4;
+      this.isTrackingObject = true; // Always track moons
     } else if (isAlreadySelected && wasTracking) {
       // Third click: already tracking, reset to uniform distance and stop tracking
       this.cameraDistance = 80;

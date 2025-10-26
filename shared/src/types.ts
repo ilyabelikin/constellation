@@ -56,9 +56,12 @@ export interface CelestialBodyType {
   planetType?: string; // planet type like "Super-Earth", "Gas Giant", etc.
   // Asteroid-specific properties
   asteroidBeltId?: string; // if this is an asteroid, the belt it belongs to
-  composition?: "water" | "metal" | "silica"; // asteroid composition
-  shape?: "spherical" | "elliptical" | "rugged"; // asteroid shape
-  rotationRate?: number; // radians per second for spinning asteroids
+  composition?: "water" | "metal" | "silica"; // asteroid/moon composition
+  shape?: "spherical" | "elliptical" | "rugged"; // asteroid/moon shape
+  rotationRate?: number; // radians per second for spinning asteroids/moons
+  isTumbling?: boolean; // whether moon/asteroid has chaotic tumbling rotation (vs stable single-axis)
+  // Moon-specific properties
+  moons?: CelestialBodyType[]; // moons orbiting this planet
 }
 
 export interface StarGate {
@@ -107,6 +110,7 @@ export interface StarSystem {
   seed: number;
   star: CelestialBodyType;
   planets: CelestialBodyType[];
+  moons: CelestialBodyType[]; // all moons in the system (flattened)
   asteroidBelts: AsteroidBelt[];
   gates: StarGate[];
 }
@@ -132,6 +136,7 @@ export interface SystemState {
   ships: ShipState[];
   gates: CelestialBodyState[];
   asteroids: CelestialBodyState[]; // asteroid positions
+  moons: CelestialBodyState[]; // moon positions
 }
 
 export interface ShipState {
