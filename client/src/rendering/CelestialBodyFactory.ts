@@ -100,11 +100,37 @@ export class CelestialBodyFactory {
       // Add weather/cloud layers
       const cloudCoverage = planet.cloudCoverage || 0.5;
 
+      // For gas giants, use colorful clouds based on planet color
+      // For terrestrial planets, use white clouds
+      const isGasGiant = planet.surfaceType === "banded";
+      const baseCloudColor = isGasGiant ? planet.color || 0xffffff : 0xffffff;
+
+      // Parse color and create variations for gas giants
+      const color = new THREE.Color(baseCloudColor);
+      let cloudColor1 = baseCloudColor;
+      let cloudColor2 = baseCloudColor;
+
+      if (isGasGiant) {
+        // Create lighter and more saturated variation for lower clouds
+        const lighter = color.clone();
+        lighter.r = Math.min(lighter.r * 1.3, 1.0);
+        lighter.g = Math.min(lighter.g * 1.2, 1.0);
+        lighter.b = Math.min(lighter.b * 1.4, 1.0);
+        cloudColor1 = lighter.getHex();
+
+        // Create slightly different hue for upper clouds
+        const shifted = color.clone();
+        shifted.r = Math.min(shifted.r * 1.1 + shifted.b * 0.2, 1.0);
+        shifted.g = Math.min(shifted.g * 1.2 + shifted.r * 0.1, 1.0);
+        shifted.b = Math.min(shifted.b * 1.15 + shifted.g * 0.15, 1.0);
+        cloudColor2 = shifted.getHex();
+      }
+
       // Layer 1: Lower clouds (faster rotation)
       const cloudRadius1 = radius * 1.02; // Just above surface
       const cloudGeometry1 = new THREE.SphereGeometry(cloudRadius1, 48, 48);
       const cloudMaterial1 = this.materialFactory.createCloudMaterial(
-        0xffffff,
+        cloudColor1,
         cloudCoverage
       );
       const cloudMesh1 = new THREE.Mesh(cloudGeometry1, cloudMaterial1);
@@ -116,7 +142,7 @@ export class CelestialBodyFactory {
       const cloudRadius2 = radius * 1.035; // Between surface and atmosphere
       const cloudGeometry2 = new THREE.SphereGeometry(cloudRadius2, 48, 48);
       const cloudMaterial2 = this.materialFactory.createCloudMaterial(
-        0xffffff,
+        cloudColor2,
         cloudCoverage * 0.6 // Upper layer has 60% of base coverage
       );
       const cloudMesh2 = new THREE.Mesh(cloudGeometry2, cloudMaterial2);

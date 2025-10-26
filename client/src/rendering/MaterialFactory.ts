@@ -104,7 +104,14 @@ export class MaterialFactory {
         baseColor: { value: new THREE.Color(color) },
         lightPosition: { value: new THREE.Vector3(0, 0, 0) }, // Sun at origin
         rotation: { value: 0.0 }, // Planet rotation angle
-        surfaceType: { value: surfaceType === "cratered" ? 1.0 : 0.0 },
+        surfaceType: {
+          value:
+            surfaceType === "cratered"
+              ? 1.0
+              : surfaceType === "banded"
+              ? 2.0
+              : 0.0,
+        },
       },
       vertexShader: `
         varying vec3 vNormal;
@@ -140,6 +147,36 @@ export class MaterialFactory {
         // Simple noise for surface features
         float noise(vec2 p) {
           return sin(p.x * 10.0) * cos(p.y * 8.0) * 0.5 + 0.5;
+        }
+        
+        // Better noise for gas giant clouds
+        float noise2D(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f);
+          
+          float a = hash(i);
+          float b = hash(i + vec2(1.0, 0.0));
+          float c = hash(i + vec2(0.0, 1.0));
+          float d = hash(i + vec2(1.0, 1.0));
+          
+          return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        }
+        
+        // Turbulent flow for gas giants
+        float turbulence(vec2 p, int octaves) {
+          float value = 0.0;
+          float amplitude = 0.5;
+          float frequency = 1.0;
+          
+          for(int i = 0; i < 8; i++) {
+            if(i >= octaves) break;
+            value += amplitude * abs(noise2D(p * frequency));
+            frequency *= 2.0;
+            amplitude *= 0.5;
+          }
+          
+          return value;
         }
         
         // Generate craters
@@ -193,9 +230,92 @@ export class MaterialFactory {
           
           // Base color intensity
           float intensity = 1.0;
+          vec3 colorModulation = vec3(1.0);
           
+          // Gas giant thick colorful bands
+          if(surfaceType > 1.5) {
+            // Create flowing turbulent bands
+            float flow = turbulence(vec2(u * 8.0, v * 6.0), 6);
+            float distortion = turbulence(vec2(u * 12.0 + flow * 0.5, v * 4.0), 4) * 0.3;
+            
+            // Multiple band layers with different frequencies
+            float mainBands = sin((v + distortion) * 20.0) * 0.5 + 0.5;
+            float subBands = sin((v + distortion * 1.5) * 40.0) * 0.5 + 0.5;
+            float fineBands = sin((v + flow * 0.2) * 80.0) * 0.5 + 0.5;
+            
+            // Combine bands with different weights
+            float bandMix = mainBands * 0.6 + subBands * 0.3 + fineBands * 0.1;
+            
+            // Add turbulent spots and storms
+            float storms = turbulence(vec2(u * 10.0, v * 8.0), 5);
+            float spotPattern = smoothstep(0.6, 0.8, storms);
+            
+            // Create color variations across bands
+            float colorBand = sin(v * 15.0 + flow * 0.3) * 0.5 + 0.5;
+            
+            // Rich color palette for gas giants
+            vec3 lightBand = baseColor * 1.3; // Brighter zones
+            vec3 darkBand = baseColor * 0.7; // Darker zones
+            vec3 stormColor = baseColor * vec3(1.2, 1.1, 0.9); // Slightly warmer storms
+            
+            // Mix colors based on bands and turbulence
+            colorModulation = mix(darkBand, lightBand, bandMix);
+            colorModulation = mix(colorModulation, stormColor, spotPattern * 0.4);
+            
+            // Add extra saturation and color variation
+            colorModulation *= vec3(
+              1.0 + colorBand * 0.2,
+              1.0 + (1.0 - colorBand) * 0.15,
+              1.0 + sin(colorBand * 3.14159) * 0.15
+            );
+            
+            // Intensity variations from turbulence
+            intensity = 0.85 + bandMix * 0.3 + storms * 0.15;
+            
+            // Add polar storms with contrasting colors
+            float polarDistance = abs(v - 0.5) * 2.0; // 0 at equator, 1 at poles
+            if(polarDistance > 0.7) {
+              float poleIntensity = smoothstep(0.7, 0.95, polarDistance);
+              
+              // Create swirling vortex pattern at poles
+              vec2 poleCenter = vec2(0.5, v > 0.5 ? 1.0 : 0.0);
+              vec2 toPole = vec2(u, v) - poleCenter;
+              float distFromPole = length(toPole) * 4.0; // Scale for visibility
+              
+              // Spiral distortion
+              float angle = atan(toPole.y, toPole.x);
+              float spiral = turbulence(vec2(distFromPole * 3.0 + angle * 2.0, angle * 4.0), 5);
+              
+              // Create storm pattern
+              float vortexPattern = turbulence(vec2(
+                u * 20.0 + spiral * 0.5,
+                (v > 0.5 ? v - 1.0 : v) * 30.0 + spiral * 0.3
+              ), 6);
+              
+              // Storm mask - visible only near poles
+              float stormMask = smoothstep(0.8, 0.4, distFromPole) * poleIntensity;
+              
+              // Contrasting color for polar storms
+              // Use complementary hue by shifting RGB channels
+              vec3 polarStormColor = vec3(
+                baseColor.b * 1.4,  // Shift colors for contrast
+                baseColor.r * 1.2,
+                baseColor.g * 1.3
+              );
+              
+              // Add variation within the storm
+              float stormColorVariation = vortexPattern * 0.3 + 0.7;
+              polarStormColor *= stormColorVariation;
+              
+              // Blend polar storm into the base color
+              colorModulation = mix(colorModulation, polarStormColor, stormMask * 0.8);
+              
+              // Add extra intensity variation in storms
+              intensity += stormMask * (vortexPattern - 0.5) * 0.4;
+            }
+          }
           // Add craters for barren/rocky planets
-          if(surfaceType > 0.5) {
+          else if(surfaceType > 0.5 && surfaceType < 1.5) {
             // Multiple layers of craters at different scales
             float largeCraters = craters(vec2(u, v), 8.0);
             float mediumCraters = craters(vec2(u, v), 16.0) * 0.7;
@@ -203,17 +323,19 @@ export class MaterialFactory {
             
             intensity += largeCraters + mediumCraters + smallCraters;
           }
-          
-          // Add horizontal bands (latitude-based) - smoother, lower frequency
-          float bands = sin(v * 8.0) * 0.5 + 0.5;
-          float bandPattern = smoothstep(0.3, 0.7, bands);
-          intensity *= 0.9 + bandPattern * 0.1;
-          
-          // Add some spots/continents - lower frequency, smoother
-          float spot1 = noise(vec2(u * 3.0, v * 3.0));
-          float spot2 = noise(vec2(u * 5.0 + 1.5, v * 5.0 + 2.3));
-          float spotPattern = smoothstep(0.55, 0.75, spot1) * 0.08 + smoothstep(0.6, 0.8, spot2) * 0.06;
-          intensity -= spotPattern;
+          // Smooth planets
+          else {
+            // Add horizontal bands (latitude-based) - smoother, lower frequency
+            float bands = sin(v * 8.0) * 0.5 + 0.5;
+            float bandPattern = smoothstep(0.3, 0.7, bands);
+            intensity *= 0.9 + bandPattern * 0.1;
+            
+            // Add some spots/continents - lower frequency, smoother
+            float spot1 = noise(vec2(u * 3.0, v * 3.0));
+            float spot2 = noise(vec2(u * 5.0 + 1.5, v * 5.0 + 2.3));
+            float spotPattern = smoothstep(0.55, 0.75, spot1) * 0.08 + smoothstep(0.6, 0.8, spot2) * 0.06;
+            intensity -= spotPattern;
+          }
           
           // Basic lighting from sun using world space normal and position
           vec3 lightDir = normalize(lightPosition - vWorldPosition);
@@ -225,7 +347,8 @@ export class MaterialFactory {
           // Add slight emissive on dark side for visibility
           float emissive = 0.1;
           
-          vec3 finalColor = baseColor * intensity * (lighting + emissive);
+          // Apply color modulation for gas giants
+          vec3 finalColor = colorModulation * intensity * (lighting + emissive);
           
           gl_FragColor = vec4(finalColor, 1.0);
         }
