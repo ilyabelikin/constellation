@@ -19,7 +19,7 @@ export interface OrbitalElements {
 export interface CelestialBodyType {
   id: string;
   name: string;
-  type: "star" | "planet" | "moon" | "gate";
+  type: "star" | "planet" | "moon" | "gate" | "asteroid";
   mass: number; // kg
   radius: number; // meters
   parentId: string | null; // null for stars
@@ -29,6 +29,11 @@ export interface CelestialBodyType {
   cloudCoverage?: number; // 0-1, how much cloud coverage for planets with atmosphere
   surfaceType?: "cratered" | "smooth" | "volcanic" | "banded"; // surface appearance type
   planetType?: string; // planet type like "Super-Earth", "Gas Giant", etc.
+  // Asteroid-specific properties
+  asteroidBeltId?: string; // if this is an asteroid, the belt it belongs to
+  composition?: "water" | "metal" | "silica"; // asteroid composition
+  shape?: "spherical" | "elliptical" | "rugged"; // asteroid shape
+  rotationRate?: number; // radians per second for spinning asteroids
 }
 
 export interface StarGate {
@@ -37,6 +42,17 @@ export interface StarGate {
   systemId: string;
   destinationSystemId: string;
   orbitalElements: OrbitalElements;
+}
+
+export interface AsteroidBelt {
+  id: string;
+  name: string;
+  parentId: string; // star ID
+  innerRadius: number; // meters
+  outerRadius: number; // meters
+  inclination: number; // radians
+  asteroidCount: number; // total number of asteroids
+  asteroids: CelestialBodyType[]; // individual asteroids
 }
 
 export interface Ship {
@@ -66,6 +82,7 @@ export interface StarSystem {
   seed: number;
   star: CelestialBodyType;
   planets: CelestialBodyType[];
+  asteroidBelts: AsteroidBelt[];
   gates: StarGate[];
 }
 
@@ -89,6 +106,7 @@ export interface SystemState {
   bodies: CelestialBodyState[];
   ships: ShipState[];
   gates: CelestialBodyState[];
+  asteroids: CelestialBodyState[]; // asteroid positions
 }
 
 export interface ShipState {

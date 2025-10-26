@@ -38,7 +38,7 @@ export function generateNewSystem(
   };
 
   const systemSeed = rng.nextInt(0, 1000000000);
-  const { star, planets } = generateStarSystem(systemSeed);
+  const { star, planets, asteroidBelts } = generateStarSystem(systemSeed);
 
   const systemId = uuidv4();
 
@@ -64,6 +64,7 @@ export function generateNewSystem(
     seed: systemSeed,
     star,
     planets,
+    asteroidBelts,
     gates,
   };
 }
@@ -98,7 +99,7 @@ export function generateAdditionalSystems(
     };
 
     const systemSeed = rng.nextInt(0, 1000000000);
-    const { star, planets } = generateStarSystem(systemSeed);
+    const { star, planets, asteroidBelts } = generateStarSystem(systemSeed);
 
     systems.push({
       id: uuidv4(),
@@ -107,6 +108,7 @@ export function generateAdditionalSystems(
       seed: systemSeed,
       star,
       planets,
+      asteroidBelts,
       gates: [], // Gates will be populated by generateSystemConnections
     });
   }

@@ -74,7 +74,11 @@ export class DatabaseQueries {
       system.position.y,
       system.position.z,
       system.seed,
-      JSON.stringify({ star: system.star, planets: system.planets })
+      JSON.stringify({
+        star: system.star,
+        planets: system.planets,
+        asteroidBelts: system.asteroidBelts,
+      })
     );
   }
 
@@ -91,6 +95,7 @@ export class DatabaseQueries {
       seed: row.seed,
       star: data.star,
       planets: data.planets,
+      asteroidBelts: data.asteroidBelts || [],
       gates,
     };
   }
@@ -110,6 +115,7 @@ export class DatabaseQueries {
         seed: row.seed,
         star: data.star,
         planets: data.planets,
+        asteroidBelts: data.asteroidBelts || [],
         gates,
       };
     });

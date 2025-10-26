@@ -173,19 +173,84 @@ export class HUDManager {
     });
     this.outlineList.appendChild(starItem);
 
+    // Create mixed list of planets and asteroid belts sorted by distance from star
+    const orbitalObjects: Array<{
+      type: "planet" | "asteroidBelt";
+      distance: number;
+      data: any;
+      asteroidIndex?: number;
+    }> = [];
+
     // Add planets
-    this.system.planets.forEach((planet, index) => {
-      const planetItem = document.createElement("div");
-      planetItem.className = "outline-item planet";
-      const planetType = planet.planetType ? ` - ${planet.planetType}` : "";
-      planetItem.textContent = `${index + 1}. ${planet.name}${planetType}`;
-      planetItem.dataset.objectId = planet.id;
-      planetItem.addEventListener("click", () => {
-        if (this.onSelectObject) {
-          this.onSelectObject(planet.id);
-        }
+    this.system.planets.forEach((planet) => {
+      const distance = planet.orbitalElements?.semiMajorAxis || 0;
+      orbitalObjects.push({ type: "planet", distance, data: planet });
+    });
+
+    // Add asteroid belts (using average of inner and outer radius)
+    if (this.system.asteroidBelts) {
+      this.system.asteroidBelts.forEach((belt) => {
+        const distance = (belt.innerRadius + belt.outerRadius) / 2;
+        // Add belt itself plus asteroids with tracking for cycling
+        orbitalObjects.push({
+          type: "asteroidBelt",
+          distance,
+          data: belt,
+          asteroidIndex: 0,
+        });
       });
-      this.outlineList.appendChild(planetItem);
+    }
+
+    // Sort by distance
+    orbitalObjects.sort((a, b) => a.distance - b.distance);
+
+    // Add sorted items to outline
+    let planetIndex = 0;
+    orbitalObjects.forEach((obj) => {
+      if (obj.type === "planet") {
+        planetIndex++;
+        const planet = obj.data;
+        const planetItem = document.createElement("div");
+        planetItem.className = "outline-item planet";
+        const planetType = planet.planetType ? ` - ${planet.planetType}` : "";
+        planetItem.textContent = `${planetIndex}. ${planet.name}${planetType}`;
+        planetItem.dataset.objectId = planet.id;
+        planetItem.addEventListener("click", () => {
+          if (this.onSelectObject) {
+            this.onSelectObject(planet.id);
+          }
+        });
+        this.outlineList.appendChild(planetItem);
+      } else if (obj.type === "asteroidBelt") {
+        const belt = obj.data;
+        const beltItem = document.createElement("div");
+        beltItem.className = "outline-item asteroid-belt";
+        beltItem.textContent = `◦ ${belt.name} - ${belt.asteroidCount}`;
+        beltItem.dataset.beltId = belt.id;
+        beltItem.dataset.asteroidIndex = "0"; // Track which asteroid to show next
+        beltItem.addEventListener("click", () => {
+          // Cycle through asteroids in the belt
+          const currentIndex = parseInt(beltItem.dataset.asteroidIndex || "0");
+          const asteroids = belt.asteroids;
+
+          if (asteroids && asteroids.length > 0) {
+            const asteroid = asteroids[currentIndex];
+            if (this.onSelectObject) {
+              this.onSelectObject(asteroid.id);
+            }
+
+            // Update index for next click
+            const nextIndex = (currentIndex + 1) % asteroids.length;
+            beltItem.dataset.asteroidIndex = nextIndex.toString();
+
+            // Update display to show current asteroid
+            beltItem.textContent = `◦ ${belt.name} - ${currentIndex + 1}/${
+              asteroids.length
+            }`;
+          }
+        });
+        this.outlineList.appendChild(beltItem);
+      }
     });
 
     // Add gates
@@ -265,20 +330,35 @@ export class HUDManager {
       return;
     }
 
-    // Find celestial body in system (star or planet)
+    // Find celestial body in system (star, planet, or asteroid)
     let body = null;
+    let bodyState = null;
+
     if (this.system.star.id === objectId) {
       body = this.system.star;
+      bodyState = this.currentState.bodies.find((b) => b.id === objectId);
     } else {
+      // Check planets
       body = this.system.planets.find((p) => p.id === objectId);
+      if (body) {
+        bodyState = this.currentState.bodies.find((b) => b.id === objectId);
+      } else {
+        // Check asteroids
+        for (const belt of this.system.asteroidBelts) {
+          const asteroid = belt.asteroids.find((a) => a.id === objectId);
+          if (asteroid) {
+            body = asteroid;
+            bodyState = this.currentState.asteroids.find(
+              (a) => a.id === objectId
+            );
+            break;
+          }
+        }
+      }
     }
 
-    if (body) {
-      // Find body state
-      const bodyState = this.currentState.bodies.find((b) => b.id === objectId);
-      if (bodyState) {
-        this.bodyDetailView.show(body, bodyState, this.currentState);
-      }
+    if (body && bodyState) {
+      this.bodyDetailView.show(body, bodyState, this.currentState);
       return;
     }
 

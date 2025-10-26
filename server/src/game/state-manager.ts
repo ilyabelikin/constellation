@@ -182,12 +182,33 @@ export class GameStateManager {
       });
     }
 
+    // Calculate asteroid positions
+    const asteroidStates: CelestialBodyState[] = [];
+    for (const belt of system.asteroidBelts) {
+      for (const asteroid of belt.asteroids) {
+        if (asteroid.orbitalElements) {
+          const state = calculateStateVectors(
+            asteroid.orbitalElements,
+            this.currentTime,
+            system.star.mass
+          );
+
+          asteroidStates.push({
+            id: asteroid.id,
+            position: state.position,
+            velocity: state.velocity,
+          });
+        }
+      }
+    }
+
     return {
       systemId,
       currentTime: this.currentTime,
       bodies,
       ships: shipStates,
       gates: gateStates,
+      asteroids: asteroidStates,
     };
   }
 

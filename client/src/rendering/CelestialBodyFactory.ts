@@ -302,6 +302,93 @@ export class CelestialBodyFactory {
   }
 
   /**
+   * Creates an asteroid mesh with shape and composition variation
+   */
+  createAsteroid(asteroid: any): THREE.Mesh {
+    // Use a larger multiplier for asteroids so they're visible
+    // (asteroids are 10-500m vs planets are thousands of km)
+    const asteroidSizeMultiplier = this.bodySizeMultiplier * 3;
+    let radius = asteroid.radius * this.scale * asteroidSizeMultiplier;
+
+    // Ensure minimum visible size (asteroids are tiny in real scale)
+    const minVisibleRadius = 0.5; // Minimum 0.5 units in scene
+    radius = Math.max(radius, minVisibleRadius);
+
+    let geometry: THREE.BufferGeometry;
+
+    // Create geometry based on shape
+    if (asteroid.shape === "spherical") {
+      // More spherical asteroids
+      geometry = new THREE.SphereGeometry(radius, 16, 16);
+    } else if (asteroid.shape === "elliptical") {
+      // Elongated/elliptical asteroids
+      geometry = new THREE.SphereGeometry(radius, 16, 16);
+      // Scale along one axis to make it elliptical
+      geometry.scale(1.5, 0.8, 1.0);
+    } else {
+      // Rugged/irregular asteroids
+      geometry = this.createRuggedAsteroidGeometry(radius);
+    }
+
+    const composition = asteroid.composition || "silica";
+    const shape = asteroid.shape || "rugged";
+    const material = this.materialFactory.createAsteroidMaterial(
+      composition,
+      asteroid.color || 0x888888,
+      shape
+    );
+
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData = {
+      id: asteroid.id,
+      type: "asteroid",
+      body: asteroid,
+      rotationRate: asteroid.rotationRate || 0,
+    };
+
+    return mesh;
+  }
+
+  /**
+   * Creates a rugged/irregular asteroid geometry using noise
+   */
+  private createRuggedAsteroidGeometry(radius: number): THREE.BufferGeometry {
+    const geometry = new THREE.SphereGeometry(radius, 16, 16);
+    const positions = geometry.attributes.position;
+
+    // Apply random displacement to vertices for rugged appearance
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i);
+      const y = positions.getY(i);
+      const z = positions.getZ(i);
+
+      // Normalize to get direction
+      const length = Math.sqrt(x * x + y * y + z * z);
+      const nx = x / length;
+      const ny = y / length;
+      const nz = z / length;
+
+      // Apply noise-based displacement (pseudo-random based on position)
+      const noise =
+        Math.sin(nx * 5.3 + ny * 3.7) *
+        Math.cos(ny * 4.1 + nz * 6.2) *
+        Math.sin(nz * 3.9 + nx * 5.1);
+
+      const displacement = radius * (0.7 + noise * 0.3); // 70-100% of radius
+
+      positions.setXYZ(
+        i,
+        nx * displacement,
+        ny * displacement,
+        nz * displacement
+      );
+    }
+
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+
+  /**
    * Gets the material factory (for updating shader uniforms)
    */
   getMaterialFactory(): MaterialFactory {

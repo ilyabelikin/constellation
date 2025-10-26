@@ -78,7 +78,8 @@ export class CameraController {
     const delta = event.deltaY > 0 ? 1 + zoomSpeed : 1 - zoomSpeed;
 
     this.cameraDistance *= delta;
-    this.cameraDistance = Math.max(10, Math.min(50000, this.cameraDistance));
+    // Reduced minimum distance to 1 to allow close-up views of small asteroids
+    this.cameraDistance = Math.max(1, Math.min(50000, this.cameraDistance));
   }
 
   /**
@@ -122,6 +123,16 @@ export class CameraController {
         this.cameraDistance = 40; // Close enough to see details
         this.isTrackingObject = true; // Track gates as they orbit
       }
+    } else if (mesh.userData.type === "asteroid") {
+      // Asteroids: single-click zoom system (they're too small for two-click)
+      // Always zoom in close on first click and track them
+      const objectRadius =
+        mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
+          ? mesh.geometry.boundingSphere.radius
+          : 10;
+      // Zoom very close to asteroids since they're small
+      this.cameraDistance = objectRadius * 5;
+      this.isTrackingObject = true; // Always track asteroids
     } else if (isAlreadySelected && wasTracking) {
       // Third click: already tracking, reset to uniform distance and stop tracking
       this.cameraDistance = 80;

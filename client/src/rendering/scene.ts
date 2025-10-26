@@ -33,6 +33,7 @@ export class SceneManager {
   private bodies: Map<string, THREE.Mesh> = new Map();
   private ships: Map<string, THREE.Mesh> = new Map();
   private gates: Map<string, THREE.Group> = new Map();
+  private asteroids: Map<string, THREE.Mesh> = new Map();
   private orbitLines: Map<string, THREE.Line> = new Map();
   private starMaterials: THREE.ShaderMaterial[] = [];
   private gateMaterials: THREE.ShaderMaterial[] = [];
@@ -83,7 +84,7 @@ export class SceneManager {
     this.camera = new THREE.PerspectiveCamera(
       75,
       window.innerWidth / window.innerHeight,
-      0.1,
+      0.05, // Near plane - balanced for both asteroids and avoiding z-fighting
       1000000
     );
     this.camera.position.set(0, 3000, 3000);
@@ -200,6 +201,15 @@ export class SceneManager {
         }
       });
     }
+
+    // Create asteroids
+    for (const belt of system.asteroidBelts) {
+      for (const asteroid of belt.asteroids) {
+        const asteroidMesh = this.celestialBodyFactory.createAsteroid(asteroid);
+        this.scene.add(asteroidMesh);
+        this.asteroids.set(asteroid.id, asteroidMesh);
+      }
+    }
   }
 
   setExploredGates(exploredGateIds: string[]): void {
@@ -229,6 +239,12 @@ export class SceneManager {
       this.scene.remove(gateGroup);
     }
 
+    // Dispose and remove all asteroids
+    for (const mesh of this.asteroids.values()) {
+      this.disposeMesh(mesh);
+      this.scene.remove(mesh);
+    }
+
     // Dispose and remove all orbit lines
     for (const line of this.orbitLines.values()) {
       if (line.geometry) {
@@ -253,6 +269,7 @@ export class SceneManager {
     this.bodies.clear();
     this.ships.clear();
     this.gates.clear();
+    this.asteroids.clear();
     this.orbitLines.clear();
     this.starMaterials = [];
     this.gateMaterials = [];
@@ -369,6 +386,29 @@ export class SceneManager {
         gateGroup.position.copy(newPosition);
       }
     }
+
+    // Update asteroid positions (asteroids orbit like planets)
+    for (const asteroidState of state.asteroids) {
+      const newPosition = new THREE.Vector3(
+        asteroidState.position.x * this.SCALE,
+        asteroidState.position.z * this.SCALE,
+        asteroidState.position.y * this.SCALE
+      );
+
+      this.timeInterpolator.setBodyTargetPosition(
+        asteroidState.id,
+        newPosition
+      );
+
+      // If this is the first update for this asteroid, set position directly
+      const asteroidMesh = this.asteroids.get(asteroidState.id);
+      if (
+        asteroidMesh &&
+        !this.timeInterpolator.getInterpolatedPosition(asteroidState.id, 0)
+      ) {
+        asteroidMesh.position.copy(newPosition);
+      }
+    }
   }
 
   private onMouseDown(event: MouseEvent): void {
@@ -398,6 +438,7 @@ export class SceneManager {
       ...this.bodies.values(),
       ...this.ships.values(),
       ...this.gates.values(),
+      ...this.asteroids.values(),
     ];
     const isHovering = this.interactionManager.isHoveringOverObject(
       this.camera,
@@ -416,6 +457,7 @@ export class SceneManager {
       ...this.bodies.values(),
       ...this.ships.values(),
       ...this.gates.values(),
+      ...this.asteroids.values(),
     ];
     const objectId = this.interactionManager.getIntersectedObjectId(
       this.camera,
@@ -488,6 +530,9 @@ export class SceneManager {
         }
         for (const gateGroup of this.gates.values()) {
           gateGroup.visible = true;
+        }
+        for (const mesh of this.asteroids.values()) {
+          mesh.visible = true;
         }
         for (const line of this.orbitLines.values()) {
           line.visible = true;
@@ -576,12 +621,35 @@ export class SceneManager {
       gateGroup.rotation.y = this.timeInterpolator.getGameTime() * 0.00005;
     }
 
+    // Update asteroid positions and rotations
+    for (const [asteroidId, mesh] of this.asteroids.entries()) {
+      // Smooth orbital motion interpolation
+      const interpolatedPos = this.timeInterpolator.getInterpolatedPosition(
+        asteroidId,
+        lerpFactor
+      );
+      if (interpolatedPos) {
+        mesh.position.copy(interpolatedPos);
+      }
+
+      // Add asteroid rotation if it has a rotation rate
+      if (mesh.userData.rotationRate && mesh.userData.rotationRate > 0) {
+        const rotation =
+          this.timeInterpolator.getGameTime() * mesh.userData.rotationRate;
+        // Rotate around multiple axes for more interesting tumbling motion
+        mesh.rotation.x = rotation;
+        mesh.rotation.y = rotation * 0.7;
+        mesh.rotation.z = rotation * 0.5;
+      }
+    }
+
     // Update camera with tracked object if tracking is enabled
     const selectedObjectId = this.cameraController.getSelectedObjectId();
     const trackedMesh = selectedObjectId
       ? this.bodies.get(selectedObjectId) ||
         this.ships.get(selectedObjectId) ||
-        this.gates.get(selectedObjectId)
+        this.gates.get(selectedObjectId) ||
+        this.asteroids.get(selectedObjectId)
       : undefined;
     this.cameraController.update(trackedMesh);
   }
@@ -594,7 +662,8 @@ export class SceneManager {
     const mesh =
       this.bodies.get(objectId) ||
       this.ships.get(objectId) ||
-      this.gates.get(objectId);
+      this.gates.get(objectId) ||
+      this.asteroids.get(objectId);
     if (mesh) {
       const shouldUseGate = this.cameraController.centerOnObject(
         objectId,
@@ -643,7 +712,7 @@ export class SceneManager {
     // Store exit gate ID for repositioning during animation
     this.exitGateId = exitGateId;
 
-    // Hide all celestial bodies, ships, and orbit lines EXCEPT the entry gate
+    // Hide all celestial bodies, ships, asteroids, and orbit lines EXCEPT the entry gate
     // Keep starfield visible throughout
     for (const mesh of this.bodies.values()) {
       mesh.visible = false;
@@ -656,6 +725,9 @@ export class SceneManager {
       if (gateId !== this.entryGateId) {
         gateGroup.visible = false;
       }
+    }
+    for (const mesh of this.asteroids.values()) {
+      mesh.visible = false;
     }
     for (const line of this.orbitLines.values()) {
       line.visible = false;

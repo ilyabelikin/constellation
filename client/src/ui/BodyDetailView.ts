@@ -5,7 +5,7 @@ import {
 } from "@constellation/shared";
 
 /**
- * Manages the detail view for celestial bodies (stars, planets)
+ * Manages the detail view for celestial bodies (stars, planets, asteroids)
  */
 export class BodyDetailView {
   private panel: HTMLElement;
@@ -15,6 +15,8 @@ export class BodyDetailView {
   private radiusElement: HTMLElement;
   private distanceElement: HTMLElement;
   private velocityElement: HTMLElement;
+  private compositionElement: HTMLElement | null;
+  private shapeElement: HTMLElement | null;
 
   constructor() {
     this.panel = document.getElementById("body-details-panel")!;
@@ -24,6 +26,10 @@ export class BodyDetailView {
     this.radiusElement = document.getElementById("body-detail-radius")!;
     this.distanceElement = document.getElementById("body-detail-distance")!;
     this.velocityElement = document.getElementById("body-detail-velocity")!;
+    this.compositionElement = document.getElementById(
+      "body-detail-composition"
+    );
+    this.shapeElement = document.getElementById("body-detail-shape");
   }
 
   /**
@@ -36,6 +42,30 @@ export class BodyDetailView {
     this.typeElement.textContent = body.planetType || body.type;
     this.massElement.textContent = this.formatMass(body.mass);
     this.radiusElement.textContent = this.formatDistance(body.radius);
+
+    // Show asteroid-specific properties if this is an asteroid
+    if (body.type === "asteroid") {
+      if (this.compositionElement) {
+        this.compositionElement.style.display = "block";
+        this.compositionElement.textContent = `Composition: ${this.formatComposition(
+          body.composition
+        )}`;
+      }
+      if (this.shapeElement) {
+        this.shapeElement.style.display = "block";
+        this.shapeElement.textContent = `Shape: ${this.formatShape(
+          body.shape
+        )}`;
+      }
+    } else {
+      // Hide asteroid-specific properties for other body types
+      if (this.compositionElement) {
+        this.compositionElement.style.display = "none";
+      }
+      if (this.shapeElement) {
+        this.shapeElement.style.display = "none";
+      }
+    }
 
     // Calculate distance from parent
     if (body.parentId) {
@@ -89,5 +119,29 @@ export class BodyDetailView {
     } else {
       return `${distance.toFixed(2)} m`;
     }
+  }
+
+  private formatComposition(composition?: string): string {
+    if (!composition) return "Unknown";
+
+    const compositions: { [key: string]: string } = {
+      water: "Water Ice (H₂O)",
+      metal: "Metallic (Fe, Ni)",
+      silica: "Silicate Rock (SiO₂)",
+    };
+
+    return compositions[composition] || composition;
+  }
+
+  private formatShape(shape?: string): string {
+    if (!shape) return "Unknown";
+
+    const shapes: { [key: string]: string } = {
+      spherical: "Spherical",
+      elliptical: "Elliptical",
+      rugged: "Irregular/Rugged",
+    };
+
+    return shapes[shape] || shape;
   }
 }
