@@ -581,9 +581,10 @@ export class SceneManager {
           mesh.material.uniforms.rotation.value = rotation;
         }
 
-        // For MeshPhongMaterial (ice planets), rotate the texture
+        // For MeshPhongMaterial (ice planets) and MeshStandardMaterial (terrestrial), rotate the texture
         if (
-          mesh.material instanceof THREE.MeshPhongMaterial &&
+          (mesh.material instanceof THREE.MeshPhongMaterial ||
+            mesh.material instanceof THREE.MeshStandardMaterial) &&
           mesh.material.map
         ) {
           // Rotate texture by offsetting U coordinate

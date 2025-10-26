@@ -173,6 +173,197 @@ function generateIcePlanetTexture(
 }
 
 /**
+ * Generate terrestrial planet texture with continents, oceans, and rivers
+ * Using multi-octave Perlin noise for realistic terrain
+ */
+function generateTerrestrialTexture(
+  seed: number,
+  baseColor: string
+): THREE.Texture {
+  const width = 2048;
+  const height = 1024;
+
+  // Create canvas
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d")!;
+
+  // Seeded random number generator
+  const seededRandom = (s: number): number => {
+    const x = Math.sin(s) * 10000;
+    return x - Math.floor(x);
+  };
+
+  // Perlin-like noise function (simplified for performance)
+  const noise2D = (x: number, y: number, s: number): number => {
+    const n = seededRandom(
+      Math.floor(x * 1000 + s) * 0.1 + Math.floor(y * 1000 + s) * 0.2 + s
+    );
+    return n;
+  };
+
+  // Multi-octave noise for terrain elevation
+  const multiOctaveNoise = (
+    x: number,
+    y: number,
+    octaves: number,
+    s: number
+  ): number => {
+    let value = 0;
+    let amplitude = 1;
+    let frequency = 1;
+    let maxValue = 0;
+
+    for (let i = 0; i < octaves; i++) {
+      value += noise2D(x * frequency, y * frequency, s + i * 100) * amplitude;
+      maxValue += amplitude;
+      amplitude *= 0.5;
+      frequency *= 2;
+    }
+
+    return value / maxValue;
+  };
+
+  // Detect planet type from base color
+  const baseColorObj = new THREE.Color(baseColor);
+  const r = baseColorObj.r;
+  const g = baseColorObj.g;
+  const b = baseColorObj.b;
+
+  // Determine if this is a desert world (reddish/sandy) or Earth-like (bluish/greenish)
+  const isDesert = r > 0.5 && r > g * 1.3 && r > b * 1.3; // Red dominant
+
+  // Generate planet variety parameters
+  const waterLevelSeed = seededRandom(seed * 1.2);
+  const continentSizeSeed = seededRandom(seed * 1.5);
+  const mountainsSeed = seededRandom(seed * 1.8);
+
+  // Water level varies by planet type
+  let waterLevel: number;
+  if (isDesert) {
+    // Desert planets: very little water (5-25%)
+    waterLevel = 0.75 + waterLevelSeed * 0.2;
+  } else {
+    // Earth-like: moderate water (40-70%)
+    waterLevel = 0.3 + waterLevelSeed * 0.3;
+  }
+
+  // Continent size: affects noise frequency
+  const continentScale = 2 + continentSizeSeed * 4; // 2-6 range
+
+  // Generate terrain
+  const imageData = ctx.createImageData(width, height);
+  const data = imageData.data;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const u = x / width;
+      const v = y / height;
+
+      // Generate elevation using multi-octave noise
+      const elevation = multiOctaveNoise(
+        u * continentScale,
+        v * continentScale,
+        6,
+        seed
+      );
+
+      // Determine if land or ocean
+      const idx = (y * width + x) * 4;
+
+      if (elevation > waterLevel) {
+        // LAND - vary color by elevation and planet type
+        const heightAboveSea = (elevation - waterLevel) / (1 - waterLevel);
+
+        if (isDesert) {
+          // DESERT PLANET - sandy, rocky terrain
+          const noise = seededRandom(seed + x * 0.1 + y * 0.1);
+
+          // Low areas - sand dunes
+          if (heightAboveSea < 0.3) {
+            data[idx] = 200 + noise * 40; // R - light sand
+            data[idx + 1] = 160 + noise * 30; // G
+            data[idx + 2] = 100 + noise * 20; // B
+          }
+          // Mid areas - darker sand/rock
+          else if (heightAboveSea < 0.6) {
+            data[idx] = 180 + noise * 30; // R - darker sand
+            data[idx + 1] = 130 + noise * 25; // G
+            data[idx + 2] = 80 + noise * 15; // B
+          }
+          // High areas - rocky mountains
+          else {
+            data[idx] = 140 + noise * 20; // R - dark rock
+            data[idx + 1] = 100 + noise * 15; // G
+            data[idx + 2] = 70 + noise * 10; // B
+          }
+        } else {
+          // EARTH-LIKE PLANET - varied biomes
+          const noise = seededRandom(seed + x * 0.1 + y * 0.1);
+
+          // Beach (just above water)
+          if (heightAboveSea < 0.1) {
+            data[idx] = 220; // R - sandy beach
+            data[idx + 1] = 200; // G
+            data[idx + 2] = 150; // B
+          }
+          // Plains/lowlands - green vegetation
+          else if (heightAboveSea < 0.4) {
+            data[idx] = 60 + noise * 40; // R - lush green
+            data[idx + 1] = 120 + noise * 50; // G
+            data[idx + 2] = 40 + noise * 30; // B
+          }
+          // Highlands - darker vegetation
+          else if (heightAboveSea < 0.7) {
+            data[idx] = 80 + noise * 30; // R - forest green
+            data[idx + 1] = 100 + noise * 30; // G
+            data[idx + 2] = 50 + noise * 20; // B
+          }
+          // Mountains - rocky/snowy
+          else {
+            data[idx] = 160 + noise * 40; // R - mountain gray
+            data[idx + 1] = 160 + noise * 40; // G
+            data[idx + 2] = 160 + noise * 40; // B
+          }
+        }
+
+        data[idx + 3] = 255; // Alpha
+      } else {
+        // WATER - varies by planet type
+        const depth = (waterLevel - elevation) / waterLevel;
+
+        if (isDesert) {
+          // Desert planets - small oases or dry lakes (brownish water)
+          const depthFactor = 1 - depth * 0.4;
+          data[idx] = 100 * depthFactor; // R - murky water
+          data[idx + 1] = 140 * depthFactor; // G
+          data[idx + 2] = 160 * depthFactor; // B
+        } else {
+          // Earth-like - deep blue oceans
+          const depthFactor = 1 - depth * 0.6;
+          data[idx] = 20 * depthFactor; // R - deep blue
+          data[idx + 1] = 60 * depthFactor; // G
+          data[idx + 2] = 140 * depthFactor; // B
+        }
+
+        data[idx + 3] = 255; // Alpha
+      }
+    }
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+
+  // Create Three.js texture
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.needsUpdate = true;
+
+  return texture;
+}
+
+/**
  * Factory for creating shader materials for celestial bodies and ships
  */
 export class MaterialFactory {
@@ -274,13 +465,13 @@ export class MaterialFactory {
     surfaceType: SurfaceTypeName = "smooth",
     seed?: string
   ): THREE.Material {
+    // Generate unique seed number from string id
+    const numericSeed = seed
+      ? seed.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0)
+      : 0;
+
     // Ice planets use MeshPhongMaterial with canvas-generated textures
     if (surfaceType === "icy" && seed) {
-      // Generate unique seed number from string id
-      const numericSeed = seed
-        .split("")
-        .reduce((acc, char) => acc + char.charCodeAt(0), 0);
-
       // Generate crack texture
       const crackTexture = generateIcePlanetTexture(
         numericSeed,
@@ -296,6 +487,25 @@ export class MaterialFactory {
         emissiveIntensity: 0.1, // Subtle self-illumination
       });
     }
+
+    // Terrestrial planets use shader with continent/ocean generation (similar to clouds)
+    // Commented out for now - keeping canvas approach available for future use
+    /*
+    if (surfaceType === "smooth" && seed) {
+      // Generate continent/ocean texture
+      const terrainTexture = generateTerrestrialTexture(
+        numericSeed,
+        new THREE.Color(color).getStyle()
+      );
+      
+      // Use MeshStandardMaterial for PBR lighting with the terrain texture
+      return new THREE.MeshStandardMaterial({
+        map: terrainTexture,
+        roughness: 0.8, // Somewhat rough surface (land)
+        metalness: 0.1, // Slightly metallic (minerals)
+      });
+    }
+    */
 
     // All other planets use custom shader
     return new THREE.ShaderMaterial({
@@ -729,18 +939,92 @@ export class MaterialFactory {
             // Enhance water color saturation - preserve base blue/green
             colorModulation = baseColor * 1.15; // Boost saturation
           }
-          // Smooth planets (terrestrial, desert)
+          // Smooth planets (terrestrial) - continents, oceans, and ice caps
           else {
-            // Add horizontal bands (latitude-based) - smoother, lower frequency
-            float bands = sin(v * 8.0) * 0.5 + 0.5;
-            float bandPattern = smoothstep(0.3, 0.7, bands);
-            intensity *= 0.9 + bandPattern * 0.1;
+            // Generate continents using turbulence (similar to clouds)
+            float continentNoise = turbulence(vec2(u * 4.0, v * 4.0), 5);
             
-            // Add some spots/continents - lower frequency, smoother
-            float spot1 = noise(vec2(u * 3.0, v * 3.0));
-            float spot2 = noise(vec2(u * 5.0 + 1.5, v * 5.0 + 2.3));
-            float spotPattern = smoothstep(0.55, 0.75, spot1) * 0.08 + smoothstep(0.6, 0.8, spot2) * 0.06;
-            intensity -= spotPattern;
+            // Threshold to determine land vs ocean (0.5 = 50% land, 50% ocean)
+            float landThreshold = 0.48;
+            bool isLand = continentNoise > landThreshold;
+            
+            // Check if we're near poles for ice caps with irregular boundaries
+            float distanceFromPole = abs(v - 0.5) * 2.0; // 0 at poles, 1 at equator
+            
+            // Add noise to ice cap boundary for irregular shape
+            float iceNoise = turbulence(vec2(u * 8.0, v * 8.0), 4) * 0.15;
+            float iceThreshold = 0.85 - iceNoise; // Vary threshold (0.70 to 1.0)
+            
+            bool isIceCap = distanceFromPole > iceThreshold; // Ice caps with uneven edges
+            
+            // Color and intensity based on terrain type
+            if (isIceCap) {
+              // ICE CAPS with layered appearance
+              // Inner core: pure white, very glossy
+              // Outer layer: whitish, less glossy
+              
+              // Calculate distance from pole center for layering
+              float polarDistance = distanceFromPole;
+              
+              // Inner core ice (closest to pole) - pure white, very glossy
+              float innerIceThreshold = iceThreshold + 0.05;
+              bool isInnerIce = polarDistance > innerIceThreshold;
+              
+              if (isInnerIce) {
+                // Core: Pure white, very glossy
+                colorModulation = vec3(1.0, 1.0, 1.0); // Pure white
+                intensity = 1.15;
+              } else {
+                // Outer ice: Whitish with slight blue tint, less glossy
+                colorModulation = vec3(0.90, 0.92, 0.95); // Whitish-blue
+                intensity = 1.0;
+              }
+              
+              // Add some crack detail to ice caps
+              float iceCracks = turbulence(vec2(u * 20.0, v * 20.0), 3);
+              intensity -= smoothstep(0.45, 0.55, iceCracks) * 0.08;
+            }
+            else if (isLand) {
+              // CONTINENTS - green vegetation
+              // Vary color by latitude (greener at equator, browner near poles)
+              float latitude = abs(v - 0.5) * 2.0;
+              
+              // Add terrain variation
+              float terrainDetail = turbulence(vec2(u * 15.0, v * 15.0), 4) * 0.15;
+              
+              // Greener at equator, more brown/tan at higher latitudes
+              float greenAmount = 1.0 - latitude * 0.5;
+              colorModulation = vec3(
+                0.4 + (1.0 - greenAmount) * 0.3,  // R - more brown at poles
+                0.6 * greenAmount,                 // G - less green at poles  
+                0.2 + (1.0 - greenAmount) * 0.2   // B
+              );
+              intensity = 0.9 + terrainDetail;
+              
+              // Add mountain ranges (darker, higher elevation)
+              float mountains = turbulence(vec2(u * 8.0, v * 8.0), 6);
+              if (mountains > 0.65) {
+                colorModulation *= 0.7; // Darker for mountains
+                intensity += 0.1;
+              }
+            }
+            else {
+              // OCEANS - blue water
+              // Deeper water = darker blue
+              float oceanDepth = (landThreshold - continentNoise) / landThreshold;
+              float depthFactor = 1.0 - oceanDepth * 0.5;
+              
+              colorModulation = vec3(
+                0.05 * depthFactor,  // R - minimal red
+                0.15 * depthFactor,  // G - some green
+                0.35 * depthFactor   // B - strong blue
+              );
+              intensity = 0.8 + oceanDepth * 0.2;
+              
+              // Add wave patterns
+              float waves = turbulence(vec2(u * 25.0, v * 25.0), 3) * 0.1;
+              intensity += waves;
+            }
           }
           
           // Basic lighting from sun using world space normal and position
@@ -753,7 +1037,7 @@ export class MaterialFactory {
           // Add slight emissive on dark side for visibility
           float emissive = 0.1;
           
-          // Add specular reflection for icy and oceanic planets
+          // Add specular reflection for icy, oceanic, and terrestrial planets
           vec3 specular = vec3(0.0);
           if(surfaceType == SURFACE_ICY) {
             // Ice is very reflective
@@ -768,6 +1052,46 @@ export class MaterialFactory {
             vec3 reflectDir = reflect(-lightDir, vWorldNormal);
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
             specular = baseColor * spec * 0.4; // Colored specular highlights matching water
+          }
+          else if(surfaceType == SURFACE_SMOOTH) {
+            // Terrestrial planets - specular on oceans and ice caps
+            vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+            vec3 reflectDir = reflect(-lightDir, vWorldNormal);
+            
+            // Recalculate if this is water or ice for specular
+            float continentNoise = turbulence(vec2(u * 4.0, v * 4.0), 5);
+            float distanceFromPole = abs(v - 0.5) * 2.0;
+            
+            // Match irregular ice cap boundary
+            float iceNoise = turbulence(vec2(u * 8.0, v * 8.0), 4) * 0.15;
+            float iceThreshold = 0.85 - iceNoise;
+            
+            bool isWater = continentNoise <= 0.48;
+            bool isPolarIce = distanceFromPole > iceThreshold;
+            
+            if (isPolarIce) {
+              // Ice caps with layered specular
+              // Inner ice: very glossy and reflective
+              // Outer ice: less glossy
+              
+              float innerIceThreshold = iceThreshold + 0.05;
+              bool isInnerIce = distanceFromPole > innerIceThreshold;
+              
+              if (isInnerIce) {
+                // Inner core: very reflective and glossy
+                float spec = pow(max(dot(viewDir, reflectDir), 0.0), 64.0); // Higher shininess
+                specular = vec3(1.0) * spec * 0.7; // Stronger reflection
+              } else {
+                // Outer ice: less glossy
+                float spec = pow(max(dot(viewDir, reflectDir), 0.0), 24.0); // Lower shininess
+                specular = vec3(0.9, 0.95, 1.0) * spec * 0.4; // Weaker, bluish reflection
+              }
+            }
+            else if (isWater) {
+              // Oceans are moderately reflective
+              float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
+              specular = vec3(0.2, 0.3, 0.5) * spec * 0.3;
+            }
           }
           
           // Apply color modulation
