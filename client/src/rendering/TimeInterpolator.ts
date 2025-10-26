@@ -13,6 +13,7 @@ export class TimeInterpolator {
   // Store previous and target positions for smooth interpolation
   private bodyPreviousPositions: Map<string, THREE.Vector3> = new Map();
   private bodyTargetPositions: Map<string, THREE.Vector3> = new Map();
+  private bodyCurrentPositions: Map<string, THREE.Vector3> = new Map();
 
   /**
    * Sets the pause state and time scale
@@ -48,13 +49,20 @@ export class TimeInterpolator {
    */
   setBodyTargetPosition(bodyId: string, position: THREE.Vector3): void {
     if (!this.bodyTargetPositions.has(bodyId)) {
-      // First time seeing this body, set both previous and target to the same
+      // First time seeing this body, set all positions to the same
       this.bodyPreviousPositions.set(bodyId, position.clone());
       this.bodyTargetPositions.set(bodyId, position.clone());
+      this.bodyCurrentPositions.set(bodyId, position.clone());
     } else {
-      // Store current target as previous, and new position as target
-      const currentTarget = this.bodyTargetPositions.get(bodyId)!;
-      this.bodyPreviousPositions.set(bodyId, currentTarget.clone());
+      // Store current interpolated position as previous, and new position as target
+      const current = this.bodyCurrentPositions.get(bodyId);
+      if (current) {
+        this.bodyPreviousPositions.set(bodyId, current.clone());
+      } else {
+        // Fallback to target if current not set
+        const currentTarget = this.bodyTargetPositions.get(bodyId)!;
+        this.bodyPreviousPositions.set(bodyId, currentTarget.clone());
+      }
       this.bodyTargetPositions.set(bodyId, position);
     }
   }
@@ -75,6 +83,8 @@ export class TimeInterpolator {
     if (prevPos && targetPos) {
       const result = new THREE.Vector3();
       result.lerpVectors(prevPos, targetPos, lerpFactor);
+      // Store the current interpolated position
+      this.bodyCurrentPositions.set(bodyId, result.clone());
       return result;
     }
 
@@ -97,6 +107,7 @@ export class TimeInterpolator {
   clearPositions(): void {
     this.bodyPreviousPositions.clear();
     this.bodyTargetPositions.clear();
+    this.bodyCurrentPositions.clear();
   }
 
   /**
