@@ -533,21 +533,149 @@ export class MaterialFactory {
       },
       lights: false, // Disable Three.js lighting system (we do custom lighting)
       vertexShader: `
+        uniform float surfaceType;
+        uniform float planetSeed;
+        uniform float rotation;
         varying vec3 vNormal;
         varying vec3 vPosition;
         varying vec3 vWorldPosition;
         varying vec3 vWorldNormal;
         varying vec2 vUv;
         
+        // Surface type constants
+        const float SURFACE_CRATERED = 2.0;
+        
+        // 3D hash for crater generation
+        float hash3D(vec3 p) {
+          p = fract(p * vec3(127.1, 311.7, 74.7));
+          p += dot(p, p.yzx + 19.19);
+          return fract((p.x + p.y) * p.z);
+        }
+        
+        // Seeded random for variation
+        float seededRandom(float seed) {
+          return fract(sin(seed) * 43758.5453123);
+        }
+        
+        // 3D crater displacement function (optimized for vertex shader)
+        float craters3D(vec3 pos, float scale) {
+          vec3 scaledPos = pos * scale;
+          vec3 grid = floor(scaledPos);
+          vec3 localPos = fract(scaledPos);
+          
+          float craterEffect = 0.0;
+          
+          // Check neighboring cells (smaller loop for performance)
+          for(float z = -1.0; z <= 1.0; z++) {
+            for(float y = -1.0; y <= 1.0; y++) {
+              for(float x = -1.0; x <= 1.0; x++) {
+                vec3 neighbor = grid + vec3(x, y, z);
+                
+                vec3 craterPos = vec3(
+                  hash3D(neighbor),
+                  hash3D(neighbor + vec3(13.7, 27.3, 41.1)),
+                  hash3D(neighbor + vec3(53.2, 67.4, 79.8))
+                );
+                
+                vec3 toCenter = (localPos - vec3(x, y, z)) - craterPos;
+                float dist = length(toCenter);
+                
+                float craterSize = 0.2 + hash3D(neighbor + vec3(50.1, 60.2, 70.3)) * 0.35;
+                float shouldExist = hash3D(neighbor + vec3(100.0, 200.0, 300.0));
+                
+                if(shouldExist > 0.6 && dist < craterSize) {
+                  float rimDist = abs(dist - craterSize * 0.85) / (craterSize * 0.15);
+                  float rimHeight = smoothstep(1.0, 0.0, rimDist) * 0.15;
+                  float bowlDepth = smoothstep(craterSize, 0.0, dist) * -0.25;
+                  craterEffect += bowlDepth + rimHeight;
+                }
+              }
+            }
+          }
+          
+          return craterEffect;
+        }
+        
         void main() {
-          vNormal = normalize(normalMatrix * normal);
+          vec3 displacedPosition = position;
+          vec3 displacedNormal = normal;
+          
+          // Apply crater displacement for CRATERED surface type
+          if(abs(surfaceType - SURFACE_CRATERED) < 0.1) {
+            // Normalize position for seamless 3D sampling
+            vec3 normalizedPos = normalize(position);
+            
+            // Apply rotation
+            float cosRot = cos(rotation);
+            float sinRot = sin(rotation);
+            vec3 rotatedPos = vec3(
+              normalizedPos.x * cosRot - normalizedPos.z * sinRot,
+              normalizedPos.y,
+              normalizedPos.x * sinRot + normalizedPos.z * cosRot
+            );
+            
+            // Generate seed-based crater size variety
+            float craterSizeSeed = seededRandom(planetSeed * 1.5);
+            float craterScaleMultiplier = 1.5 + craterSizeSeed * 3.0;
+            
+            // Calculate crater displacement at multiple scales
+            float largeCraters = craters3D(rotatedPos, 0.6 * craterScaleMultiplier);
+            float mediumCraters = craters3D(rotatedPos, 1.25 * craterScaleMultiplier) * 0.7;
+            float smallCraters = craters3D(rotatedPos, 2.25 * craterScaleMultiplier) * 0.5;
+            
+            float totalDisplacement = largeCraters + mediumCraters + smallCraters;
+            
+            // Apply displacement along normal direction (scale it for visibility)
+            // Using a stronger displacement amount for dramatic craters
+            float displacementAmount = totalDisplacement * 0.08; // 8% of radius for visible depth
+            displacedPosition = position + normal * displacementAmount;
+            
+            // Simple gradient-based normal perturbation (smooth and efficient)
+            // Sample displacement in a slightly larger neighborhood for smoothness
+            float epsilon = 0.05; // Larger epsilon = smoother gradients
+            
+            // Create perpendicular vectors for sampling
+            vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
+            if(length(tangent) < 0.1) {
+              tangent = normalize(cross(normal, vec3(1.0, 0.0, 0.0)));
+            }
+            vec3 bitangent = normalize(cross(normal, tangent));
+            
+            // Sample displacement in X direction
+            vec3 posX = normalize(position + tangent * epsilon);
+            vec3 rotX = vec3(
+              posX.x * cosRot - posX.z * sinRot,
+              posX.y,
+              posX.x * sinRot + posX.z * cosRot
+            );
+            float dispX = (craters3D(rotX, 0.6 * craterScaleMultiplier) + 
+                          craters3D(rotX, 1.25 * craterScaleMultiplier) * 0.7) * 0.08;
+            
+            // Sample displacement in Y direction
+            vec3 posY = normalize(position + bitangent * epsilon);
+            vec3 rotY = vec3(
+              posY.x * cosRot - posY.z * sinRot,
+              posY.y,
+              posY.x * sinRot + posY.z * cosRot
+            );
+            float dispY = (craters3D(rotY, 0.6 * craterScaleMultiplier) + 
+                          craters3D(rotY, 1.25 * craterScaleMultiplier) * 0.7) * 0.08;
+            
+            // Calculate gradient (change in displacement)
+            vec2 gradient = vec2(dispX - displacementAmount, dispY - displacementAmount) / epsilon;
+            
+            // Perturb normal based on gradient (smooth blend)
+            vec3 perturbation = tangent * gradient.x + bitangent * gradient.y;
+            displacedNormal = normalize(normal - perturbation * 0.3); // Gentle perturbation
+          }
+          
+          vNormal = normalize(normalMatrix * displacedNormal);
           vPosition = position;
-          vUv = uv; // Pass through geometry UVs
-          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+          vUv = uv;
+          vec4 worldPosition = modelMatrix * vec4(displacedPosition, 1.0);
           vWorldPosition = worldPosition.xyz;
-          // Calculate world space normal for lighting
-          vWorldNormal = normalize(mat3(modelMatrix) * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          vWorldNormal = normalize(mat3(modelMatrix) * displacedNormal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(displacedPosition, 1.0);
         }
       `,
       fragmentShader: `

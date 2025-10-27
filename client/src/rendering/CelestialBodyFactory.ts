@@ -78,7 +78,11 @@ export class CelestialBodyFactory {
    */
   createPlanet(planet: any): THREE.Mesh {
     const radius = planet.radius * this.scale * this.bodySizeMultiplier;
-    const geometry = new THREE.SphereGeometry(radius, 64, 64);
+
+    // Use higher geometry detail for cratered planets to show vertex displacement
+    const isCratered = planet.surfaceType === "cratered";
+    const segments = isCratered ? 256 : 64; // 4x detail for rocky worlds with displacement
+    const geometry = new THREE.SphereGeometry(radius, segments, segments);
 
     // Calculate orbital distance for temperature-based features
     const orbitalDistance = planet.orbitalElements?.semiMajorAxis || 0;
