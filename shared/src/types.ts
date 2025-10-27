@@ -52,6 +52,20 @@ export const LifeLevel = {
 
 export type LifeLevelType = (typeof LifeLevel)[keyof typeof LifeLevel];
 
+// Civilization development levels (for intelligent life)
+export const CivilizationLevel = {
+  PRIMITIVE: "primitive", // Stone age, tribal societies
+  AGRICULTURAL: "agricultural", // Farming, early cities, writing
+  INDUSTRIAL: "industrial", // Steam power, factories, railroads
+  ATOMIC: "atomic", // Nuclear power, early space age
+  INFORMATION: "information", // Computers, satellites, internet
+  SPACEFARING: "spacefaring", // Interplanetary, colonies
+  INTERSTELLAR: "interstellar", // FTL travel, star gates
+} as const;
+
+export type CivilizationLevelType =
+  (typeof CivilizationLevel)[keyof typeof CivilizationLevel];
+
 export interface CelestialBodyType {
   id: string;
   name: string;
@@ -70,6 +84,7 @@ export interface CelestialBodyType {
   // Life and habitability properties (for planets)
   lifeLevel?: LifeLevelType; // Current level of life on planet
   habitability?: number; // 0-1, suitability for life (for terraforming/seeding)
+  civilizationLevel?: CivilizationLevelType; // Development level of intelligent civilizations
   // Asteroid-specific properties
   asteroidBeltId?: string; // if this is an asteroid, the belt it belongs to
   composition?: "water" | "metal" | "silica"; // asteroid/moon composition

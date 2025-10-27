@@ -22,6 +22,8 @@ import {
   SurfaceTypeName,
   LifeLevel,
   LifeLevelType,
+  CivilizationLevel,
+  CivilizationLevelType,
 } from "@constellation/shared";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
@@ -259,6 +261,51 @@ function determineLifeLevel(
   }
 }
 
+/**
+ * Determine civilization level for intelligent life
+ * Higher habitability = better chance of advanced civilization
+ */
+function determineCivilizationLevel(
+  rng: SeededRandom,
+  habitability: number
+): CivilizationLevelType {
+  const civilizationRoll = rng.next();
+
+  // Habitability affects civilization development
+  // Better conditions = more likely to advance
+  if (habitability < 0.5) {
+    // Harsh conditions: mostly primitive
+    if (civilizationRoll < 0.7) return CivilizationLevel.PRIMITIVE;
+    if (civilizationRoll < 0.9) return CivilizationLevel.AGRICULTURAL;
+    if (civilizationRoll < 0.97) return CivilizationLevel.INDUSTRIAL;
+    return CivilizationLevel.ATOMIC;
+  } else if (habitability < 0.7) {
+    // Moderate conditions: agricultural to atomic
+    if (civilizationRoll < 0.3) return CivilizationLevel.PRIMITIVE;
+    if (civilizationRoll < 0.6) return CivilizationLevel.AGRICULTURAL;
+    if (civilizationRoll < 0.8) return CivilizationLevel.INDUSTRIAL;
+    if (civilizationRoll < 0.95) return CivilizationLevel.ATOMIC;
+    return CivilizationLevel.INFORMATION;
+  } else if (habitability < 0.85) {
+    // Good conditions: industrial to spacefaring
+    if (civilizationRoll < 0.15) return CivilizationLevel.PRIMITIVE;
+    if (civilizationRoll < 0.35) return CivilizationLevel.AGRICULTURAL;
+    if (civilizationRoll < 0.55) return CivilizationLevel.INDUSTRIAL;
+    if (civilizationRoll < 0.75) return CivilizationLevel.ATOMIC;
+    if (civilizationRoll < 0.92) return CivilizationLevel.INFORMATION;
+    return CivilizationLevel.SPACEFARING;
+  } else {
+    // Excellent conditions: full range, higher chance of advanced
+    if (civilizationRoll < 0.1) return CivilizationLevel.PRIMITIVE;
+    if (civilizationRoll < 0.2) return CivilizationLevel.AGRICULTURAL;
+    if (civilizationRoll < 0.35) return CivilizationLevel.INDUSTRIAL;
+    if (civilizationRoll < 0.55) return CivilizationLevel.ATOMIC;
+    if (civilizationRoll < 0.75) return CivilizationLevel.INFORMATION;
+    if (civilizationRoll < 0.95) return CivilizationLevel.SPACEFARING;
+    return CivilizationLevel.INTERSTELLAR;
+  }
+}
+
 export function generatePlanet(
   rng: SeededRandom,
   starMass: number,
@@ -372,9 +419,26 @@ export function generatePlanet(
   );
 
   // Combine distance habitability with planet type's base habitability
-  // Distance is worth 60%, planet type is worth 40%
+  // For very dim stars (brown dwarfs), distance matters much more
+  // For bright stars, planet type matters more
+  let distanceWeight = 0.6;
+  let planetTypeWeight = 0.4;
+
+  // Adjust weights based on star luminosity
+  // Very dim stars (< 0.01 luminosity): distance is critical (90% weight)
+  // Dim stars (0.01 - 0.1): distance is very important (75% weight)
+  // Normal stars (> 0.1): balanced (60% weight)
+  if (starLuminosity < 0.01) {
+    distanceWeight = 0.9;
+    planetTypeWeight = 0.1;
+  } else if (starLuminosity < 0.1) {
+    distanceWeight = 0.75;
+    planetTypeWeight = 0.25;
+  }
+
   let finalHabitability =
-    distanceHabitability * 0.6 + planetType.baseHabitability * 0.4;
+    distanceHabitability * distanceWeight +
+    planetType.baseHabitability * planetTypeWeight;
 
   // Atmosphere bonus: planets with atmosphere get +20% habitability (up to max 1.0)
   if (hasAtmosphere) {
@@ -394,10 +458,18 @@ export function generatePlanet(
     planetType.lifeChance
   );
 
+  // Determine civilization level if intelligent life exists
+  let civilizationLevel: CivilizationLevelType | undefined = undefined;
+  if (lifeLevel === LifeLevel.INTELLIGENT) {
+    civilizationLevel = determineCivilizationLevel(rng, finalHabitability);
+  }
+
   console.log(
     `Planet ${planetName}: Distance ${distanceAU.toFixed(
       2
-    )} AU, Habitability ${finalHabitability.toFixed(2)}, Life: ${lifeLevel}`
+    )} AU, Habitability ${finalHabitability.toFixed(2)}, Life: ${lifeLevel}${
+      civilizationLevel ? `, Civilization: ${civilizationLevel}` : ""
+    }`
   );
 
   const planet: CelestialBodyType = {
@@ -415,6 +487,7 @@ export function generatePlanet(
     planetType: planetType.name,
     habitability: finalHabitability,
     lifeLevel: lifeLevel,
+    civilizationLevel: civilizationLevel,
     moons: [], // Will be populated later
   };
 

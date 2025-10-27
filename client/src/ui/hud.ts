@@ -171,8 +171,24 @@ export class HUDManager {
     }
 
     // Parse the hex color to RGB
-    const rgb = this.hexToRgb(starColor);
+    let rgb = this.hexToRgb(starColor);
     if (!rgb) return;
+
+    // Calculate brightness (perceived luminance using standard formula)
+    const brightness = (rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114) / 255;
+
+    // If star is too dark (brown dwarfs, dim stars), brighten the UI color
+    // Minimum brightness threshold: 0.5 (50%)
+    const minBrightness = 0.5;
+    if (brightness < minBrightness) {
+      // Calculate how much we need to boost
+      const boostFactor = minBrightness / brightness;
+      rgb = {
+        r: Math.min(255, Math.floor(rgb.r * boostFactor)),
+        g: Math.min(255, Math.floor(rgb.g * boostFactor)),
+        b: Math.min(255, Math.floor(rgb.b * boostFactor)),
+      };
+    }
 
     // Apply the color as CSS variables
     const root = document.documentElement;
@@ -380,6 +396,12 @@ export class HUDManager {
         const planetType = planet.planetType ? ` - ${planet.planetType}` : "";
         planetItem.textContent = `${planetIndex}. ${planet.name}${planetType}`;
         planetItem.dataset.objectId = planet.id;
+
+        // Color habitable planets green
+        if (planet.habitability !== undefined && planet.habitability >= 0.6) {
+          planetItem.style.color = "#00ff00"; // Green for habitable planets
+        }
+
         planetItem.addEventListener("click", () => {
           if (this.onSelectObject) {
             this.onSelectObject(planet.id);

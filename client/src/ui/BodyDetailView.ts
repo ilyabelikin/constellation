@@ -3,6 +3,7 @@ import {
   ASTRONOMICAL_UNIT,
   EARTH_MASS,
   LifeLevel,
+  CivilizationLevel,
 } from "@constellation/shared";
 
 /**
@@ -107,9 +108,19 @@ export class BodyDetailView {
     ) {
       if (this.lifeElement) {
         this.lifeElement.style.display = "block";
-        this.lifeElement.textContent = `Life: ${this.formatLifeLevel(
-          body.lifeLevel
-        )}`;
+        let lifeText = `Life: ${this.formatLifeLevel(body.lifeLevel)}`;
+
+        // Add civilization level for intelligent life
+        if (
+          body.lifeLevel === LifeLevel.INTELLIGENT &&
+          body.civilizationLevel
+        ) {
+          lifeText += ` (${this.formatCivilizationLevel(
+            body.civilizationLevel
+          )})`;
+        }
+
+        this.lifeElement.textContent = lifeText;
       }
     } else {
       if (this.lifeElement) {
@@ -194,5 +205,12 @@ export class BodyDetailView {
   private formatLifeLevel(lifeLevel: string): string {
     // Capitalize first letter and format nicely
     return lifeLevel.charAt(0).toUpperCase() + lifeLevel.slice(1);
+  }
+
+  private formatCivilizationLevel(civilizationLevel: string): string {
+    // Capitalize first letter and format nicely
+    return (
+      civilizationLevel.charAt(0).toUpperCase() + civilizationLevel.slice(1)
+    );
   }
 }
