@@ -25,82 +25,55 @@ import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
-// Load planet types configuration
+// Load planet types and star types configuration
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const planetTypesConfig = JSON.parse(
   readFileSync(join(__dirname, "planet-types.json"), "utf-8")
 );
-
-interface StarClass {
-  type: string;
-  massRange: [number, number]; // in solar masses
-  radiusRange: [number, number]; // in solar radii
-  color: string;
-}
-
-const STAR_CLASSES: StarClass[] = [
-  {
-    type: "M",
-    massRange: [0.08, 0.45],
-    radiusRange: [0.1, 0.7],
-    color: "#ff6b6b",
-  },
-  {
-    type: "K",
-    massRange: [0.45, 0.8],
-    radiusRange: [0.7, 0.96],
-    color: "#ffa94d",
-  },
-  {
-    type: "G",
-    massRange: [0.8, 1.04],
-    radiusRange: [0.96, 1.15],
-    color: "#ffe066",
-  },
-  {
-    type: "F",
-    massRange: [1.04, 1.4],
-    radiusRange: [1.15, 1.4],
-    color: "#fff3bf",
-  },
-  {
-    type: "A",
-    massRange: [1.4, 2.1],
-    radiusRange: [1.4, 1.8],
-    color: "#e3fafc",
-  },
-];
+const starTypesConfig = JSON.parse(
+  readFileSync(join(__dirname, "star-types.json"), "utf-8")
+);
 
 export function generateStar(rng: SeededRandom): CelestialBodyType {
-  // Most stars are M-class, fewer are larger classes
-  const weights = [0.76, 0.12, 0.08, 0.03, 0.01];
-  const cumulative = weights.reduce(
-    (acc: number[], w, i) => [...acc, (acc[i - 1] || 0) + w],
-    []
-  );
-  const rand = rng.next();
-  const classIndex = cumulative.findIndex((c) => rand <= c);
-  const starClass = STAR_CLASSES[classIndex];
+  // Load star types from configuration
+  const types = starTypesConfig.starTypes;
 
+  // Use weighted random selection based on the 'weight' property
+  const totalWeight = types.reduce((sum: number, t: any) => sum + t.weight, 0);
+  let randomValue = rng.next() * totalWeight;
+
+  let starType = types[0]; // fallback
+  for (const candidate of types) {
+    randomValue -= candidate.weight;
+    if (randomValue <= 0) {
+      starType = candidate;
+      break;
+    }
+  }
+
+  // Generate mass and radius within the star type's ranges
   const massMultiplier = rng.nextFloat(
-    starClass.massRange[0],
-    starClass.massRange[1]
+    starType.massRange[0],
+    starType.massRange[1]
   );
   const radiusMultiplier = rng.nextFloat(
-    starClass.radiusRange[0],
-    starClass.radiusRange[1]
+    starType.radiusRange[0],
+    starType.radiusRange[1]
   );
+
+  console.log(`Generating star: ${starType.name} (${starType.spectralClass})`);
 
   return {
     id: uuidv4(),
-    name: generateStarName(rng, starClass.type),
+    name: generateStarName(rng, starType.spectralClass),
     type: "star",
     mass: massMultiplier * SOLAR_MASS,
     radius: radiusMultiplier * SOLAR_RADIUS,
     parentId: null,
     orbitalElements: null,
-    color: starClass.color,
+    color: starType.color,
+    starType: starType.name,
   };
 }
 

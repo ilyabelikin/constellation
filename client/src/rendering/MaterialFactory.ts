@@ -714,6 +714,18 @@ export class MaterialFactory {
           float u = vUv.x + rotation / (2.0 * 3.14159);
           float v = vUv.y;
           
+          // Generate seed-based color variety for this planet
+          float colorSeedR = seededRandom(planetSeed * 1.41);
+          float colorSeedG = seededRandom(planetSeed * 1.73);
+          float colorSeedB = seededRandom(planetSeed * 2.17);
+          
+          // Apply subtle color variation to baseColor (±15% per channel)
+          vec3 variedBaseColor = baseColor * vec3(
+            0.85 + colorSeedR * 0.3,  // R: 85%-115%
+            0.85 + colorSeedG * 0.3,  // G: 85%-115%
+            0.85 + colorSeedB * 0.3   // B: 85%-115%
+          );
+          
           // Base color intensity
           float intensity = 1.0;
           vec3 colorModulation = vec3(1.0);
@@ -731,9 +743,55 @@ export class MaterialFactory {
             );
             vec3 samplePos = normalize(rotatedPos);
             
-            // Create flowing turbulent bands using 3D noise - scaled down for larger patterns
-            float flow = turbulence3D(samplePos * vec3(3.0, 2.5, 3.0), 6);
-            float distortion = turbulence3D(samplePos * vec3(4.5, 1.5, 4.5) + vec3(flow * 0.5, 0.0, 0.0), 4) * 0.3;
+            // Generate seed-based animation variety
+            float animSpeedSeed = seededRandom(planetSeed * 2.9);
+            float turbulenceSeed1 = seededRandom(planetSeed * 3.1);
+            float turbulenceSeed2 = seededRandom(planetSeed * 3.7);
+            
+            // Add very slow atmospheric rotation animation (jet streams rotate around planet)
+            float slowTime = time * 0.000008 * (0.7 + animSpeedSeed * 0.6); // Vary speed per planet
+            
+            // Different latitudes rotate at different speeds (differential rotation)
+            // Equatorial regions rotate faster, polar regions slower (like Jupiter)
+            float latitude = abs(v - 0.5) * 2.0; // 0 at equator, 1 at poles
+            float jetStreamSpeed = (1.0 - latitude * 0.7); // Faster at equator
+            
+            // Apply ROTATIONAL transformation around Y-axis (planet's rotation axis)
+            // This creates circular motion instead of linear drift
+            float rotationAngle = slowTime * jetStreamSpeed * 0.8;
+            
+            // Rotate the sampling position around Y-axis for circular jet stream motion
+            float cosRot2 = cos(rotationAngle);
+            float sinRot2 = sin(rotationAngle);
+            vec3 rotatedSamplePos = vec3(
+              samplePos.x * cosRot2 - samplePos.z * sinRot2,
+              samplePos.y,
+              samplePos.x * sinRot2 + samplePos.z * cosRot2
+            );
+            
+            // Add circular eddies at different scales (rotating disturbances)
+            // Small eddies rotating faster
+            float smallEddyAngle = slowTime * 0.5 + turbulenceSeed1 * 100.0;
+            vec3 smallEddyRotation = vec3(
+              sin(smallEddyAngle) * 0.08,
+              cos(smallEddyAngle * 0.7) * 0.04,
+              cos(smallEddyAngle) * 0.08
+            );
+            
+            // Medium eddies rotating slower
+            float mediumEddyAngle = slowTime * 0.2 + turbulenceSeed2 * 80.0;
+            vec3 mediumEddyRotation = vec3(
+              sin(mediumEddyAngle) * 0.12,
+              cos(mediumEddyAngle * 0.8) * 0.08,
+              cos(mediumEddyAngle) * 0.12
+            );
+            
+            // Combine rotations
+            vec3 totalRotation = rotatedSamplePos + smallEddyRotation + mediumEddyRotation;
+            
+            // Create flowing turbulent bands using 3D noise with rotational motion
+            float flow = turbulence3D(totalRotation * vec3(3.0, 2.5, 3.0), 6);
+            float distortion = turbulence3D(totalRotation * vec3(4.5, 1.5, 4.5) + vec3(flow * 0.5, 0.0, 0.0), 4) * 0.3;
             
             // Multiple band layers with different frequencies - use latitude (v) for horizontal bands
             float mainBands = sin((v + distortion) * 20.0) * 0.5 + 0.5;
@@ -744,16 +802,41 @@ export class MaterialFactory {
             float bandMix = mainBands * 0.6 + subBands * 0.3 + fineBands * 0.1;
             
             // Add turbulent spots and storms using 3D noise - scaled down for larger storm features
-            float storms = turbulence3D(samplePos * vec3(4.0, 3.0, 4.0), 5);
+            // Storms rotate in circular patterns with some wobble
+            float stormSeed = seededRandom(planetSeed * 4.3);
+            float stormRotationAngle = slowTime * 0.4 + stormSeed * 100.0;
+            
+            // Create circular storm motion with spiral component
+            vec3 stormRotation = vec3(
+              samplePos.x * cos(stormRotationAngle) - samplePos.z * sin(stormRotationAngle),
+              samplePos.y,
+              samplePos.x * sin(stormRotationAngle) + samplePos.z * cos(stormRotationAngle)
+            );
+            
+            // Add some wobble/precession to storm motion
+            float wobbleAngle = slowTime * 0.15 + stormSeed * 70.0;
+            vec3 stormWobble = vec3(
+              sin(wobbleAngle) * 0.1,
+              cos(wobbleAngle * 0.8) * 0.08,
+              cos(wobbleAngle) * 0.1
+            );
+            
+            float storms = turbulence3D((stormRotation + stormWobble) * vec3(4.0, 3.0, 4.0), 5);
             float spotPattern = smoothstep(0.6, 0.8, storms);
             
             // Create color variations across bands
-            float colorBand = sin(v * 15.0 + flow * 0.3) * 0.5 + 0.5;
+            // Add very slow color shifting to simulate changing atmospheric chemistry
+            // Use multiple frequencies for less predictable variation
+            float colorShiftSeed = seededRandom(planetSeed * 5.7);
+            float colorShift = sin(slowTime * 0.05 + colorShiftSeed * 50.0) * 0.03 
+                             + cos(slowTime * 0.04 + colorShiftSeed * 80.0) * 0.02 
+                             + 1.0; // Subtle ~5% color variation
+            float colorBand = sin(v * 15.0 + flow * 0.3 + slowTime * 0.025) * 0.5 + 0.5;
             
-            // Rich color palette for gas giants
-            vec3 lightBand = baseColor * 1.3; // Brighter zones
-            vec3 darkBand = baseColor * 0.7; // Darker zones
-            vec3 stormColor = baseColor * vec3(1.2, 1.1, 0.9); // Slightly warmer storms
+            // Rich color palette for gas giants using varied base color
+            vec3 lightBand = variedBaseColor * 1.3 * colorShift; // Brighter zones with color shift
+            vec3 darkBand = variedBaseColor * 0.7; // Darker zones stay stable
+            vec3 stormColor = variedBaseColor * vec3(1.2, 1.1, 0.9) * colorShift; // Slightly warmer storms with variation
             
             // Mix colors based on bands and turbulence
             colorModulation = mix(darkBand, lightBand, bandMix);
@@ -767,7 +850,9 @@ export class MaterialFactory {
             );
             
             // Intensity variations from turbulence
-            intensity = 0.85 + bandMix * 0.3 + storms * 0.15;
+            // Add subtle atmospheric pulsing (turbulence changes) - very slow
+            float atmosphericPulse = sin(slowTime * 0.08) * 0.03 + 1.0; // Subtle 3% intensity variation
+            intensity = (0.85 + bandMix * 0.3 + storms * 0.15) * atmosphericPulse;
             
             // Add polar storms with contrasting colors
             float polarDistance = abs(v - 0.5) * 2.0; // 0 at equator, 1 at poles
@@ -779,13 +864,20 @@ export class MaterialFactory {
               vec2 toPole = vec2(u, v) - poleCenter;
               float distFromPole = length(toPole) * 4.0; // Scale for visibility
               
-              // Spiral distortion using 3D noise
-              float angle = atan(toPole.y, toPole.x);
+              // Add rotation to polar vortices (spinning storms) with chaotic variation
+              float vortexSeed = seededRandom(planetSeed * 5.1);
+              // Non-uniform rotation speed (speeds up and slows down) - much slower
+              float vortexRotation = slowTime * 0.5 * (1.0 + sin(slowTime * 0.12 + vortexSeed * 100.0) * 0.3);
+              float poleSign = v > 0.5 ? 1.0 : -1.0; // Opposite rotation for each pole
+              
+              // Spiral distortion using 3D noise with rotation
+              float angle = atan(toPole.y, toPole.x) + vortexRotation * poleSign;
               vec3 spiralPos = samplePos + vec3(distFromPole * 1.2, angle * 0.8, distFromPole * 1.2);
               float spiral = turbulence3D(spiralPos, 5);
               
               // Create storm pattern using 3D noise - scaled for larger features
-              vec3 vortexPos = samplePos * vec3(8.0, 12.0, 8.0) + vec3(spiral * 0.5, spiral * 0.3, 0.0);
+              // Add rotation to the vortex pattern itself
+              vec3 vortexPos = samplePos * vec3(8.0, 12.0, 8.0) + vec3(spiral * 0.5 + vortexRotation * poleSign * 0.3, spiral * 0.3, 0.0);
               float vortexPattern = turbulence3D(vortexPos, 6);
               
               // Storm mask - visible only near poles
@@ -794,9 +886,9 @@ export class MaterialFactory {
               // Contrasting color for polar storms
               // Use complementary hue by shifting RGB channels
               vec3 polarStormColor = vec3(
-                baseColor.b * 1.4,  // Shift colors for contrast
-                baseColor.r * 1.2,
-                baseColor.g * 1.3
+                variedBaseColor.b * 1.4,  // Shift colors for contrast
+                variedBaseColor.r * 1.2,
+                variedBaseColor.g * 1.3
               );
               
               // Add variation within the storm
@@ -1124,8 +1216,8 @@ export class MaterialFactory {
             intensity = 0.6 + baseNoise + depthVariation * 0.15;
             intensity += totalCurrents * 0.3; // Currents create lighter areas
             
-            // Enhance water color saturation - preserve base blue/green
-            colorModulation = baseColor * 1.15; // Boost saturation
+            // Enhance water color saturation - preserve varied base blue/green
+            colorModulation = variedBaseColor * 1.15; // Boost saturation
           }
           // Terrestrial planets - continents, oceans, and ice caps
           else if(surfaceType == SURFACE_TERRESTRIAL) {
@@ -1331,12 +1423,12 @@ export class MaterialFactory {
             float rockPattern = smoothstep(0.6, 0.75, rocks) * 0.15;
             
             intensity = 0.8 + desertNoise + dunes - rockPattern;
-            colorModulation = baseColor; // Use planet's desert color
+            colorModulation = variedBaseColor; // Use planet's varied desert color
           }
           // Fallback for any unhandled surface types
           else {
             intensity = 0.8;
-            colorModulation = baseColor;
+            colorModulation = variedBaseColor;
           }
           
           // Basic lighting from sun using world space normal and position
@@ -1363,7 +1455,7 @@ export class MaterialFactory {
             vec3 viewDir = normalize(cameraPosition - vWorldPosition);
             vec3 reflectDir = reflect(-lightDir, vWorldNormal);
             float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
-            specular = baseColor * spec * 0.4; // Colored specular highlights matching water
+            specular = variedBaseColor * spec * 0.4; // Colored specular highlights matching water
           }
           else if(surfaceType == SURFACE_TERRESTRIAL) {
             // Terrestrial planets - specular on oceans and ice caps

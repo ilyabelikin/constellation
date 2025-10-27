@@ -54,6 +54,7 @@ export interface CelestialBodyType {
   cloudCoverage?: number; // 0-1, how much cloud coverage for planets with atmosphere
   surfaceType?: SurfaceTypeName; // surface appearance type
   planetType?: string; // planet type like "Super-Earth", "Gas Giant", etc.
+  starType?: string; // star type like "Red Dwarf (M-class)", "Blue Giant (O-class)", etc.
   // Asteroid-specific properties
   asteroidBeltId?: string; // if this is an asteroid, the belt it belongs to
   composition?: "water" | "metal" | "silica"; // asteroid/moon composition

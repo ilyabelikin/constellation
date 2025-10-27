@@ -15,13 +15,16 @@ export class HUDManager {
   private authModal: HTMLElement;
   private errorMessage: HTMLElement;
   private galaxyNameInput: HTMLInputElement;
+  private galaxyTimeDisplay: HTMLElement;
   private exploreGalaxyButton: HTMLElement;
   private resetGalaxyButton: HTMLElement;
 
+  private navSection: HTMLElement;
   private navHomeButton: HTMLElement;
   private navSystemButton: HTMLElement;
   private navConstellationButton: HTMLElement;
 
+  private timeSection: HTMLElement;
   private timeDisplay: HTMLElement;
   private timeScaleDisplay: HTMLElement;
   private timeToggleButton: HTMLElement;
@@ -53,15 +56,18 @@ export class HUDManager {
     this.galaxyNameInput = document.getElementById(
       "galaxy-name"
     ) as HTMLInputElement;
+    this.galaxyTimeDisplay = document.getElementById("galaxy-time-display")!;
     this.exploreGalaxyButton = document.getElementById("explore-galaxy")!;
     this.resetGalaxyButton = document.getElementById("reset-galaxy")!;
 
     // Navigation
+    this.navSection = document.querySelector(".hud-top-left")!;
     this.navHomeButton = document.getElementById("nav-home")!;
     this.navSystemButton = document.getElementById("nav-system")!;
     this.navConstellationButton = document.getElementById("nav-constellation")!;
 
     // Time controls
+    this.timeSection = document.querySelector(".hud-top-right")!;
     this.timeDisplay = document.getElementById("time-display")!;
     this.timeScaleDisplay = document.getElementById("time-scale")!;
     this.timeToggleButton = document.getElementById("time-toggle")!;
@@ -123,6 +129,37 @@ export class HUDManager {
 
   hideAuthModal(): void {
     this.authModal.classList.add("hidden");
+    // Show game HUD elements when player joins
+    this.showGameHUD();
+  }
+
+  showGameHUD(): void {
+    this.navSection.classList.add("visible");
+    this.timeSection.classList.add("visible");
+  }
+
+  hideGameHUD(): void {
+    this.navSection.classList.remove("visible");
+    this.timeSection.classList.remove("visible");
+  }
+
+  updateGalaxyTime(
+    galaxyName: string,
+    exists: boolean,
+    currentTime: number
+  ): void {
+    if (!exists) {
+      this.galaxyTimeDisplay.textContent = `New galaxy will be created`;
+    } else {
+      // Convert time to days and hours
+      const days = Math.floor(currentTime / 86400);
+      const hours = Math.floor((currentTime % 86400) / 3600);
+      this.galaxyTimeDisplay.textContent = `Local time: ${days}d ${hours}h`;
+    }
+  }
+
+  clearGalaxyTime(): void {
+    this.galaxyTimeDisplay.textContent = "";
   }
 
   /**

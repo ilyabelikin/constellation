@@ -39,7 +39,8 @@ export class BodyDetailView {
     this.panel.classList.remove("hidden");
 
     this.nameElement.textContent = body.name;
-    this.typeElement.textContent = body.planetType || body.type;
+    this.typeElement.textContent =
+      body.starType || body.planetType || body.type;
     this.massElement.textContent = this.formatMass(body.mass);
     this.radiusElement.textContent = this.formatDistance(body.radius);
 

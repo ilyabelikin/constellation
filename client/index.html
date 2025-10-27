@@ -210,6 +210,24 @@
             display: none;
         }
 
+        /* Hide game HUD elements when auth modal is visible */
+        .hud-top-left,
+        .hud-top-right {
+            display: none;
+        }
+
+        .hud-top-left.visible,
+        .hud-top-right.visible {
+            display: block;
+        }
+
+        #galaxy-time-display {
+            margin-top: 10px;
+            font-size: 11px;
+            color: var(--primary-color-dim);
+            text-align: center;
+        }
+
         .detail-row {
             margin: 5px 0;
         }
@@ -238,6 +256,7 @@
         <h2>Constellation</h2>
         <div id="error-message" class="hidden"></div>
         <input type="text" id="galaxy-name" placeholder="Galaxy Name (default: the Milky Way)" />
+        <div id="galaxy-time-display"></div>
         <div style="display: flex; gap: 10px; margin-top: 10px;">
             <button class="hud-button" id="reset-galaxy" style="flex: 1;">Reset Galaxy</button>
             <button class="hud-button" id="explore-galaxy" style="flex: 1;">Explore</button>

@@ -115,6 +115,11 @@ class ConstellationClient {
       this.network.joinGalaxy(this.lastGalaxyName);
     };
 
+    this.network.onGalaxyInfo = (galaxyName, exists, currentTime) => {
+      console.log("Galaxy info:", galaxyName, exists, currentTime);
+      this.hud.updateGalaxyTime(galaxyName, exists, currentTime);
+    };
+
     this.network.onGateTravel = (
       destinationSystem,
       exploredGateIds,
@@ -151,6 +156,34 @@ class ConstellationClient {
   }
 
   private setupHUDHandlers(): void {
+    // Query galaxy info when input changes (with debounce)
+    let queryTimeout: number | null = null;
+    const galaxyNameInput = document.getElementById(
+      "galaxy-name"
+    ) as HTMLInputElement;
+    galaxyNameInput.addEventListener("input", async () => {
+      if (queryTimeout) {
+        clearTimeout(queryTimeout);
+      }
+      queryTimeout = window.setTimeout(async () => {
+        const name = galaxyNameInput.value.trim() || "the Milky Way";
+        // Connect if not already connected
+        if (!this.isConnected) {
+          await this.connect();
+        }
+        this.network.queryGalaxy(name);
+      }, 500);
+    });
+
+    // Also query on initial load
+    (async () => {
+      const name = galaxyNameInput.value.trim() || "the Milky Way";
+      if (!this.isConnected) {
+        await this.connect();
+      }
+      this.network.queryGalaxy(name);
+    })();
+
     this.hud.onExploreGalaxy = async (name) => {
       // Connect if not already connected
       if (!this.isConnected) {

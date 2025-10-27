@@ -15,7 +15,7 @@
       "massRange": [0.4, 1.5],
       "radiusRange": [0.7, 1.1],
       "color": "#a0937d",
-      "atmosphereChance": 0.3,
+      "atmosphereChance": 0.1,
       "surfaceType": "cratered"
     },
     {
@@ -78,7 +78,7 @@
       "massRange": [5, 20],
       "radiusRange": [2.0, 3.5],
       "color": "#7cb3d9",
-      "atmosphereChance": 1.0,
+      "atmosphereChance": 0,
       "surfaceType": "banded"
     },
     {
@@ -87,7 +87,7 @@
       "massRange": [15, 50],
       "radiusRange": [3.5, 5.5],
       "color": "#74b9d8",
-      "atmosphereChance": 1.0,
+      "atmosphereChance": 0,
       "surfaceType": "banded"
     },
     {
@@ -96,7 +96,7 @@
       "massRange": [80, 200],
       "radiusRange": [8, 12],
       "color": "#d4a373",
-      "atmosphereChance": 1.0,
+      "atmosphereChance": 0,
       "surfaceType": "banded"
     },
     {
@@ -105,7 +105,7 @@
       "massRange": [200, 400],
       "radiusRange": [10, 14],
       "color": "#c9a96e",
-      "atmosphereChance": 1.0,
+      "atmosphereChance": 0,
       "surfaceType": "banded"
     },
     {
@@ -114,7 +114,7 @@
       "massRange": [400, 800],
       "radiusRange": [12, 16],
       "color": "#b8956a",
-      "atmosphereChance": 1.0,
+      "atmosphereChance": 0,
       "surfaceType": "banded"
     }
   ]

@@ -117,6 +117,7 @@ cd client && npx serve dist
 ### UI Theming
 
 The user interface dynamically adapts to the color of the current star system:
+
 - HUD panels, borders, and text colors shift to match the star's color
 - Smooth CSS transitions create an immersive experience
 - The initial galaxy selection screen maintains the classic green theme
