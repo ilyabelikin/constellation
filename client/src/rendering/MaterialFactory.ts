@@ -1267,6 +1267,43 @@ export class MaterialFactory {
               // Reduced scale for larger wave features (was 2.5, now 1.0)
               float waves = turbulence3D(samplePos * 1.0, 3) * 0.1;
               intensity += waves;
+              
+              // Add sea ice near ice caps (broken ice floes in cold water)
+              // Only appears in transition zone between ice caps and open ocean
+              float seaIceZone = 0.0;
+              
+              // Check proximity to ice caps
+              if (distanceFromPole > iceThreshold * 0.85) {
+                // We're in potential sea ice zone (just beyond ice cap edge)
+                float distanceBeyondIceCap = distanceFromPole - iceThreshold;
+                
+                // Sea ice extends 0.1-0.15 units beyond ice cap edge
+                float seaIceRange = 0.15;
+                float seaIceIntensity = smoothstep(seaIceRange, 0.0, distanceBeyondIceCap);
+                
+                if (seaIceIntensity > 0.0) {
+                  // Create broken ice pattern using 3D noise
+                  // Multiple scales for varied ice floe sizes
+                  float icePattern1 = turbulence3D(samplePos * 8.0, 4);
+                  float icePattern2 = turbulence3D(samplePos * 15.0, 3);
+                  
+                  // Large ice floes (more solid near ice cap)
+                  float largeFloes = smoothstep(0.45, 0.55, icePattern1) * seaIceIntensity;
+                  
+                  // Smaller ice chunks (scattered further out)
+                  float smallFloes = smoothstep(0.5, 0.6, icePattern2) * seaIceIntensity * 0.5;
+                  
+                  // Combine ice patterns
+                  seaIceZone = clamp(largeFloes + smallFloes, 0.0, 1.0);
+                  
+                  // Blend ice color with ocean
+                  vec3 seaIceColor = vec3(0.85, 0.88, 0.92); // Slightly blue-tinted white
+                  colorModulation = mix(colorModulation, seaIceColor, seaIceZone);
+                  
+                  // Ice is brighter than water
+                  intensity = mix(intensity, 1.05, seaIceZone);
+                }
+              }
             }
           }
           // Desert planets - arid terrain with dunes
@@ -1405,6 +1442,29 @@ export class MaterialFactory {
               // Oceans are moderately reflective
               float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
               specular = vec3(0.2, 0.3, 0.5) * spec * 0.3;
+              
+              // Add specular for sea ice near ice caps
+              if (distanceFromPole > iceThreshold * 0.85) {
+                float distanceBeyondIceCap = distanceFromPole - iceThreshold;
+                float seaIceRange = 0.15;
+                float seaIceIntensity = smoothstep(seaIceRange, 0.0, distanceBeyondIceCap);
+                
+                if (seaIceIntensity > 0.0) {
+                  // Recreate ice pattern (same as main shader)
+                  float icePattern1 = turbulence3D(samplePos2 * 8.0, 4);
+                  float icePattern2 = turbulence3D(samplePos2 * 15.0, 3);
+                  float largeFloes = smoothstep(0.45, 0.55, icePattern1) * seaIceIntensity;
+                  float smallFloes = smoothstep(0.5, 0.6, icePattern2) * seaIceIntensity * 0.5;
+                  float seaIceZone = clamp(largeFloes + smallFloes, 0.0, 1.0);
+                  
+                  // Sea ice gets icy specular (less than ice caps but more than water)
+                  float iceSpec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0);
+                  vec3 iceSpecular = vec3(0.9, 0.95, 1.0) * iceSpec * 0.5;
+                  
+                  // Blend ice specular with water specular
+                  specular = mix(specular, iceSpecular, seaIceZone);
+                }
+              }
             }
           }
           
