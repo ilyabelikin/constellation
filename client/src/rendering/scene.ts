@@ -49,7 +49,7 @@ export class SceneManager {
   // Scale factor for visualization (1 AU = 1000 units in Three.js)
   private readonly SCALE = 1000 / ASTRONOMICAL_UNIT;
   // Multiplier for celestial body sizes (make them visible)
-  private readonly BODY_SIZE_MULTIPLIER = 50;
+  private readonly BODY_SIZE_MULTIPLIER = 40;
 
   public onObjectSelected: ((objectId: string) => void) | null = null;
   public onGateUse: ((gateId: string) => void) | null = null;

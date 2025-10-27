@@ -145,7 +145,7 @@ export class CameraController {
       this.isTrackingObject = true; // Always track moons
     } else if (isAlreadySelected && wasTracking) {
       // Third click: already tracking, reset to uniform distance and stop tracking
-      this.cameraDistance = 80;
+      this.cameraDistance = 50;
       this.isTrackingObject = false;
     } else if (isAlreadySelected) {
       // Second click on same planet: zoom to fill screen and start tracking
@@ -157,7 +157,7 @@ export class CameraController {
       this.isTrackingObject = true; // Start tracking the planet
     } else {
       // First click: uniform distance to show relative sizes, no tracking
-      this.cameraDistance = 80;
+      this.cameraDistance = 50;
       this.isTrackingObject = false;
     }
 

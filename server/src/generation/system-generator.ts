@@ -582,7 +582,7 @@ function generateMoon(
 
   // Orbital distance: Account for visual scaling in rendering
   // Planets are rendered 50x larger for visibility, so moons need to orbit farther out
-  const visualScaleFactor = 50; // BODY_SIZE_MULTIPLIER from client
+  const visualScaleFactor = 40; // BODY_SIZE_MULTIPLIER from client
 
   // Calculate the visual radius of the planet (real radius * visual scale)
   const visualPlanetRadius = planetRadius * visualScaleFactor;

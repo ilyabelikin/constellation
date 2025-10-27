@@ -33,6 +33,11 @@
             transition: color 0.8s ease;
         }
 
+        /* Suppress theme transitions on initial load */
+        body.no-theme-transition * {
+            transition: none !important;
+        }
+
         #canvas-container {
             position: fixed;
             top: 0;
@@ -112,6 +117,17 @@
         .outline-item.planet {
             color: var(--primary-color);
             padding-left: 20px;
+            transition: color 0.8s ease;
+        }
+
+        .outline-item.moon {
+            color: var(--primary-color);
+            padding-left: 20px;
+            transition: color 0.8s ease;
+        }
+
+        .outline-item.asteroid-belt {
+            color: var(--primary-color);
             transition: color 0.8s ease;
         }
 
@@ -248,7 +264,7 @@
         }
     </style>
 </head>
-<body>
+<body class="no-theme-transition">
     <div id="canvas-container"></div>
 
     <!-- Auth Modal -->

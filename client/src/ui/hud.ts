@@ -315,8 +315,15 @@ export class HUDManager {
 
   setSystem(system: StarSystem): void {
     this.system = system;
-    this.populateSystemOutline();
+    // Apply theme FIRST so outline elements are created with the correct colors
     this.applyStarTheme(system.star.color);
+    this.populateSystemOutline();
+
+    // Enable transitions after elements are rendered (next frame)
+    // This prevents the green flash on initial load
+    requestAnimationFrame(() => {
+      document.body.classList.remove("no-theme-transition");
+    });
   }
 
   hideOutline(): void {
