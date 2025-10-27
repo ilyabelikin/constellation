@@ -74,7 +74,19 @@ export function generateNewSystem(
     destinations.push(`PLACEHOLDER_${i}`);
   }
 
-  const gates = generateGates(gateRng, systemId, star.mass, destinations);
+  // Extract planet orbital distances for gate placement
+  const planetOrbits = planets
+    .map((p) => p.orbitalElements?.semiMajorAxis || 0)
+    .filter((orbit) => orbit > 0)
+    .sort((a, b) => a - b);
+
+  const gates = generateGates(
+    gateRng,
+    systemId,
+    star.mass,
+    destinations,
+    planetOrbits
+  );
 
   return {
     id: systemId,
@@ -304,11 +316,18 @@ export function generateSystemConnections(
     const connections = Array.from(systemConnections.get(system.id)!);
     const systemRng = new SeededRandom(system.seed + 12345);
 
+    // Extract planet orbital distances for gate placement
+    const planetOrbits = system.planets
+      .map((p) => p.orbitalElements?.semiMajorAxis || 0)
+      .filter((orbit) => orbit > 0)
+      .sort((a, b) => a - b);
+
     system.gates = generateGates(
       systemRng,
       system.id,
       system.star.mass,
-      connections
+      connections,
+      planetOrbits
     );
   }
 }

@@ -82,29 +82,56 @@ export function generateGateName(gateIndex: number): string {
 }
 
 /**
- * Generate gate orbital position at the outskirts of the star system
+ * Generate gate orbital position within gaps between planets
+ * @param planetOrbits - Array of planet orbital distances (sorted)
  */
 export function generateGatePosition(
   rng: SeededRandom,
   starMass: number,
   gateIndex: number,
-  totalGates: number
+  totalGates: number,
+  planetOrbits: number[]
 ): OrbitalElements {
-  const goldilocksZone = calculateGoldilocksZone(starMass);
+  // Find gaps between planets to place gates
+  const gaps: { start: number; end: number; midpoint: number }[] = [];
 
-  // Place gates far out at the edge of the system
-  // Distribute them in a belt from 8x to 12x the goldilocks outer radius
-  // This puts them well beyond all planets (typically 10-20+ AU for Sun-like stars)
-  const innerGateBelt = goldilocksZone.outerRadius * 8;
-  const outerGateBelt = goldilocksZone.outerRadius * 12;
-  const beltWidth = outerGateBelt - innerGateBelt;
+  if (planetOrbits.length === 0) {
+    // No planets - place gates in a reasonable range
+    gaps.push({
+      start: 1.0 * ASTRONOMICAL_UNIT,
+      end: 5.0 * ASTRONOMICAL_UNIT,
+      midpoint: 3.0 * ASTRONOMICAL_UNIT,
+    });
+  } else {
+    // Find gaps between planets
+    for (let i = 0; i < planetOrbits.length - 1; i++) {
+      const gap = planetOrbits[i + 1] - planetOrbits[i];
+      // Only consider gaps larger than 0.5 AU
+      if (gap > 0.5 * ASTRONOMICAL_UNIT) {
+        gaps.push({
+          start: planetOrbits[i],
+          end: planetOrbits[i + 1],
+          midpoint: (planetOrbits[i] + planetOrbits[i + 1]) / 2,
+        });
+      }
+    }
 
-  const relativePosition = (gateIndex + 0.5) / totalGates; // 0.5 to center in slot
-  const semiMajorAxis = innerGateBelt + relativePosition * beltWidth;
+    // Also consider placing gates beyond the outermost planet
+    const lastPlanet = planetOrbits[planetOrbits.length - 1];
+    gaps.push({
+      start: lastPlanet * 1.2,
+      end: lastPlanet * 2.0,
+      midpoint: lastPlanet * 1.5,
+    });
+  }
 
-  // Add some random variation
-  const variation = rng.nextFloat(0.95, 1.05);
-  const finalSemiMajorAxis = semiMajorAxis * variation;
+  // Select a gap for this gate (cycle through gaps if more gates than gaps)
+  const selectedGap = gaps[gateIndex % gaps.length];
+
+  // Place gate in the gap with some randomness
+  const gapWidth = selectedGap.end - selectedGap.start;
+  const semiMajorAxis =
+    selectedGap.midpoint + rng.nextFloat(-gapWidth * 0.3, gapWidth * 0.3);
 
   // Gates have nearly circular orbits
   const eccentricity = rng.nextFloat(0.0, 0.05);
@@ -118,7 +145,7 @@ export function generateGatePosition(
   const meanAnomalyAtEpoch = rng.nextFloat(0, 2 * Math.PI);
 
   return {
-    semiMajorAxis: finalSemiMajorAxis,
+    semiMajorAxis,
     eccentricity: Math.abs(eccentricity),
     inclination: Math.abs(inclination),
     longitudeOfAscendingNode,
@@ -130,12 +157,14 @@ export function generateGatePosition(
 
 /**
  * Generate gates for a star system
+ * @param planetOrbits - Array of planet orbital distances (semi-major axes)
  */
 export function generateGates(
   rng: SeededRandom,
   systemId: string,
   starMass: number,
-  destinationSystemIds: string[]
+  destinationSystemIds: string[],
+  planetOrbits: number[]
 ): StarGate[] {
   const gates: StarGate[] = [];
 
@@ -144,7 +173,8 @@ export function generateGates(
       rng,
       starMass,
       i,
-      destinationSystemIds.length
+      destinationSystemIds.length,
+      planetOrbits
     );
 
     // Placeholder name - will be updated when gate is explored
@@ -165,17 +195,25 @@ export function generateGates(
 /**
  * Generate gates for a starter system with placeholder destinations
  * The destination systems will be generated on-demand when player travels through gates
+ * @param planetOrbits - Array of planet orbital distances (semi-major axes)
  */
 export function generateStarterGates(
   rng: SeededRandom,
   systemId: string,
-  starMass: number
+  starMass: number,
+  planetOrbits: number[]
 ): StarGate[] {
   const gateCount = determineGateCount(rng);
   const gates: StarGate[] = [];
 
   for (let i = 0; i < gateCount; i++) {
-    const orbitalElements = generateGatePosition(rng, starMass, i, gateCount);
+    const orbitalElements = generateGatePosition(
+      rng,
+      starMass,
+      i,
+      gateCount,
+      planetOrbits
+    );
 
     // Placeholder name - will be updated when gate is explored
     const name = generateGateName(i);

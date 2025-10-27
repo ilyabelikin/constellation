@@ -671,40 +671,52 @@ export class MaterialFactory {
           return value;
         }
         
-        // Generate craters
-        float craters(vec2 uv, float scale) {
-          vec2 grid = floor(uv * scale);
-          vec2 localUV = fract(uv * scale);
+        // Generate seamless 3D craters using Voronoi-like cells
+        float craters3D(vec3 pos, float scale) {
+          vec3 scaledPos = pos * scale;
+          vec3 grid = floor(scaledPos);
+          vec3 localPos = fract(scaledPos);
           
           float craterEffect = 0.0;
+          float minDist = 10.0;
+          vec3 closestCraterPos = vec3(0.0);
           
-          // Check this cell and neighboring cells
-          for(float y = -1.0; y <= 1.0; y++) {
-            for(float x = -1.0; x <= 1.0; x++) {
-              vec2 neighbor = grid + vec2(x, y);
-              
-              // Generate random position for crater in this cell
-              vec2 craterPos = vec2(
-                hash(neighbor),
-                hash(neighbor + vec2(13.7, 27.3))
-              );
-              
-              // Generate random size
-              float craterSize = 0.2 + hash(neighbor + vec2(50.1, 60.2)) * 0.3;
-              
-              // Calculate distance to crater center
-              vec2 toCenter = (localUV - vec2(x, y)) - craterPos;
-              float dist = length(toCenter);
-              
-              // Only create crater if random value is above threshold (controls density)
-              float shouldExist = hash(neighbor + vec2(100.0, 200.0));
-              if(shouldExist > 0.6) {
-                // Crater bowl with raised rim
-                if(dist < craterSize) {
-                  float rimDist = abs(dist - craterSize * 0.85) / (craterSize * 0.15);
-                  float rimHeight = smoothstep(1.0, 0.0, rimDist) * 0.15;
-                  float bowlDepth = smoothstep(craterSize, 0.0, dist) * -0.25;
-                  craterEffect += bowlDepth + rimHeight;
+          // Check this cell and neighboring cells in 3D
+          for(float z = -1.0; z <= 1.0; z++) {
+            for(float y = -1.0; y <= 1.0; y++) {
+              for(float x = -1.0; x <= 1.0; x++) {
+                vec3 neighbor = grid + vec3(x, y, z);
+                
+                // Generate random position for crater in this cell
+                vec3 craterPos = vec3(
+                  hash3D(neighbor),
+                  hash3D(neighbor + vec3(13.7, 27.3, 41.1)),
+                  hash3D(neighbor + vec3(53.2, 67.4, 79.8))
+                );
+                
+                // Calculate distance to crater center
+                vec3 toCenter = (localPos - vec3(x, y, z)) - craterPos;
+                float dist = length(toCenter);
+                
+                // Track closest crater
+                if(dist < minDist) {
+                  minDist = dist;
+                  closestCraterPos = craterPos;
+                }
+                
+                // Generate random size - larger range for more dramatic craters
+                float craterSize = 0.2 + hash3D(neighbor + vec3(50.1, 60.2, 70.3)) * 0.35;
+                
+                // Only create crater if random value is above threshold (controls density)
+                float shouldExist = hash3D(neighbor + vec3(100.0, 200.0, 300.0));
+                if(shouldExist > 0.6) {
+                  // Crater bowl with raised rim - more dramatic depth
+                  if(dist < craterSize) {
+                    float rimDist = abs(dist - craterSize * 0.85) / (craterSize * 0.15);
+                    float rimHeight = smoothstep(1.0, 0.0, rimDist) * 0.15;
+                    float bowlDepth = smoothstep(craterSize, 0.0, dist) * -0.25;
+                    craterEffect += bowlDepth + rimHeight;
+                  }
                 }
               }
             }
@@ -909,7 +921,7 @@ export class MaterialFactory {
           }
           // Add craters for barren/rocky planets
           else if(surfaceType == SURFACE_CRATERED) {
-            // Use 3D position for seamless noise
+            // Use 3D position for seamless craters
             vec3 rotatedPos = vPosition;
             float cosRot = cos(rotation);
             float sinRot = sin(rotation);
@@ -920,16 +932,48 @@ export class MaterialFactory {
             );
             vec3 samplePos = normalize(rotatedPos);
             
-            // Multiple layers of craters at different scales - scaled down for larger craters
-            float largeCraters = craters(vec2(u, v), 3.0);
-            float mediumCraters = craters(vec2(u, v), 6.0) * 0.7;
-            float smallCraters = craters(vec2(u, v), 12.0) * 0.5;
+            // Generate seed-based crater size variety for this planet
+            float craterSizeSeed = seededRandom(planetSeed * 1.5);
+            float craterDensitySeed = seededRandom(planetSeed * 2.3);
             
-            intensity += largeCraters + mediumCraters + smallCraters;
+            // Vary crater scale (1.5 to 4.5 range) - lower scale = larger craters
+            float craterScaleMultiplier = 1.5 + craterSizeSeed * 3.0;
+            
+            // Multiple layers of 3D craters at different scales - seamless across the sphere
+            // Lower scale numbers = larger craters
+            float largeCraters = craters3D(samplePos, 0.6 * craterScaleMultiplier);
+            float mediumCraters = craters3D(samplePos, 1.25 * craterScaleMultiplier) * 0.7;
+            float smallCraters = craters3D(samplePos, 2.25 * craterScaleMultiplier) * 0.5;
+            
+            float totalCraters = largeCraters + mediumCraters + smallCraters;
+            intensity += totalCraters;
             
             // Add rocky terrain variation using 3D noise
             float rockTexture = turbulence3D(samplePos * 4.0, 4) * 0.1;
             intensity += rockTexture;
+            
+            // Enhanced shadowing in crater bowls with ambient occlusion
+            // Deeper craters = darker shadows
+            if(totalCraters < -0.05) {
+              float shadowDepth = abs(totalCraters) * 2.0;
+              
+              // Add ambient occlusion effect - darker in deeper areas
+              float ao = 1.0 - clamp(shadowDepth * 0.5, 0.0, 0.6);
+              intensity *= ao; // Multiply to darken
+              intensity -= shadowDepth * 0.2; // Additional darkening
+              
+              // Add slight color darkening in deep craters (cooler/darker tone)
+              colorModulation *= vec3(0.9, 0.9, 0.95);
+            }
+            
+            // Brighter highlights on crater rims with enhanced contrast
+            if(totalCraters > 0.02) {
+              float rimBrightness = totalCraters * 3.0;
+              intensity += rimBrightness * 0.25; // Brighten crater rims more
+              
+              // Add slight warming to rim highlights (sun-facing edges)
+              colorModulation *= vec3(1.05, 1.03, 1.0);
+            }
           }
           // Icy planets with thin branching crack networks
           else if(surfaceType == SURFACE_ICY) {
