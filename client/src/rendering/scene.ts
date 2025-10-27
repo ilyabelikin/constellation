@@ -548,6 +548,7 @@ export class SceneManager {
       ...this.ships.values(),
       ...this.gates.values(),
       ...this.asteroids.values(),
+      ...this.moons.values(),
     ];
     const isHovering = this.interactionManager.isHoveringOverObject(
       this.camera,
@@ -848,27 +849,33 @@ export class SceneManager {
       if (interpolatedPos) {
         shipGroup.position.copy(interpolatedPos);
       }
-      
+
       // Animate pulsing effect (frequency: 2 pulses per second)
       const gameTime = this.timeInterpolator.getGameTime();
       const pulseFrequency = 2.0; // Hz
       const pulsePhase = (gameTime * pulseFrequency) % 1.0;
       // Smooth sine wave pulsing between 0.5 and 1.0
       const pulseIntensity = 0.5 + 0.5 * Math.sin(pulsePhase * Math.PI * 2);
-      
+
       // Apply pulsing to all children (core sphere, glow layers, and light)
       shipGroup.traverse((child) => {
         if (child.userData.isPulsing) {
           if (child instanceof THREE.Mesh) {
-            const material = child.material as THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
-            
+            const material = child.material as
+              | THREE.MeshStandardMaterial
+              | THREE.MeshBasicMaterial;
+
             if (material instanceof THREE.MeshStandardMaterial) {
               // Core sphere - pulse emissive intensity
               material.emissiveIntensity = 0.3 + pulseIntensity * 0.7;
             } else if (material instanceof THREE.MeshBasicMaterial) {
               // Glow layers - pulse opacity
-              const baseOpacity = child.userData.glowLayer === 1.3 ? 0.6 :
-                                  child.userData.glowLayer === 1.6 ? 0.4 : 0.2;
+              const baseOpacity =
+                child.userData.glowLayer === 1.3
+                  ? 0.6
+                  : child.userData.glowLayer === 1.6
+                  ? 0.4
+                  : 0.2;
               material.opacity = baseOpacity * (0.6 + pulseIntensity * 0.4);
             }
           } else if (child instanceof THREE.PointLight) {
