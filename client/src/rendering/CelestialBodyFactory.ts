@@ -207,12 +207,57 @@ export class CelestialBodyFactory {
   }
 
   /**
-   * Creates a ship mesh
+   * Creates a ship mesh - a pulsing sphere of light
    */
-  createShipMesh(): THREE.Mesh {
-    const geometry = new THREE.ConeGeometry(2, 6, 4);
+  createShipMesh(): THREE.Group {
+    const shipGroup = new THREE.Group();
+
+    // Create a glowing sphere for the ship (small but visible)
+    const shipScale = this.bodySizeMultiplier * 0.0135; // 6x smaller than original
+    const radius = shipScale;
+
+    const geometry = new THREE.SphereGeometry(radius, 32, 32);
     const material = this.materialFactory.createShipMaterial();
-    return new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(geometry, material);
+
+    // Enable shadows for the ship core
+    mesh.castShadow = true;
+    mesh.receiveShadow = false; // Glowing ships don't receive shadows
+
+    // Mark for pulsing animation
+    mesh.userData.isPulsing = true;
+
+    shipGroup.add(mesh);
+
+    // Add outer glow layers for enhanced pulsing effect
+    const glowLayers = [
+      { size: 1.3, opacity: 0.6 },
+      { size: 1.6, opacity: 0.4 },
+      { size: 2.0, opacity: 0.2 },
+    ];
+
+    glowLayers.forEach((layer) => {
+      const glowGeometry = new THREE.SphereGeometry(
+        radius * layer.size,
+        16,
+        16
+      );
+      const glowMaterial = this.materialFactory.createGlowMaterial(
+        0x00ffff,
+        layer.opacity
+      );
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+      glow.userData.isPulsing = true;
+      glow.userData.glowLayer = layer.size;
+      shipGroup.add(glow);
+    });
+
+    // Add a point light to the ship for illumination
+    const shipLight = new THREE.PointLight(0x00ffff, 3, 50);
+    shipLight.userData.isPulsing = true;
+    shipGroup.add(shipLight);
+
+    return shipGroup;
   }
 
   /**

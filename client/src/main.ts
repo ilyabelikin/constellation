@@ -100,6 +100,7 @@ class ConstellationClient {
     this.network.onShipData = (ship) => {
       console.log("Ship data received:", ship);
       this.ship = ship;
+      this.hud.setShip(ship);
     };
 
     this.network.onError = (message) => {

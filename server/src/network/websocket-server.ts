@@ -395,8 +395,9 @@ export class ConstellationWebSocketServer {
 
     // Create ship orbiting the home planet (or star if no planet found)
     // Calculate a reasonable orbital distance based on parent body
+    // Need larger orbit to account for visual scaling (BODY_SIZE_MULTIPLIER = 40)
     const orbitDistance = homePlanet
-      ? homePlanet.radius * 5 // Orbit 5x the planet's radius
+      ? homePlanet.radius * 200 // Orbit 200x the planet's radius for visibility
       : 1.5 * ASTRONOMICAL_UNIT; // Default to 1.5 AU from star
 
     const ship: Ship = {

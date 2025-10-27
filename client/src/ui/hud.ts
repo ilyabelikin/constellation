@@ -1,15 +1,18 @@
-import { Player, StarSystem, SystemState } from "@constellation/shared";
+import { Player, StarSystem, SystemState, Ship } from "@constellation/shared";
 import { BodyDetailView } from "./BodyDetailView.js";
 import { GateDetailView } from "./GateDetailView.js";
+import { ShipDetailView } from "./ShipDetailView.js";
 
 export class HUDManager {
   private player: Player | null = null;
   private system: StarSystem | null = null;
   private currentState: SystemState | null = null;
+  private ship: Ship | null = null;
 
   // Detail views
   private bodyDetailView: BodyDetailView;
   private gateDetailView: GateDetailView;
+  private shipDetailView: ShipDetailView;
 
   // HUD elements
   private authModal: HTMLElement;
@@ -79,6 +82,7 @@ export class HUDManager {
     // Initialize detail views
     this.bodyDetailView = new BodyDetailView();
     this.gateDetailView = new GateDetailView();
+    this.shipDetailView = new ShipDetailView();
 
     // Create event handler references
     this.exploreGalaxyHandler = () => {
@@ -326,6 +330,10 @@ export class HUDManager {
     });
   }
 
+  setShip(ship: Ship): void {
+    this.ship = ship;
+  }
+
   hideOutline(): void {
     this.systemOutline.classList.add("hidden");
     // Also hide detail panels during transitions
@@ -341,6 +349,7 @@ export class HUDManager {
   hideDetailPanels(): void {
     this.bodyDetailView.hide();
     this.gateDetailView.hide();
+    this.shipDetailView.hide();
   }
 
   private populateSystemOutline(): void {
@@ -562,6 +571,7 @@ export class HUDManager {
     // Hide all detail panels first
     this.bodyDetailView.hide();
     this.gateDetailView.hide();
+    this.shipDetailView.hide();
 
     // Check if it's a gate
     const gate = this.system.gates?.find((g) => g.id === objectId);
@@ -613,11 +623,11 @@ export class HUDManager {
       return;
     }
 
-    // Check if it's a ship (TODO: create ShipDetailView later)
+    // Check if it's a ship
     const shipState = this.currentState.ships.find((s) => s.id === objectId);
-    if (shipState) {
-      // For now, use body detail view for ships (can be refactored later)
-      console.log("Ship details not yet implemented with separate view");
+    if (shipState && this.ship && this.system) {
+      this.shipDetailView.show(this.ship, this.currentState, this.system);
+      return;
     }
   }
 

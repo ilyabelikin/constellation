@@ -31,7 +31,7 @@ export class SceneManager {
 
   // Scene objects
   private bodies: Map<string, THREE.Mesh> = new Map();
-  private ships: Map<string, THREE.Mesh> = new Map();
+  private ships: Map<string, THREE.Group> = new Map();
   private gates: Map<string, THREE.Group> = new Map();
   private asteroids: Map<string, THREE.Mesh> = new Map();
   private moons: Map<string, THREE.Mesh> = new Map();
@@ -254,9 +254,15 @@ export class SceneManager {
     }
 
     // Dispose and remove all ships
-    for (const mesh of this.ships.values()) {
-      this.disposeMesh(mesh);
-      this.scene.remove(mesh);
+    for (const shipGroup of this.ships.values()) {
+      shipGroup.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          this.disposeMesh(child);
+        } else if (child instanceof THREE.Light) {
+          child.dispose();
+        }
+      });
+      this.scene.remove(shipGroup);
     }
 
     // Dispose and remove all gates
@@ -409,8 +415,16 @@ export class SceneManager {
       }
     }
 
-    // Update ship positions
+    // Update ship positions with interpolation for smooth movement
     for (const shipState of state.ships) {
+      const newPosition = new THREE.Vector3(
+        shipState.position.x * this.SCALE,
+        shipState.position.z * this.SCALE,
+        shipState.position.y * this.SCALE
+      );
+
+      this.timeInterpolator.setBodyTargetPosition(shipState.id, newPosition);
+
       let mesh = this.ships.get(shipState.id);
       if (!mesh) {
         // Create ship mesh
@@ -418,13 +432,10 @@ export class SceneManager {
         mesh.userData = { id: shipState.id, type: "ship", state: shipState };
         this.scene.add(mesh);
         this.ships.set(shipState.id, mesh);
-      }
 
-      mesh.position.set(
-        shipState.position.x * this.SCALE,
-        shipState.position.z * this.SCALE,
-        shipState.position.y * this.SCALE
-      );
+        // Set initial position directly on first creation
+        mesh.position.copy(newPosition);
+      }
     }
 
     // Update gate positions (gates orbit like planets)
@@ -825,6 +836,47 @@ export class SceneManager {
           mesh.rotation.y = rotation;
         }
       }
+    }
+
+    // Update ship positions with smooth interpolation and pulsing effect
+    for (const [shipId, shipGroup] of this.ships.entries()) {
+      // Smooth orbital motion interpolation
+      const interpolatedPos = this.timeInterpolator.getInterpolatedPosition(
+        shipId,
+        lerpFactor
+      );
+      if (interpolatedPos) {
+        shipGroup.position.copy(interpolatedPos);
+      }
+      
+      // Animate pulsing effect (frequency: 2 pulses per second)
+      const gameTime = this.timeInterpolator.getGameTime();
+      const pulseFrequency = 2.0; // Hz
+      const pulsePhase = (gameTime * pulseFrequency) % 1.0;
+      // Smooth sine wave pulsing between 0.5 and 1.0
+      const pulseIntensity = 0.5 + 0.5 * Math.sin(pulsePhase * Math.PI * 2);
+      
+      // Apply pulsing to all children (core sphere, glow layers, and light)
+      shipGroup.traverse((child) => {
+        if (child.userData.isPulsing) {
+          if (child instanceof THREE.Mesh) {
+            const material = child.material as THREE.MeshStandardMaterial | THREE.MeshBasicMaterial;
+            
+            if (material instanceof THREE.MeshStandardMaterial) {
+              // Core sphere - pulse emissive intensity
+              material.emissiveIntensity = 0.3 + pulseIntensity * 0.7;
+            } else if (material instanceof THREE.MeshBasicMaterial) {
+              // Glow layers - pulse opacity
+              const baseOpacity = child.userData.glowLayer === 1.3 ? 0.6 :
+                                  child.userData.glowLayer === 1.6 ? 0.4 : 0.2;
+              material.opacity = baseOpacity * (0.6 + pulseIntensity * 0.4);
+            }
+          } else if (child instanceof THREE.PointLight) {
+            // Pulse the light intensity
+            child.intensity = 3 + pulseIntensity * 2;
+          }
+        }
+      });
     }
 
     // Update camera with tracked object if tracking is enabled
