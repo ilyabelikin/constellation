@@ -17,6 +17,7 @@ import {
   generateGalaxy,
   generateStarterSystem,
   generateNewSystem,
+  StarterSystemResult,
 } from "../generation/galaxy-generator.js";
 
 interface ClientConnection {
@@ -228,7 +229,25 @@ export class ConstellationWebSocketServer {
       }
     } else {
       // New player, create them
-      this.createPlayerInGalaxy(client, galaxy.id, galaxyName);
+      // Get the starter system to find the home planet
+      const systems = this.db.getSystemsByGalaxy(galaxy.id);
+      if (systems.length > 0) {
+        const starterSystem = systems[0];
+        // Find the civilized planet (should have been set during generation)
+        const civilizedPlanet = starterSystem.planets.find(
+          (p) =>
+            p.civilizationLevel === "interstellar" ||
+            p.lifeLevel === "intelligent"
+        );
+        const homePlanetId = civilizedPlanet
+          ? civilizedPlanet.id
+          : starterSystem.planets.length > 0
+          ? starterSystem.planets[0].id
+          : "";
+        this.createPlayerInGalaxy(client, galaxy.id, galaxyName, homePlanetId);
+      } else {
+        this.sendError(client.ws, "No systems found in galaxy");
+      }
     }
 
     // Send initial time state to the joining player
@@ -266,11 +285,11 @@ export class ConstellationWebSocketServer {
     this.db.createGalaxy(galaxy);
 
     // Generate starter system
-    const starterSystem = generateStarterSystem(galaxy.id, galaxy.seed);
-    this.db.createStarSystem(starterSystem);
+    const starterResult = generateStarterSystem(galaxy.id, galaxy.seed);
+    this.db.createStarSystem(starterResult.system);
 
     // Save gates for the starter system
-    for (const gate of starterSystem.gates) {
+    for (const gate of starterResult.system.gates) {
       this.db.createGate(gate);
     }
 
@@ -278,7 +297,12 @@ export class ConstellationWebSocketServer {
     this.gameState.resetTime();
 
     // Create player
-    this.createPlayerInGalaxy(client, galaxy.id, galaxyName);
+    this.createPlayerInGalaxy(
+      client,
+      galaxy.id,
+      galaxyName,
+      starterResult.homePlanetId
+    );
 
     // Send initial time state to the joining player
     this.send(client.ws, {
@@ -317,11 +341,11 @@ export class ConstellationWebSocketServer {
     this.db.createGalaxy(galaxy);
 
     // Generate new starter system
-    const starterSystem = generateStarterSystem(galaxy.id, galaxy.seed);
-    this.db.createStarSystem(starterSystem);
+    const starterResult = generateStarterSystem(galaxy.id, galaxy.seed);
+    this.db.createStarSystem(starterResult.system);
 
     // Save gates for the starter system
-    for (const gate of starterSystem.gates) {
+    for (const gate of starterResult.system.gates) {
       this.db.createGate(gate);
     }
 
@@ -335,7 +359,8 @@ export class ConstellationWebSocketServer {
   private createPlayerInGalaxy(
     client: ClientConnection,
     galaxyId: string,
-    galaxyName: string
+    galaxyName: string,
+    homePlanetId: string
   ): void {
     if (!client.uuid) return;
 
@@ -348,6 +373,11 @@ export class ConstellationWebSocketServer {
 
     const starterSystem = systems[0];
 
+    // Find the home planet to orbit around it
+    const homePlanet = starterSystem.planets.find((p) => p.id === homePlanetId);
+    const parentBodyId = homePlanet ? homePlanet.id : starterSystem.star.id;
+    const parentMass = homePlanet ? homePlanet.mass : starterSystem.star.mass;
+
     // Create player
     const player: Player = {
       id: uuidv4(),
@@ -355,6 +385,7 @@ export class ConstellationWebSocketServer {
       name: `Player-${client.uuid.substring(0, 8)}`,
       galaxyId,
       homeSystemId: starterSystem.id,
+      homePlanetId: homePlanetId,
       currentSystemId: starterSystem.id,
       shipId: "",
       exploredGateIds: [], // New player has not explored any gates yet
@@ -362,14 +393,19 @@ export class ConstellationWebSocketServer {
 
     this.db.createPlayer(player);
 
-    // Create ship orbiting the star
+    // Create ship orbiting the home planet (or star if no planet found)
+    // Calculate a reasonable orbital distance based on parent body
+    const orbitDistance = homePlanet
+      ? homePlanet.radius * 5 // Orbit 5x the planet's radius
+      : 1.5 * ASTRONOMICAL_UNIT; // Default to 1.5 AU from star
+
     const ship: Ship = {
       id: uuidv4(),
       playerId: player.id,
       systemId: starterSystem.id,
-      parentBodyId: starterSystem.star.id,
+      parentBodyId: parentBodyId,
       orbitalElements: {
-        semiMajorAxis: 1.5 * ASTRONOMICAL_UNIT,
+        semiMajorAxis: orbitDistance,
         eccentricity: 0.05,
         inclination: 0.01,
         longitudeOfAscendingNode: 0,
@@ -391,6 +427,12 @@ export class ConstellationWebSocketServer {
     this.gameState.loadSystem(starterSystem);
     this.gameState.addShip(ship);
 
+    console.log(
+      `Player created: ${player.name}, Home Planet: ${
+        homePlanet?.name || "N/A"
+      } (${homePlanetId})`
+    );
+
     // Send data to client
     this.send(client.ws, { type: "playerData", player });
     this.send(client.ws, { type: "systemData", system: starterSystem });
@@ -401,14 +443,32 @@ export class ConstellationWebSocketServer {
     client: ClientConnection,
     systemId: string
   ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
     const system = this.db.getStarSystem(systemId);
     if (!system) {
       this.sendError(client.ws, "System not found");
       return;
     }
 
+    // Update player's current system in the database
+    this.db.updatePlayerCurrentSystem(client.playerId, systemId);
+
+    // Update client connection tracking
     client.currentSystemId = systemId;
+
+    // Send system data
     this.send(client.ws, { type: "systemData", system });
+
+    // Send updated player data with new currentSystemId
+    const player = this.db.getPlayerById(client.playerId);
+    if (player) {
+      player.currentSystemId = systemId;
+      this.send(client.ws, { type: "playerData", player });
+    }
   }
 
   private handleShipManeuver(client: ClientConnection, maneuver: any): void {

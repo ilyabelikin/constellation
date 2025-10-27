@@ -139,6 +139,7 @@ export interface Player {
   name: string;
   galaxyId: string;
   homeSystemId: string;
+  homePlanetId: string; // The civilized planet where player starts
   currentSystemId: string;
   shipId: string;
   exploredGateIds: string[];

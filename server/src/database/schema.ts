@@ -32,6 +32,7 @@ export function initializeDatabase(dbPath: string): Database.Database {
       name TEXT NOT NULL,
       galaxy_id TEXT NOT NULL,
       home_system_id TEXT NOT NULL,
+      home_planet_id TEXT NOT NULL,
       current_system_id TEXT NOT NULL,
       FOREIGN KEY (galaxy_id) REFERENCES galaxies(id) ON DELETE CASCADE,
       FOREIGN KEY (home_system_id) REFERENCES star_systems(id),

@@ -14,6 +14,7 @@ class ConstellationClient {
   private isPaused = false;
   private lastGalaxyName: string = "";
   private isConnected = false;
+  private pendingFocusObjectId: string | null = null; // Object to focus on after system loads
   private animationFrameId: number | null = null;
   private keyboardHandler: ((e: KeyboardEvent) => void) | null = null;
 
@@ -58,9 +59,25 @@ class ConstellationClient {
       console.log("System data received:", system);
       this.system = system;
       this.scene.loadSystem(system);
+
+      // Hide any detail panels from previous system before loading new system
+      this.hud.hideDetailPanels();
       this.hud.setSystem(system);
-      // Show nice system overview when first arriving
-      this.scene.showSystemView();
+
+      // If there's a pending focus object (e.g., home planet), focus on it
+      if (this.pendingFocusObjectId) {
+        const objectId = this.pendingFocusObjectId;
+        this.pendingFocusObjectId = null;
+        console.log(`Focusing on pending object: ${objectId}`);
+        // Wait a bit for the scene to be fully loaded
+        setTimeout(() => {
+          this.scene.centerOnObject(objectId);
+          this.hud.updateObjectDetails(objectId);
+        }, 100);
+      } else {
+        // Show nice system overview when first arriving
+        this.scene.showSystemView();
+      }
     };
 
     this.network.onStateUpdate = (state) => {
@@ -133,10 +150,14 @@ class ConstellationClient {
         destinationSystem.gates.map((g) => ({ id: g.id, name: g.name }))
       );
 
-      // Update explored gates FIRST (before rendering UI)
+      // Update player's current system ID and explored gates FIRST (before rendering UI)
       if (this.player) {
+        this.player.currentSystemId = destinationSystem.id;
         this.player.exploredGateIds = exploredGateIds;
         this.scene.setExploredGates(exploredGateIds);
+        console.log(
+          `Player currentSystemId updated to: ${destinationSystem.id}`
+        );
       }
 
       // Update system data in memory but don't show HUD yet
@@ -207,7 +228,36 @@ class ConstellationClient {
 
     this.hud.onNavigateHome = () => {
       if (this.player) {
-        this.network.requestSystemState(this.player.homeSystemId);
+        console.log(
+          `Home button clicked. Current system: ${this.player.currentSystemId}, Home system: ${this.player.homeSystemId}, Home planet: ${this.player.homePlanetId}`
+        );
+
+        // Check if home planet ID is valid
+        if (!this.player.homePlanetId) {
+          console.warn("No home planet ID set for player!");
+          // Fallback: just go to home system
+          this.network.requestSystemState(this.player.homeSystemId);
+          return;
+        }
+
+        // If already in home system, just focus on the home planet
+        if (
+          this.player.currentSystemId === this.player.homeSystemId &&
+          this.system
+        ) {
+          console.log(
+            `Already in home system, focusing on planet ${this.player.homePlanetId}`
+          );
+          this.scene.centerOnObject(this.player.homePlanetId);
+          this.hud.updateObjectDetails(this.player.homePlanetId);
+        } else {
+          // Need to travel to home system first
+          console.log(
+            `Traveling to home system, will focus on planet ${this.player.homePlanetId}`
+          );
+          this.pendingFocusObjectId = this.player.homePlanetId;
+          this.network.requestSystemState(this.player.homeSystemId);
+        }
       }
     };
 

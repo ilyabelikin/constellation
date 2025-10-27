@@ -127,7 +127,7 @@ export class DatabaseQueries {
   // Player operations
   createPlayer(player: Player): void {
     const stmt = this.db.prepare(
-      "INSERT INTO players (id, uuid, name, galaxy_id, home_system_id, current_system_id) VALUES (?, ?, ?, ?, ?, ?)"
+      "INSERT INTO players (id, uuid, name, galaxy_id, home_system_id, home_planet_id, current_system_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       player.id,
@@ -135,6 +135,7 @@ export class DatabaseQueries {
       player.name,
       player.galaxyId,
       player.homeSystemId,
+      player.homePlanetId,
       player.currentSystemId
     );
   }
@@ -150,6 +151,7 @@ export class DatabaseQueries {
       name: row.name,
       galaxyId: row.galaxy_id,
       homeSystemId: row.home_system_id,
+      homePlanetId: row.home_planet_id,
       currentSystemId: row.current_system_id,
       shipId: "", // Will be loaded separately
       exploredGateIds,
@@ -167,6 +169,7 @@ export class DatabaseQueries {
       name: row.name,
       galaxyId: row.galaxy_id,
       homeSystemId: row.home_system_id,
+      homePlanetId: row.home_planet_id,
       currentSystemId: row.current_system_id,
       shipId: "",
       exploredGateIds,

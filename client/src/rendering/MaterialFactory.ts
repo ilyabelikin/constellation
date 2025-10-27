@@ -1345,21 +1345,49 @@ export class MaterialFactory {
               intensity -= smoothstep(0.45, 0.55, iceCracks) * 0.08;
             }
             else if (isLand) {
-              // CONTINENTS - green vegetation
-              // Vary color by latitude (greener at equator, browner near poles)
+              // CONTINENTS - color depends on habitability
+              // High habitability (>0.6): green vegetation
+              // Low habitability (<0.6): brown/gray barren rock
               float latitude = abs(v - 0.5) * 2.0;
               
               // Add terrain variation using 3D noise
               // Reduced scale for larger terrain features (was 1.5, now 0.6)
               float terrainDetail = turbulence3D(samplePos * 0.6, 4) * 0.15;
               
-              // Greener at equator, more brown/tan at higher latitudes
-              float greenAmount = 1.0 - latitude * 0.5;
-              colorModulation = vec3(
-                0.4 + (1.0 - greenAmount) * 0.3,  // R - more brown at poles
-                0.6 * greenAmount,                 // G - less green at poles  
-                0.2 + (1.0 - greenAmount) * 0.2   // B
-              );
+              if (habitability > 0.6) {
+                // HABITABLE - green vegetation
+                // Greener at equator, more brown/tan at higher latitudes
+                float greenAmount = 1.0 - latitude * 0.5;
+                colorModulation = vec3(
+                  0.4 + (1.0 - greenAmount) * 0.3,  // R - more brown at poles
+                  0.6 * greenAmount,                 // G - less green at poles  
+                  0.2 + (1.0 - greenAmount) * 0.2   // B
+                );
+              } else {
+                // UNINHABITABLE - brown/gray barren rock
+                // Vary color by habitability: lower habitability = grayer
+                float grayness = 1.0 - habitability; // 0.4 to 1.0 (more gray when less habitable)
+                
+                // Brown rocky terrain for marginally habitable (0.3-0.6)
+                // Gray rocky terrain for very uninhabitable (<0.3)
+                if (habitability > 0.3) {
+                  // Brownish rock with some color variation
+                  colorModulation = vec3(
+                    0.45 + terrainDetail * 0.2,  // R - brown
+                    0.35 + terrainDetail * 0.15, // G - brown
+                    0.25 + terrainDetail * 0.1   // B - brown
+                  );
+                } else {
+                  // Gray rock - very barren
+                  float baseGray = 0.35 + terrainDetail * 0.15;
+                  colorModulation = vec3(
+                    baseGray,              // R - gray
+                    baseGray * 0.95,       // G - slightly less
+                    baseGray * 0.90        // B - slightly less (subtle brown tint)
+                  );
+                }
+              }
+              
               intensity = 0.9 + terrainDetail;
               
               // Add mountain ranges (darker, higher elevation) using 3D noise

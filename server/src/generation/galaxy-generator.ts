@@ -1,5 +1,12 @@
 import { v4 as uuidv4 } from "uuid";
-import { Galaxy, StarSystem, Vector3, StarGate } from "@constellation/shared";
+import {
+  Galaxy,
+  StarSystem,
+  Vector3,
+  StarGate,
+  LifeLevel,
+  CivilizationLevel,
+} from "@constellation/shared";
 import { SeededRandom } from "./random.js";
 import { generateStarSystem } from "./system-generator.js";
 import {
@@ -72,14 +79,104 @@ export function generateNewSystem(
 }
 
 /**
+ * Result of generating a starter system
+ */
+export interface StarterSystemResult {
+  system: StarSystem;
+  homePlanetId: string;
+}
+
+/**
  * Generate a starter system for a new galaxy (convenience wrapper)
+ * Ensures the system has at least one habitable planet with max civilization
  */
 export function generateStarterSystem(
   galaxyId: string,
   galaxySeed: number
-): StarSystem {
-  // Starter system has no connected systems, so all gates are placeholders
-  return generateNewSystem(galaxyId, galaxySeed, []);
+): StarterSystemResult {
+  const MAX_ATTEMPTS = 1000;
+  const MIN_HABITABILITY = 0.5; // Minimum habitability score for starter planet
+
+  let attempt = 0;
+  let starterSystem: StarSystem | null = null;
+  let bestHabitablePlanet: any = null;
+
+  // Try to generate a system with a habitable planet
+  while (attempt < MAX_ATTEMPTS) {
+    const systemSeed = galaxySeed + attempt;
+    const tempSystem = generateNewSystem(galaxyId, systemSeed, []);
+
+    // Find the most habitable planet in this system
+    const habitablePlanets = tempSystem.planets
+      .filter(
+        (planet) =>
+          planet.habitability && planet.habitability >= MIN_HABITABILITY
+      )
+      .sort((a, b) => (b.habitability || 0) - (a.habitability || 0));
+
+    if (habitablePlanets.length > 0) {
+      starterSystem = tempSystem;
+      bestHabitablePlanet = habitablePlanets[0];
+      console.log(
+        `Found starter system with habitable planet after ${
+          attempt + 1
+        } attempts`
+      );
+      console.log(
+        `Planet: ${
+          bestHabitablePlanet.name
+        }, Habitability: ${bestHabitablePlanet.habitability?.toFixed(2)}`
+      );
+      break;
+    }
+
+    attempt++;
+  }
+
+  // If we couldn't find a system with a habitable planet, use the last generated one
+  // and upgrade the most habitable planet anyway
+  if (!starterSystem) {
+    console.warn(
+      `Could not find ideal starter system after ${MAX_ATTEMPTS} attempts, using best available`
+    );
+    starterSystem = generateNewSystem(galaxyId, galaxySeed, []);
+    // Find best planet even if below threshold
+    const sortedPlanets = starterSystem.planets
+      .filter((planet) => planet.habitability !== undefined)
+      .sort((a, b) => (b.habitability || 0) - (a.habitability || 0));
+
+    if (sortedPlanets.length > 0) {
+      bestHabitablePlanet = sortedPlanets[0];
+    }
+  }
+
+  // Upgrade the best habitable planet to have intelligent life and max civilization
+  let homePlanetId = "";
+  if (bestHabitablePlanet) {
+    bestHabitablePlanet.lifeLevel = LifeLevel.INTELLIGENT;
+    bestHabitablePlanet.civilizationLevel = CivilizationLevel.INTERSTELLAR;
+    homePlanetId = bestHabitablePlanet.id;
+
+    // Ensure it has a proper atmosphere if it doesn't already
+    if (!bestHabitablePlanet.hasAtmosphere) {
+      bestHabitablePlanet.hasAtmosphere = true;
+      bestHabitablePlanet.cloudCoverage = 0.4;
+    }
+
+    console.log(
+      `Upgraded ${bestHabitablePlanet.name} to have ${bestHabitablePlanet.lifeLevel} life with ${bestHabitablePlanet.civilizationLevel} civilization`
+    );
+  } else {
+    console.warn(
+      "Warning: No suitable planet found for civilization in starter system"
+    );
+    // Fallback: use first planet if available
+    if (starterSystem.planets.length > 0) {
+      homePlanetId = starterSystem.planets[0].id;
+    }
+  }
+
+  return { system: starterSystem, homePlanetId };
 }
 
 /**

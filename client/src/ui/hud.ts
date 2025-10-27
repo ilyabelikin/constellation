@@ -329,14 +329,18 @@ export class HUDManager {
   hideOutline(): void {
     this.systemOutline.classList.add("hidden");
     // Also hide detail panels during transitions
-    this.bodyDetailView.hide();
-    this.gateDetailView.hide();
+    this.hideDetailPanels();
     // Reset theme to default green when leaving system view
     this.applyStarTheme("#0f0");
   }
 
   showOutline(): void {
     this.systemOutline.classList.remove("hidden");
+  }
+
+  hideDetailPanels(): void {
+    this.bodyDetailView.hide();
+    this.gateDetailView.hide();
   }
 
   private populateSystemOutline(): void {
