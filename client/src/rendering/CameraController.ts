@@ -214,6 +214,21 @@ export class CameraController {
   }
 
   /**
+   * Set camera to constellation view position
+   */
+  setConstellationView(): void {
+    // Center on origin (current system is at origin in constellation view)
+    this.cameraTarget.set(0, 0, 0);
+    this.cameraDistance = 75; // Twice as close for constellation
+    this.isTrackingObject = false;
+    this.selectedObjectId = null;
+
+    // Set a good viewing angle for constellation view (more top-down)
+    this.cameraPhi = Math.PI / 2.5; // Slightly above
+    this.cameraTheta = 0; // Straight ahead
+  }
+
+  /**
    * Get the current camera distance
    * @returns Current distance from camera target
    */

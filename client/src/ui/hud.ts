@@ -42,6 +42,7 @@ export class HUDManager {
   private resetGalaxyHandler: () => void;
   private navHomeHandler: () => void;
   private navSystemHandler: () => void;
+  private navConstellationHandler: () => void;
   private timeToggleHandler: () => void;
 
   // Callbacks
@@ -49,6 +50,7 @@ export class HUDManager {
   public onResetGalaxy: ((name: string) => void) | null = null;
   public onNavigateHome: (() => void) | null = null;
   public onNavigateSystem: (() => void) | null = null;
+  public onNavigateConstellation: (() => void) | null = null;
   public onTimeToggle: (() => void) | null = null;
   public onSelectObject: ((objectId: string) => void) | null = null;
 
@@ -111,6 +113,12 @@ export class HUDManager {
       }
     };
 
+    this.navConstellationHandler = () => {
+      if (this.onNavigateConstellation) {
+        this.onNavigateConstellation();
+      }
+    };
+
     this.timeToggleHandler = () => {
       if (this.onTimeToggle) {
         this.onTimeToggle();
@@ -128,6 +136,10 @@ export class HUDManager {
     this.resetGalaxyButton.addEventListener("click", this.resetGalaxyHandler);
     this.navHomeButton.addEventListener("click", this.navHomeHandler);
     this.navSystemButton.addEventListener("click", this.navSystemHandler);
+    this.navConstellationButton.addEventListener(
+      "click",
+      this.navConstellationHandler
+    );
     this.timeToggleButton.addEventListener("click", this.timeToggleHandler);
   }
 
@@ -651,6 +663,10 @@ export class HUDManager {
     );
     this.navHomeButton.removeEventListener("click", this.navHomeHandler);
     this.navSystemButton.removeEventListener("click", this.navSystemHandler);
+    this.navConstellationButton.removeEventListener(
+      "click",
+      this.navConstellationHandler
+    );
     this.timeToggleButton.removeEventListener("click", this.timeToggleHandler);
 
     // Clear callbacks
@@ -658,6 +674,7 @@ export class HUDManager {
     this.onResetGalaxy = null;
     this.onNavigateHome = null;
     this.onNavigateSystem = null;
+    this.onNavigateConstellation = null;
     this.onTimeToggle = null;
     this.onSelectObject = null;
 

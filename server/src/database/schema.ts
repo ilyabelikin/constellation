@@ -34,6 +34,7 @@ export function initializeDatabase(dbPath: string): Database.Database {
       home_system_id TEXT NOT NULL,
       home_planet_id TEXT NOT NULL,
       current_system_id TEXT NOT NULL,
+      constellation_positions TEXT DEFAULT '{}',
       FOREIGN KEY (galaxy_id) REFERENCES galaxies(id) ON DELETE CASCADE,
       FOREIGN KEY (home_system_id) REFERENCES star_systems(id),
       FOREIGN KEY (current_system_id) REFERENCES star_systems(id)
@@ -74,6 +75,26 @@ export function initializeDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_gates_system ON star_gates(system_id);
     CREATE INDEX IF NOT EXISTS idx_explored_gates_player ON explored_gates(player_id);
   `);
+
+  // Migration: Add constellation_positions column if it doesn't exist
+  try {
+    const columns = db.prepare("PRAGMA table_info(players)").all() as Array<{
+      name: string;
+    }>;
+    const hasConstellationPositions = columns.some(
+      (col) => col.name === "constellation_positions"
+    );
+
+    if (!hasConstellationPositions) {
+      console.log("Migrating database: Adding constellation_positions column");
+      db.exec(
+        "ALTER TABLE players ADD COLUMN constellation_positions TEXT DEFAULT '{}'"
+      );
+      console.log("Migration complete");
+    }
+  } catch (error) {
+    console.error("Error during migration:", error);
+  }
 
   return db;
 }

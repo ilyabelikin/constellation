@@ -195,3 +195,24 @@ export interface LagrangePoint {
   primaryBodyId: string;
   secondaryBodyId: string;
 }
+
+// Constellation view data
+export interface ConstellationNode {
+  systemId: string;
+  systemName: string;
+  starColor: string;
+  position: Vector3; // Position in galaxy (light years)
+}
+
+export interface ConstellationConnection {
+  fromSystemId: string;
+  toSystemId: string;
+  isExplored: boolean; // Whether the gate has been discovered
+  gateId?: string; // Optional gate ID for explored connections
+}
+
+export interface UnexploredGate {
+  gateId: string;
+  systemId: string; // The system this gate is in
+  position: Vector3; // Position where the star will appear when explored
+}

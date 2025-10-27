@@ -1,4 +1,12 @@
-import { SystemState, Player, StarSystem, Ship } from "./types";
+import {
+  SystemState,
+  Player,
+  StarSystem,
+  Ship,
+  ConstellationNode,
+  ConstellationConnection,
+  UnexploredGate,
+} from "./types";
 
 // Client -> Server messages
 export type ClientMessage =
@@ -13,7 +21,12 @@ export type ClientMessage =
   | { type: "pauseTime" }
   | { type: "resumeTime" }
   | { type: "shipManeuver"; maneuver: ShipManeuverCommand }
-  | { type: "useGate"; gateId: string };
+  | { type: "useGate"; gateId: string }
+  | { type: "requestConstellation" }
+  | {
+      type: "saveConstellationPositions";
+      positions: Record<string, { x: number; y: number; z: number }>;
+    };
 
 export interface ShipManeuverCommand {
   shipId: string;
@@ -49,6 +62,14 @@ export type ServerMessage =
       destinationSystem: StarSystem;
       exploredGateIds: string[];
       exitGateId: string;
+    }
+  | {
+      type: "constellationData";
+      nodes: ConstellationNode[];
+      connections: ConstellationConnection[];
+      unexploredGates: UnexploredGate[];
+      currentSystemId: string;
+      customPositions: Record<string, { x: number; y: number; z: number }>;
     };
 
 // Helper to serialize/deserialize messages

@@ -29,16 +29,20 @@ export function generateGalaxy(name: string): Galaxy {
  * @param galaxyId - Galaxy this system belongs to
  * @param galaxySeed - Seed for galaxy-level randomness
  * @param connectedToSystemIds - Optional array of system IDs this system should have gates to
+ * @param fixedPosition - Optional fixed position for the system (used for unexplored gates)
+ * @param forceExit - If true, ensure at least one exit gate (prevents total lockout)
  */
 export function generateNewSystem(
   galaxyId: string,
   galaxySeed: number,
-  connectedToSystemIds: string[] = []
+  connectedToSystemIds: string[] = [],
+  fixedPosition?: Vector3,
+  forceExit: boolean = false
 ): StarSystem {
   const rng = new SeededRandom(galaxySeed);
 
-  // Generate position (near origin for now, can be improved later)
-  const position: Vector3 = {
+  // Use provided position or generate random one
+  const position: Vector3 = fixedPosition || {
     x: rng.nextFloat(-10, 10),
     y: rng.nextFloat(-10, 10),
     z: rng.nextFloat(-2, 2),
@@ -52,7 +56,14 @@ export function generateNewSystem(
 
   // Generate gates
   const gateRng = new SeededRandom(systemSeed + 999);
-  const gateCount = determineGateCount(gateRng);
+  let gateCount = determineGateCount(gateRng);
+
+  // IMPORTANT: If forceExit is true, ensure at least 2 gates (one back, one forward)
+  // This prevents the player from getting completely stuck with no unexplored gates
+  // Dead-end systems are allowed when forceExit is false
+  if (forceExit && connectedToSystemIds.length > 0) {
+    gateCount = Math.max(2, gateCount);
+  }
 
   // Create destination list
   const destinations: string[] = [...connectedToSystemIds];

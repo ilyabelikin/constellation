@@ -109,6 +109,12 @@ export class ConstellationWebSocketServer {
         case "useGate":
           this.handleUseGate(client, message.gateId);
           break;
+        case "requestConstellation":
+          this.handleRequestConstellation(client);
+          break;
+        case "saveConstellationPositions":
+          this.handleSaveConstellationPositions(client, message.positions);
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -461,8 +467,21 @@ export class ConstellationWebSocketServer {
     // Update client connection tracking
     client.currentSystemId = systemId;
 
+    // Load system into game state manager (so positions are calculated)
+    this.gameState.loadSystem(system);
+
+    // Load ships for this system
+    const ships = this.db.getShipsBySystem(system.id);
+    this.gameState.loadShips(system.id, ships);
+
     // Send system data
     this.send(client.ws, { type: "systemData", system });
+
+    // Send ship data if player has one in this system
+    const ship = this.db.getShipByPlayerId(client.playerId);
+    if (ship && ship.systemId === systemId) {
+      this.send(client.ws, { type: "shipData", ship });
+    }
 
     // Send updated player data with new currentSystemId
     const player = this.db.getPlayerById(client.playerId);
@@ -503,13 +522,38 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    // Verify gate is in player's current system
+    // Check if gate is in player's current system
     if (gate.systemId !== player.currentSystemId) {
-      this.sendError(client.ws, "Gate not in current system");
-      return;
+      // Gate is in a different system - this might be from constellation view
+      // Check if the player has explored this system (can use gates from any explored system)
+      const exploredGates = this.db.getExploredGates(player.id);
+      const gateSystem = this.db.getStarSystem(gate.systemId);
+
+      if (!gateSystem) {
+        this.sendError(client.ws, "Gate system not found");
+        return;
+      }
+
+      // Check if player has discovered any gate in the gate's system (meaning they've been there)
+      const hasExploredGateSystem = this.db
+        .getGatesBySystem(gate.systemId)
+        .some((g) => exploredGates.includes(g.id));
+
+      if (!hasExploredGateSystem) {
+        this.sendError(client.ws, "Cannot use gates from unexplored systems");
+        return;
+      }
+
+      // Allow constellation view exploration: teleport player to gate's system first
+      console.log(
+        `Constellation exploration: moving player from ${player.currentSystemId} to ${gate.systemId}`
+      );
+      this.db.updatePlayerCurrentSystem(player.id, gate.systemId);
+      player.currentSystemId = gate.systemId;
+      client.currentSystemId = gate.systemId;
     }
 
-    // Get current system
+    // Get current system (which might have been updated above)
     const currentSystem = this.db.getStarSystem(gate.systemId);
     if (!currentSystem) {
       this.sendError(client.ws, "Current system not found");
@@ -533,11 +577,58 @@ export class ConstellationWebSocketServer {
         return;
       }
 
-      // Generate new system with connection back to current system
+      // Calculate position for the new system (same algorithm as constellation view)
+      // Get all existing systems in the galaxy to avoid collisions
+      const existingSystems = this.db.getSystemsByGalaxy(galaxy.id);
+      const existingPositions = existingSystems.map((s) => s.position);
+
+      const newSystemPosition = this.db.calculateUnexploredGatePosition(
+        gateId,
+        currentSystem.position,
+        existingPositions
+      );
+
+      // Check if there are ANY unexplored gates in the ENTIRE explored network
+      // This prevents total lockout where all explored systems are dead-ends
+      const exploredGates = this.db.getExploredGates(player.id);
+
+      // Get all systems in the explored network (systems with at least one explored gate)
+      const exploredSystemIds = new Set<string>();
+      for (const exploredGateId of exploredGates) {
+        const exploredGate = this.db.getGateById(exploredGateId);
+        if (exploredGate) {
+          exploredSystemIds.add(exploredGate.systemId);
+        }
+      }
+
+      // Get all gates in all explored systems
+      let hasUnexploredGateInNetwork = false;
+      for (const systemId of exploredSystemIds) {
+        const systemGates = this.db.getGatesBySystem(systemId);
+        // Check if any gate in this system is unexplored (excluding the gate we're using now)
+        if (
+          systemGates.some(
+            (g) => g.id !== gateId && !exploredGates.includes(g.id)
+          )
+        ) {
+          hasUnexploredGateInNetwork = true;
+          break;
+        }
+      }
+
+      console.log(
+        `Network analysis: ${exploredSystemIds.size} explored systems, ` +
+          `${exploredGates.length} explored gates, ` +
+          `has unexplored gates in network: ${hasUnexploredGateInNetwork}`
+      );
+
+      // Generate new system with connection back to current system at calculated position
       destinationSystem = generateNewSystem(
         galaxy.id,
         galaxy.seed + Date.now(), // Use time as additional seed entropy
-        [currentSystem.id] // First gate connects back to current system
+        [currentSystem.id], // First gate connects back to current system
+        newSystemPosition, // Use calculated position
+        !hasUnexploredGateInNetwork // Force at least one exit if no unexplored gates in entire network
       );
 
       // Save the new system
@@ -620,6 +711,64 @@ export class ConstellationWebSocketServer {
     console.log(
       `Player ${player.name} traveled through gate to system ${destinationSystem.id}`
     );
+  }
+
+  private handleRequestConstellation(client: ClientConnection): void {
+    if (!client.playerId || !client.currentSystemId) {
+      this.sendError(client.ws, "Not authenticated or no current system");
+      return;
+    }
+
+    const constellationData = this.db.getConstellationData(
+      client.playerId,
+      client.currentSystemId
+    );
+
+    // Transform systems into constellation nodes
+    const nodes = constellationData.systems.map((system) => ({
+      systemId: system.id,
+      systemName: system.star.name,
+      starColor: system.star.color || "#ffffff",
+      position: system.position,
+    }));
+
+    // Debug logging
+    const exploredConnections = constellationData.connections.filter(
+      (c) => c.isExplored
+    );
+    const unexploredConnections = constellationData.connections.filter(
+      (c) => !c.isExplored
+    );
+    console.log(
+      `Sending constellation data: ${nodes.length} nodes, ${constellationData.connections.length} connections (${exploredConnections.length} explored, ${unexploredConnections.length} unexplored), ${constellationData.unexploredGates.length} mystery gates`
+    );
+
+    // Send constellation data with custom positions
+    this.send(client.ws, {
+      type: "constellationData",
+      nodes,
+      connections: constellationData.connections,
+      unexploredGates: constellationData.unexploredGates,
+      currentSystemId: client.currentSystemId,
+      customPositions: constellationData.customPositions,
+    });
+
+    console.log(
+      `Sent constellation data to player ${client.playerId}: ${nodes.length} nodes, ${constellationData.connections.length} connections`
+    );
+  }
+
+  private handleSaveConstellationPositions(
+    client: ClientConnection,
+    positions: Record<string, { x: number; y: number; z: number }>
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    this.db.saveConstellationPositions(client.playerId, positions);
+    console.log(`Saved constellation positions for player ${client.playerId}`);
   }
 
   private handleDisconnect(ws: WebSocket): void {

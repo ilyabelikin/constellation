@@ -5,6 +5,9 @@ import {
   SystemState,
   ShipState,
   ASTRONOMICAL_UNIT,
+  ConstellationNode,
+  ConstellationConnection,
+  UnexploredGate,
 } from "@constellation/shared";
 import { CameraController } from "./CameraController.js";
 import { InteractionManager } from "./InteractionManager.js";
@@ -12,6 +15,7 @@ import { CelestialBodyFactory } from "./CelestialBodyFactory.js";
 import { TimeInterpolator } from "./TimeInterpolator.js";
 import { StarfieldGenerator } from "./StarfieldGenerator.js";
 import { GateTravelAnimator } from "./GateTravelAnimator.js";
+import { ConstellationView } from "./ConstellationView.js";
 
 /**
  * Main scene manager that orchestrates all rendering components
@@ -28,6 +32,7 @@ export class SceneManager {
   private timeInterpolator: TimeInterpolator;
   private starfieldGenerator: StarfieldGenerator;
   private gateTravelAnimator: GateTravelAnimator;
+  private constellationView: ConstellationView;
 
   // Scene objects
   private bodies: Map<string, THREE.Mesh> = new Map();
@@ -45,6 +50,7 @@ export class SceneManager {
 
   private system: StarSystem | null = null;
   private exploredGateIds: Set<string> = new Set();
+  private isConstellationViewActive = false;
 
   // Scale factor for visualization (1 AU = 1000 units in Three.js)
   private readonly SCALE = 1000 / ASTRONOMICAL_UNIT;
@@ -53,6 +59,12 @@ export class SceneManager {
 
   public onObjectSelected: ((objectId: string) => void) | null = null;
   public onGateUse: ((gateId: string) => void) | null = null;
+  public onConstellationPositionsChanged:
+    | ((positions: Record<string, { x: number; y: number; z: number }>) => void)
+    | null = null;
+  public onConstellationSystemSelected: ((systemId: string) => void) | null =
+    null;
+  public onConstellationGateSelected: ((gateId: string) => void) | null = null;
 
   // Gate travel state
   private entryGateId: string | null = null;
@@ -64,6 +76,13 @@ export class SceneManager {
   private mouseMoveHandler: (e: MouseEvent) => void;
   private mouseUpHandler: () => void;
   private mouseWheelHandler: (e: WheelEvent) => void;
+  private contextMenuHandler: (e: MouseEvent) => void;
+  private keyDownHandler: (e: KeyboardEvent) => void;
+  private keyUpHandler: (e: KeyboardEvent) => void;
+
+  // Keyboard navigation state for constellation view
+  private keyboardState: { [key: string]: boolean } = {};
+  private readonly KEYBOARD_MOVE_SPEED = 50; // Units per second
 
   // Expose getters for external access
   getGameTime(): number {
@@ -126,15 +145,23 @@ export class SceneManager {
       this.cameraController
     );
 
+    // Initialize constellation view
+    this.constellationView = new ConstellationView(this.scene);
+
     // Create event listeners and store references for cleanup
     this.resizeHandler = () => this.onWindowResize();
     this.mouseDownHandler = (e: MouseEvent) => this.onMouseDown(e);
     this.mouseMoveHandler = (e: MouseEvent) => this.onMouseMove(e);
     this.mouseUpHandler = () => this.onMouseUp();
     this.mouseWheelHandler = (e: WheelEvent) => this.onMouseWheel(e);
+    this.contextMenuHandler = (e: MouseEvent) => this.onContextMenu(e);
+    this.keyDownHandler = (e: KeyboardEvent) => this.onKeyDown(e);
+    this.keyUpHandler = (e: KeyboardEvent) => this.onKeyUp(e);
 
     // Add event listeners
     window.addEventListener("resize", this.resizeHandler);
+    window.addEventListener("keydown", this.keyDownHandler);
+    window.addEventListener("keyup", this.keyUpHandler);
     this.renderer.domElement.addEventListener(
       "mousedown",
       this.mouseDownHandler
@@ -145,6 +172,10 @@ export class SceneManager {
     );
     this.renderer.domElement.addEventListener("mouseup", this.mouseUpHandler);
     this.renderer.domElement.addEventListener("wheel", this.mouseWheelHandler);
+    this.renderer.domElement.addEventListener(
+      "contextmenu",
+      this.contextMenuHandler
+    );
   }
 
   loadSystem(system: StarSystem): void {
@@ -521,6 +552,72 @@ export class SceneManager {
   }
 
   private onMouseDown(event: MouseEvent): void {
+    // Handle constellation view
+    if (this.isConstellationViewActive) {
+      // Right mouse button: drag stars
+      if (event.button === 2) {
+        const raycaster = new THREE.Raycaster();
+        const isDragging = this.constellationView.onMouseDown(
+          event,
+          this.camera,
+          raycaster
+        );
+        if (isDragging) {
+          event.preventDefault();
+          return;
+        }
+      }
+
+      // Left mouse button: only for camera rotation, not clicking
+      // Camera controller will handle rotation via onMouseMove
+      if (event.button === 0) {
+        this.cameraController.onMouseDown(event);
+
+        // Check for clicks after delay (stars or unexplored gates)
+        setTimeout(() => {
+          if (!this.cameraController.getIsDragging()) {
+            const raycaster = new THREE.Raycaster();
+
+            // First check for unexplored gate clicks
+            const clickedGateId = this.constellationView.onUnexploredGateClick(
+              event,
+              this.camera,
+              raycaster
+            );
+
+            if (clickedGateId) {
+              console.log(`Scene: unexplored gate clicked: ${clickedGateId}`);
+              if (this.onConstellationGateSelected) {
+                console.log(
+                  `Scene: calling onConstellationGateSelected callback`
+                );
+                this.onConstellationGateSelected(clickedGateId);
+                return;
+              } else {
+                console.warn(
+                  `Scene: onConstellationGateSelected callback not set!`
+                );
+              }
+            }
+
+            // Then check for star clicks
+            const clickedSystemId = this.constellationView.onStarClick(
+              event,
+              this.camera,
+              raycaster
+            );
+
+            if (clickedSystemId && this.onConstellationSystemSelected) {
+              this.onConstellationSystemSelected(clickedSystemId);
+            }
+          }
+        }, 150);
+      }
+
+      return;
+    }
+
+    // Normal system view
     this.cameraController.onMouseDown(event);
     this.interactionManager.updateMousePosition(event);
 
@@ -533,6 +630,20 @@ export class SceneManager {
   }
 
   private onMouseMove(event: MouseEvent): void {
+    // Handle constellation view dragging
+    if (this.isConstellationViewActive) {
+      const raycaster = new THREE.Raycaster();
+      const isDragging = this.constellationView.onMouseMove(
+        event,
+        this.camera,
+        raycaster
+      );
+      if (isDragging) {
+        event.preventDefault();
+        return; // Don't handle camera rotation while dragging
+      }
+    }
+
     this.interactionManager.updateMousePosition(event);
 
     // Update hover state for cursor feedback
@@ -543,6 +654,30 @@ export class SceneManager {
   }
 
   private updateHoverState(): void {
+    // In constellation view, only show pointer over stars and mystery endpoints
+    if (this.isConstellationViewActive) {
+      const raycaster = new THREE.Raycaster();
+      const mouse = this.interactionManager.getMousePosition();
+      raycaster.setFromCamera(mouse, this.camera);
+
+      // Get all constellation interactive objects (stars and mystery endpoints)
+      const constellationObjects: THREE.Object3D[] = [];
+      this.scene.traverse((object) => {
+        if (
+          object.userData.type === "constellationNode" ||
+          object.userData.type === "undiscoveredEndpoint"
+        ) {
+          constellationObjects.push(object);
+        }
+      });
+
+      const intersects = raycaster.intersectObjects(constellationObjects, true);
+      this.renderer.domElement.style.cursor =
+        intersects.length > 0 ? "pointer" : "default";
+      return;
+    }
+
+    // Normal system view
     const allObjects = [
       ...this.bodies.values(),
       ...this.ships.values(),
@@ -559,10 +694,38 @@ export class SceneManager {
   }
 
   private onMouseUp(): void {
+    // Handle constellation view drag end
+    if (this.isConstellationViewActive) {
+      const wasDragging = this.constellationView.isDragging();
+      this.constellationView.onMouseUp();
+
+      // Save positions if a drag just ended
+      if (wasDragging && this.onConstellationPositionsChanged) {
+        const positions = this.constellationView.getAllPositions();
+        this.onConstellationPositionsChanged(positions);
+      }
+    }
+
     this.cameraController.onMouseUp();
   }
 
   private handleObjectClick(): void {
+    // Handle constellation view clicks
+    if (this.isConstellationViewActive) {
+      const raycaster = new THREE.Raycaster();
+      const clickedSystemId = this.constellationView.onStarClick(
+        new MouseEvent("click"), // We'll use the actual event in onMouseDown
+        this.camera,
+        raycaster
+      );
+
+      if (clickedSystemId && this.onConstellationSystemSelected) {
+        this.onConstellationSystemSelected(clickedSystemId);
+      }
+      return;
+    }
+
+    // Normal system view clicks
     const allObjects = [
       ...this.bodies.values(),
       ...this.ships.values(),
@@ -584,6 +747,29 @@ export class SceneManager {
     this.cameraController.onMouseWheel(event);
   }
 
+  private onContextMenu(event: MouseEvent): void {
+    // Prevent context menu in constellation view when dragging stars
+    if (this.isConstellationViewActive) {
+      event.preventDefault();
+    }
+  }
+
+  private onKeyDown(event: KeyboardEvent): void {
+    // Track keyboard state for constellation view navigation
+    if (this.isConstellationViewActive) {
+      const key = event.key.toLowerCase();
+      if (["w", "a", "s", "d"].includes(key)) {
+        this.keyboardState[key] = true;
+        event.preventDefault(); // Prevent page scrolling
+      }
+    }
+  }
+
+  private onKeyUp(event: KeyboardEvent): void {
+    const key = event.key.toLowerCase();
+    this.keyboardState[key] = false;
+  }
+
   private onWindowResize(): void {
     this.cameraController.onWindowResize();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -594,6 +780,51 @@ export class SceneManager {
     if (this.starfield) {
       const realTime = performance.now() / 1000;
       this.starfield.rotation.y = realTime * 0.01; // Slow rotation
+    }
+
+    // Handle constellation view updates
+    if (this.isConstellationViewActive) {
+      const deltaTime = 0.016; // Approximate 60fps
+      this.constellationView.update(deltaTime);
+
+      // Handle WASD keyboard navigation relative to camera orientation
+      const moveSpeed = this.KEYBOARD_MOVE_SPEED * deltaTime;
+      const cameraTarget = this.cameraController.getCameraTarget();
+
+      // Get camera's forward and right vectors (projected onto XZ plane for horizontal movement)
+      const cameraDirection = new THREE.Vector3();
+      this.camera.getWorldDirection(cameraDirection);
+
+      // Project onto XZ plane and normalize
+      const forward = new THREE.Vector3(
+        cameraDirection.x,
+        0,
+        cameraDirection.z
+      ).normalize();
+      const right = new THREE.Vector3()
+        .crossVectors(new THREE.Vector3(0, 1, 0), forward)
+        .normalize();
+
+      if (this.keyboardState["w"]) {
+        // Move forward relative to camera view
+        cameraTarget.add(forward.multiplyScalar(moveSpeed));
+      }
+      if (this.keyboardState["s"]) {
+        // Move backward relative to camera view
+        cameraTarget.add(forward.multiplyScalar(-moveSpeed));
+      }
+      if (this.keyboardState["a"]) {
+        // Move left relative to camera view
+        cameraTarget.add(right.multiplyScalar(moveSpeed));
+      }
+      if (this.keyboardState["d"]) {
+        // Move right relative to camera view
+        cameraTarget.add(right.multiplyScalar(-moveSpeed));
+      }
+
+      // Update camera in constellation view (allows rotation and zoom)
+      this.cameraController.update(undefined);
+      return; // Skip system view updates when in constellation view
     }
 
     // Update interpolated game time
@@ -1062,6 +1293,115 @@ export class SceneManager {
   }
 
   /**
+   * Show constellation view with connected systems
+   */
+  showConstellationView(
+    nodes: ConstellationNode[],
+    connections: ConstellationConnection[],
+    unexploredGates: UnexploredGate[],
+    currentSystemId: string,
+    customPositions?: Record<string, { x: number; y: number; z: number }>
+  ): void {
+    // Hide system objects
+    this.hideSystemObjects();
+
+    // Load constellation view
+    this.constellationView.load(
+      nodes,
+      connections,
+      unexploredGates,
+      currentSystemId,
+      customPositions
+    );
+    this.isConstellationViewActive = true;
+
+    // Position camera for constellation view
+    this.cameraController.setConstellationView();
+
+    console.log("Switched to constellation view");
+  }
+
+  /**
+   * Hide constellation view and return to system view
+   */
+  hideConstellationView(): void {
+    if (!this.isConstellationViewActive) return;
+
+    this.constellationView.clear();
+    this.isConstellationViewActive = false;
+
+    // Show system objects again
+    this.showSystemObjects();
+
+    console.log("Returned to system view");
+  }
+
+  /**
+   * Check if constellation view is currently active
+   */
+  isInConstellationView(): boolean {
+    return this.isConstellationViewActive;
+  }
+
+  /**
+   * Hide all system objects (for constellation view)
+   */
+  private hideSystemObjects(): void {
+    for (const mesh of this.bodies.values()) {
+      mesh.visible = false;
+    }
+    for (const mesh of this.ships.values()) {
+      mesh.visible = false;
+    }
+    for (const gateGroup of this.gates.values()) {
+      gateGroup.visible = false;
+    }
+    for (const mesh of this.asteroids.values()) {
+      mesh.visible = false;
+    }
+    for (const mesh of this.moons.values()) {
+      mesh.visible = false;
+    }
+    for (const ringGroup of this.rings.values()) {
+      ringGroup.visible = false;
+    }
+    for (const line of this.orbitLines.values()) {
+      line.visible = false;
+    }
+    for (const line of this.moonOrbitLines.values()) {
+      line.visible = false;
+    }
+  }
+
+  /**
+   * Show all system objects (return from constellation view)
+   */
+  private showSystemObjects(): void {
+    for (const mesh of this.bodies.values()) {
+      mesh.visible = true;
+    }
+    for (const mesh of this.ships.values()) {
+      mesh.visible = true;
+    }
+    for (const gateGroup of this.gates.values()) {
+      gateGroup.visible = true;
+    }
+    for (const mesh of this.asteroids.values()) {
+      mesh.visible = true;
+    }
+    for (const mesh of this.moons.values()) {
+      mesh.visible = true;
+    }
+    for (const ringGroup of this.rings.values()) {
+      ringGroup.visible = true;
+    }
+    for (const line of this.orbitLines.values()) {
+      line.visible = true;
+    }
+    // Moon orbit lines remain hidden unless parent planet is selected
+  }
+
+  /**
    * Cleanup method to prevent memory leaks
    * Call this when the scene manager is no longer needed
    */
@@ -1083,6 +1423,10 @@ export class SceneManager {
     this.renderer.domElement.removeEventListener(
       "wheel",
       this.mouseWheelHandler
+    );
+    this.renderer.domElement.removeEventListener(
+      "contextmenu",
+      this.contextMenuHandler
     );
 
     // Clear scene

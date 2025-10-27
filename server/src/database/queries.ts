@@ -337,4 +337,251 @@ export class DatabaseQueries {
 
     return Array.from(systemIds);
   }
+
+  /**
+   * Calculate position for an unexplored gate's future system
+   * Uses deterministic algorithm based on gate ID and existing positions
+   */
+  calculateUnexploredGatePosition(
+    gateId: string,
+    currentSystemPos: { x: number; y: number; z: number },
+    existingPositions: Array<{ x: number; y: number; z: number }>
+  ): { x: number; y: number; z: number } {
+    const MIN_DISTANCE_LY = 6;
+
+    // Use gate ID as seed for consistency
+    const seed =
+      gateId.charCodeAt(0) + gateId.charCodeAt(1) + gateId.charCodeAt(2);
+
+    // Start with a position based on the gate's seed
+    const theta = ((seed * 137.508) % 360) * (Math.PI / 180); // Golden angle
+    const phi = ((seed * 0.618) % 1) * Math.PI;
+    const distance = 4 + ((seed % 100) / 100) * 4; // 4-8 light years from current
+
+    let position = {
+      x: currentSystemPos.x + Math.sin(phi) * Math.cos(theta) * distance,
+      y: currentSystemPos.y + Math.cos(phi) * distance,
+      z: currentSystemPos.z + Math.sin(phi) * Math.sin(theta) * distance,
+    };
+
+    // Apply collision detection
+    let attempts = 0;
+    const maxAttempts = 50;
+
+    while (attempts < maxAttempts) {
+      let hasCollision = false;
+
+      // Check distance to all existing positions
+      for (const existingPos of existingPositions) {
+        const dx = position.x - existingPos.x;
+        const dy = position.y - existingPos.y;
+        const dz = position.z - existingPos.z;
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+        if (dist < MIN_DISTANCE_LY) {
+          hasCollision = true;
+          break;
+        }
+      }
+
+      if (!hasCollision) {
+        break; // Found a good position
+      }
+
+      // Adjust position using spiral pattern
+      const angle = attempts * 0.618 * Math.PI * 2; // Golden angle
+      const radius = MIN_DISTANCE_LY * (1 + attempts * 0.3);
+      position = {
+        x: currentSystemPos.x + Math.cos(angle) * radius,
+        y: currentSystemPos.y + Math.sin(attempts) * MIN_DISTANCE_LY * 0.3,
+        z: currentSystemPos.z + Math.sin(angle) * radius,
+      };
+
+      attempts++;
+    }
+
+    return position;
+  }
+
+  /**
+   * Get constellation data for a player
+   * Returns all explored systems and their gate connections
+   */
+  getConstellationData(
+    playerId: string,
+    currentSystemId: string
+  ): {
+    systems: StarSystem[];
+    connections: Array<{
+      fromSystemId: string;
+      toSystemId: string;
+      isExplored: boolean;
+      gateId?: string;
+    }>;
+    unexploredGates: Array<{
+      gateId: string;
+      systemId: string;
+      position: { x: number; y: number; z: number };
+    }>;
+    customPositions: Record<string, { x: number; y: number; z: number }>;
+  } {
+    const player = this.getPlayerById(playerId);
+    if (!player) {
+      return {
+        systems: [],
+        connections: [],
+        unexploredGates: [],
+        customPositions: {},
+      };
+    }
+
+    const exploredGateIds = new Set(this.getExploredGates(playerId));
+    const systemIds = new Set<string>();
+    const connections: Array<{
+      fromSystemId: string;
+      toSystemId: string;
+      isExplored: boolean;
+      gateId?: string;
+    }> = [];
+
+    // Build full constellation from all explored gates
+    // Start with current system
+    systemIds.add(currentSystemId);
+
+    // Get all explored gate objects
+    const exploredGates: StarGate[] = [];
+    for (const gateId of Array.from(exploredGateIds)) {
+      const gate = this.getGateById(gateId);
+      if (gate) {
+        exploredGates.push(gate);
+        // Add both systems connected by this explored gate
+        systemIds.add(gate.systemId);
+        systemIds.add(gate.destinationSystemId);
+      }
+    }
+
+    // Process all systems in the constellation
+    const processedSystems = new Set<string>();
+    const systemsToProcess = Array.from(systemIds);
+
+    for (const systemId of systemsToProcess) {
+      if (processedSystems.has(systemId)) continue;
+      processedSystems.add(systemId);
+
+      // Get all gates from this system
+      const systemGates = this.getGatesBySystem(systemId);
+
+      for (const gate of systemGates) {
+        const isExplored = exploredGateIds.has(gate.id);
+
+        // Skip placeholder gates (not yet generated systems)
+        if (gate.destinationSystemId.startsWith("PLACEHOLDER_")) {
+          continue;
+        }
+
+        // Add connection
+        connections.push({
+          fromSystemId: gate.systemId,
+          toSystemId: gate.destinationSystemId,
+          isExplored,
+          gateId: isExplored ? gate.id : undefined,
+        });
+
+        // Add destination system to constellation (for both explored and unexplored gates)
+        // This allows us to show unexplored tunnels with purple spheres at their destinations
+        systemIds.add(gate.destinationSystemId);
+      }
+    }
+
+    // Fetch all system data
+    const systems: StarSystem[] = [];
+    for (const systemId of Array.from(systemIds)) {
+      const system = this.getStarSystem(systemId);
+      if (system) {
+        systems.push(system);
+      }
+    }
+
+    // Get custom constellation positions for this player (need this early for return statements)
+    const customPositions = this.getConstellationPositions(playerId);
+
+    // Get unexplored gates from ALL explored systems (for mystery positions)
+    const unexploredGates: Array<{
+      gateId: string;
+      systemId: string;
+      position: { x: number; y: number; z: number };
+    }> = [];
+
+    // Collect all existing star positions (in galaxy coordinates)
+    const existingPositions: Array<{ x: number; y: number; z: number }> = [];
+    for (const system of systems) {
+      existingPositions.push(system.position);
+    }
+
+    // Process unexplored gates from all explored systems in the constellation
+    for (const system of systems) {
+      const systemGates = this.getGatesBySystem(system.id);
+
+      for (const gate of systemGates) {
+        // Only include unexplored placeholder gates
+        if (
+          !exploredGateIds.has(gate.id) &&
+          gate.destinationSystemId.startsWith("PLACEHOLDER_")
+        ) {
+          // Calculate position using shared helper function
+          const allPositions = [
+            ...existingPositions,
+            ...unexploredGates.map((g) => g.position),
+          ];
+          const position = this.calculateUnexploredGatePosition(
+            gate.id,
+            system.position,
+            allPositions
+          );
+
+          unexploredGates.push({
+            gateId: gate.id,
+            systemId: gate.systemId,
+            position,
+          });
+        }
+      }
+    }
+
+    return { systems, connections, unexploredGates, customPositions };
+  }
+
+  /**
+   * Get custom constellation positions for a player
+   */
+  getConstellationPositions(
+    playerId: string
+  ): Record<string, { x: number; y: number; z: number }> {
+    const stmt = this.db.prepare(
+      "SELECT constellation_positions FROM players WHERE id = ?"
+    );
+    const row = stmt.get(playerId) as any;
+    if (!row || !row.constellation_positions) {
+      return {};
+    }
+    try {
+      return JSON.parse(row.constellation_positions);
+    } catch (e) {
+      console.error("Error parsing constellation positions:", e);
+      return {};
+    }
+  }
+
+  /**
+   * Save custom constellation positions for a player
+   */
+  saveConstellationPositions(
+    playerId: string,
+    positions: Record<string, { x: number; y: number; z: number }>
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE players SET constellation_positions = ? WHERE id = ?"
+    );
+    stmt.run(JSON.stringify(positions), playerId);
+  }
 }

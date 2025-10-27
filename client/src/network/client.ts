@@ -7,6 +7,9 @@ import {
   StarSystem,
   SystemState,
   Ship,
+  ConstellationNode,
+  ConstellationConnection,
+  UnexploredGate,
 } from "@constellation/shared";
 
 export class NetworkClient {
@@ -38,6 +41,15 @@ export class NetworkClient {
         destinationSystem: StarSystem,
         exploredGateIds: string[],
         exitGateId: string
+      ) => void)
+    | null = null;
+  public onConstellationData:
+    | ((
+        nodes: ConstellationNode[],
+        connections: ConstellationConnection[],
+        unexploredGates: UnexploredGate[],
+        currentSystemId: string,
+        customPositions: Record<string, { x: number; y: number; z: number }>
       ) => void)
     | null = null;
 
@@ -176,6 +188,18 @@ export class NetworkClient {
             );
           }
           break;
+
+        case "constellationData":
+          if (this.onConstellationData) {
+            this.onConstellationData(
+              message.nodes,
+              message.connections,
+              message.unexploredGates,
+              message.currentSystemId,
+              message.customPositions
+            );
+          }
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -230,6 +254,16 @@ export class NetworkClient {
 
   useGate(gateId: string): void {
     this.send({ type: "useGate", gateId });
+  }
+
+  requestConstellation(): void {
+    this.send({ type: "requestConstellation" });
+  }
+
+  saveConstellationPositions(
+    positions: Record<string, { x: number; y: number; z: number }>
+  ): void {
+    this.send({ type: "saveConstellationPositions", positions });
   }
 
   /**

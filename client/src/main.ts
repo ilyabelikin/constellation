@@ -17,6 +17,7 @@ class ConstellationClient {
   private pendingFocusObjectId: string | null = null; // Object to focus on after system loads
   private animationFrameId: number | null = null;
   private keyboardHandler: ((e: KeyboardEvent) => void) | null = null;
+  private isExploringFromConstellation = false; // Flag to stay in constellation view after gate travel
 
   constructor() {
     const container = document.getElementById("canvas-container")!;
@@ -161,8 +162,22 @@ class ConstellationClient {
         );
       }
 
-      // Update system data in memory but don't show HUD yet
+      // Update system data in memory
       this.system = destinationSystem;
+
+      // If we were exploring from constellation view, stay in constellation view
+      if (this.isExploringFromConstellation) {
+        this.isExploringFromConstellation = false;
+        console.log("Reloading constellation view after exploration");
+
+        // Small delay to let the server process everything
+        setTimeout(() => {
+          this.network.requestConstellation();
+        }, 100);
+        return;
+      }
+
+      // Normal gate travel: load system and animate
       this.scene.loadSystem(destinationSystem);
 
       // Hide HUD outline during travel
@@ -174,6 +189,32 @@ class ConstellationClient {
         this.hud.setSystem(destinationSystem);
         this.scene.centerOnObject(exitGateId);
       });
+    };
+
+    this.network.onConstellationData = (
+      nodes,
+      connections,
+      unexploredGates,
+      currentSystemId,
+      customPositions
+    ) => {
+      console.log(
+        "Constellation data received:",
+        nodes.length,
+        "nodes,",
+        connections.length,
+        "connections,",
+        unexploredGates.length,
+        "mystery gates"
+      );
+      this.scene.showConstellationView(
+        nodes,
+        connections,
+        unexploredGates,
+        currentSystemId,
+        customPositions
+      );
+      this.hud.hideOutline();
     };
   }
 
@@ -263,8 +304,20 @@ class ConstellationClient {
     };
 
     this.hud.onNavigateSystem = () => {
+      // If in constellation view, return to system view first
+      if (this.scene.isInConstellationView()) {
+        this.scene.hideConstellationView();
+        if (this.system) {
+          this.hud.setSystem(this.system);
+        }
+      }
       // Show nice system overview
       this.scene.showSystemView();
+    };
+
+    this.hud.onNavigateConstellation = () => {
+      // Request constellation data from server
+      this.network.requestConstellation();
     };
 
     this.hud.onTimeToggle = () => {
@@ -292,6 +345,29 @@ class ConstellationClient {
       console.log("Using gate:", gateId);
       // Store entry gate ID for animation
       this.scene.setEntryGate(gateId);
+      this.network.useGate(gateId);
+    };
+
+    this.scene.onConstellationPositionsChanged = (positions) => {
+      console.log("Constellation positions changed, saving...");
+      this.network.saveConstellationPositions(positions);
+    };
+
+    this.scene.onConstellationSystemSelected = (systemId) => {
+      console.log("Constellation system selected:", systemId);
+      // Exit constellation view and travel to the selected system
+      this.scene.hideConstellationView();
+      if (this.system) {
+        this.hud.setSystem(this.system);
+      }
+      // Request the selected system's state
+      this.network.requestSystemState(systemId);
+    };
+
+    this.scene.onConstellationGateSelected = (gateId) => {
+      console.log("Constellation gate selected (exploring):", gateId);
+      // Use gate to explore new system, but stay in constellation view
+      this.isExploringFromConstellation = true;
       this.network.useGate(gateId);
     };
   }
