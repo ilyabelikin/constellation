@@ -6,6 +6,7 @@ A multiplayer space exploration game with realistic orbital mechanics, procedura
 
 - **Realistic Orbital Mechanics**: Keplerian orbits with perturbations and Lagrange points
 - **Procedural Generation**: Unique star systems with realistic stellar and planetary parameters
+- **Dynamic UI Theming**: UI colors adapt to match the current star system's star color for enhanced visual feedback
 - **Multiplayer**: Authoritative server architecture with WebSocket communication
 - **Real-time Simulation**: Pauseable time with adjustable speed
 - **3D Visualization**: Beautiful Three.js/WebGL rendering
@@ -104,9 +105,22 @@ cd client && npx serve dist
 ### Procedural Generation
 
 - Seeded random number generator for reproducibility
-- Realistic stellar classifications (M, K, G, F, A)
+- Realistic stellar classifications (M, K, G, F, A) with authentic colors:
+  - M-type (Red dwarfs): Red tinted UI
+  - K-type (Orange dwarfs): Orange tinted UI
+  - G-type (Yellow dwarfs like our Sun): Yellow tinted UI
+  - F-type (Yellow-white): Bright yellowish-white UI
+  - A-type (White-blue): Cool blue-white UI
 - Planetary types (rocky, super-earth, gas giant, ice giant)
 - Stable orbital spacing using modified Titius-Bode law
+
+### UI Theming
+
+The user interface dynamically adapts to the color of the current star system:
+- HUD panels, borders, and text colors shift to match the star's color
+- Smooth CSS transitions create an immersive experience
+- The initial galaxy selection screen maintains the classic green theme
+- Provides immediate visual feedback about which star system you're currently in
 
 ### Multiplayer
 

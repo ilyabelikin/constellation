@@ -691,6 +691,12 @@ export class SceneManager {
           mesh.material.uniforms.rotation
         ) {
           mesh.material.uniforms.rotation.value = rotation;
+
+          // Update time uniform for animated shaders (like volcanic planets)
+          if (mesh.material.uniforms.time) {
+            mesh.material.uniforms.time.value =
+              this.timeInterpolator.getGameTime();
+          }
         }
 
         // For MeshPhongMaterial (ice planets) and MeshStandardMaterial (terrestrial), rotate the texture

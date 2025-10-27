@@ -525,6 +525,7 @@ export class MaterialFactory {
         },
         planetSeed: { value: numericSeed }, // Planet seed for consistent variety
         orbitalDistance: { value: normalizedDistance }, // Normalized distance from star (0-1+)
+        time: { value: 0.0 }, // Time for animations
       },
       lights: false, // Disable Three.js lighting system (we do custom lighting)
       vertexShader: `
@@ -552,6 +553,7 @@ export class MaterialFactory {
         uniform float surfaceType;
         uniform float planetSeed;
         uniform float orbitalDistance; // 0.0 (close to star) to 1.0+ (far from star)
+        uniform float time; // Time for animations
         varying vec3 vNormal;
         varying vec3 vPosition;
         varying vec3 vWorldPosition;
@@ -718,11 +720,22 @@ export class MaterialFactory {
           
           // Gas giant thick colorful bands
           if(surfaceType == SURFACE_BANDED) {
-            // Create flowing turbulent bands
-            float flow = turbulence(vec2(u * 8.0, v * 6.0), 6);
-            float distortion = turbulence(vec2(u * 12.0 + flow * 0.5, v * 4.0), 4) * 0.3;
+            // Use 3D position for seamless noise
+            vec3 rotatedPos = vPosition;
+            float cosRot = cos(rotation);
+            float sinRot = sin(rotation);
+            rotatedPos = vec3(
+              vPosition.x * cosRot - vPosition.z * sinRot,
+              vPosition.y,
+              vPosition.x * sinRot + vPosition.z * cosRot
+            );
+            vec3 samplePos = normalize(rotatedPos);
             
-            // Multiple band layers with different frequencies
+            // Create flowing turbulent bands using 3D noise - scaled down for larger patterns
+            float flow = turbulence3D(samplePos * vec3(3.0, 2.5, 3.0), 6);
+            float distortion = turbulence3D(samplePos * vec3(4.5, 1.5, 4.5) + vec3(flow * 0.5, 0.0, 0.0), 4) * 0.3;
+            
+            // Multiple band layers with different frequencies - use latitude (v) for horizontal bands
             float mainBands = sin((v + distortion) * 20.0) * 0.5 + 0.5;
             float subBands = sin((v + distortion * 1.5) * 40.0) * 0.5 + 0.5;
             float fineBands = sin((v + flow * 0.2) * 80.0) * 0.5 + 0.5;
@@ -730,8 +743,8 @@ export class MaterialFactory {
             // Combine bands with different weights
             float bandMix = mainBands * 0.6 + subBands * 0.3 + fineBands * 0.1;
             
-            // Add turbulent spots and storms
-            float storms = turbulence(vec2(u * 10.0, v * 8.0), 5);
+            // Add turbulent spots and storms using 3D noise - scaled down for larger storm features
+            float storms = turbulence3D(samplePos * vec3(4.0, 3.0, 4.0), 5);
             float spotPattern = smoothstep(0.6, 0.8, storms);
             
             // Create color variations across bands
@@ -761,20 +774,19 @@ export class MaterialFactory {
             if(polarDistance > 0.7) {
               float poleIntensity = smoothstep(0.7, 0.95, polarDistance);
               
-              // Create swirling vortex pattern at poles
+              // Create swirling vortex pattern at poles using 3D noise
               vec2 poleCenter = vec2(0.5, v > 0.5 ? 1.0 : 0.0);
               vec2 toPole = vec2(u, v) - poleCenter;
               float distFromPole = length(toPole) * 4.0; // Scale for visibility
               
-              // Spiral distortion
+              // Spiral distortion using 3D noise
               float angle = atan(toPole.y, toPole.x);
-              float spiral = turbulence(vec2(distFromPole * 3.0 + angle * 2.0, angle * 4.0), 5);
+              vec3 spiralPos = samplePos + vec3(distFromPole * 1.2, angle * 0.8, distFromPole * 1.2);
+              float spiral = turbulence3D(spiralPos, 5);
               
-              // Create storm pattern
-              float vortexPattern = turbulence(vec2(
-                u * 20.0 + spiral * 0.5,
-                (v > 0.5 ? v - 1.0 : v) * 30.0 + spiral * 0.3
-              ), 6);
+              // Create storm pattern using 3D noise - scaled for larger features
+              vec3 vortexPos = samplePos * vec3(8.0, 12.0, 8.0) + vec3(spiral * 0.5, spiral * 0.3, 0.0);
+              float vortexPattern = turbulence3D(vortexPos, 6);
               
               // Storm mask - visible only near poles
               float stormMask = smoothstep(0.8, 0.4, distFromPole) * poleIntensity;
@@ -800,17 +812,43 @@ export class MaterialFactory {
           }
           // Add craters for barren/rocky planets
           else if(surfaceType == SURFACE_CRATERED) {
-            // Multiple layers of craters at different scales
-            float largeCraters = craters(vec2(u, v), 8.0);
-            float mediumCraters = craters(vec2(u, v), 16.0) * 0.7;
-            float smallCraters = craters(vec2(u, v), 32.0) * 0.5;
+            // Use 3D position for seamless noise
+            vec3 rotatedPos = vPosition;
+            float cosRot = cos(rotation);
+            float sinRot = sin(rotation);
+            rotatedPos = vec3(
+              vPosition.x * cosRot - vPosition.z * sinRot,
+              vPosition.y,
+              vPosition.x * sinRot + vPosition.z * cosRot
+            );
+            vec3 samplePos = normalize(rotatedPos);
+            
+            // Multiple layers of craters at different scales - scaled down for larger craters
+            float largeCraters = craters(vec2(u, v), 3.0);
+            float mediumCraters = craters(vec2(u, v), 6.0) * 0.7;
+            float smallCraters = craters(vec2(u, v), 12.0) * 0.5;
             
             intensity += largeCraters + mediumCraters + smallCraters;
+            
+            // Add rocky terrain variation using 3D noise
+            float rockTexture = turbulence3D(samplePos * 4.0, 4) * 0.1;
+            intensity += rockTexture;
           }
           // Icy planets with thin branching crack networks
           else if(surfaceType == SURFACE_ICY) {
-            // Smooth ice base with very subtle variation
-            float baseIce = turbulence(vec2(u * 3.0, v * 3.0), 2) * 0.05;
+            // Use 3D position for seamless noise
+            vec3 rotatedPos = vPosition;
+            float cosRot = cos(rotation);
+            float sinRot = sin(rotation);
+            rotatedPos = vec3(
+              vPosition.x * cosRot - vPosition.z * sinRot,
+              vPosition.y,
+              vPosition.x * sinRot + vPosition.z * cosRot
+            );
+            vec3 samplePos = normalize(rotatedPos);
+            
+            // Smooth ice base with very subtle variation using 3D noise - scaled for larger patterns
+            float baseIce = turbulence3D(samplePos * 1.2, 2) * 0.05;
             
             // Create thin, interconnected crack networks
             float totalCracks = 0.0;
@@ -939,65 +977,148 @@ export class MaterialFactory {
           }
           // Volcanic planets with lava flows
           else if(surfaceType == SURFACE_VOLCANIC) {
-            // Dark rocky base with turbulent variation
-            float baseRock = turbulence(vec2(u * 8.0, v * 8.0), 4) * 0.2;
+            // Slow time for gradual lava movement
+            float slowTime = time * 0.00005;
             
-            // Create glowing lava veins at multiple scales
-            // Large lava flows - main rivers of lava
-            float lava1 = abs(turbulence(vec2(u * 6.0, v * 6.0), 4) - 0.5);
-            float lava2 = abs(turbulence(vec2(u * 6.0 + 8.0, v * 6.0 + 4.0), 4) - 0.5);
-            float largeLava = smoothstep(0.08, 0.0, lava1) * 1.2;
-            largeLava += smoothstep(0.08, 0.0, lava2) * 1.2;
+            // Generate seed-based variety parameters for this planet
+            float lavaDensitySeed = seededRandom(planetSeed * 1.1);
+            float lavaWidthSeed = seededRandom(planetSeed * 1.3);
+            float lavaColorSeed = seededRandom(planetSeed * 1.7);
+            float hotspotSeed = seededRandom(planetSeed * 2.1);
+            float flowSpeedSeed = seededRandom(planetSeed * 2.3);
+            float rockColorSeed = seededRandom(planetSeed * 2.7);
             
-            // Medium lava cracks - branching flows
-            float lava3 = abs(turbulence(vec2(u * 12.0 + 2.0, v * 12.0 + 5.0), 3) - 0.5);
-            float mediumLava = smoothstep(0.06, 0.0, lava3) * 0.9;
+            // Vary lava coverage (0.4 = ~60% rock, 1.2 = ~90% lava)
+            float lavaCoverage = 0.4 + lavaDensitySeed * 0.8;
             
-            // Fine lava cracks - small glowing veins
-            float lava4 = abs(turbulence(vec2(u * 24.0 + 10.0, v * 24.0 + 15.0), 2) - 0.5);
-            float fineLava = smoothstep(0.04, 0.0, lava4) * 0.6;
+            // Vary lava flow widths (0.06 - 0.12 range for main threshold)
+            float lavaThickness = 0.06 + lavaWidthSeed * 0.06;
+            
+            // Vary flow speed (0.7x - 1.3x of base speed)
+            float flowSpeed = 0.7 + flowSpeedSeed * 0.6;
+            
+            // Vary hotspot density (0.65 - 0.80 threshold = more or fewer pools)
+            float hotspotThreshold = 0.65 + hotspotSeed * 0.15;
+            
+            // Use 3D position for seamless noise (no UV seam or pole distortion)
+            // Apply rotation to the sampling position
+            vec3 rotatedPos = vPosition;
+            float cosRot = cos(rotation);
+            float sinRot = sin(rotation);
+            rotatedPos = vec3(
+              vPosition.x * cosRot - vPosition.z * sinRot,
+              vPosition.y,
+              vPosition.x * sinRot + vPosition.z * cosRot
+            );
+            
+            // Normalize and scale for lava pattern generation
+            vec3 samplePos = normalize(rotatedPos);
+            
+            // Dark rocky base with turbulent variation (static) using 3D noise
+            // Scale reduced to make patterns larger
+            float baseRock = turbulence3D(samplePos * 3.0, 4) * 0.2;
+            vec3 rockTint = vec3(
+              0.2 + rockColorSeed * 0.15,        // R: 0.20 - 0.35
+              0.2 + rockColorSeed * 0.10,        // G: 0.20 - 0.30  
+              0.2 + rockColorSeed * 0.08         // B: 0.20 - 0.28
+            );
+            
+            // Add seed-based offset to lava patterns for uniqueness
+            vec3 seedOffset1 = vec3(seededRandom(planetSeed * 3.1), seededRandom(planetSeed * 3.2), seededRandom(planetSeed * 3.3)) * 10.0;
+            vec3 seedOffset2 = vec3(seededRandom(planetSeed * 3.7), seededRandom(planetSeed * 3.8), seededRandom(planetSeed * 3.9)) * 10.0;
+            vec3 seedOffset3 = vec3(seededRandom(planetSeed * 4.1), seededRandom(planetSeed * 4.2), seededRandom(planetSeed * 4.3)) * 10.0;
+            
+            // Time-based flow offset in 3D (primarily along one axis for directional flow)
+            vec3 flowOffset1 = vec3(slowTime * 0.3 * flowSpeed, slowTime * 0.1 * flowSpeed, 0.0);
+            vec3 flowOffset2 = vec3(slowTime * 0.25 * flowSpeed, slowTime * 0.12 * flowSpeed, 0.0);
+            vec3 flowOffset3 = vec3(slowTime * 0.4 * flowSpeed, slowTime * 0.15 * flowSpeed, 0.0);
+            vec3 flowOffset4 = vec3(slowTime * 0.6 * flowSpeed, slowTime * 0.2 * flowSpeed, 0.0);
+            
+            // Create glowing lava veins at multiple scales with flowing animation using 3D noise
+            // Scale reduced to make patterns larger (6.0 -> 2.5, etc.)
+            // Large lava flows - main rivers of lava (slow flow)
+            float lava1 = abs(turbulence3D(samplePos * 2.5 + seedOffset1 + flowOffset1, 4) - 0.5);
+            float lava2 = abs(turbulence3D(samplePos * 2.5 + seedOffset2 + flowOffset2, 4) - 0.5);
+            float largeLava = smoothstep(lavaThickness, 0.0, lava1) * 1.2 * lavaCoverage;
+            largeLava += smoothstep(lavaThickness, 0.0, lava2) * 1.2 * lavaCoverage;
+            
+            // Medium lava cracks - branching flows (medium speed)
+            float lava3 = abs(turbulence3D(samplePos * 5.0 + seedOffset1 * 0.5 + flowOffset3, 3) - 0.5);
+            float mediumLava = smoothstep(lavaThickness * 0.75, 0.0, lava3) * 0.9 * lavaCoverage;
+            
+            // Fine lava cracks - small glowing veins (faster flow for thin streams)
+            float lava4 = abs(turbulence3D(samplePos * 10.0 + seedOffset3 + flowOffset4, 2) - 0.5);
+            float fineLava = smoothstep(lavaThickness * 0.5, 0.0, lava4) * 0.6 * lavaCoverage;
             
             // Combine all lava flows
             float totalLava = largeLava + mediumLava + fineLava;
             
-            // Hot spots - pulsing lava pools
-            float hotSpots = turbulence(vec2(u * 10.0, v * 10.0), 5);
-            float poolPattern = smoothstep(0.7, 0.85, hotSpots) * 0.8;
+            // Hot spots - pulsing lava pools with animation using 3D noise
+            float hotSpots = turbulence3D(samplePos * 4.0 + seedOffset2 * 0.3 + vec3(slowTime * 0.2 * flowSpeed, slowTime * 0.08 * flowSpeed, 0.0), 5);
+            float poolPattern = smoothstep(hotspotThreshold, hotspotThreshold + 0.15, hotSpots) * 0.8;
+            
+            // Add slow pulsing effect to lava intensity (breathing effect)
+            // Vary pulse speed slightly per planet (0.0002 - 0.0004)
+            float pulseSpeed = 0.0002 + flowSpeedSeed * 0.0002;
+            float pulse = sin(time * pulseSpeed) * 0.15 + 0.85; // Gentle pulsing
+            float fastPulse = sin(time * pulseSpeed * 2.5) * 0.1 + 0.9; // Subtle faster pulse for variety
             
             // Dark rocky base with glowing lava
             intensity = 0.3 + baseRock; // Dark base
-            intensity += totalLava + poolPattern; // Add glowing lava
+            intensity += (totalLava * pulse + poolPattern * fastPulse); // Add pulsing glowing lava
             
             // Color: dark gray rock transitions to bright orange/red lava
-            vec3 darkRock = vec3(0.2, 0.2, 0.2);
-            vec3 glowingLava = vec3(2.0, 0.6, 0.1); // Bright orange-red
-            colorModulation = mix(darkRock, glowingLava, clamp(totalLava + poolPattern, 0.0, 1.0));
+            vec3 darkRock = rockTint;
+            
+            // Vary lava color - some planets have more orange, some more red, some more yellow
+            vec3 glowingLava = vec3(
+              1.8 + lavaColorSeed * 0.4,         // R: 1.8 - 2.2 (always bright red)
+              0.5 + lavaColorSeed * 0.3,         // G: 0.5 - 0.8 (orange to yellow)
+              0.1 + (1.0 - lavaColorSeed) * 0.2  // B: 0.1 - 0.3 (minimal blue, redder when seed is low)
+            );
+            
+            // Add color variation to lava based on flow speed (hotter = brighter/whiter)
+            float lavaHeat = pulse * fastPulse;
+            vec3 hotLava = mix(glowingLava, glowingLava * vec3(1.3, 1.5, 2.0), lavaHeat * 0.3); // Brighter and whiter when pulsing
+            
+            colorModulation = mix(darkRock, hotLava, clamp(totalLava + poolPattern, 0.0, 1.0));
           }
           // Oceanic planets with water currents
           else if(surfaceType == SURFACE_OCEANIC) {
-            // Smooth water base with subtle variation
-            float baseNoise = turbulence(vec2(u * 5.0, v * 5.0), 3) * 0.1;
+            // Use 3D position for seamless noise
+            vec3 rotatedPos = vPosition;
+            float cosRot = cos(rotation);
+            float sinRot = sin(rotation);
+            rotatedPos = vec3(
+              vPosition.x * cosRot - vPosition.z * sinRot,
+              vPosition.y,
+              vPosition.x * sinRot + vPosition.z * cosRot
+            );
+            vec3 samplePos = normalize(rotatedPos);
             
-            // Create water current patterns at multiple scales
-            // Large currents - main flow patterns
-            float current1 = abs(turbulence(vec2(u * 8.0, v * 8.0), 4) - 0.5);
-            float current2 = abs(turbulence(vec2(u * 8.0 + 10.0, v * 8.0 + 5.0), 4) - 0.5);
+            // Smooth water base with subtle variation using 3D noise - scaled for larger patterns
+            float baseNoise = turbulence3D(samplePos * 2.0, 3) * 0.1;
+            
+            // Create water current patterns at multiple scales using 3D noise
+            // Large currents - main flow patterns - scaled for larger features
+            float current1 = abs(turbulence3D(samplePos * 3.0, 4) - 0.5);
+            float current2 = abs(turbulence3D(samplePos * 3.0 + vec3(4.0, 2.0, 0.0), 4) - 0.5);
             float largeCurrent = smoothstep(0.05, 0.0, current1) * 0.25;
             largeCurrent += smoothstep(0.05, 0.0, current2) * 0.25;
             
             // Medium currents - secondary flows
-            float current3 = abs(turbulence(vec2(u * 16.0 + 3.0, v * 16.0 + 7.0), 3) - 0.5);
+            float current3 = abs(turbulence3D(samplePos * 6.0 + vec3(1.2, 2.8, 0.0), 3) - 0.5);
             float mediumCurrent = smoothstep(0.04, 0.0, current3) * 0.15;
             
             // Fine currents - small details
-            float current4 = abs(turbulence(vec2(u * 32.0 + 15.0, v * 32.0 + 20.0), 2) - 0.5);
+            float current4 = abs(turbulence3D(samplePos * 12.0 + vec3(6.0, 8.0, 0.0), 2) - 0.5);
             float fineCurrent = smoothstep(0.03, 0.0, current4) * 0.1;
             
             // Combine all currents
             float totalCurrents = largeCurrent + mediumCurrent + fineCurrent;
             
-            // Create depth variation - deeper water is darker
-            float depthVariation = turbulence(vec2(u * 6.0, v * 6.0), 4);
+            // Create depth variation - deeper water is darker using 3D noise
+            float depthVariation = turbulence3D(samplePos * 2.5, 4);
             
             // Keep intensity lower to preserve water color (0.6 - 0.9 range)
             intensity = 0.6 + baseNoise + depthVariation * 0.15;
@@ -1013,8 +1134,8 @@ export class MaterialFactory {
             float waterLevelSeed = seededRandom(planetSeed * 1.3);
             float iceCapSizeSeed = seededRandom(planetSeed * 1.7);
             
-            // Vary continent scale (2-6 range) for different sized landmasses
-            float continentScale = 2.5 + continentScaleSeed * 3.5;
+            // Vary continent scale - reduced to make continents larger (was 2.5-6.0, now 1.0-2.5)
+            float continentScale = 1.0 + continentScaleSeed * 1.5;
             
             // Use 3D position for seamless noise (no UV seam)
             // Apply rotation to the sampling position
@@ -1109,7 +1230,8 @@ export class MaterialFactory {
               float latitude = abs(v - 0.5) * 2.0;
               
               // Add terrain variation using 3D noise
-              float terrainDetail = turbulence3D(samplePos * 1.5, 4) * 0.15;
+              // Reduced scale for larger terrain features (was 1.5, now 0.6)
+              float terrainDetail = turbulence3D(samplePos * 0.6, 4) * 0.15;
               
               // Greener at equator, more brown/tan at higher latitudes
               float greenAmount = 1.0 - latitude * 0.5;
@@ -1121,7 +1243,8 @@ export class MaterialFactory {
               intensity = 0.9 + terrainDetail;
               
               // Add mountain ranges (darker, higher elevation) using 3D noise
-              float mountains = turbulence3D(samplePos * 0.8, 6);
+              // Reduced scale for larger mountain features (was 0.8, now 0.3)
+              float mountains = turbulence3D(samplePos * 0.3, 6);
               if (mountains > 0.65) {
                 colorModulation *= 0.7; // Darker for mountains
                 intensity += 0.1;
@@ -1141,7 +1264,8 @@ export class MaterialFactory {
               intensity = 0.8 + oceanDepth * 0.2;
               
               // Add wave patterns using 3D noise
-              float waves = turbulence3D(samplePos * 2.5, 3) * 0.1;
+              // Reduced scale for larger wave features (was 2.5, now 1.0)
+              float waves = turbulence3D(samplePos * 1.0, 3) * 0.1;
               intensity += waves;
             }
           }
@@ -1156,32 +1280,21 @@ export class MaterialFactory {
               vPosition.y,
               vPosition.x * sinRot + vPosition.z * cosRot
             );
-            vec3 samplePos = normalize(rotatedPos) * 5.0;
+            // Scaled down for larger patterns (was 5.0, now 2.0)
+            vec3 samplePos = normalize(rotatedPos) * 2.0;
             
-            // Rocky desert base with dune patterns
+            // Rocky desert base with dune patterns - scaled for larger features
             float desertNoise = turbulence3D(samplePos, 5) * 0.3;
             
-            // Add dune patterns - larger features
-            float dunes = turbulence3D(samplePos * 0.5, 4) * 0.2;
+            // Add dune patterns - larger features (scaled down from 0.5 to 0.2)
+            float dunes = turbulence3D(samplePos * 0.2, 4) * 0.2;
             
-            // Rocky outcrops
-            float rocks = turbulence3D(samplePos * 2.0, 6);
+            // Rocky outcrops - scaled for larger features (was 2.0, now 0.8)
+            float rocks = turbulence3D(samplePos * 0.8, 6);
             float rockPattern = smoothstep(0.6, 0.75, rocks) * 0.15;
             
             intensity = 0.8 + desertNoise + dunes - rockPattern;
             colorModulation = baseColor; // Use planet's desert color
-          }
-          // Cratered planets - rocky with impact craters
-          else if(surfaceType == SURFACE_CRATERED) {
-            // Use cratered shader
-            float craterPattern = craters(vec2(u, v), 15.0);
-            intensity = 0.7 + craterPattern * 0.3;
-            
-            // Add some noise for terrain variation
-            float terrainNoise = noise(vec2(u * 8.0, v * 8.0));
-            intensity += terrainNoise * 0.1;
-            
-            colorModulation = baseColor; // Use planet's rock color
           }
           // Fallback for any unhandled surface types
           else {
@@ -1225,7 +1338,8 @@ export class MaterialFactory {
             float waterLevelSeed = seededRandom(planetSeed * 1.3);
             float iceCapSizeSeed = seededRandom(planetSeed * 1.7);
             
-            float continentScale = 2.5 + continentScaleSeed * 3.5;
+            // Match main shader's reduced continent scale (was 2.5-6.0, now 1.0-2.5)
+            float continentScale = 1.0 + continentScaleSeed * 1.5;
             float landThreshold = 0.40 + waterLevelSeed * 0.15;
             
             // Use same distance-based ice threshold as main shader

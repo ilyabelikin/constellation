@@ -5,6 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Constellation - Space Exploration</title>
     <style>
+        :root {
+            /* Default green theme (for initial screen) */
+            --primary-color: #0f0;
+            --primary-color-dim: #0a0;
+            --primary-color-dark: rgba(0, 20, 0, 0.8);
+            --primary-color-darker: rgba(0, 50, 0, 0.9);
+            --primary-color-darkest: #001100;
+            --primary-color-hover: rgba(0, 100, 0, 0.5);
+            --primary-color-hover-solid: rgba(0, 100, 0, 0.9);
+            --primary-color-selected: rgba(0, 150, 0, 0.7);
+            --primary-color-active: rgba(0, 150, 0, 0.9);
+            --primary-color-scrollbar-track: rgba(0, 20, 0, 0.5);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -14,8 +28,9 @@
         body {
             font-family: 'Courier New', monospace;
             background: #000;
-            color: #0f0;
+            color: var(--primary-color);
             overflow: hidden;
+            transition: color 0.8s ease;
         }
 
         #canvas-container {
@@ -30,11 +45,12 @@
         .hud {
             position: fixed;
             z-index: 10;
-            background: rgba(0, 20, 0, 0.8);
-            border: 1px solid #0f0;
+            background: var(--primary-color-dark);
+            border: 1px solid var(--primary-color);
             border-radius: 8px;
             padding: 10px;
             font-size: 12px;
+            transition: background 0.8s ease, border-color 0.8s ease;
         }
 
         .hud-top-left {
@@ -64,8 +80,9 @@
 
         .hud-bottom-right h3 {
             margin-bottom: 10px;
-            color: #0f0;
+            color: var(--primary-color);
             font-size: 14px;
+            transition: color 0.8s ease;
         }
 
         .outline-item {
@@ -78,13 +95,13 @@
         }
 
         .outline-item:hover {
-            background: rgba(0, 100, 0, 0.5);
-            border-color: #0f0;
+            background: var(--primary-color-hover);
+            border-color: var(--primary-color);
         }
 
         .outline-item.selected {
-            background: rgba(0, 150, 0, 0.7);
-            border-color: #0f0;
+            background: var(--primary-color-selected);
+            border-color: var(--primary-color);
         }
 
         .outline-item.star {
@@ -93,8 +110,9 @@
         }
 
         .outline-item.planet {
-            color: #0f0;
+            color: var(--primary-color);
             padding-left: 20px;
+            transition: color 0.8s ease;
         }
 
         .outline-item.ship {
@@ -114,33 +132,34 @@
         }
 
         .hud-bottom-right::-webkit-scrollbar-track {
-            background: rgba(0, 20, 0, 0.5);
+            background: var(--primary-color-scrollbar-track);
         }
 
         .hud-bottom-right::-webkit-scrollbar-thumb {
-            background: #0f0;
+            background: var(--primary-color);
             border-radius: 4px;
+            transition: background 0.3s ease;
         }
 
         .hud-bottom-right::-webkit-scrollbar-thumb:hover {
-            background: #0a0;
+            background: var(--primary-color-dim);
         }
 
         .hud-button {
-            background: rgba(0, 50, 0, 0.9);
-            border: 1px solid #0f0;
+            background: var(--primary-color-darker);
+            border: 1px solid var(--primary-color);
             border-radius: 4px;
-            color: #0f0;
+            color: var(--primary-color);
             padding: 5px 10px;
             margin: 2px;
             cursor: pointer;
             font-family: inherit;
             font-size: 12px;
-            transition: all 0.2s;
+            transition: all 0.3s ease;
         }
 
         .hud-button:hover {
-            background: rgba(0, 100, 0, 0.9);
+            background: var(--primary-color-hover-solid);
         }
 
         .hud-button:disabled {
@@ -149,7 +168,7 @@
         }
 
         .hud-button.active {
-            background: rgba(0, 150, 0, 0.9);
+            background: var(--primary-color-active);
         }
 
         #auth-modal {
@@ -174,11 +193,12 @@
             width: 100%;
             padding: 8px;
             margin: 10px 0;
-            background: #001100;
-            border: 1px solid #0f0;
+            background: var(--primary-color-darkest);
+            border: 1px solid var(--primary-color);
             border-radius: 4px;
-            color: #0f0;
+            color: var(--primary-color);
             font-family: inherit;
+            transition: all 0.3s ease;
         }
 
         #auth-modal button {
@@ -195,11 +215,13 @@
         }
 
         .detail-label {
-            color: #0a0;
+            color: var(--primary-color-dim);
+            transition: color 0.8s ease;
         }
 
         .detail-value {
-            color: #0f0;
+            color: var(--primary-color);
+            transition: color 0.8s ease;
         }
 
         #error-message {

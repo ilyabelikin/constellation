@@ -125,6 +125,127 @@ export class HUDManager {
     this.authModal.classList.add("hidden");
   }
 
+  /**
+   * Apply a color theme based on the star color
+   */
+  private applyStarTheme(starColor: string | undefined): void {
+    if (!starColor) {
+      starColor = "#0f0"; // Default to green if no color provided
+    }
+
+    // Parse the hex color to RGB
+    const rgb = this.hexToRgb(starColor);
+    if (!rgb) return;
+
+    // Apply the color as CSS variables
+    const root = document.documentElement;
+
+    // Primary color at full brightness
+    root.style.setProperty("--primary-color", starColor);
+
+    // Dimmed version (75% brightness)
+    const dim = this.adjustBrightness(rgb, 0.75);
+    root.style.setProperty(
+      "--primary-color-dim",
+      `rgb(${dim.r}, ${dim.g}, ${dim.b})`
+    );
+
+    // Dark backgrounds with alpha
+    root.style.setProperty(
+      "--primary-color-dark",
+      `rgba(${Math.floor(rgb.r * 0.2)}, ${Math.floor(
+        rgb.g * 0.2
+      )}, ${Math.floor(rgb.b * 0.2)}, 0.8)`
+    );
+    root.style.setProperty(
+      "--primary-color-darker",
+      `rgba(${Math.floor(rgb.r * 0.4)}, ${Math.floor(
+        rgb.g * 0.4
+      )}, ${Math.floor(rgb.b * 0.4)}, 0.9)`
+    );
+    root.style.setProperty(
+      "--primary-color-darkest",
+      `rgb(${Math.floor(rgb.r * 0.1)}, ${Math.floor(rgb.g * 0.1)}, ${Math.floor(
+        rgb.b * 0.1
+      )})`
+    );
+
+    // Hover states
+    root.style.setProperty(
+      "--primary-color-hover",
+      `rgba(${Math.floor(rgb.r * 0.5)}, ${Math.floor(
+        rgb.g * 0.5
+      )}, ${Math.floor(rgb.b * 0.5)}, 0.4)`
+    );
+    root.style.setProperty(
+      "--primary-color-hover-solid",
+      `rgba(${Math.floor(rgb.r * 0.5)}, ${Math.floor(
+        rgb.g * 0.5
+      )}, ${Math.floor(rgb.b * 0.5)}, 0.9)`
+    );
+
+    // Selected/active states (dimmer for better text readability)
+    root.style.setProperty(
+      "--primary-color-selected",
+      `rgba(${Math.floor(rgb.r * 0.4)}, ${Math.floor(
+        rgb.g * 0.4
+      )}, ${Math.floor(rgb.b * 0.4)}, 0.5)`
+    );
+    root.style.setProperty(
+      "--primary-color-active",
+      `rgba(${Math.floor(rgb.r * 0.5)}, ${Math.floor(
+        rgb.g * 0.5
+      )}, ${Math.floor(rgb.b * 0.5)}, 0.9)`
+    );
+
+    // Scrollbar track
+    root.style.setProperty(
+      "--primary-color-scrollbar-track",
+      `rgba(${Math.floor(rgb.r * 0.2)}, ${Math.floor(
+        rgb.g * 0.2
+      )}, ${Math.floor(rgb.b * 0.2)}, 0.5)`
+    );
+  }
+
+  /**
+   * Convert hex color to RGB
+   */
+  private hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+    // Remove # if present
+    hex = hex.replace("#", "");
+
+    // Parse hex values
+    if (hex.length === 6) {
+      return {
+        r: parseInt(hex.substring(0, 2), 16),
+        g: parseInt(hex.substring(2, 4), 16),
+        b: parseInt(hex.substring(4, 6), 16),
+      };
+    } else if (hex.length === 3) {
+      return {
+        r: parseInt(hex.substring(0, 1) + hex.substring(0, 1), 16),
+        g: parseInt(hex.substring(1, 2) + hex.substring(1, 2), 16),
+        b: parseInt(hex.substring(2, 3) + hex.substring(2, 3), 16),
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Adjust RGB brightness by a factor
+   */
+  private adjustBrightness(
+    rgb: { r: number; g: number; b: number },
+    factor: number
+  ): { r: number; g: number; b: number } {
+    return {
+      r: Math.min(255, Math.floor(rgb.r * factor)),
+      g: Math.min(255, Math.floor(rgb.g * factor)),
+      b: Math.min(255, Math.floor(rgb.b * factor)),
+    };
+  }
+
   showError(message: string): void {
     this.errorMessage.textContent = message;
     this.errorMessage.classList.remove("hidden");
@@ -142,6 +263,7 @@ export class HUDManager {
   setSystem(system: StarSystem): void {
     this.system = system;
     this.populateSystemOutline();
+    this.applyStarTheme(system.star.color);
   }
 
   hideOutline(): void {
@@ -149,6 +271,8 @@ export class HUDManager {
     // Also hide detail panels during transitions
     this.bodyDetailView.hide();
     this.gateDetailView.hide();
+    // Reset theme to default green when leaving system view
+    this.applyStarTheme("#0f0");
   }
 
   showOutline(): void {
@@ -166,6 +290,10 @@ export class HUDManager {
     starItem.className = "outline-item star";
     starItem.textContent = `★ ${this.system.star.name}`;
     starItem.dataset.objectId = this.system.star.id;
+    // Apply the star's actual color to the outline item
+    if (this.system.star.color) {
+      starItem.style.color = this.system.star.color;
+    }
     starItem.addEventListener("click", () => {
       if (this.onSelectObject) {
         this.onSelectObject(this.system!.star.id);
@@ -225,11 +353,11 @@ export class HUDManager {
         // Add moons similar to asteroid belt behavior
         if (planet.moons && planet.moons.length > 0) {
           if (planet.moons.length === 1) {
-            // Single moon: show directly
+            // Single moon: show its name directly
             const moon = planet.moons[0];
             const moonItem = document.createElement("div");
             moonItem.className = "outline-item moon";
-            moonItem.textContent = `  └ ${planet.name} ${moon.name}`;
+            moonItem.textContent = `  └ ${moon.name}`;
             moonItem.dataset.objectId = moon.id;
             moonItem.addEventListener("click", () => {
               if (this.onSelectObject) {

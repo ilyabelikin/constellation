@@ -250,3 +250,98 @@ export function generateStarName(rng: SeededRandom, starClass: string): string {
   const core = STAR_CORES[rng.nextInt(0, STAR_CORES.length - 1)];
   return `${prefix} ${core}`;
 }
+
+// Moon name components (inspired by real solar system moons)
+const MOON_PREFIXES = [
+  "Cal",
+  "Gan",
+  "Eu",
+  "Ti",
+  "Rhe",
+  "Ence",
+  "Di",
+  "Io",
+  "Tri",
+  "Ner",
+  "Pro",
+  "Cha",
+  "Hyp",
+  "Jap",
+  "Mir",
+  "Ob",
+  "Um",
+  "Are",
+  "Pho",
+  "Dei",
+  "Tel",
+  "Tha",
+  "Lar",
+  "Ama",
+  "Him",
+];
+
+const MOON_SUFFIXES = [
+  "isto",
+  "ymede",
+  "ropa",
+  "tan",
+  "a",
+  "os",
+  "one",
+  "ton",
+  "eid",
+  "ssa",
+  "eus",
+  "ron",
+  "erion",
+  "etus",
+  "briel",
+  "eron",
+  "os",
+  "el",
+  "bos",
+  "mos",
+  "ssus",
+  "lia",
+  "issa",
+  "thea",
+  "alia",
+];
+
+// Short standalone moon names
+const MOON_SHORT_NAMES = [
+  "Io",
+  "Lua",
+  "Nix",
+  "Kari",
+  "Mab",
+  "Puck",
+  "Dyar",
+  "Skol",
+  "Hati",
+  "Narvi",
+  "Surtur",
+  "Fenrir",
+  "Loge",
+  "Thrym",
+  "Jarnsaxa",
+  "Kale",
+  "Aoede",
+  "Isonoe",
+  "Aitne",
+  "Elara",
+];
+
+export function generateMoonName(rng: SeededRandom): string {
+  const nameType = rng.next();
+
+  // 40% chance for short name
+  if (nameType < 0.4) {
+    return MOON_SHORT_NAMES[rng.nextInt(0, MOON_SHORT_NAMES.length - 1)];
+  }
+
+  // 60% chance for prefix + suffix
+  const prefix = MOON_PREFIXES[rng.nextInt(0, MOON_PREFIXES.length - 1)];
+  const suffix = MOON_SUFFIXES[rng.nextInt(0, MOON_SUFFIXES.length - 1)];
+  return prefix + suffix;
+}

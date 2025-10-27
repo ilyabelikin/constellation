@@ -1,6 +1,10 @@
 import { v4 as uuidv4 } from "uuid";
 import { SeededRandom } from "./random.js";
-import { generatePlanetName, generateStarName } from "./name-generator.js";
+import {
+  generatePlanetName,
+  generateStarName,
+  generateMoonName,
+} from "./name-generator.js";
 import {
   CelestialBodyType,
   OrbitalElements,
@@ -329,9 +333,8 @@ function generateMoon(
   isSuperMoon: boolean = false,
   planetRings?: PlanetaryRing[]
 ): CelestialBodyType {
-  // Moon names (using Roman numerals)
-  const moonNames = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII"];
-  const name = moonNames[index] || `Moon ${index + 1}`;
+  // Generate unique moon name
+  const name = generateMoonName(rng);
 
   const massRatio = planetMass / EARTH_MASS;
 
