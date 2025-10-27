@@ -7,7 +7,9 @@
       "radiusRange": [0.3, 0.8],
       "color": "#8b7355",
       "atmosphereChance": 0.0,
-      "surfaceType": "cratered"
+      "surfaceType": "cratered",
+      "baseHabitability": 0.05,
+      "lifeChance": 0.0
     },
     {
       "name": "Rocky",
@@ -16,7 +18,9 @@
       "radiusRange": [0.7, 1.1],
       "color": "#a0937d",
       "atmosphereChance": 0.1,
-      "surfaceType": "cratered"
+      "surfaceType": "cratered",
+      "baseHabitability": 0.15,
+      "lifeChance": 0.05
     },
     {
       "name": "Terrestrial",
@@ -25,7 +29,9 @@
       "radiusRange": [0.9, 1.3],
       "color": "#6b8e9f",
       "atmosphereChance": 1,
-      "surfaceType": "terrestrial"
+      "surfaceType": "terrestrial",
+      "baseHabitability": 0.9,
+      "lifeChance": 0.85
     },
     {
       "name": "Desert",
@@ -34,7 +40,9 @@
       "radiusRange": [0.8, 1.2],
       "color": "#d4a373",
       "atmosphereChance": 0.4,
-      "surfaceType": "desert"
+      "surfaceType": "desert",
+      "baseHabitability": 0.35,
+      "lifeChance": 0.25
     },
     {
       "name": "Mega-Terrestrial",
@@ -43,7 +51,9 @@
       "radiusRange": [1.4, 2.2],
       "color": "#5a8fa8",
       "atmosphereChance": 1,
-      "surfaceType": "terrestrial"
+      "surfaceType": "terrestrial",
+      "baseHabitability": 0.75,
+      "lifeChance": 0.7
     },
     {
       "name": "Ice",
@@ -52,7 +62,9 @@
       "radiusRange": [1.2, 2.0],
       "color": "#c8e6f5",
       "atmosphereChance": 0.1,
-      "surfaceType": "icy"
+      "surfaceType": "icy",
+      "baseHabitability": 0.2,
+      "lifeChance": 0.08
     },
     {
       "name": "Lava",
@@ -61,7 +73,9 @@
       "radiusRange": [0.6, 1.0],
       "color": "#ff6b35",
       "atmosphereChance": 0.1,
-      "surfaceType": "volcanic"
+      "surfaceType": "volcanic",
+      "baseHabitability": 0.1,
+      "lifeChance": 0.02
     },
     {
       "name": "Ocean",
@@ -70,7 +84,9 @@
       "radiusRange": [1.0, 1.5],
       "color": "#4a90e2",
       "atmosphereChance": 0.9,
-      "surfaceType": "oceanic"
+      "surfaceType": "oceanic",
+      "baseHabitability": 0.8,
+      "lifeChance": 0.65
     },
     {
       "name": "Sub-Giant",
@@ -79,7 +95,9 @@
       "radiusRange": [2.0, 3.5],
       "color": "#7cb3d9",
       "atmosphereChance": 0,
-      "surfaceType": "banded"
+      "surfaceType": "banded",
+      "baseHabitability": 0.0,
+      "lifeChance": 0.0
     },
     {
       "name": "Ice Giant",
@@ -88,7 +106,9 @@
       "radiusRange": [3.5, 5.5],
       "color": "#74b9d8",
       "atmosphereChance": 0,
-      "surfaceType": "banded"
+      "surfaceType": "banded",
+      "baseHabitability": 0.0,
+      "lifeChance": 0.0
     },
     {
       "name": "Gas Giant",
@@ -97,7 +117,9 @@
       "radiusRange": [8, 12],
       "color": "#d4a373",
       "atmosphereChance": 0,
-      "surfaceType": "banded"
+      "surfaceType": "banded",
+      "baseHabitability": 0.0,
+      "lifeChance": 0.0
     },
     {
       "name": "Massive Giant",
@@ -106,7 +128,9 @@
       "radiusRange": [10, 14],
       "color": "#c9a96e",
       "atmosphereChance": 0,
-      "surfaceType": "banded"
+      "surfaceType": "banded",
+      "baseHabitability": 0.0,
+      "lifeChance": 0.0
     },
     {
       "name": "Ultra Giant",
@@ -115,7 +139,9 @@
       "radiusRange": [12, 16],
       "color": "#b8956a",
       "atmosphereChance": 0,
-      "surfaceType": "banded"
+      "surfaceType": "banded",
+      "baseHabitability": 0.0,
+      "lifeChance": 0.0
     }
   ]
 }

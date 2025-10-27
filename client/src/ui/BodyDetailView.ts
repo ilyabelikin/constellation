@@ -2,6 +2,7 @@ import {
   SystemState,
   ASTRONOMICAL_UNIT,
   EARTH_MASS,
+  LifeLevel,
 } from "@constellation/shared";
 
 /**
@@ -15,6 +16,8 @@ export class BodyDetailView {
   private radiusElement: HTMLElement;
   private distanceElement: HTMLElement;
   private velocityElement: HTMLElement;
+  private lifeElement: HTMLElement | null;
+  private habitabilityElement: HTMLElement | null;
   private compositionElement: HTMLElement | null;
   private shapeElement: HTMLElement | null;
 
@@ -26,6 +29,10 @@ export class BodyDetailView {
     this.radiusElement = document.getElementById("body-detail-radius")!;
     this.distanceElement = document.getElementById("body-detail-distance")!;
     this.velocityElement = document.getElementById("body-detail-velocity")!;
+    this.lifeElement = document.getElementById("body-detail-life");
+    this.habitabilityElement = document.getElementById(
+      "body-detail-habitability"
+    );
     this.compositionElement = document.getElementById(
       "body-detail-composition"
     );
@@ -91,6 +98,44 @@ export class BodyDetailView {
         bodyState.velocity.z ** 2
     );
     this.velocityElement.textContent = `${(velocity / 1000).toFixed(2)} km/s`;
+
+    // Show life level if planet has life (only for planets)
+    if (
+      body.type === "planet" &&
+      body.lifeLevel &&
+      body.lifeLevel !== LifeLevel.NONE
+    ) {
+      if (this.lifeElement) {
+        this.lifeElement.style.display = "block";
+        this.lifeElement.textContent = `Life: ${this.formatLifeLevel(
+          body.lifeLevel
+        )}`;
+      }
+    } else {
+      if (this.lifeElement) {
+        this.lifeElement.style.display = "none";
+      }
+    }
+
+    // Show habitability status (only for planets)
+    if (body.type === "planet" && body.habitability !== undefined) {
+      if (this.habitabilityElement) {
+        this.habitabilityElement.style.display = "block";
+        if (body.habitability >= 0.6) {
+          this.habitabilityElement.textContent = `✓ Habitable (${(
+            body.habitability * 100
+          ).toFixed(0)}%)`;
+        } else {
+          this.habitabilityElement.textContent = `✗ Uninhabitable (${(
+            body.habitability * 100
+          ).toFixed(0)}%)`;
+        }
+      }
+    } else {
+      if (this.habitabilityElement) {
+        this.habitabilityElement.style.display = "none";
+      }
+    }
   }
 
   /**
@@ -144,5 +189,10 @@ export class BodyDetailView {
     };
 
     return shapes[shape] || shape;
+  }
+
+  private formatLifeLevel(lifeLevel: string): string {
+    // Capitalize first letter and format nicely
+    return lifeLevel.charAt(0).toUpperCase() + lifeLevel.slice(1);
   }
 }

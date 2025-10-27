@@ -41,6 +41,17 @@ export interface OrbitalElements {
   epoch: number; // game time in seconds
 }
 
+// Life development levels
+export const LifeLevel = {
+  NONE: "none", // No life detected
+  MICROBIAL: "microbial", // Single-celled organisms, bacteria
+  SIMPLE: "simple", // Multicellular life, plants, simple animals
+  COMPLEX: "complex", // Advanced ecosystems, diverse fauna
+  INTELLIGENT: "intelligent", // Sentient civilizations
+} as const;
+
+export type LifeLevelType = (typeof LifeLevel)[keyof typeof LifeLevel];
+
 export interface CelestialBodyType {
   id: string;
   name: string;
@@ -55,6 +66,10 @@ export interface CelestialBodyType {
   surfaceType?: SurfaceTypeName; // surface appearance type
   planetType?: string; // planet type like "Super-Earth", "Gas Giant", etc.
   starType?: string; // star type like "Red Dwarf (M-class)", "Blue Giant (O-class)", etc.
+  luminosity?: number; // star luminosity factor (relative to Sun, where Sun = 1.0)
+  // Life and habitability properties (for planets)
+  lifeLevel?: LifeLevelType; // Current level of life on planet
+  habitability?: number; // 0-1, suitability for life (for terraforming/seeding)
   // Asteroid-specific properties
   asteroidBeltId?: string; // if this is an asteroid, the belt it belongs to
   composition?: "water" | "metal" | "silica"; // asteroid/moon composition

@@ -20,6 +20,8 @@ import {
   GRAVITATIONAL_CONSTANT,
   SurfaceType,
   SurfaceTypeName,
+  LifeLevel,
+  LifeLevelType,
 } from "@constellation/shared";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
@@ -74,6 +76,7 @@ export function generateStar(rng: SeededRandom): CelestialBodyType {
     orbitalElements: null,
     color: starType.color,
     starType: starType.name,
+    luminosity: starType.luminosityFactor,
   };
 }
 
@@ -163,9 +166,103 @@ function generateRings(
   return rings;
 }
 
+/**
+ * Calculate habitability score (0-1) based on distance from star and star properties
+ * This is a game-friendly calculation that works with the current Titius-Bode-like distances
+ * Rather than using strict astronomical habitable zones, we create zones that work well visually
+ */
+function calculateHabitabilityFromDistance(
+  distanceAU: number,
+  starMass: number,
+  starLuminosity: number
+): number {
+  // Star luminosity affects habitable zone
+  // Higher luminosity = wider and farther habitable zone
+  // For reference: Sun luminosity = 1.0
+  const luminosityFactor = Math.sqrt(starLuminosity);
+
+  // Game-friendly habitable zone (adjusted for visual gameplay)
+  // Inner edge: 0.5 AU for sun-like star (closer than realistic for gameplay)
+  // Outer edge: 3.0 AU for sun-like star (farther than realistic for gameplay)
+  const innerEdge = 0.5 * luminosityFactor;
+  const outerEdge = 3.0 * luminosityFactor;
+  const optimalDistance = (innerEdge + outerEdge) / 2;
+
+  // Calculate how far from optimal distance (normalized)
+  const distanceFromOptimal = Math.abs(distanceAU - optimalDistance);
+  const zoneWidth = (outerEdge - innerEdge) / 2;
+
+  // Score based on distance from optimal
+  // Inside zone: high score (0.6-1.0)
+  // Outside zone: decreasing score (0.0-0.6)
+  let distanceScore: number;
+
+  if (distanceAU >= innerEdge && distanceAU <= outerEdge) {
+    // Inside habitable zone - score from 0.6 to 1.0
+    // Best at optimal distance (1.0), drops to 0.6 at edges
+    distanceScore = 1.0 - (distanceFromOptimal / zoneWidth) * 0.4;
+  } else if (distanceAU < innerEdge) {
+    // Too close - score drops rapidly
+    const distanceInside = innerEdge - distanceAU;
+    distanceScore = Math.max(0, 0.6 - (distanceInside / innerEdge) * 0.6);
+  } else {
+    // Too far - score drops gradually
+    const distanceOutside = distanceAU - outerEdge;
+    distanceScore = Math.max(0, 0.6 - (distanceOutside / outerEdge) * 0.4);
+  }
+
+  return Math.max(0, Math.min(1, distanceScore));
+}
+
+/**
+ * Determine life level based on habitability and random chance
+ */
+function determineLifeLevel(
+  rng: SeededRandom,
+  habitability: number,
+  lifeChance: number
+): LifeLevelType {
+  // First check if life exists at all
+  // habitability acts as a multiplier on base life chance
+  const finalLifeChance = lifeChance * habitability;
+
+  if (rng.next() >= finalLifeChance) {
+    return LifeLevel.NONE;
+  }
+
+  // Life exists! Now determine its development level
+  // Higher habitability = higher chance of advanced life
+  const developmentRoll = rng.next();
+
+  // Weighted probabilities based on habitability
+  if (habitability < 0.3) {
+    // Low habitability: mostly microbial
+    if (developmentRoll < 0.9) return LifeLevel.MICROBIAL;
+    return LifeLevel.SIMPLE;
+  } else if (habitability < 0.5) {
+    // Medium-low habitability: microbial to simple
+    if (developmentRoll < 0.7) return LifeLevel.MICROBIAL;
+    if (developmentRoll < 0.95) return LifeLevel.SIMPLE;
+    return LifeLevel.COMPLEX;
+  } else if (habitability < 0.7) {
+    // Medium-high habitability: simple to complex
+    if (developmentRoll < 0.4) return LifeLevel.MICROBIAL;
+    if (developmentRoll < 0.75) return LifeLevel.SIMPLE;
+    if (developmentRoll < 0.98) return LifeLevel.COMPLEX;
+    return LifeLevel.INTELLIGENT;
+  } else {
+    // High habitability: complex life possible, rare intelligence
+    if (developmentRoll < 0.2) return LifeLevel.MICROBIAL;
+    if (developmentRoll < 0.5) return LifeLevel.SIMPLE;
+    if (developmentRoll < 0.95) return LifeLevel.COMPLEX;
+    return LifeLevel.INTELLIGENT;
+  }
+}
+
 export function generatePlanet(
   rng: SeededRandom,
   starMass: number,
+  starLuminosity: number,
   index: number,
   totalPlanets: number
 ): CelestialBodyType {
@@ -266,6 +363,43 @@ export function generatePlanet(
   // Generate procedural name
   const planetName = generatePlanetName(rng);
 
+  // Calculate habitability based on distance from star, planet type, and atmosphere
+  const distanceAU = semiMajorAxis / ASTRONOMICAL_UNIT;
+  const distanceHabitability = calculateHabitabilityFromDistance(
+    distanceAU,
+    starMass,
+    starLuminosity
+  );
+
+  // Combine distance habitability with planet type's base habitability
+  // Distance is worth 60%, planet type is worth 40%
+  let finalHabitability =
+    distanceHabitability * 0.6 + planetType.baseHabitability * 0.4;
+
+  // Atmosphere bonus: planets with atmosphere get +20% habitability (up to max 1.0)
+  if (hasAtmosphere) {
+    finalHabitability = Math.min(1.0, finalHabitability * 1.2);
+  } else {
+    // No atmosphere penalty: reduce by 50%
+    finalHabitability *= 0.5;
+  }
+
+  // Clamp to 0-1 range
+  finalHabitability = Math.max(0, Math.min(1, finalHabitability));
+
+  // Determine life level
+  const lifeLevel = determineLifeLevel(
+    rng,
+    finalHabitability,
+    planetType.lifeChance
+  );
+
+  console.log(
+    `Planet ${planetName}: Distance ${distanceAU.toFixed(
+      2
+    )} AU, Habitability ${finalHabitability.toFixed(2)}, Life: ${lifeLevel}`
+  );
+
   const planet: CelestialBodyType = {
     id: uuidv4(),
     name: planetName,
@@ -279,6 +413,8 @@ export function generatePlanet(
     cloudCoverage,
     surfaceType: planetType.surfaceType,
     planetType: planetType.name,
+    habitability: finalHabitability,
+    lifeLevel: lifeLevel,
     moons: [], // Will be populated later
   };
 
@@ -669,7 +805,13 @@ export function generateStarSystem(seed: number): {
 
   const planets: CelestialBodyType[] = [];
   for (let i = 0; i < numPlanets; i++) {
-    const planet = generatePlanet(rng, star.mass, i, numPlanets);
+    const planet = generatePlanet(
+      rng,
+      star.mass,
+      star.luminosity || 1.0,
+      i,
+      numPlanets
+    );
     planet.parentId = star.id;
     planets.push(planet);
   }

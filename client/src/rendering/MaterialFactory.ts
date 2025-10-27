@@ -464,7 +464,8 @@ export class MaterialFactory {
     color: number,
     surfaceType: SurfaceTypeName = "cratered",
     seed?: string,
-    orbitalDistance?: number
+    orbitalDistance?: number,
+    habitability?: number
   ): THREE.Material {
     // Generate unique seed number from string id
     const numericSeed = seed
@@ -525,6 +526,9 @@ export class MaterialFactory {
         },
         planetSeed: { value: numericSeed }, // Planet seed for consistent variety
         orbitalDistance: { value: normalizedDistance }, // Normalized distance from star (0-1+)
+        habitability: {
+          value: habitability !== undefined ? habitability : 0.5,
+        }, // 0-1 habitability score
         time: { value: 0.0 }, // Time for animations
       },
       lights: false, // Disable Three.js lighting system (we do custom lighting)
@@ -553,6 +557,7 @@ export class MaterialFactory {
         uniform float surfaceType;
         uniform float planetSeed;
         uniform float orbitalDistance; // 0.0 (close to star) to 1.0+ (far from star)
+        uniform float habitability; // 0.0 (uninhabitable) to 1.0 (highly habitable)
         uniform float time; // Time for animations
         varying vec3 vNormal;
         varying vec3 vPosition;
@@ -1254,10 +1259,10 @@ export class MaterialFactory {
             // Check if we're near poles for ice caps with irregular boundaries
             float distanceFromPole = abs(v - 0.5) * 2.0; // 0 at poles, 1 at equator
             
-            // Ice cap size varies with orbital distance (temperature)
-            // Close planets (hot): small ice caps (0.85-0.92)
-            // Mid-range planets (temperate): medium ice caps (0.70-0.85)
-            // Far planets (cold): large ice caps (0.10-0.50), up to 90% coverage
+            // Ice cap size varies with habitability AND orbital distance
+            // High habitability (>0.6): temperate, smaller ice caps
+            // Low habitability (<0.4): cold, very large ice caps  
+            // Distance provides baseline, habitability adjusts it
             
             float temperatureFactor = clamp(orbitalDistance, 0.0, 2.0);
             float minIceThreshold, maxIceThreshold;
@@ -1278,6 +1283,29 @@ export class MaterialFactory {
               // Frozen planets (far from star) - massive ice caps up to 90%
               minIceThreshold = 0.10;
               maxIceThreshold = 0.30;
+            }
+            
+            // Adjust ice caps based on habitability
+            // Low habitability = colder = more ice
+            // High habitability = warmer = less ice
+            if (habitability < 0.6) {
+              // Uninhabitable/marginal: expand ice caps significantly
+              float coldnessFactor = (0.6 - habitability) / 0.6; // 0.0 at hab=0.6, 1.0 at hab=0.0
+              
+              // Shift thresholds down (more ice) based on how cold it is
+              // At hab=0.0, ice caps cover up to 95% of planet
+              // At hab=0.3, ice caps cover up to 80% of planet
+              float iceExpansion = coldnessFactor * 0.6; // Up to 60% reduction in threshold
+              minIceThreshold = max(0.05, minIceThreshold - iceExpansion);
+              maxIceThreshold = max(0.10, maxIceThreshold - iceExpansion);
+            } else if (habitability > 0.7) {
+              // Highly habitable: shrink ice caps slightly
+              float warmthFactor = (habitability - 0.7) / 0.3; // 0.0 at hab=0.7, 1.0 at hab=1.0
+              
+              // Shift thresholds up (less ice)
+              float iceShrinkage = warmthFactor * 0.15; // Up to 15% increase in threshold
+              minIceThreshold = min(0.92, minIceThreshold + iceShrinkage);
+              maxIceThreshold = min(0.95, maxIceThreshold + iceShrinkage);
             }
             
             // Apply seed-based variety within the temperature range
@@ -1471,7 +1499,7 @@ export class MaterialFactory {
             float continentScale = 1.0 + continentScaleSeed * 1.5;
             float landThreshold = 0.40 + waterLevelSeed * 0.15;
             
-            // Use same distance-based ice threshold as main shader
+            // Use same distance-based AND habitability-based ice threshold as main shader
             float temperatureFactor = clamp(orbitalDistance, 0.0, 2.0);
             float minIceThreshold, maxIceThreshold;
             
@@ -1487,6 +1515,19 @@ export class MaterialFactory {
             } else {
               minIceThreshold = 0.10;
               maxIceThreshold = 0.30;
+            }
+            
+            // Apply same habitability adjustments
+            if (habitability < 0.6) {
+              float coldnessFactor = (0.6 - habitability) / 0.6;
+              float iceExpansion = coldnessFactor * 0.6;
+              minIceThreshold = max(0.05, minIceThreshold - iceExpansion);
+              maxIceThreshold = max(0.10, maxIceThreshold - iceExpansion);
+            } else if (habitability > 0.7) {
+              float warmthFactor = (habitability - 0.7) / 0.3;
+              float iceShrinkage = warmthFactor * 0.15;
+              minIceThreshold = min(0.92, minIceThreshold + iceShrinkage);
+              maxIceThreshold = min(0.95, maxIceThreshold + iceShrinkage);
             }
             
             float baseIceThreshold = minIceThreshold + iceCapSizeSeed * (maxIceThreshold - minIceThreshold);

@@ -87,7 +87,8 @@ export class CelestialBodyFactory {
       planet.color || 0x888888,
       planet.surfaceType || "smooth",
       planet.id, // Pass planet ID as seed for unique textures
-      orbitalDistance // Pass orbital distance for environmental effects
+      orbitalDistance, // Pass orbital distance for environmental effects
+      planet.habitability // Pass habitability for ice cap sizing
     );
 
     const mesh = new THREE.Mesh(geometry, material);
