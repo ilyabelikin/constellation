@@ -12,6 +12,10 @@ A multiplayer space exploration game with realistic orbital mechanics, procedura
 - **3D Visualization**: Beautiful Three.js/WebGL rendering
 - **Player Ships**: Control ships with realistic orbital mechanics
 
+## Debug mode
+
+Start with `?debug_mode` to get access to debug controls. Useful for development.
+
 ## Architecture
 
 ### Server (`/server`)
