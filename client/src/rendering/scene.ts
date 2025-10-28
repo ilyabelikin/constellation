@@ -1462,4 +1462,25 @@ export class SceneManager {
 
     console.log("SceneManager disposed - all resources cleaned up");
   }
+
+  /**
+   * Update a planet's visual seed for debug purposes
+   * This allows real-time iteration on planet appearances
+   */
+  updatePlanetSeed(planetId: string, newSeed: number): void {
+    const planetMesh = this.bodies.get(planetId);
+    if (!planetMesh) {
+      console.warn(`Planet ${planetId} not found in scene`);
+      return;
+    }
+
+    // Update the planetSeed uniform if this is a ShaderMaterial
+    if (
+      planetMesh.material instanceof THREE.ShaderMaterial &&
+      planetMesh.material.uniforms.planetSeed
+    ) {
+      planetMesh.material.uniforms.planetSeed.value = newSeed;
+      console.log(`Updated planet ${planetId} seed to ${newSeed}`);
+    }
+  }
 }

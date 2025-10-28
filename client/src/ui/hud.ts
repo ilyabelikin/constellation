@@ -580,8 +580,8 @@ export class HUDManager {
     // Update outline selection
     this.updateSelectedInOutline(objectId);
 
-    // Hide all detail panels first
-    this.bodyDetailView.hide();
+    // Hide all detail panels (but don't clear body selection - preserves debug slider state)
+    this.bodyDetailView.hide(false);
     this.gateDetailView.hide();
     this.shipDetailView.hide();
 
@@ -684,5 +684,21 @@ export class HUDManager {
     this.currentState = null;
 
     console.log("HUDManager disposed - all event listeners removed");
+  }
+
+  /**
+   * Set up the callback for when a planet's seed is changed in debug mode
+   * This allows real-time iteration on planet appearances
+   */
+  setupDebugSeedCallback(
+    callback: (planetId: string, newSeed: number) => void
+  ): void {
+    this.bodyDetailView.setOnSeedChange((seed: number) => {
+      // Get the current body from bodyDetailView (we stored it)
+      const body = (this.bodyDetailView as any).currentBody;
+      if (body && body.id) {
+        callback(body.id, seed);
+      }
+    });
   }
 }

@@ -30,6 +30,7 @@ class ConstellationClient {
     this.setupHUDHandlers();
     this.setupSceneHandlers();
     this.setupKeyboardHandlers();
+    this.setupDebugHandlers();
 
     // Connect on load
     this.connect();
@@ -385,6 +386,13 @@ class ConstellationClient {
       }
     };
     window.addEventListener("keydown", this.keyboardHandler);
+  }
+
+  private setupDebugHandlers(): void {
+    // Set up debug mode seed changing for planets
+    this.hud.setupDebugSeedCallback((planetId: string, newSeed: number) => {
+      this.scene.updatePlanetSeed(planetId, newSeed);
+    });
   }
 
   private async connect(): Promise<void> {

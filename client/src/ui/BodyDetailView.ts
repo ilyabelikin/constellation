@@ -21,6 +21,14 @@ export class BodyDetailView {
   private habitabilityElement: HTMLElement | null;
   private compositionElement: HTMLElement | null;
   private shapeElement: HTMLElement | null;
+  private debugSeedContainer: HTMLElement | null = null;
+  private debugSeedSlider: HTMLInputElement | null = null;
+  private debugSeedValue: HTMLElement | null = null;
+  private isDebugMode: boolean = false;
+  private currentBody: any = null;
+  private currentBodyId: string | null = null;
+  private userModifiedSeed: boolean = false; // Track if user has changed the slider
+  private onSeedChange: ((seed: number) => void) | null = null;
 
   constructor() {
     this.panel = document.getElementById("body-details-panel")!;
@@ -38,6 +46,87 @@ export class BodyDetailView {
       "body-detail-composition"
     );
     this.shapeElement = document.getElementById("body-detail-shape");
+
+    // Check for debug mode via URL parameter
+    const urlParams = new URLSearchParams(window.location.search);
+    this.isDebugMode = urlParams.has("debug_mode");
+
+    if (this.isDebugMode) {
+      this.createDebugControls();
+    }
+  }
+
+  /**
+   * Set callback for when seed changes
+   */
+  setOnSeedChange(callback: (seed: number) => void): void {
+    this.onSeedChange = callback;
+  }
+
+  /**
+   * Create debug controls for seed adjustment
+   */
+  private createDebugControls(): void {
+    // Create container for debug controls
+    this.debugSeedContainer = document.createElement("div");
+    this.debugSeedContainer.style.marginTop = "15px";
+    this.debugSeedContainer.style.paddingTop = "15px";
+    this.debugSeedContainer.style.borderTop =
+      "1px solid var(--primary-color-dim)";
+
+    // Title
+    const title = document.createElement("div");
+    title.style.color = "var(--primary-color-dim)";
+    title.style.marginBottom = "8px";
+    title.style.fontSize = "11px";
+    title.textContent = "🔧 DEBUG: Visual Seed";
+
+    // Slider container
+    const sliderContainer = document.createElement("div");
+    sliderContainer.style.display = "flex";
+    sliderContainer.style.alignItems = "center";
+    sliderContainer.style.gap = "8px";
+
+    // Slider
+    this.debugSeedSlider = document.createElement("input");
+    this.debugSeedSlider.type = "range";
+    this.debugSeedSlider.min = "0";
+    this.debugSeedSlider.max = "10000";
+    this.debugSeedSlider.value = "0";
+    this.debugSeedSlider.style.flex = "1";
+    this.debugSeedSlider.style.cursor = "pointer";
+
+    // Value display
+    this.debugSeedValue = document.createElement("span");
+    this.debugSeedValue.style.color = "var(--primary-color)";
+    this.debugSeedValue.style.fontSize = "12px";
+    this.debugSeedValue.style.minWidth = "50px";
+    this.debugSeedValue.textContent = "0";
+
+    // Event listener
+    this.debugSeedSlider.addEventListener("input", (e) => {
+      // Mark that user has modified the seed FIRST (before any callbacks)
+      this.userModifiedSeed = true;
+
+      const seed = parseInt((e.target as HTMLInputElement).value);
+      if (this.debugSeedValue) {
+        this.debugSeedValue.textContent = seed.toString();
+      }
+
+      if (this.onSeedChange && this.currentBody) {
+        this.onSeedChange(seed);
+      }
+    });
+
+    sliderContainer.appendChild(this.debugSeedSlider);
+    sliderContainer.appendChild(this.debugSeedValue);
+
+    this.debugSeedContainer.appendChild(title);
+    this.debugSeedContainer.appendChild(sliderContainer);
+
+    // Append to panel (will be shown/hidden based on body type)
+    this.panel.appendChild(this.debugSeedContainer);
+    this.debugSeedContainer.style.display = "none";
   }
 
   /**
@@ -45,6 +134,7 @@ export class BodyDetailView {
    */
   show(body: any, bodyState: any, currentState: SystemState): void {
     this.panel.classList.remove("hidden");
+    this.currentBody = body;
 
     this.nameElement.textContent = body.name;
     this.typeElement.textContent =
@@ -147,13 +237,69 @@ export class BodyDetailView {
         this.habitabilityElement.style.display = "none";
       }
     }
+
+    // Show/hide debug controls for planets in debug mode
+    if (this.isDebugMode && this.debugSeedContainer && this.debugSeedSlider) {
+      if (body.type === "planet") {
+        this.debugSeedContainer.style.display = "block";
+
+        // Check if this is a different planet
+        const isDifferentPlanet = this.currentBodyId !== body.id;
+
+        // Only reset the slider if:
+        // 1. It's a different planet, OR
+        // 2. It's the first time showing this planet (userModifiedSeed is false)
+        const shouldResetSlider = isDifferentPlanet || !this.userModifiedSeed;
+
+        if (shouldResetSlider) {
+          // If switching to a different planet, reset the modification flag
+          if (isDifferentPlanet) {
+            this.userModifiedSeed = false;
+          }
+
+          // Convert planet ID to initial seed value
+          const initialSeed =
+            body.id
+              .split("")
+              .reduce(
+                (acc: number, char: string) => acc + char.charCodeAt(0),
+                0
+              ) % 10001;
+
+          // Only update if the value is actually different (avoid triggering input events)
+          const currentSliderValue = parseInt(this.debugSeedSlider.value);
+          if (currentSliderValue !== initialSeed) {
+            this.debugSeedSlider.value = initialSeed.toString();
+            if (this.debugSeedValue) {
+              this.debugSeedValue.textContent = initialSeed.toString();
+            }
+          }
+        }
+        // If same planet AND user has modified the seed, keep the current slider value
+
+        // Update current body ID
+        this.currentBodyId = body.id;
+      } else {
+        this.debugSeedContainer.style.display = "none";
+        this.currentBodyId = null;
+        this.userModifiedSeed = false;
+      }
+    }
   }
 
   /**
    * Hide the detail panel
+   * @param clearSelection - If true, clear the current selection (default true)
    */
-  hide(): void {
+  hide(clearSelection: boolean = true): void {
     this.panel.classList.add("hidden");
+
+    // Only clear selection if explicitly requested
+    if (clearSelection) {
+      this.currentBody = null;
+      this.currentBodyId = null;
+      this.userModifiedSeed = false;
+    }
   }
 
   private formatMass(mass: number): string {
