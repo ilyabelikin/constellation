@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { SurfaceTypeShaderValue, SurfaceTypeName } from "@constellation/shared";
 import { createTerrestrialPlanetMaterial } from "./materials/TerrestrialPlanetMaterial";
+import { createRockyPlanetMaterial } from "./materials/RockyPlanetMaterial";
 import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
 import { createAtmosphereMaterial as createAtmosphereMaterialModule } from "./materials/AtmosphereMaterial";
 
@@ -504,6 +505,18 @@ export class MaterialFactory {
         normalizedDistance,
         habitability ?? 0.5,
         numericCivilizationLevel
+      );
+    }
+
+    // Use modular material for Cratered/Rocky planets
+    if (surfaceType === "cratered") {
+      // Weathering level based on orbital distance (closer = more weathering from solar wind)
+      const weatheringLevel = normalizedDistance < 0.5 ? 0.7 : 0.3;
+      return createRockyPlanetMaterial(
+        color,
+        numericSeed,
+        normalizedDistance,
+        weatheringLevel
       );
     }
 
