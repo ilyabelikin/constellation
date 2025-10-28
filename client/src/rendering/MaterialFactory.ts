@@ -468,7 +468,8 @@ export class MaterialFactory {
     surfaceType: SurfaceTypeName = "cratered",
     seed?: string,
     orbitalDistance?: number,
-    habitability?: number
+    habitability?: number,
+    civilizationLevel?: string
   ): THREE.Material {
     // Generate unique seed number from string id
     const numericSeed = seed
@@ -481,13 +482,28 @@ export class MaterialFactory {
       ? Math.max(0, (orbitalDistance - 1.0e11) / 2.0e11) // 0 at 1.0e11m, 1.0 at 3.0e11m
       : 0.5; // Default to mid-range
 
+    // Convert civilization level to numeric scale (0-7)
+    const civilizationLevels: { [key: string]: number } = {
+      primitive: 1,
+      agricultural: 2,
+      industrial: 3,
+      atomic: 4,
+      information: 5,
+      spacefaring: 6,
+      interstellar: 7,
+    };
+    const numericCivilizationLevel = civilizationLevel
+      ? civilizationLevels[civilizationLevel] || 0
+      : 0;
+
     // Use modular material for Terrestrial planets
     if (surfaceType === "terrestrial") {
       return createTerrestrialPlanetMaterial(
         color,
         numericSeed,
         normalizedDistance,
-        habitability ?? 0.5
+        habitability ?? 0.5,
+        numericCivilizationLevel
       );
     }
 

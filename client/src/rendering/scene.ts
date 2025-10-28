@@ -944,6 +944,13 @@ export class SceneManager {
             mesh.material.uniforms.time.value =
               this.timeInterpolator.getGameTime();
           }
+
+          // Update camera position for specular reflections (oceans)
+          if (mesh.material.uniforms.viewPosition) {
+            mesh.material.uniforms.viewPosition.value.copy(
+              this.camera.position
+            );
+          }
         }
 
         // For MeshPhongMaterial (ice planets) and MeshStandardMaterial (terrestrial), rotate the texture
