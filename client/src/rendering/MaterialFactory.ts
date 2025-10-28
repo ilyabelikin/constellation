@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { SurfaceTypeShaderValue, SurfaceTypeName } from "@constellation/shared";
 import { createTerrestrialPlanetMaterial } from "./materials/TerrestrialPlanetMaterial";
 import { createRockyPlanetMaterial } from "./materials/RockyPlanetMaterial";
+import { createBarrenPlanetMaterial } from "./materials/BarrenPlanetMaterial";
 import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
 import { createAtmosphereMaterial as createAtmosphereMaterialModule } from "./materials/AtmosphereMaterial";
 
@@ -466,7 +467,7 @@ export class MaterialFactory {
    */
   createPlanetMaterial(
     color: number,
-    surfaceType: SurfaceTypeName = "cratered",
+    surfaceType: SurfaceTypeName = "rocky",
     seed?: string,
     orbitalDistance?: number,
     habitability?: number,
@@ -508,8 +509,8 @@ export class MaterialFactory {
       );
     }
 
-    // Use modular material for Cratered/Rocky planets
-    if (surfaceType === "cratered") {
+    // Use modular material for Rocky planets (heavily cratered)
+    if (surfaceType === "rocky") {
       // Weathering level based on orbital distance (closer = more weathering from solar wind)
       const weatheringLevel = normalizedDistance < 0.5 ? 0.7 : 0.3;
       return createRockyPlanetMaterial(
@@ -517,6 +518,31 @@ export class MaterialFactory {
         numericSeed,
         normalizedDistance,
         weatheringLevel
+      );
+    }
+
+    // Use modular material for Barren planets (ancient, smooth, dust-covered)
+    if (surfaceType === "barren") {
+      // Dust thickness varies - some planets more dust-covered than others
+      const dustThickness = 0.5 + (numericSeed % 100) / 200; // 0.5 to 1.0
+      return createBarrenPlanetMaterial(
+        color,
+        numericSeed,
+        normalizedDistance,
+        dustThickness
+      );
+    }
+
+    // Use modular material for Desert planets (sand dunes, arid)
+    if (surfaceType === "desert") {
+      // Deserts are similar to barren but with more dynamic wind patterns
+      // Use slightly less dust coverage than barren planets
+      const dustThickness = 0.3 + (numericSeed % 100) / 300; // 0.3 to 0.63
+      return createBarrenPlanetMaterial(
+        color,
+        numericSeed,
+        normalizedDistance,
+        dustThickness
       );
     }
 
@@ -584,140 +610,14 @@ export class MaterialFactory {
         varying vec3 vWorldNormal;
         varying vec2 vUv;
         
-        // Surface type constants
-        const float SURFACE_CRATERED = 2.0;
-        
-        // 3D hash for crater generation
-        float hash3D(vec3 p) {
-          p = fract(p * vec3(127.1, 311.7, 74.7));
-          p += dot(p, p.yzx + 19.19);
-          return fract((p.x + p.y) * p.z);
-        }
-        
-        // Seeded random for variation
-        float seededRandom(float seed) {
-          return fract(sin(seed) * 43758.5453123);
-        }
-        
-        // 3D crater displacement function (optimized for vertex shader)
-        float craters3D(vec3 pos, float scale) {
-          vec3 scaledPos = pos * scale;
-          vec3 grid = floor(scaledPos);
-          vec3 localPos = fract(scaledPos);
-          
-          float craterEffect = 0.0;
-          
-          // Check neighboring cells (smaller loop for performance)
-          for(float z = -1.0; z <= 1.0; z++) {
-            for(float y = -1.0; y <= 1.0; y++) {
-              for(float x = -1.0; x <= 1.0; x++) {
-                vec3 neighbor = grid + vec3(x, y, z);
-                
-                vec3 craterPos = vec3(
-                  hash3D(neighbor),
-                  hash3D(neighbor + vec3(13.7, 27.3, 41.1)),
-                  hash3D(neighbor + vec3(53.2, 67.4, 79.8))
-                );
-                
-                vec3 toCenter = (localPos - vec3(x, y, z)) - craterPos;
-                float dist = length(toCenter);
-                
-                float craterSize = 0.2 + hash3D(neighbor + vec3(50.1, 60.2, 70.3)) * 0.35;
-                float shouldExist = hash3D(neighbor + vec3(100.0, 200.0, 300.0));
-                
-                if(shouldExist > 0.6 && dist < craterSize) {
-                  float rimDist = abs(dist - craterSize * 0.85) / (craterSize * 0.15);
-                  float rimHeight = smoothstep(1.0, 0.0, rimDist) * 0.15;
-                  float bowlDepth = smoothstep(craterSize, 0.0, dist) * -0.25;
-                  craterEffect += bowlDepth + rimHeight;
-                }
-              }
-            }
-          }
-          
-          return craterEffect;
-        }
-        
         void main() {
-          vec3 displacedPosition = position;
-          vec3 displacedNormal = normal;
-          
-          // Apply crater displacement for CRATERED surface type
-          if(abs(surfaceType - SURFACE_CRATERED) < 0.1) {
-            // Normalize position for seamless 3D sampling
-            vec3 normalizedPos = normalize(position);
-            
-            // Apply rotation
-            float cosRot = cos(rotation);
-            float sinRot = sin(rotation);
-            vec3 rotatedPos = vec3(
-              normalizedPos.x * cosRot - normalizedPos.z * sinRot,
-              normalizedPos.y,
-              normalizedPos.x * sinRot + normalizedPos.z * cosRot
-            );
-            
-            // Generate seed-based crater size variety
-            float craterSizeSeed = seededRandom(planetSeed * 1.5);
-            float craterScaleMultiplier = 1.5 + craterSizeSeed * 3.0;
-            
-            // Calculate crater displacement at multiple scales
-            float largeCraters = craters3D(rotatedPos, 0.6 * craterScaleMultiplier);
-            float mediumCraters = craters3D(rotatedPos, 1.25 * craterScaleMultiplier) * 0.7;
-            float smallCraters = craters3D(rotatedPos, 2.25 * craterScaleMultiplier) * 0.5;
-            
-            float totalDisplacement = largeCraters + mediumCraters + smallCraters;
-            
-            // Apply displacement along normal direction (scale it for visibility)
-            // Using a stronger displacement amount for dramatic craters
-            float displacementAmount = totalDisplacement * 0.08; // 8% of radius for visible depth
-            displacedPosition = position + normal * displacementAmount;
-            
-            // Simple gradient-based normal perturbation (smooth and efficient)
-            // Sample displacement in a slightly larger neighborhood for smoothness
-            float epsilon = 0.05; // Larger epsilon = smoother gradients
-            
-            // Create perpendicular vectors for sampling
-            vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
-            if(length(tangent) < 0.1) {
-              tangent = normalize(cross(normal, vec3(1.0, 0.0, 0.0)));
-            }
-            vec3 bitangent = normalize(cross(normal, tangent));
-            
-            // Sample displacement in X direction
-            vec3 posX = normalize(position + tangent * epsilon);
-            vec3 rotX = vec3(
-              posX.x * cosRot - posX.z * sinRot,
-              posX.y,
-              posX.x * sinRot + posX.z * cosRot
-            );
-            float dispX = (craters3D(rotX, 0.6 * craterScaleMultiplier) + 
-                          craters3D(rotX, 1.25 * craterScaleMultiplier) * 0.7) * 0.08;
-            
-            // Sample displacement in Y direction
-            vec3 posY = normalize(position + bitangent * epsilon);
-            vec3 rotY = vec3(
-              posY.x * cosRot - posY.z * sinRot,
-              posY.y,
-              posY.x * sinRot + posY.z * cosRot
-            );
-            float dispY = (craters3D(rotY, 0.6 * craterScaleMultiplier) + 
-                          craters3D(rotY, 1.25 * craterScaleMultiplier) * 0.7) * 0.08;
-            
-            // Calculate gradient (change in displacement)
-            vec2 gradient = vec2(dispX - displacementAmount, dispY - displacementAmount) / epsilon;
-            
-            // Perturb normal based on gradient (smooth blend)
-            vec3 perturbation = tangent * gradient.x + bitangent * gradient.y;
-            displacedNormal = normalize(normal - perturbation * 0.3); // Gentle perturbation
-          }
-          
-          vNormal = normalize(normalMatrix * displacedNormal);
+          vNormal = normalize(normalMatrix * normal);
           vPosition = position;
           vUv = uv;
-          vec4 worldPosition = modelMatrix * vec4(displacedPosition, 1.0);
+          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
           vWorldPosition = worldPosition.xyz;
-          vWorldNormal = normalize(mat3(modelMatrix) * displacedNormal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(displacedPosition, 1.0);
+          vWorldNormal = normalize(mat3(modelMatrix) * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }
       `,
       fragmentShader: `
@@ -741,11 +641,12 @@ export class MaterialFactory {
         // IMPORTANT: These must match SurfaceTypeShaderValue in shared/src/types.ts
         const float SURFACE_TERRESTRIAL = 0.0;
         const float SURFACE_DESERT = 1.0;
-        const float SURFACE_CRATERED = 2.0;
-        const float SURFACE_BANDED = 3.0;
-        const float SURFACE_ICY = 4.0;
-        const float SURFACE_VOLCANIC = 5.0;
-        const float SURFACE_OCEANIC = 6.0;
+        const float SURFACE_BARREN = 2.0;
+        const float SURFACE_ROCKY = 3.0;
+        const float SURFACE_BANDED = 4.0;
+        const float SURFACE_ICY = 5.0;
+        const float SURFACE_VOLCANIC = 6.0;
+        const float SURFACE_OCEANIC = 7.0;
         
         // Hash function for pseudo-random numbers
         float hash(vec2 p) {
@@ -1089,112 +990,6 @@ export class MaterialFactory {
               intensity += stormMask * (vortexPattern - 0.5) * 0.4;
             }
           }
-          // Add craters for barren/rocky planets
-          else if(surfaceType == SURFACE_CRATERED) {
-            // Use 3D position for seamless craters
-            vec3 rotatedPos = vPosition;
-            float cosRot = cos(rotation);
-            float sinRot = sin(rotation);
-            rotatedPos = vec3(
-              vPosition.x * cosRot - vPosition.z * sinRot,
-              vPosition.y,
-              vPosition.x * sinRot + vPosition.z * cosRot
-            );
-            vec3 samplePos = normalize(rotatedPos);
-            
-            // Generate seed-based crater size variety for this planet
-            float craterSizeSeed = seededRandom(planetSeed * 1.5);
-            float craterDensitySeed = seededRandom(planetSeed * 2.3);
-            
-            // Seed-based color variety for rocky planets
-            // Range from dark gray to light gray, yellowish, and brownish tones
-            float colorTypeSeed = seededRandom(planetSeed * 3.7);
-            float brightnessSeed = seededRandom(planetSeed * 4.1);
-            float hueSeed = seededRandom(planetSeed * 5.3);
-            
-            // Base brightness: 0.25 (dark) to 0.6 (light)
-            float baseBrightness = 0.25 + brightnessSeed * 0.35;
-            
-            // Determine color type based on seed
-            if(colorTypeSeed < 0.25) {
-              // Pure gray rocks (20% of planets) - varied brightness
-              float grayValue = baseBrightness;
-              colorModulation = vec3(
-                grayValue,
-                grayValue * 0.98,  // Slight variation
-                grayValue * 0.96   // Subtle blue-gray or warm tint
-              );
-            }
-            else if(colorTypeSeed < 0.5) {
-              // Brownish rocks (25% of planets) - like Mars or rust
-              float brownBase = baseBrightness;
-              colorModulation = vec3(
-                brownBase * (1.0 + hueSeed * 0.3),      // More red
-                brownBase * (0.7 + hueSeed * 0.2),      // Medium green
-                brownBase * (0.5 + hueSeed * 0.15)      // Less blue
-              );
-            }
-            else if(colorTypeSeed < 0.75) {
-              // Yellowish/tan rocks (25% of planets) - like desert stone
-              float yellowBase = baseBrightness * 1.1; // Slightly brighter
-              colorModulation = vec3(
-                yellowBase * (1.0 + hueSeed * 0.2),     // High red
-                yellowBase * (0.95 + hueSeed * 0.15),   // High green (makes yellow)
-                yellowBase * (0.6 + hueSeed * 0.2)      // Less blue
-              );
-            }
-            else {
-              // Dark charcoal/basalt (30% of planets) - volcanic appearance
-              float darkBase = baseBrightness * 0.7; // Darker multiplier
-              colorModulation = vec3(
-                darkBase * (1.0 + hueSeed * 0.15),      // Slightly varied
-                darkBase * (0.95 + hueSeed * 0.1),      // Similar to red
-                darkBase * (0.9 + hueSeed * 0.1)        // Slightly cooler
-              );
-            }
-            
-            // Vary crater scale (1.5 to 4.5 range) - lower scale = larger craters
-            float craterScaleMultiplier = 1.5 + craterSizeSeed * 3.0;
-            
-            // Multiple layers of 3D craters at different scales - seamless across the sphere
-            // Lower scale numbers = larger craters
-            float largeCraters = craters3D(samplePos, 0.6 * craterScaleMultiplier);
-            float mediumCraters = craters3D(samplePos, 1.25 * craterScaleMultiplier) * 0.7;
-            float smallCraters = craters3D(samplePos, 2.25 * craterScaleMultiplier) * 0.5;
-            
-            float totalCraters = largeCraters + mediumCraters + smallCraters;
-            intensity += totalCraters;
-            
-            // Add rocky terrain variation using 3D noise
-            float rockTexture = turbulence3D(samplePos * 4.0, 4) * 0.1;
-            intensity += rockTexture;
-            
-            // Enhanced shadowing in crater bowls with ambient occlusion
-            // Deeper craters = darker shadows
-            if(totalCraters < -0.05) {
-              float shadowDepth = abs(totalCraters) * 2.0;
-              
-              // Add ambient occlusion effect - darker in deeper areas
-              float ao = 1.0 - clamp(shadowDepth * 0.5, 0.0, 0.6);
-              intensity *= ao; // Multiply to darken
-              intensity -= shadowDepth * 0.2; // Additional darkening
-              
-              // Darken and slightly cool the color in crater bowls
-              // Preserve the base color hue while making it darker
-              colorModulation *= vec3(0.85, 0.85, 0.9);
-            }
-            
-            // Brighter highlights on crater rims with enhanced contrast
-            if(totalCraters > 0.02) {
-              float rimBrightness = totalCraters * 3.0;
-              intensity += rimBrightness * 0.25; // Brighten crater rims more
-              
-              // Add warming to rim highlights (sun-facing edges)
-              // More subtle for gray planets, more pronounced for colored ones
-              float warmth = 1.0 + (colorTypeSeed * 0.08);
-              colorModulation *= vec3(1.0 + warmth * 0.05, 1.0 + warmth * 0.03, 1.0);
-            }
-          }
           // Icy planets with thin branching crack networks
           else if(surfaceType == SURFACE_ICY) {
             // Use 3D position for seamless noise
@@ -1487,33 +1282,6 @@ export class MaterialFactory {
             
             // Enhance water color saturation - preserve varied base blue/green
             colorModulation = variedBaseColor * 1.15; // Boost saturation
-          }
-          // Desert planets - arid terrain with dunes
-          else if(surfaceType == SURFACE_DESERT) {
-            // Use 3D noise for seamless desert terrain
-            vec3 rotatedPos = vPosition;
-            float cosRot = cos(rotation);
-            float sinRot = sin(rotation);
-            rotatedPos = vec3(
-              vPosition.x * cosRot - vPosition.z * sinRot,
-              vPosition.y,
-              vPosition.x * sinRot + vPosition.z * cosRot
-            );
-            // Scaled down for larger patterns (was 5.0, now 2.0)
-            vec3 samplePos = normalize(rotatedPos) * 2.0;
-            
-            // Rocky desert base with dune patterns - scaled for larger features
-            float desertNoise = turbulence3D(samplePos, 5) * 0.3;
-            
-            // Add dune patterns - larger features (scaled down from 0.5 to 0.2)
-            float dunes = turbulence3D(samplePos * 0.2, 4) * 0.2;
-            
-            // Rocky outcrops - scaled for larger features (was 2.0, now 0.8)
-            float rocks = turbulence3D(samplePos * 0.8, 6);
-            float rockPattern = smoothstep(0.6, 0.75, rocks) * 0.15;
-            
-            intensity = 0.8 + desertNoise + dunes - rockPattern;
-            colorModulation = variedBaseColor; // Use planet's varied desert color
           }
           // Fallback for any unhandled surface types
           else {

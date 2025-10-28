@@ -7,7 +7,7 @@
       "radiusRange": [0.3, 0.8],
       "color": "#8b7355",
       "atmosphereChance": 0.0,
-      "surfaceType": "cratered",
+      "surfaceType": "barren",
       "baseHabitability": 0.05,
       "lifeChance": 0.0
     },
@@ -18,7 +18,7 @@
       "radiusRange": [0.7, 1.1],
       "color": "#a0937d",
       "atmosphereChance": 0.1,
-      "surfaceType": "cratered",
+      "surfaceType": "rocky",
       "baseHabitability": 0.15,
       "lifeChance": 0.05
     },

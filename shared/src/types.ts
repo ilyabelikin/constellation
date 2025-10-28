@@ -3,8 +3,9 @@
 // Surface type definitions (shared between server generation and client rendering)
 export const SurfaceType = {
   TERRESTRIAL: "terrestrial", // Earth-like with continents, oceans, ice caps
-  DESERT: "desert", // Arid desert worlds
-  CRATERED: "cratered", // Rocky, cratered surfaces
+  DESERT: "desert", // Arid desert worlds with sand dunes
+  BARREN: "barren", // Ancient, smooth, dust-covered worlds
+  ROCKY: "rocky", // Rocky, heavily cratered surfaces
   BANDED: "banded", // Gas giants with bands
   ICY: "icy", // Frozen ice worlds
   VOLCANIC: "volcanic", // Lava worlds
@@ -18,11 +19,12 @@ export type SurfaceTypeName = (typeof SurfaceType)[keyof typeof SurfaceType];
 export const SurfaceTypeShaderValue: Record<SurfaceTypeName, number> = {
   [SurfaceType.TERRESTRIAL]: 0.0,
   [SurfaceType.DESERT]: 1.0,
-  [SurfaceType.CRATERED]: 2.0,
-  [SurfaceType.BANDED]: 3.0,
-  [SurfaceType.ICY]: 4.0,
-  [SurfaceType.VOLCANIC]: 5.0,
-  [SurfaceType.OCEANIC]: 6.0,
+  [SurfaceType.BARREN]: 2.0,
+  [SurfaceType.ROCKY]: 3.0,
+  [SurfaceType.BANDED]: 4.0,
+  [SurfaceType.ICY]: 5.0,
+  [SurfaceType.VOLCANIC]: 6.0,
+  [SurfaceType.OCEANIC]: 7.0,
 };
 
 export interface Vector3 {
