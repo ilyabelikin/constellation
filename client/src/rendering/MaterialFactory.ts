@@ -1,5 +1,8 @@
 import * as THREE from "three";
 import { SurfaceTypeShaderValue, SurfaceTypeName } from "@constellation/shared";
+import { createTerrestrialPlanetMaterial } from "./materials/TerrestrialPlanetMaterial";
+import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
+import { createAtmosphereMaterial as createAtmosphereMaterialModule } from "./materials/AtmosphereMaterial";
 
 /**
  * Generate ice planet crack texture using Canvas 2D API
@@ -477,6 +480,16 @@ export class MaterialFactory {
     const normalizedDistance = orbitalDistance
       ? Math.max(0, (orbitalDistance - 1.0e11) / 2.0e11) // 0 at 1.0e11m, 1.0 at 3.0e11m
       : 0.5; // Default to mid-range
+
+    // Use modular material for Terrestrial planets
+    if (surfaceType === "terrestrial") {
+      return createTerrestrialPlanetMaterial(
+        color,
+        numericSeed,
+        normalizedDistance,
+        habitability ?? 0.5
+      );
+    }
 
     // Ice planets use MeshPhongMaterial with canvas-generated textures
     if (surfaceType === "icy" && seed) {
@@ -1446,236 +1459,6 @@ export class MaterialFactory {
             // Enhance water color saturation - preserve varied base blue/green
             colorModulation = variedBaseColor * 1.15; // Boost saturation
           }
-          // Terrestrial planets - continents, oceans, and ice caps
-          else if(surfaceType == SURFACE_TERRESTRIAL) {
-            // Generate seed-based variety parameters for this planet
-            float continentScaleSeed = seededRandom(planetSeed * 1.1);
-            float waterLevelSeed = seededRandom(planetSeed * 1.3);
-            float iceCapSizeSeed = seededRandom(planetSeed * 1.7);
-            
-            // Vary continent scale - reduced to make continents larger (was 2.5-6.0, now 1.0-2.5)
-            float continentScale = 1.0 + continentScaleSeed * 1.5;
-            
-            // Use 3D position for seamless noise (no UV seam)
-            // Apply rotation to the sampling position
-            vec3 rotatedPos = vPosition;
-            float cosRot = cos(rotation);
-            float sinRot = sin(rotation);
-            rotatedPos = vec3(
-              vPosition.x * cosRot - vPosition.z * sinRot,
-              vPosition.y,
-              vPosition.x * sinRot + vPosition.z * cosRot
-            );
-            
-            // Normalize and scale for continent generation
-            vec3 samplePos = normalize(rotatedPos) * continentScale;
-            
-            // Generate continents using 3D turbulence for seamless wrapping
-            float continentNoise = turbulence3D(samplePos, 5);
-            
-            // Vary water level (0.40 to 0.55) for different ocean coverage
-            // 0.40 = ~60% water (oceanic), 0.55 = ~45% water (more land)
-            float landThreshold = 0.40 + waterLevelSeed * 0.15;
-            bool isLand = continentNoise > landThreshold;
-            
-            // Check if we're near poles for ice caps with irregular boundaries
-            float distanceFromPole = abs(v - 0.5) * 2.0; // 0 at poles, 1 at equator
-            
-            // Ice cap size varies with habitability AND orbital distance
-            // High habitability (>0.6): temperate, smaller ice caps
-            // Low habitability (<0.4): cold, very large ice caps  
-            // Distance provides baseline, habitability adjusts it
-            
-            float temperatureFactor = clamp(orbitalDistance, 0.0, 2.0);
-            float minIceThreshold, maxIceThreshold;
-            
-            if (temperatureFactor < 0.5) {
-              // Hot planets (close to star) - tiny ice caps
-              minIceThreshold = 0.85;
-              maxIceThreshold = 0.92;
-            } else if (temperatureFactor < 1.0) {
-              // Temperate planets (habitable zone) - moderate ice caps
-              minIceThreshold = 0.70;
-              maxIceThreshold = 0.85;
-            } else if (temperatureFactor < 1.5) {
-              // Cool planets - large ice caps
-              minIceThreshold = 0.30;
-              maxIceThreshold = 0.70;
-            } else {
-              // Frozen planets (far from star) - massive ice caps up to 90%
-              minIceThreshold = 0.10;
-              maxIceThreshold = 0.30;
-            }
-            
-            // Adjust ice caps based on habitability
-            // Low habitability = colder = more ice
-            // High habitability = warmer = less ice
-            if (habitability < 0.6) {
-              // Uninhabitable/marginal: expand ice caps significantly
-              float coldnessFactor = (0.6 - habitability) / 0.6; // 0.0 at hab=0.6, 1.0 at hab=0.0
-              
-              // Shift thresholds down (more ice) based on how cold it is
-              // At hab=0.0, ice caps cover up to 95% of planet
-              // At hab=0.3, ice caps cover up to 80% of planet
-              float iceExpansion = coldnessFactor * 0.6; // Up to 60% reduction in threshold
-              minIceThreshold = max(0.05, minIceThreshold - iceExpansion);
-              maxIceThreshold = max(0.10, maxIceThreshold - iceExpansion);
-            } else if (habitability > 0.7) {
-              // Highly habitable: shrink ice caps slightly
-              float warmthFactor = (habitability - 0.7) / 0.3; // 0.0 at hab=0.7, 1.0 at hab=1.0
-              
-              // Shift thresholds up (less ice)
-              float iceShrinkage = warmthFactor * 0.15; // Up to 15% increase in threshold
-              minIceThreshold = min(0.92, minIceThreshold + iceShrinkage);
-              maxIceThreshold = min(0.95, maxIceThreshold + iceShrinkage);
-            }
-            
-            // Apply seed-based variety within the temperature range
-            float baseIceThreshold = minIceThreshold + iceCapSizeSeed * (maxIceThreshold - minIceThreshold);
-            
-            // Add noise to ice cap boundary for irregular shape using 3D noise
-            float iceNoise = turbulence3D(samplePos * 0.8, 4) * 0.12;
-            float iceThreshold = baseIceThreshold - iceNoise;
-            
-            bool isIceCap = distanceFromPole > iceThreshold; // Ice caps with uneven edges
-            
-            // Color and intensity based on terrain type
-            if (isIceCap) {
-              // ICE CAPS with layered appearance
-              // Inner core: pure white, very glossy
-              // Outer layer: whitish, less glossy
-              
-              // Calculate distance from pole center for layering
-              float polarDistance = distanceFromPole;
-              
-              // Inner core ice (closest to pole) - pure white, very glossy
-              float innerIceThreshold = iceThreshold + 0.05;
-              bool isInnerIce = polarDistance > innerIceThreshold;
-              
-              if (isInnerIce) {
-                // Core: Pure white, very glossy
-                colorModulation = vec3(1.0, 1.0, 1.0); // Pure white
-                intensity = 1.15;
-              } else {
-                // Outer ice: Whitish with slight blue tint, less glossy
-                colorModulation = vec3(0.90, 0.92, 0.95); // Whitish-blue
-                intensity = 1.0;
-              }
-              
-              // Add some crack detail to ice caps using 3D noise
-              float iceCracks = turbulence3D(samplePos * 2.0, 3);
-              intensity -= smoothstep(0.45, 0.55, iceCracks) * 0.08;
-            }
-            else if (isLand) {
-              // CONTINENTS - color depends on habitability
-              // High habitability (>0.6): green vegetation
-              // Low habitability (<0.6): brown/gray barren rock
-              float latitude = abs(v - 0.5) * 2.0;
-              
-              // Add terrain variation using 3D noise
-              // Reduced scale for larger terrain features (was 1.5, now 0.6)
-              float terrainDetail = turbulence3D(samplePos * 0.6, 4) * 0.15;
-              
-              if (habitability > 0.6) {
-                // HABITABLE - green vegetation
-                // Greener at equator, more brown/tan at higher latitudes
-                float greenAmount = 1.0 - latitude * 0.5;
-                colorModulation = vec3(
-                  0.4 + (1.0 - greenAmount) * 0.3,  // R - more brown at poles
-                  0.6 * greenAmount,                 // G - less green at poles  
-                  0.2 + (1.0 - greenAmount) * 0.2   // B
-                );
-              } else {
-                // UNINHABITABLE - brown/gray barren rock
-                // Vary color by habitability: lower habitability = grayer
-                float grayness = 1.0 - habitability; // 0.4 to 1.0 (more gray when less habitable)
-                
-                // Brown rocky terrain for marginally habitable (0.3-0.6)
-                // Gray rocky terrain for very uninhabitable (<0.3)
-                if (habitability > 0.3) {
-                  // Brownish rock with some color variation
-                  colorModulation = vec3(
-                    0.45 + terrainDetail * 0.2,  // R - brown
-                    0.35 + terrainDetail * 0.15, // G - brown
-                    0.25 + terrainDetail * 0.1   // B - brown
-                  );
-                } else {
-                  // Gray rock - very barren
-                  float baseGray = 0.35 + terrainDetail * 0.15;
-                  colorModulation = vec3(
-                    baseGray,              // R - gray
-                    baseGray * 0.95,       // G - slightly less
-                    baseGray * 0.90        // B - slightly less (subtle brown tint)
-                  );
-                }
-              }
-              
-              intensity = 0.9 + terrainDetail;
-              
-              // Add mountain ranges (darker, higher elevation) using 3D noise
-              // Reduced scale for larger mountain features (was 0.8, now 0.3)
-              float mountains = turbulence3D(samplePos * 0.3, 6);
-              if (mountains > 0.65) {
-                colorModulation *= 0.7; // Darker for mountains
-                intensity += 0.1;
-              }
-            }
-            else {
-              // OCEANS - blue water
-              // Deeper water = darker blue
-              float oceanDepth = (landThreshold - continentNoise) / landThreshold;
-              float depthFactor = 1.0 - oceanDepth * 0.5;
-              
-              colorModulation = vec3(
-                0.05 * depthFactor,  // R - minimal red
-                0.15 * depthFactor,  // G - some green
-                0.35 * depthFactor   // B - strong blue
-              );
-              intensity = 0.8 + oceanDepth * 0.2;
-              
-              // Add wave patterns using 3D noise
-              // Reduced scale for larger wave features (was 2.5, now 1.0)
-              float waves = turbulence3D(samplePos * 1.0, 3) * 0.1;
-              intensity += waves;
-              
-              // Add sea ice near ice caps (broken ice floes in cold water)
-              // Only appears in transition zone between ice caps and open ocean
-              float seaIceZone = 0.0;
-              
-              // Check proximity to ice caps
-              if (distanceFromPole > iceThreshold * 0.85) {
-                // We're in potential sea ice zone (just beyond ice cap edge)
-                float distanceBeyondIceCap = distanceFromPole - iceThreshold;
-                
-                // Sea ice extends 0.1-0.15 units beyond ice cap edge
-                float seaIceRange = 0.15;
-                float seaIceIntensity = smoothstep(seaIceRange, 0.0, distanceBeyondIceCap);
-                
-                if (seaIceIntensity > 0.0) {
-                  // Create broken ice pattern using 3D noise
-                  // Multiple scales for varied ice floe sizes
-                  float icePattern1 = turbulence3D(samplePos * 8.0, 4);
-                  float icePattern2 = turbulence3D(samplePos * 15.0, 3);
-                  
-                  // Large ice floes (more solid near ice cap)
-                  float largeFloes = smoothstep(0.45, 0.55, icePattern1) * seaIceIntensity;
-                  
-                  // Smaller ice chunks (scattered further out)
-                  float smallFloes = smoothstep(0.5, 0.6, icePattern2) * seaIceIntensity * 0.5;
-                  
-                  // Combine ice patterns
-                  seaIceZone = clamp(largeFloes + smallFloes, 0.0, 1.0);
-                  
-                  // Blend ice color with ocean
-                  vec3 seaIceColor = vec3(0.85, 0.88, 0.92); // Slightly blue-tinted white
-                  colorModulation = mix(colorModulation, seaIceColor, seaIceZone);
-                  
-                  // Ice is brighter than water
-                  intensity = mix(intensity, 1.05, seaIceZone);
-                }
-              }
-            }
-          }
           // Desert planets - arid terrain with dunes
           else if(surfaceType == SURFACE_DESERT) {
             // Use 3D noise for seamless desert terrain
@@ -1862,65 +1645,14 @@ export class MaterialFactory {
 
   /**
    * Creates a shader material for planet atmospheres with enhanced Fresnel effect
+   * For terrestrial planets, syncs with ocean color based on seed
    */
-  createAtmosphereMaterial(color: number): THREE.ShaderMaterial {
-    const atmosphereColor = new THREE.Color(color);
-
-    // Brighten and saturate the atmosphere color for more inviting look
-    atmosphereColor.multiplyScalar(1.3); // Brighter
-
-    // For Earth-like colors (blue/green), add slight cyan tint
-    if (atmosphereColor.b > atmosphereColor.r) {
-      atmosphereColor.g = Math.min(atmosphereColor.g * 1.2, 1.0);
-    }
-
-    return new THREE.ShaderMaterial({
-      uniforms: {
-        atmosphereColor: { value: atmosphereColor },
-      },
-      vertexShader: `
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        void main() {
-          vNormal = normalize(normalMatrix * normal);
-          vPosition = position;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 atmosphereColor;
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        
-        void main() {
-          // Enhanced Fresnel effect - stronger glow at edges
-          float edgeFactor = dot(vNormal, vec3(0.0, 0.0, 1.0));
-          
-          // Multi-layer atmospheric glow
-          // Inner glow - subtle and smooth
-          float innerGlow = pow(0.8 - edgeFactor, 1.5) * 0.4;
-          
-          // Outer glow - more intense at the very edge
-          float outerGlow = pow(0.7 - edgeFactor, 2.5) * 0.8;
-          
-          // Atmospheric scattering - brightest near horizon
-          float scattering = smoothstep(0.0, 0.4, 1.0 - edgeFactor) * 0.3;
-          
-          // Combine glows
-          float intensity = innerGlow + outerGlow + scattering;
-          
-          // Add slight color shift at edge (atmospheric scattering effect)
-          vec3 finalColor = atmosphereColor;
-          float edgeShift = smoothstep(0.3, 0.0, edgeFactor);
-          finalColor = mix(atmosphereColor, atmosphereColor * vec3(1.2, 1.1, 1.0), edgeShift * 0.3);
-          
-          gl_FragColor = vec4(finalColor, intensity);
-        }
-      `,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
-      side: THREE.BackSide,
-    });
+  createAtmosphereMaterial(
+    color: number,
+    planetSeed?: number,
+    isTerrestrial: boolean = false
+  ): THREE.ShaderMaterial {
+    return createAtmosphereMaterialModule(color, planetSeed, isTerrestrial);
   }
 
   /**
@@ -1954,183 +1686,10 @@ export class MaterialFactory {
    */
   createCloudMaterial(
     baseColor: number,
-    cloudCoverage: number = 0.5
+    cloudCoverage: number = 0.5,
+    planetSeed: number = 0
   ): THREE.ShaderMaterial {
-    return new THREE.ShaderMaterial({
-      uniforms: {
-        baseColor: { value: new THREE.Color(baseColor) },
-        rotation: { value: 0 },
-        cloudCoverage: { value: cloudCoverage },
-        time: { value: 0 }, // Time for evolving cloud patterns
-      },
-      vertexShader: `
-        varying vec3 vPosition;
-        varying vec3 vNormal;
-        varying vec2 vUv;
-        
-        void main() {
-          vPosition = position;
-          vNormal = normalize(normalMatrix * normal);
-          vUv = uv;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 baseColor;
-        uniform float rotation;
-        uniform float cloudCoverage;
-        uniform float time; // Time for cloud pattern evolution
-        varying vec3 vPosition;
-        varying vec3 vNormal;
-        varying vec2 vUv;
-        
-        // Better hash function for noise
-        vec3 hash3(vec3 p) {
-          p = vec3(dot(p, vec3(127.1, 311.7, 74.7)),
-                   dot(p, vec3(269.5, 183.3, 246.1)),
-                   dot(p, vec3(113.5, 271.9, 124.6)));
-          return fract(sin(p) * 43758.5453123);
-        }
-        
-        // Smooth 3D noise with interpolation
-        float noise3D(vec3 p) {
-          vec3 i = floor(p);
-          vec3 f = fract(p);
-          
-          // Smooth interpolation
-          f = f * f * (3.0 - 2.0 * f);
-          
-          // Sample corners
-          float n000 = hash3(i + vec3(0.0, 0.0, 0.0)).x;
-          float n100 = hash3(i + vec3(1.0, 0.0, 0.0)).x;
-          float n010 = hash3(i + vec3(0.0, 1.0, 0.0)).x;
-          float n110 = hash3(i + vec3(1.0, 1.0, 0.0)).x;
-          float n001 = hash3(i + vec3(0.0, 0.0, 1.0)).x;
-          float n101 = hash3(i + vec3(1.0, 0.0, 1.0)).x;
-          float n011 = hash3(i + vec3(0.0, 1.0, 1.0)).x;
-          float n111 = hash3(i + vec3(1.0, 1.0, 1.0)).x;
-          
-          // Trilinear interpolation
-          float nx00 = mix(n000, n100, f.x);
-          float nx10 = mix(n010, n110, f.x);
-          float nx01 = mix(n001, n101, f.x);
-          float nx11 = mix(n011, n111, f.x);
-          
-          float nxy0 = mix(nx00, nx10, f.y);
-          float nxy1 = mix(nx01, nx11, f.y);
-          
-          return mix(nxy0, nxy1, f.z);
-        }
-        
-        // Fractal Brownian Motion for clouds
-        float fbm(vec3 p) {
-          float value = 0.0;
-          float amplitude = 0.5;
-          float frequency = 1.0;
-          
-          for(int i = 0; i < 5; i++) {
-            value += amplitude * noise3D(p * frequency);
-            frequency *= 2.0;
-            amplitude *= 0.5;
-          }
-          
-          return value;
-        }
-        
-        void main() {
-          // Apply rotation to UV coordinates (subtract to match planet rotation direction)
-          // Clouds move slightly faster (1.05x) to simulate slow weather drift
-          float u = vUv.x - rotation * 1.05;
-          
-          // Map UV to sphere coordinates for seamless wrapping
-          // Convert u (0-1) to angle (0-2π) and use sin/cos for seamless tiling
-          float angle = u * 6.28318530718; // 2 * PI
-          float latitude = (vUv.y - 0.5) * 3.14159265359; // -π/2 to π/2
-          
-          // Create 3D position on a torus-like surface for seamless noise
-          // Add very slow time evolution to the sample position for changing patterns
-          vec3 samplePos = vec3(
-            cos(angle) * 2.0,
-            sin(angle) * 2.0,
-            latitude * 1.5
-          );
-          
-          // Add very slow temporal evolution (scaled way down for slow changes)
-          // This makes cloud patterns evolve over time - 10x slower
-          vec3 timeOffset = vec3(time * 0.000002, time * 0.0000015, time * 0.000001);
-          samplePos += timeOffset;
-          
-          // Add animated polar storm vortex effect
-          float polarDistance = abs(vUv.y - 0.5) * 2.0; // 0 at equator, 1 at poles
-          if (polarDistance > 0.75) {
-            // We're near a pole - add swirl effect with animation
-            float poleIntensity = smoothstep(0.75, 1.0, polarDistance);
-            
-            // Use noise to vary vortex strength organically
-            float vortexNoise = fbm(samplePos * 0.5) * 0.5 + 0.5;
-            // Scale vortex strength with cloud coverage (more clouds = more activity)
-            float vortexStrength = poleIntensity * vortexNoise * (0.5 + cloudCoverage * 0.5);
-            
-            // Add slow rotation animation (clockwise, slower at equator, faster at poles)
-            float animationSpeed = rotation * 0.3; // Use shader rotation uniform
-            float poleRotation = animationSpeed * poleIntensity;
-            
-            // Determine if we're at north or south pole for rotation direction
-            float poleSign = vUv.y > 0.5 ? -1.0 : 1.0; // Clockwise for both
-            
-            // Create soft rotational distortion with animation
-            float distFromCenter = length(vec2(u - 0.5, (vUv.y - (vUv.y > 0.5 ? 1.0 : 0.0)) * 2.0));
-            float vortexAngle = (distFromCenter * vortexStrength * 1.2) + (poleRotation * poleSign);
-            
-            // Apply rotation to sample position
-            float cosV = cos(vortexAngle);
-            float sinV = sin(vortexAngle);
-            vec3 rotatedPos = vec3(
-              samplePos.x * cosV - samplePos.y * sinV,
-              samplePos.x * sinV + samplePos.y * cosV,
-              samplePos.z
-            );
-            samplePos = mix(samplePos, rotatedPos, poleIntensity * 0.5);
-          }
-          
-          // Generate cloud pattern with multiple octaves
-          float cloudPattern = fbm(samplePos);
-          
-          // Add detail at different scale
-          float detailNoise = fbm(samplePos * 2.5) * 0.3;
-          cloudPattern = (cloudPattern + detailNoise) * 0.6;
-          
-          // Create subtle variation in cloud density by latitude (but allow clouds everywhere)
-          float latitudeFactor = abs(vUv.y - 0.5) * 2.0; // 0 at equator, 1 at poles
-          float latitudeDensity = 0.7 + sin(latitudeFactor * 3.14159) * 0.3; // Varies between 0.7 and 1.0
-          
-          // Adjust threshold based on cloud coverage parameter
-          // Lower coverage = higher threshold (less clouds), higher coverage = lower threshold (more clouds)
-          float coverageThreshold = mix(0.5, 0.2, cloudCoverage);
-          float coverageRange = mix(0.2, 0.3, cloudCoverage);
-          
-          // Threshold for cloud formation with smoother transitions
-          float cloudMask = smoothstep(coverageThreshold, coverageThreshold + coverageRange, cloudPattern) * latitudeDensity;
-          
-          // Soften cloud edges
-          cloudMask = smoothstep(0.1, 0.5, cloudMask);
-          
-          // Apply cloud coverage as density multiplier
-          cloudMask *= (0.5 + cloudCoverage * 0.5);
-          
-          // Cloud color - white with slight brightness variation
-          vec3 cloudColor = baseColor * (0.95 + cloudPattern * 0.1);
-          
-          // Make clouds semi-transparent with soft falloff
-          float alpha = cloudMask * 0.6;
-          
-          gl_FragColor = vec4(cloudColor, alpha);
-        }
-      `,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.NormalBlending,
-    });
+    return createCloudMaterialModule(baseColor, cloudCoverage, planetSeed);
   }
 
   /**

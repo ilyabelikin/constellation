@@ -16,6 +16,10 @@ import { TimeInterpolator } from "./TimeInterpolator.js";
 import { StarfieldGenerator } from "./StarfieldGenerator.js";
 import { GateTravelAnimator } from "./GateTravelAnimator.js";
 import { ConstellationView } from "./ConstellationView.js";
+import {
+  getOceanColorType,
+  getAtmosphereColor,
+} from "./materials/planetColorUtils";
 
 /**
  * Main scene manager that orchestrates all rendering components
@@ -1482,5 +1486,40 @@ export class SceneManager {
       planetMesh.material.uniforms.planetSeed.value = newSeed;
       console.log(`Updated planet ${planetId} seed to ${newSeed}`);
     }
+
+    // Update cloud layers and atmosphere if they exist
+    planetMesh.children.forEach((child) => {
+      if (
+        child instanceof THREE.Mesh &&
+        child.material instanceof THREE.ShaderMaterial
+      ) {
+        // Update cloud layers
+        if (child.material.uniforms.planetSeed) {
+          if (child.userData.cloudLayer === 1) {
+            // Lower cloud layer uses base seed
+            child.material.uniforms.planetSeed.value = newSeed;
+            console.log(`Updated cloud layer 1 seed to ${newSeed}`);
+          } else if (child.userData.cloudLayer === 2) {
+            // Upper cloud layer uses offset seed
+            child.material.uniforms.planetSeed.value = newSeed + 1000;
+            console.log(`Updated cloud layer 2 seed to ${newSeed + 1000}`);
+          }
+        }
+
+        // Update atmosphere color for terrestrial planets
+        if (
+          child.material.uniforms.atmosphereColor &&
+          planetMesh.material instanceof THREE.ShaderMaterial &&
+          planetMesh.material.uniforms.planetSeed
+        ) {
+          // Recalculate atmosphere color based on new seed using shared utility
+          const oceanType = getOceanColorType(newSeed);
+          const atmosphereColor = getAtmosphereColor(oceanType);
+
+          child.material.uniforms.atmosphereColor.value = atmosphereColor;
+          console.log(`Updated atmosphere color for seed ${newSeed}`);
+        }
+      }
+    });
   }
 }

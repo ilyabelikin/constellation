@@ -113,8 +113,16 @@ export class CelestialBodyFactory {
         32
       );
 
+      // Calculate planet seed for atmosphere sync
+      const planetSeed = planet.id
+        .split("")
+        .reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
+      const isTerrestrial = planet.surfaceType === "terrestrial";
+
       const atmosphereMaterial = this.materialFactory.createAtmosphereMaterial(
-        planet.color || 0x88ccff
+        planet.color || 0x88ccff,
+        planetSeed,
+        isTerrestrial
       );
 
       const atmosphereMesh = new THREE.Mesh(
@@ -133,7 +141,8 @@ export class CelestialBodyFactory {
       const cloudGeometry1 = new THREE.SphereGeometry(cloudRadius1, 48, 48);
       const cloudMaterial1 = this.materialFactory.createCloudMaterial(
         cloudColor1,
-        cloudCoverage
+        cloudCoverage,
+        planetSeed
       );
       const cloudMesh1 = new THREE.Mesh(cloudGeometry1, cloudMaterial1);
       cloudMesh1.userData.cloudLayer = 1;
@@ -145,7 +154,8 @@ export class CelestialBodyFactory {
       const cloudGeometry2 = new THREE.SphereGeometry(cloudRadius2, 48, 48);
       const cloudMaterial2 = this.materialFactory.createCloudMaterial(
         cloudColor2,
-        cloudCoverage * 0.6 // Upper layer has 60% of base coverage
+        cloudCoverage * 0.6, // Upper layer has 60% of base coverage
+        planetSeed + 1000 // Slightly different seed for upper layer
       );
       const cloudMesh2 = new THREE.Mesh(cloudGeometry2, cloudMaterial2);
       cloudMesh2.userData.cloudLayer = 2;
