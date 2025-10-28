@@ -1064,6 +1064,53 @@ export class MaterialFactory {
             float craterSizeSeed = seededRandom(planetSeed * 1.5);
             float craterDensitySeed = seededRandom(planetSeed * 2.3);
             
+            // Seed-based color variety for rocky planets
+            // Range from dark gray to light gray, yellowish, and brownish tones
+            float colorTypeSeed = seededRandom(planetSeed * 3.7);
+            float brightnessSeed = seededRandom(planetSeed * 4.1);
+            float hueSeed = seededRandom(planetSeed * 5.3);
+            
+            // Base brightness: 0.25 (dark) to 0.6 (light)
+            float baseBrightness = 0.25 + brightnessSeed * 0.35;
+            
+            // Determine color type based on seed
+            if(colorTypeSeed < 0.25) {
+              // Pure gray rocks (20% of planets) - varied brightness
+              float grayValue = baseBrightness;
+              colorModulation = vec3(
+                grayValue,
+                grayValue * 0.98,  // Slight variation
+                grayValue * 0.96   // Subtle blue-gray or warm tint
+              );
+            }
+            else if(colorTypeSeed < 0.5) {
+              // Brownish rocks (25% of planets) - like Mars or rust
+              float brownBase = baseBrightness;
+              colorModulation = vec3(
+                brownBase * (1.0 + hueSeed * 0.3),      // More red
+                brownBase * (0.7 + hueSeed * 0.2),      // Medium green
+                brownBase * (0.5 + hueSeed * 0.15)      // Less blue
+              );
+            }
+            else if(colorTypeSeed < 0.75) {
+              // Yellowish/tan rocks (25% of planets) - like desert stone
+              float yellowBase = baseBrightness * 1.1; // Slightly brighter
+              colorModulation = vec3(
+                yellowBase * (1.0 + hueSeed * 0.2),     // High red
+                yellowBase * (0.95 + hueSeed * 0.15),   // High green (makes yellow)
+                yellowBase * (0.6 + hueSeed * 0.2)      // Less blue
+              );
+            }
+            else {
+              // Dark charcoal/basalt (30% of planets) - volcanic appearance
+              float darkBase = baseBrightness * 0.7; // Darker multiplier
+              colorModulation = vec3(
+                darkBase * (1.0 + hueSeed * 0.15),      // Slightly varied
+                darkBase * (0.95 + hueSeed * 0.1),      // Similar to red
+                darkBase * (0.9 + hueSeed * 0.1)        // Slightly cooler
+              );
+            }
+            
             // Vary crater scale (1.5 to 4.5 range) - lower scale = larger craters
             float craterScaleMultiplier = 1.5 + craterSizeSeed * 3.0;
             
@@ -1090,8 +1137,9 @@ export class MaterialFactory {
               intensity *= ao; // Multiply to darken
               intensity -= shadowDepth * 0.2; // Additional darkening
               
-              // Add slight color darkening in deep craters (cooler/darker tone)
-              colorModulation *= vec3(0.9, 0.9, 0.95);
+              // Darken and slightly cool the color in crater bowls
+              // Preserve the base color hue while making it darker
+              colorModulation *= vec3(0.85, 0.85, 0.9);
             }
             
             // Brighter highlights on crater rims with enhanced contrast
@@ -1099,8 +1147,10 @@ export class MaterialFactory {
               float rimBrightness = totalCraters * 3.0;
               intensity += rimBrightness * 0.25; // Brighten crater rims more
               
-              // Add slight warming to rim highlights (sun-facing edges)
-              colorModulation *= vec3(1.05, 1.03, 1.0);
+              // Add warming to rim highlights (sun-facing edges)
+              // More subtle for gray planets, more pronounced for colored ones
+              float warmth = 1.0 + (colorTypeSeed * 0.08);
+              colorModulation *= vec3(1.0 + warmth * 0.05, 1.0 + warmth * 0.03, 1.0);
             }
           }
           // Icy planets with thin branching crack networks
