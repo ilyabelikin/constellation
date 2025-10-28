@@ -409,13 +409,20 @@ export function createTerrestrialPlanetMaterial(
             // Smooth falloff from equator to 60° latitude
             float latitudeFactor = 1.0 - smoothstep(0.0, 0.6, latitude); // 1.0 at equator, 0.0 at 60°
           
+          // Create seed-based offset that's consistent but small
+          vec3 seedOffset = vec3(
+            fract(planetSeed * 0.1031),
+            fract(planetSeed * 0.1030),
+            fract(planetSeed * 0.0973)
+          ) * 100.0; // Small varied offset (0-100 range)
+          
           // Step 1: Create large metropolitan clusters (where big cities form)
-          vec3 metroPos = samplePos * 2.0;
+          vec3 metroPos = samplePos * 2.0 + seedOffset * 0.5;
           float metroNoise = turbulence3D(metroPos, 3);
           float metroCluster = smoothstep(0.5, 0.7, metroNoise); // Only some regions are urban centers
           
           // Step 2: Create mid-scale population density (suburbs, towns)
-          vec3 popPos = samplePos * 5.0;
+          vec3 popPos = samplePos * 5.0 + seedOffset * 0.7;
           float popNoise = turbulence3D(popPos, 4);
           float popDensity = smoothstep(0.4, 0.6, popNoise);
           
@@ -425,14 +432,14 @@ export function createTerrestrialPlanetMaterial(
           
           // Step 3: Chaotic light placement using multi-scale noise
           // Use multiple scales of noise to break up patterns
-          vec3 chaosPos1 = samplePos * 18.0;
-          vec3 chaosPos2 = samplePos * 23.0;
-          vec3 chaosPos3 = samplePos * 31.0; // Prime numbers to avoid resonance
+          vec3 chaosPos1 = samplePos * 18.0 + seedOffset;
+          vec3 chaosPos2 = samplePos * 23.0 + seedOffset * 1.3;
+          vec3 chaosPos3 = samplePos * 31.0 + seedOffset * 1.7; // Prime numbers to avoid resonance
           
           // Multiple noise layers for each position
-          float noise1 = turbulence3D(chaosPos1 + vec3(planetSeed * 3.14), 3);
-          float noise2 = turbulence3D(chaosPos2 + vec3(planetSeed * 6.28), 4);
-          float noise3 = turbulence3D(chaosPos3 + vec3(planetSeed * 9.42), 2);
+          float noise1 = turbulence3D(chaosPos1, 3);
+          float noise2 = turbulence3D(chaosPos2, 4);
+          float noise3 = turbulence3D(chaosPos3, 2);
           
           // Combine noises to create highly irregular light field
           float lightField = noise1 * 0.5 + noise2 * 0.3 + noise3 * 0.2;
@@ -446,7 +453,7 @@ export function createTerrestrialPlanetMaterial(
           float hasLight = smoothstep(threshold - 0.1, threshold + 0.1, lightField);
           
           // Brightness varies with noise intensity
-          float brightnessNoise = turbulence3D(samplePos * 27.0 + vec3(planetSeed * 4.71), 3);
+          float brightnessNoise = turbulence3D(samplePos * 27.0 + seedOffset * 2.1, 3);
           float brightness = brightnessNoise * brightnessNoise * hasLight; // Squared for variety
           
           // Metro centers are brighter
