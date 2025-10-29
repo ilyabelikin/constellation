@@ -204,6 +204,12 @@ export interface ConstellationNode {
   systemName: string;
   starColor: string;
   position: Vector3; // Position in galaxy (light years)
+  starType: string; // e.g., "G-type Main Sequence"
+  starMass: number; // In solar masses
+  planetCount: number; // Number of planets in the system
+  exploredGates: number; // Number of explored gates
+  totalGates: number; // Total number of gates
+  jumpsFromHome: number; // Number of gate jumps from home system
 }
 
 export interface ConstellationConnection {

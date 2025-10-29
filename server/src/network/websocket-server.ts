@@ -720,6 +720,57 @@ export class ConstellationWebSocketServer {
     );
   }
 
+  /**
+   * Calculate jumps from home system to all other systems using BFS
+   */
+  private calculateJumpsFromHome(
+    homeSystemId: string,
+    exploredConnections: Array<{
+      fromSystemId: string;
+      toSystemId: string;
+      isExplored: boolean;
+    }>
+  ): Map<string, number> {
+    const jumps = new Map<string, number>();
+    const queue: Array<{ systemId: string; distance: number }> = [];
+    const visited = new Set<string>();
+
+    // Start from home
+    queue.push({ systemId: homeSystemId, distance: 0 });
+    visited.add(homeSystemId);
+    jumps.set(homeSystemId, 0);
+
+    // Build adjacency list from explored connections
+    const adjacency = new Map<string, string[]>();
+    for (const conn of exploredConnections) {
+      if (!adjacency.has(conn.fromSystemId)) {
+        adjacency.set(conn.fromSystemId, []);
+      }
+      if (!adjacency.has(conn.toSystemId)) {
+        adjacency.set(conn.toSystemId, []);
+      }
+      adjacency.get(conn.fromSystemId)!.push(conn.toSystemId);
+      adjacency.get(conn.toSystemId)!.push(conn.fromSystemId);
+    }
+
+    // BFS
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const neighbors = adjacency.get(current.systemId) || [];
+
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          const newDistance = current.distance + 1;
+          jumps.set(neighbor, newDistance);
+          queue.push({ systemId: neighbor, distance: newDistance });
+        }
+      }
+    }
+
+    return jumps;
+  }
+
   private handleRequestConstellation(client: ClientConnection): void {
     if (!client.playerId || !client.currentSystemId) {
       this.sendError(client.ws, "Not authenticated or no current system");
@@ -731,13 +782,41 @@ export class ConstellationWebSocketServer {
       client.currentSystemId
     );
 
+    // Get player's explored gates for counting
+    const exploredGateIds = new Set(this.db.getExploredGates(client.playerId));
+
+    // Get player's home system
+    const player = this.db.getPlayerById(client.playerId);
+    const homeSystemId = player?.homeSystemId || client.currentSystemId;
+
+    // Calculate jumps from home using BFS on explored connections
+    const jumpsFromHome = this.calculateJumpsFromHome(
+      homeSystemId,
+      constellationData.connections.filter((c) => c.isExplored)
+    );
+
     // Transform systems into constellation nodes
-    const nodes = constellationData.systems.map((system) => ({
-      systemId: system.id,
-      systemName: system.star.name,
-      starColor: system.star.color || "#ffffff",
-      position: system.position,
-    }));
+    const nodes = constellationData.systems.map((system) => {
+      // Count explored and total gates for this system
+      const systemGates = system.gates || [];
+      const exploredGates = systemGates.filter((gate) =>
+        exploredGateIds.has(gate.id)
+      ).length;
+      const totalGates = systemGates.length;
+
+      return {
+        systemId: system.id,
+        systemName: system.star.name,
+        starColor: system.star.color || "#ffffff",
+        position: system.position,
+        starType: system.star.starType || "Unknown",
+        starMass: system.star.mass,
+        planetCount: system.planets.length,
+        exploredGates,
+        totalGates,
+        jumpsFromHome: jumpsFromHome.get(system.id) ?? -1, // -1 if unreachable
+      };
+    });
 
     // Debug logging
     const exploredConnections = constellationData.connections.filter(

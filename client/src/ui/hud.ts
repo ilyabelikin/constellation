@@ -8,6 +8,7 @@ import {
 import { BodyDetailView } from "./BodyDetailView.js";
 import { GateDetailView } from "./GateDetailView.js";
 import { ShipDetailView } from "./ShipDetailView.js";
+import { ConstellationSystemDetailView } from "./ConstellationSystemDetailView.js";
 
 export class HUDManager {
   private player: Player | null = null;
@@ -19,6 +20,7 @@ export class HUDManager {
   private bodyDetailView: BodyDetailView;
   private gateDetailView: GateDetailView;
   private shipDetailView: ShipDetailView;
+  private constellationSystemDetailView: ConstellationSystemDetailView;
 
   // HUD elements
   private authModal: HTMLElement;
@@ -91,6 +93,7 @@ export class HUDManager {
     this.bodyDetailView = new BodyDetailView();
     this.gateDetailView = new GateDetailView();
     this.shipDetailView = new ShipDetailView();
+    this.constellationSystemDetailView = new ConstellationSystemDetailView();
 
     // Create event handler references
     this.exploreGalaxyHandler = () => {
@@ -376,6 +379,7 @@ export class HUDManager {
     this.bodyDetailView.hide();
     this.gateDetailView.hide();
     this.shipDetailView.hide();
+    this.constellationSystemDetailView.hide();
   }
 
   private populateSystemOutline(): void {
@@ -665,17 +669,11 @@ export class HUDManager {
    * Show constellation system details (when a system is selected in constellation view)
    */
   showConstellationSystemDetails(node: ConstellationNode): void {
-    // Calculate distance from origin (in light years)
-    const distance = Math.sqrt(
-      node.position.x * node.position.x +
-        node.position.y * node.position.y +
-        node.position.z * node.position.z
-    );
-
-    // Show system info in body detail view
-    this.bodyDetailView.showConstellationSystem(node.systemName, distance);
+    // Show system info in constellation system detail view
+    this.constellationSystemDetailView.show(node);
 
     // Hide other detail views
+    this.bodyDetailView.hide();
     this.gateDetailView.hide();
     this.shipDetailView.hide();
   }

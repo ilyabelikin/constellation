@@ -318,16 +318,37 @@ export class BodyDetailView {
   /**
    * Show constellation system info (simplified view for constellation mode)
    */
-  showConstellationSystem(systemName: string, distance: number): void {
+  showConstellationSystem(
+    systemName: string,
+    distance: number,
+    starType: string,
+    starMass: number,
+    planetCount: number,
+    exploredGates: number,
+    totalGates: number
+  ): void {
     this.panel.classList.remove("hidden");
-    
+
     this.nameElement.textContent = systemName;
-    this.typeElement.textContent = "Star System";
+    this.typeElement.textContent = starType;
     this.distanceElement.textContent = `${distance.toFixed(2)} light years`;
-    this.massElement.textContent = "-";
-    this.radiusElement.textContent = "-";
-    this.velocityElement.textContent = "-";
-    
+
+    // Show star mass relative to home planet's star (assuming sun-like)
+    if (this.homePlanetMass > 0) {
+      const relativeMass = starMass / 1.0; // Star mass is in solar masses
+      this.massElement.textContent = `${starMass.toFixed(2)} solar masses`;
+    } else {
+      this.massElement.textContent = `${starMass.toFixed(2)} solar masses`;
+    }
+
+    // Show planet count
+    this.radiusElement.textContent = `${planetCount} planet${
+      planetCount !== 1 ? "s" : ""
+    }`;
+
+    // Show gate count
+    this.velocityElement.textContent = `Gates: ${exploredGates}/${totalGates}`;
+
     // Hide optional fields
     if (this.lifeElement) {
       this.lifeElement.style.display = "none";
