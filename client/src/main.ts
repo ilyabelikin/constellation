@@ -248,6 +248,11 @@ class ConstellationClient {
         this.isExploringFromConstellation = false;
       }
     };
+
+    this.network.onSearchResults = (results) => {
+      console.log("Search results received:", results.length, "results");
+      this.hud.displaySearchResults(results);
+    };
   }
 
   private setupHUDHandlers(): void {
@@ -375,6 +380,33 @@ class ConstellationClient {
       this.scene.centerOnObject(objectId);
       this.hud.updateObjectDetails(objectId);
     };
+
+    this.hud.onSearch = (query: string) => {
+      this.network.searchObjects(query);
+    };
+
+    this.hud.onSearchResultClick = (systemId: string, objectId: string) => {
+      // Check if we need to switch systems
+      if (this.player && systemId !== this.player.currentSystemId) {
+        // Store object to focus on after system loads
+        this.pendingFocusObjectId = objectId;
+
+        // Exit constellation view if active
+        if (this.scene.isInConstellationView()) {
+          this.scene.hideConstellationView();
+          if (this.system) {
+            this.hud.setSystem(this.system);
+          }
+        }
+
+        // Request the new system
+        this.network.requestSystemState(systemId);
+      } else {
+        // Same system, just focus on the object
+        this.scene.centerOnObject(objectId);
+        this.hud.updateObjectDetails(objectId);
+      }
+    };
   }
 
   private setupSceneHandlers(): void {
@@ -432,8 +464,20 @@ class ConstellationClient {
 
   private setupKeyboardHandlers(): void {
     this.keyboardHandler = (event: KeyboardEvent) => {
+      // Don't handle keyboard shortcuts if typing in an input field
+      const target = event.target as HTMLElement;
+      const isInputField =
+        target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+
+      // 'F' key to open search modal
+      if (event.key === "f" && !isInputField) {
+        event.preventDefault();
+        this.hud.openSearchModal();
+        return;
+      }
+
       // Spacebar to toggle pause/play
-      if (event.code === "Space") {
+      if (event.code === "Space" && !isInputField) {
         event.preventDefault(); // Prevent page scroll
         if (this.isPaused) {
           this.network.resumeTime();

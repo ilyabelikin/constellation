@@ -10,6 +10,7 @@ import {
   WEBSOCKET_PORT,
   STATE_UPDATE_RATE,
   ASTRONOMICAL_UNIT,
+  SearchResult,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -114,6 +115,9 @@ export class ConstellationWebSocketServer {
           break;
         case "saveConstellationPositions":
           this.handleSaveConstellationPositions(client, message.positions);
+          break;
+        case "searchObjects":
+          this.handleSearchObjects(client, message.query);
           break;
       }
     } catch (error) {
@@ -855,6 +859,117 @@ export class ConstellationWebSocketServer {
 
     this.db.saveConstellationPositions(client.playerId, positions);
     console.log(`Saved constellation positions for player ${client.playerId}`);
+  }
+
+  private handleSearchObjects(client: ClientConnection, query: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    const results: SearchResult[] = [];
+    const searchTerm = query.toLowerCase().trim();
+
+    if (!searchTerm) {
+      this.send(client.ws, { type: "searchResults", results: [] });
+      return;
+    }
+
+    // Get all explored systems for this player
+    const exploredSystemIds = new Set<string>();
+    exploredSystemIds.add(player.homeSystemId); // Always include home system
+
+    // Get systems connected through explored gates
+    const exploredGateIds = new Set(player.exploredGateIds);
+
+    // Get all systems in the galaxy and check their gates
+    const allSystems = this.db.getSystemsByGalaxy(player.galaxyId);
+    for (const system of allSystems) {
+      const systemGates = this.db.getGatesBySystem(system.id);
+      for (const gate of systemGates) {
+        if (exploredGateIds.has(gate.id)) {
+          exploredSystemIds.add(gate.systemId);
+          exploredSystemIds.add(gate.destinationSystemId);
+        }
+      }
+    }
+
+    // Search through all explored systems
+    for (const systemId of exploredSystemIds) {
+      const system = this.db.getStarSystem(systemId);
+      if (!system) continue;
+
+      // Search star
+      if (system.star.name.toLowerCase().includes(searchTerm)) {
+        results.push({
+          objectId: system.star.id,
+          objectName: system.star.name,
+          objectType: system.star.starType || "Star",
+          systemId: system.id,
+          systemName: system.star.name,
+          starName: system.star.name,
+        });
+      }
+
+      // Search planets
+      for (const planet of system.planets) {
+        if (
+          planet.name.toLowerCase().includes(searchTerm) ||
+          planet.planetType?.toLowerCase().includes(searchTerm)
+        ) {
+          results.push({
+            objectId: planet.id,
+            objectName: planet.name,
+            objectType: planet.planetType || "Planet",
+            systemId: system.id,
+            systemName: system.star.name,
+            starName: system.star.name,
+          });
+        }
+      }
+
+      // Search moons
+      for (const moon of system.moons) {
+        if (moon.name.toLowerCase().includes(searchTerm)) {
+          results.push({
+            objectId: moon.id,
+            objectName: moon.name,
+            objectType: "Moon",
+            systemId: system.id,
+            systemName: system.star.name,
+            starName: system.star.name,
+          });
+        }
+      }
+
+      // Search asteroids
+      for (const belt of system.asteroidBelts) {
+        for (const asteroid of belt.asteroids) {
+          if (asteroid.name.toLowerCase().includes(searchTerm)) {
+            results.push({
+              objectId: asteroid.id,
+              objectName: asteroid.name,
+              objectType: "Asteroid",
+              systemId: system.id,
+              systemName: system.star.name,
+              starName: system.star.name,
+            });
+          }
+        }
+      }
+    }
+
+    console.log(
+      `Search for "${query}" returned ${results.length} results across ${exploredSystemIds.size} explored systems`
+    );
+
+    this.send(client.ws, { type: "searchResults", results });
   }
 
   private handleDisconnect(ws: WebSocket): void {

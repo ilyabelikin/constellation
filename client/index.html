@@ -262,6 +262,131 @@
             color: #f00;
             margin: 10px 0;
         }
+
+        /* Search Modal */
+        #search-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 200;
+            display: none; /* Hidden by default */
+            align-items: center;
+            justify-content: center;
+        }
+
+        #search-modal:not(.hidden) {
+            display: flex; /* Show as flex when not hidden */
+        }
+
+        #search-modal-content {
+            background: var(--primary-color-dark);
+            border: 2px solid var(--primary-color);
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 500px;
+            max-width: 700px;
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #search-modal-content h3 {
+            margin: 0 0 15px 0;
+            color: var(--primary-color);
+            font-size: 16px;
+        }
+
+        #search-input {
+            width: 100%;
+            padding: 10px;
+            background: var(--primary-color-darkest);
+            border: 1px solid var(--primary-color);
+            border-radius: 4px;
+            color: var(--primary-color);
+            font-family: inherit;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        #search-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 5px var(--primary-color);
+        }
+
+        #search-results {
+            flex: 1;
+            overflow-y: auto;
+            max-height: 400px;
+            margin-bottom: 10px;
+        }
+
+        .search-result-item {
+            padding: 10px;
+            margin: 5px 0;
+            background: var(--primary-color-darker);
+            border: 1px solid transparent;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .search-result-item:hover {
+            background: var(--primary-color-hover-solid);
+            border-color: var(--primary-color);
+        }
+
+        .search-result-name {
+            color: var(--primary-color);
+            font-weight: bold;
+            margin-bottom: 3px;
+        }
+
+        .search-result-details {
+            color: var(--primary-color-dim);
+            font-size: 11px;
+        }
+
+        #search-help {
+            color: var(--primary-color-dim);
+            font-size: 11px;
+            text-align: center;
+        }
+
+        #search-results::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #search-results::-webkit-scrollbar-track {
+            background: var(--primary-color-scrollbar-track);
+        }
+
+        #search-results::-webkit-scrollbar-thumb {
+            background: var(--primary-color);
+            border-radius: 4px;
+        }
+
+        #search-results::-webkit-scrollbar-thumb:hover {
+            background: var(--primary-color-dim);
+        }
+
+        #search-button {
+            padding: 5px 8px;
+            display: none; /* Hidden by default, shown when game starts */
+            align-items: center;
+            justify-content: center;
+        }
+
+        #search-button.visible {
+            display: flex;
+        }
+
+        #search-button svg {
+            display: block;
+        }
     </style>
 </head>
 <body class="no-theme-transition">
@@ -291,6 +416,12 @@
         <div>Time: <span id="time-display">0d 0h</span></div>
         <div>Scale: <span id="time-scale">1000x</span></div>
         <button class="hud-button" id="time-toggle">Pause</button>
+        <button class="hud-button" id="search-button" title="Search (F)">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <circle cx="6.5" cy="6.5" r="5" stroke="currentColor" stroke-width="1.5" fill="none"/>
+                <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+        </button>
     </div>
 
     <!-- Bottom Left Details Panel - Celestial Bodies -->
@@ -399,6 +530,16 @@
     <!-- Bottom Right System Outline -->
     <div class="hud hud-bottom-right hidden" id="system-outline">
         <div id="outline-list"></div>
+    </div>
+
+    <!-- Search Modal -->
+    <div id="search-modal" class="hidden">
+        <div id="search-modal-content">
+            <h3>Search Objects</h3>
+            <input type="text" id="search-input" placeholder="Search for stars, planets, asteroids..." />
+            <div id="search-results"></div>
+            <div id="search-help">Press Esc to close</div>
+        </div>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

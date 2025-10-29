@@ -26,7 +26,8 @@ export type ClientMessage =
   | {
       type: "saveConstellationPositions";
       positions: Record<string, { x: number; y: number; z: number }>;
-    };
+    }
+  | { type: "searchObjects"; query: string };
 
 export interface ShipManeuverCommand {
   shipId: string;
@@ -70,7 +71,20 @@ export type ServerMessage =
       unexploredGates: UnexploredGate[];
       currentSystemId: string;
       customPositions: Record<string, { x: number; y: number; z: number }>;
+    }
+  | {
+      type: "searchResults";
+      results: SearchResult[];
     };
+
+export interface SearchResult {
+  objectId: string;
+  objectName: string;
+  objectType: string;
+  systemId: string;
+  systemName: string;
+  starName: string;
+}
 
 // Helper to serialize/deserialize messages
 export function serializeMessage(msg: ClientMessage | ServerMessage): string {

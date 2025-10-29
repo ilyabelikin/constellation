@@ -10,6 +10,7 @@ import {
   ConstellationNode,
   ConstellationConnection,
   UnexploredGate,
+  SearchResult,
 } from "@constellation/shared";
 
 export class NetworkClient {
@@ -52,6 +53,7 @@ export class NetworkClient {
         customPositions: Record<string, { x: number; y: number; z: number }>
       ) => void)
     | null = null;
+  public onSearchResults: ((results: SearchResult[]) => void) | null = null;
 
   constructor() {
     // Load UUID from localStorage
@@ -200,6 +202,12 @@ export class NetworkClient {
             );
           }
           break;
+
+        case "searchResults":
+          if (this.onSearchResults) {
+            this.onSearchResults(message.results);
+          }
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -264,6 +272,10 @@ export class NetworkClient {
     positions: Record<string, { x: number; y: number; z: number }>
   ): void {
     this.send({ type: "saveConstellationPositions", positions });
+  }
+
+  searchObjects(query: string): void {
+    this.send({ type: "searchObjects", query });
   }
 
   /**

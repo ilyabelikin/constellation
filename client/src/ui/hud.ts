@@ -4,6 +4,7 @@ import {
   SystemState,
   Ship,
   ConstellationNode,
+  SearchResult,
 } from "@constellation/shared";
 import { BodyDetailView } from "./BodyDetailView.js";
 import { GateDetailView } from "./GateDetailView.js";
@@ -43,6 +44,12 @@ export class HUDManager {
   private systemOutline: HTMLElement;
   private outlineList: HTMLElement;
 
+  // Search modal elements
+  private searchModal: HTMLElement;
+  private searchButton: HTMLElement;
+  private searchInput: HTMLInputElement;
+  private searchResults: HTMLElement;
+
   private isPaused = false;
 
   // Event handler references for cleanup
@@ -52,6 +59,9 @@ export class HUDManager {
   private navSystemHandler: () => void;
   private navConstellationHandler: () => void;
   private timeToggleHandler: () => void;
+  private searchButtonHandler: () => void;
+  private searchInputHandler: (e: Event) => void;
+  private searchKeydownHandler: (e: KeyboardEvent) => void;
 
   // Callbacks
   public onExploreGalaxy: ((name: string) => void) | null = null;
@@ -61,6 +71,10 @@ export class HUDManager {
   public onNavigateConstellation: (() => void) | null = null;
   public onTimeToggle: (() => void) | null = null;
   public onSelectObject: ((objectId: string) => void) | null = null;
+  public onSearch: ((query: string) => void) | null = null;
+  public onSearchResultClick:
+    | ((systemId: string, objectId: string) => void)
+    | null = null;
 
   constructor() {
     // Auth modal
@@ -88,6 +102,14 @@ export class HUDManager {
     // System outline
     this.systemOutline = document.getElementById("system-outline")!;
     this.outlineList = document.getElementById("outline-list")!;
+
+    // Search modal
+    this.searchModal = document.getElementById("search-modal")!;
+    this.searchButton = document.getElementById("search-button")!;
+    this.searchInput = document.getElementById(
+      "search-input"
+    ) as HTMLInputElement;
+    this.searchResults = document.getElementById("search-results")!;
 
     // Initialize detail views
     this.bodyDetailView = new BodyDetailView();
@@ -134,6 +156,26 @@ export class HUDManager {
       }
     };
 
+    this.searchButtonHandler = () => {
+      this.openSearchModal();
+    };
+
+    this.searchInputHandler = (e: Event) => {
+      const query = (e.target as HTMLInputElement).value.trim();
+      if (query && this.onSearch) {
+        this.onSearch(query);
+      } else if (!query) {
+        // Clear results if query is empty
+        this.searchResults.innerHTML = "";
+      }
+    };
+
+    this.searchKeydownHandler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        this.closeSearchModal();
+      }
+    };
+
     this.setupEventListeners();
   }
 
@@ -150,6 +192,16 @@ export class HUDManager {
       this.navConstellationHandler
     );
     this.timeToggleButton.addEventListener("click", this.timeToggleHandler);
+    this.searchButton.addEventListener("click", this.searchButtonHandler);
+    this.searchInput.addEventListener("input", this.searchInputHandler);
+    this.searchModal.addEventListener("keydown", this.searchKeydownHandler);
+
+    // Close search modal when clicking outside content
+    this.searchModal.addEventListener("click", (e) => {
+      if (e.target === this.searchModal) {
+        this.closeSearchModal();
+      }
+    });
   }
 
   hideAuthModal(): void {
@@ -161,11 +213,13 @@ export class HUDManager {
   showGameHUD(): void {
     this.navSection.classList.add("visible");
     this.timeSection.classList.add("visible");
+    this.searchButton.classList.add("visible");
   }
 
   hideGameHUD(): void {
     this.navSection.classList.remove("visible");
     this.timeSection.classList.remove("visible");
+    this.searchButton.classList.remove("visible");
   }
 
   updateGalaxyTime(
@@ -676,6 +730,61 @@ export class HUDManager {
     this.bodyDetailView.hide();
     this.gateDetailView.hide();
     this.shipDetailView.hide();
+  }
+
+  /**
+   * Open the search modal
+   */
+  openSearchModal(): void {
+    this.searchModal.classList.remove("hidden");
+    this.searchInput.value = "";
+    this.searchResults.innerHTML = "";
+    this.searchInput.focus();
+  }
+
+  /**
+   * Close the search modal
+   */
+  closeSearchModal(): void {
+    this.searchModal.classList.add("hidden");
+  }
+
+  /**
+   * Display search results
+   */
+  displaySearchResults(results: SearchResult[]): void {
+    this.searchResults.innerHTML = "";
+
+    if (results.length === 0) {
+      this.searchResults.innerHTML =
+        '<div style="color: var(--primary-color-dim); text-align: center; padding: 20px;">No results found</div>';
+      return;
+    }
+
+    results.forEach((result) => {
+      const item = document.createElement("div");
+      item.className = "search-result-item";
+
+      const name = document.createElement("div");
+      name.className = "search-result-name";
+      name.textContent = result.objectName;
+
+      const details = document.createElement("div");
+      details.className = "search-result-details";
+      details.textContent = `${result.starName} - ${result.objectType}`;
+
+      item.appendChild(name);
+      item.appendChild(details);
+
+      item.addEventListener("click", () => {
+        if (this.onSearchResultClick) {
+          this.onSearchResultClick(result.systemId, result.objectId);
+        }
+        this.closeSearchModal();
+      });
+
+      this.searchResults.appendChild(item);
+    });
   }
 
   /**
