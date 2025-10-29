@@ -4,6 +4,7 @@ import {
   generatePlanetName,
   generateStarName,
   generateMoonName,
+  generateAsteroidName,
 } from "./name-generator.js";
 import {
   CelestialBodyType,
@@ -311,7 +312,8 @@ export function generatePlanet(
   starMass: number,
   starLuminosity: number,
   index: number,
-  totalPlanets: number
+  totalPlanets: number,
+  galaxyId: string
 ): CelestialBodyType {
   // Load planet types from configuration
   const types = planetTypesConfig.planetTypes;
@@ -407,8 +409,8 @@ export function generatePlanet(
   // Generate cloud coverage for planets with atmosphere (0.3 to 0.9)
   const cloudCoverage = hasAtmosphere ? rng.nextFloat(0.3, 0.9) : undefined;
 
-  // Generate procedural name
-  const planetName = generatePlanetName(rng);
+  // Generate procedural name (galaxyId will be passed from caller)
+  const planetName = generatePlanetName(rng, galaxyId);
 
   // Calculate habitability based on distance from star, planet type, and atmosphere
   const distanceAU = semiMajorAxis / ASTRONOMICAL_UNIT;
@@ -512,11 +514,12 @@ function generateMoon(
   planetRadius: number,
   index: number,
   totalMoons: number,
+  galaxyId: string,
   isSuperMoon: boolean = false,
   planetRings?: PlanetaryRing[]
 ): CelestialBodyType {
   // Generate unique moon name
-  const name = generateMoonName(rng);
+  const name = generateMoonName(rng, galaxyId);
 
   const massRatio = planetMass / EARTH_MASS;
 
@@ -741,10 +744,12 @@ function generateAsteroid(
   rng: SeededRandom,
   starId: string,
   beltId: string,
+  beltName: string,
   beltInnerRadius: number,
   beltOuterRadius: number,
   beltInclination: number,
-  index: number
+  index: number,
+  galaxyId: string
 ): CelestialBodyType {
   // Generate orbital position within belt
   const semiMajorAxis = rng.nextFloat(beltInnerRadius, beltOuterRadius);
@@ -800,7 +805,7 @@ function generateAsteroid(
 
   return {
     id: uuidv4(),
-    name: `Asteroid ${index + 1}`,
+    name: generateAsteroidName(rng, galaxyId, beltName, index),
     type: "asteroid",
     mass,
     radius,
@@ -819,7 +824,8 @@ function generateAsteroidBelt(
   starId: string,
   beltIndex: number,
   innerRadius: number,
-  outerRadius: number
+  outerRadius: number,
+  galaxyId: string
 ): AsteroidBelt {
   const beltId = uuidv4();
 
@@ -845,10 +851,12 @@ function generateAsteroidBelt(
       rng,
       starId,
       beltId,
+      name,
       innerRadius,
       outerRadius,
       Math.abs(inclination),
-      i
+      i,
+      galaxyId
     );
     asteroids.push(asteroid);
   }
@@ -865,7 +873,10 @@ function generateAsteroidBelt(
   };
 }
 
-export function generateStarSystem(seed: number): {
+export function generateStarSystem(
+  seed: number,
+  galaxyId: string
+): {
   star: CelestialBodyType;
   planets: CelestialBodyType[];
   moons: CelestialBodyType[];
@@ -883,7 +894,8 @@ export function generateStarSystem(seed: number): {
       star.mass,
       star.luminosity || 1.0,
       i,
-      numPlanets
+      numPlanets,
+      galaxyId
     );
     planet.parentId = star.id;
     planets.push(planet);
@@ -939,6 +951,7 @@ export function generateStarSystem(seed: number): {
           planet.radius,
           i,
           numMoons,
+          galaxyId,
           isSuperMoon,
           planet.rings // Pass ring information for potential alignment
         );
@@ -990,7 +1003,8 @@ export function generateStarSystem(seed: number): {
       star.id,
       i,
       innerRadius,
-      outerRadius
+      outerRadius,
+      galaxyId
     );
     asteroidBelts.push(belt);
   }

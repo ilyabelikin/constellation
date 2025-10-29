@@ -71,6 +71,9 @@ export class SceneManager {
     | null = null;
   public onConstellationGateSelected: ((gateId: string) => void) | null = null;
 
+  // Callback to check if keyboard input should be blocked (e.g., modal is open)
+  public shouldBlockKeyboardInput: (() => boolean) | null = null;
+
   // Gate travel state
   private entryGateId: string | null = null;
   private exitGateId: string | null = null;
@@ -766,6 +769,11 @@ export class SceneManager {
   }
 
   private onKeyDown(event: KeyboardEvent): void {
+    // Check if keyboard input should be blocked (e.g., modal is open)
+    if (this.shouldBlockKeyboardInput && this.shouldBlockKeyboardInput()) {
+      return;
+    }
+
     // Track keyboard state for constellation view navigation
     if (this.isConstellationViewActive) {
       const key = event.key.toLowerCase();
@@ -777,6 +785,11 @@ export class SceneManager {
   }
 
   private onKeyUp(event: KeyboardEvent): void {
+    // Check if keyboard input should be blocked (e.g., modal is open)
+    if (this.shouldBlockKeyboardInput && this.shouldBlockKeyboardInput()) {
+      return;
+    }
+
     const key = event.key.toLowerCase();
     this.keyboardState[key] = false;
   }

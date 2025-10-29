@@ -171,6 +171,9 @@ export class HUDManager {
     };
 
     this.searchKeydownHandler = (e: KeyboardEvent) => {
+      // Stop all keyboard events from bubbling up when search modal is open
+      e.stopPropagation();
+
       if (e.key === "Escape") {
         this.closeSearchModal();
       }
@@ -747,6 +750,13 @@ export class HUDManager {
    */
   closeSearchModal(): void {
     this.searchModal.classList.add("hidden");
+  }
+
+  /**
+   * Check if search modal is currently open
+   */
+  isSearchModalOpen(): boolean {
+    return !this.searchModal.classList.contains("hidden");
   }
 
   /**

@@ -39,6 +39,9 @@ class ConstellationClient {
     this.setupKeyboardHandlers();
     this.setupDebugHandlers();
 
+    // Set up keyboard blocking for modals
+    this.scene.shouldBlockKeyboardInput = () => this.hud.isSearchModalOpen();
+
     // Connect on load
     this.connect();
 
