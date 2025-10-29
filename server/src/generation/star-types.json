@@ -3,7 +3,7 @@
     {
       "name": "Red Dwarf (M-class)",
       "spectralClass": "M",
-      "weight": 0.76,
+      "weight": 0.15,
       "massRange": [0.08, 0.45],
       "radiusRange": [0.1, 0.7],
       "temperatureRange": [2400, 3700],
@@ -13,7 +13,7 @@
     {
       "name": "Orange Dwarf (K-class)",
       "spectralClass": "K",
-      "weight": 0.12,
+      "weight": 0.2,
       "massRange": [0.45, 0.8],
       "radiusRange": [0.7, 0.96],
       "temperatureRange": [3700, 5200],
@@ -23,7 +23,7 @@
     {
       "name": "Yellow Dwarf (G-class)",
       "spectralClass": "G",
-      "weight": 0.076,
+      "weight": 0.25,
       "massRange": [0.8, 1.04],
       "radiusRange": [0.96, 1.15],
       "temperatureRange": [5200, 6000],
@@ -33,7 +33,7 @@
     {
       "name": "Yellow-White (F-class)",
       "spectralClass": "F",
-      "weight": 0.03,
+      "weight": 0.15,
       "massRange": [1.04, 1.4],
       "radiusRange": [1.15, 1.4],
       "temperatureRange": [6000, 7500],
@@ -43,7 +43,7 @@
     {
       "name": "White (A-class)",
       "spectralClass": "A",
-      "weight": 0.006,
+      "weight": 0.1,
       "massRange": [1.4, 2.1],
       "radiusRange": [1.4, 1.8],
       "temperatureRange": [7500, 10000],
@@ -53,7 +53,7 @@
     {
       "name": "Blue-White (B-class)",
       "spectralClass": "B",
-      "weight": 0.0013,
+      "weight": 0.05,
       "massRange": [2.1, 16],
       "radiusRange": [1.8, 6.6],
       "temperatureRange": [10000, 30000],
@@ -63,7 +63,7 @@
     {
       "name": "Blue Giant (O-class)",
       "spectralClass": "O",
-      "weight": 0.00003,
+      "weight": 0.02,
       "massRange": [16, 90],
       "radiusRange": [6.6, 15],
       "temperatureRange": [30000, 50000],
@@ -73,7 +73,7 @@
     {
       "name": "Red Giant (K-class evolved)",
       "spectralClass": "K-III",
-      "weight": 0.002,
+      "weight": 0.04,
       "massRange": [0.8, 8],
       "radiusRange": [10, 100],
       "temperatureRange": [3500, 5000],
@@ -83,7 +83,7 @@
     {
       "name": "Red Supergiant",
       "spectralClass": "M-Ia",
-      "weight": 0.00001,
+      "weight": 0.01,
       "massRange": [10, 40],
       "radiusRange": [200, 800],
       "temperatureRange": [3000, 4000],
@@ -93,7 +93,7 @@
     {
       "name": "Blue Supergiant",
       "spectralClass": "B-Ia",
-      "weight": 0.00001,
+      "weight": 0.01,
       "massRange": [10, 50],
       "radiusRange": [20, 200],
       "temperatureRange": [10000, 30000],
@@ -103,7 +103,7 @@
     {
       "name": "White Dwarf",
       "spectralClass": "D",
-      "weight": 0.005,
+      "weight": 0.01,
       "massRange": [0.17, 1.33],
       "radiusRange": [0.008, 0.02],
       "temperatureRange": [4000, 40000],
@@ -113,7 +113,7 @@
     {
       "name": "Brown Dwarf (L-class)",
       "spectralClass": "L",
-      "weight": 0.01,
+      "weight": 0.005,
       "massRange": [0.013, 0.08],
       "radiusRange": [0.08, 0.15],
       "temperatureRange": [1300, 2400],
@@ -123,7 +123,7 @@
     {
       "name": "Cool Brown Dwarf (T-class)",
       "spectralClass": "T",
-      "weight": 0.008,
+      "weight": 0.005,
       "massRange": [0.001, 0.013],
       "radiusRange": [0.05, 0.1],
       "temperatureRange": [500, 1300],
