@@ -349,19 +349,30 @@ export class DatabaseQueries {
   ): { x: number; y: number; z: number } {
     const MIN_DISTANCE_LY = 6;
 
+    // Calculate the average Z position of all existing stars to stay in the same plane
+    // (Z becomes Y in scene space, which is the vertical axis for the constellation view drag plane)
+    let avgZ = currentSystemPos.z;
+    if (existingPositions.length > 0) {
+      const sumZ = existingPositions.reduce((sum, pos) => sum + pos.z, 0);
+      avgZ = sumZ / existingPositions.length;
+    }
+
     // Use gate ID as seed for consistency
     const seed =
       gateId.charCodeAt(0) + gateId.charCodeAt(1) + gateId.charCodeAt(2);
 
     // Start with a position based on the gate's seed
+    // Use golden angle for even distribution in the X-Y plane
     const theta = ((seed * 137.508) % 360) * (Math.PI / 180); // Golden angle
-    const phi = ((seed * 0.618) % 1) * Math.PI;
     const distance = 4 + ((seed % 100) / 100) * 4; // 4-8 light years from current
 
+    // Keep Z variation minimal (stay in the plane)
+    const zVariation = (((seed * 0.382) % 100) / 100 - 0.5) * 1.5; // ±0.75 light years max
+
     let position = {
-      x: currentSystemPos.x + Math.sin(phi) * Math.cos(theta) * distance,
-      y: currentSystemPos.y + Math.cos(phi) * distance,
-      z: currentSystemPos.z + Math.sin(phi) * Math.sin(theta) * distance,
+      x: currentSystemPos.x + Math.cos(theta) * distance,
+      y: currentSystemPos.y + Math.sin(theta) * distance,
+      z: avgZ + zVariation, // Stay close to the average plane
     };
 
     // Apply collision detection
@@ -388,13 +399,14 @@ export class DatabaseQueries {
         break; // Found a good position
       }
 
-      // Adjust position using spiral pattern
+      // Adjust position using spiral pattern in the X-Y plane
       const angle = attempts * 0.618 * Math.PI * 2; // Golden angle
       const radius = MIN_DISTANCE_LY * (1 + attempts * 0.3);
+      const zJitter = (((attempts * 17) % 100) / 100 - 0.5) * 0.5; // Small vertical jitter ±0.25 LY
       position = {
         x: currentSystemPos.x + Math.cos(angle) * radius,
-        y: currentSystemPos.y + Math.sin(attempts) * MIN_DISTANCE_LY * 0.3,
-        z: currentSystemPos.z + Math.sin(angle) * radius,
+        y: currentSystemPos.y + Math.sin(angle) * radius,
+        z: avgZ + zJitter, // Keep near the plane even during collision resolution
       };
 
       attempts++;

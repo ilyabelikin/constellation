@@ -73,19 +73,21 @@ class ConstellationClient {
       this.hud.hideDetailPanels();
       this.hud.setSystem(system);
 
-      // If there's a pending focus object (e.g., home planet), focus on it
+      // Always show system view first to ensure scene is properly initialized
+      this.scene.showSystemView();
+
+      // If there's a pending focus object (e.g., home planet), focus on it after scene is ready
       if (this.pendingFocusObjectId) {
         const objectId = this.pendingFocusObjectId;
         this.pendingFocusObjectId = null;
         console.log(`Focusing on pending object: ${objectId}`);
-        // Wait a bit for the scene to be fully loaded
-        setTimeout(() => {
-          this.scene.centerOnObject(objectId);
-          this.hud.updateObjectDetails(objectId);
-        }, 100);
-      } else {
-        // Show nice system overview when first arriving
-        this.scene.showSystemView();
+        // Wait for the next animation frame to ensure scene is fully rendered
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            this.scene.centerOnObject(objectId);
+            this.hud.updateObjectDetails(objectId);
+          });
+        });
       }
     };
 
@@ -310,6 +312,16 @@ class ConstellationClient {
           // Fallback: just go to home system
           this.network.requestSystemState(this.player.homeSystemId);
           return;
+        }
+
+        // If in constellation view, exit it first
+        if (this.scene.isInConstellationView()) {
+          console.log(`Exiting constellation view to go home`);
+          this.scene.hideConstellationView();
+          // Restore HUD to show current system
+          if (this.system) {
+            this.hud.setSystem(this.system);
+          }
         }
 
         // If already in home system, just focus on the home planet

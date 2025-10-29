@@ -798,6 +798,10 @@ export class SceneManager {
       const deltaTime = 0.016; // Approximate 60fps
       this.constellationView.update(deltaTime);
 
+      // Update star animations in constellation view using real time
+      const realTime = performance.now();
+      this.constellationView.updateStarAnimations(realTime);
+
       // Handle WASD keyboard navigation relative to camera orientation
       const moveSpeed = this.KEYBOARD_MOVE_SPEED * deltaTime;
       const cameraTarget = this.cameraController.getCameraTarget();
@@ -1342,6 +1346,13 @@ export class SceneManager {
 
     console.log("Switched to constellation view");
 
+    // Save all positions (including mystery spheres) immediately after loading
+    // This ensures that even if user never drags anything, positions are saved
+    if (this.onConstellationPositionsChanged) {
+      const positions = this.constellationView.getAllPositions();
+      this.onConstellationPositionsChanged(positions);
+    }
+
     // Return the initially selected system ID (current system)
     return this.constellationView.getSelectedSystemId();
   }
@@ -1361,6 +1372,25 @@ export class SceneManager {
    */
   getConstellationSelectedSystemId(): string | null {
     return this.constellationView.getSelectedSystemId();
+  }
+
+  /**
+   * Select a system in constellation view
+   */
+  selectConstellationSystem(systemId: string): void {
+    if (!this.isConstellationViewActive) {
+      console.warn(
+        "Cannot select constellation system: not in constellation view"
+      );
+      return;
+    }
+    this.constellationView.selectSystem(systemId);
+    // Also center camera on the selected system
+    this.centerOnConstellationNode(systemId);
+    // Trigger callback to update HUD
+    if (this.onConstellationSystemSelected) {
+      this.onConstellationSystemSelected(systemId, "select");
+    }
   }
 
   /**

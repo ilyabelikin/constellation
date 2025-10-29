@@ -1,4 +1,10 @@
-import { Player, StarSystem, SystemState, Ship, ConstellationNode } from "@constellation/shared";
+import {
+  Player,
+  StarSystem,
+  SystemState,
+  Ship,
+  ConstellationNode,
+} from "@constellation/shared";
 import { BodyDetailView } from "./BodyDetailView.js";
 import { GateDetailView } from "./GateDetailView.js";
 import { ShipDetailView } from "./ShipDetailView.js";
@@ -194,7 +200,7 @@ export class HUDManager {
     const brightness = (rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114) / 255;
 
     // If star is too dark (brown dwarfs, dim stars), brighten the UI color
-    // Minimum brightness threshold: 0.5 (50%)
+    // Minimum brightness threshold: 0.85 (85%)
     const minBrightness = 0.5;
     if (brightness < minBrightness) {
       // Calculate how much we need to boost
@@ -209,8 +215,11 @@ export class HUDManager {
     // Apply the color as CSS variables
     const root = document.documentElement;
 
-    // Primary color at full brightness
-    root.style.setProperty("--primary-color", starColor);
+    // Primary color at full brightness (use boosted RGB, not original hex)
+    root.style.setProperty(
+      "--primary-color",
+      `rgb(${rgb.r}, ${rgb.g}, ${rgb.b})`
+    );
 
     // Dimmed version (75% brightness)
     const dim = this.adjustBrightness(rgb, 0.75);
@@ -659,13 +668,13 @@ export class HUDManager {
     // Calculate distance from origin (in light years)
     const distance = Math.sqrt(
       node.position.x * node.position.x +
-      node.position.y * node.position.y +
-      node.position.z * node.position.z
+        node.position.y * node.position.y +
+        node.position.z * node.position.z
     );
-    
+
     // Show system info in body detail view
     this.bodyDetailView.showConstellationSystem(node.systemName, distance);
-    
+
     // Hide other detail views
     this.gateDetailView.hide();
     this.shipDetailView.hide();

@@ -4,6 +4,7 @@ import {
   ConstellationConnection,
   UnexploredGate,
 } from "@constellation/shared";
+import { MaterialFactory } from "./MaterialFactory.js";
 
 /**
  * Renders a constellation view showing connected star systems
@@ -40,9 +41,14 @@ export class ConstellationView {
     position: THREE.Vector3;
   }> = []; // Store unexplored gates for recreation
 
+  // Material factory for star materials
+  private materialFactory: MaterialFactory;
+  private starMaterials: THREE.ShaderMaterial[] = []; // Track for animation updates
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.connections.name = "constellationConnections";
+    this.materialFactory = new MaterialFactory();
   }
 
   /**
@@ -62,6 +68,18 @@ export class ConstellationView {
     this.selectedSystemId = preserveSelectedSystemId || currentSystemId;
     this.connectionsList = connectionsList;
     this.nodesList = nodes;
+
+    // Populate unexplored gates list EARLY (before creating star nodes)
+    // so connection counts in labels are correct from the start
+    this.unexploredGatesList = unexploredGates.map((gate) => ({
+      gateId: gate.gateId,
+      systemId: gate.systemId,
+      position: new THREE.Vector3(
+        gate.position.x,
+        gate.position.y,
+        gate.position.z
+      ),
+    }));
 
     // Center the view around the current system
     const currentNode = nodes.find((n) => n.systemId === currentSystemId);
@@ -152,8 +170,7 @@ export class ConstellationView {
       }
     }
 
-    // Create mystery paths for unexplored gates from current system
-    this.unexploredGatesList = []; // Clear previous list
+    // Create 3D visuals for mystery paths (list already populated above)
     for (const gate of unexploredGates) {
       const fromGroup = this.nodes.get(gate.systemId);
       if (fromGroup) {
@@ -185,13 +202,14 @@ export class ConstellationView {
           );
         }
 
-        // Store the position and gate info for recreation during dragging
+        // Store the position and update in list
         this.mysteryPositions.set(gate.gateId, mysteryPos.clone());
-        this.unexploredGatesList.push({
-          gateId: gate.gateId,
-          systemId: gate.systemId,
-          position: mysteryPos.clone(),
-        });
+        const listItem = this.unexploredGatesList.find(
+          (g) => g.gateId === gate.gateId
+        );
+        if (listItem) {
+          listItem.position = mysteryPos.clone();
+        }
 
         // Draw mystery path (purple dashed line)
         this.createConnectionLine(fromPos, mysteryPos, false, gate.systemId);
@@ -229,67 +247,102 @@ export class ConstellationView {
 
     // Parse star color
     const color = new THREE.Color(node.starColor);
+    const colorHex = color.getHex();
 
-    // Create star sphere - selected system is larger and brighter
-    const starSize = isSelected ? this.STAR_SIZE * 1.5 : this.STAR_SIZE;
-    const starGeometry = new THREE.SphereGeometry(starSize, 16, 16);
-    const starMaterial = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.9,
-    });
+    // Create star sphere - consistent size regardless of selection
+    const starSize = this.STAR_SIZE;
+    const starGeometry = new THREE.SphereGeometry(starSize, 32, 32);
+
+    // Use shader material for realistic star rendering
+    const starMaterial = this.materialFactory.createStarMaterial(colorHex);
     const starMesh = new THREE.Mesh(starGeometry, starMaterial);
     group.add(starMesh);
 
-    // Add glow effect
-    const glowGeometry = new THREE.SphereGeometry(starSize * 1.3, 16, 16);
-    const glowMaterial = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.3,
-      side: THREE.BackSide,
+    // Track material for animation updates
+    this.starMaterials.push(starMaterial);
+
+    // Add multiple glow layers like in system view
+    const glowLayers = [
+      { size: 1.1, opacity: 0.6 },
+      { size: 1.2, opacity: 0.4 },
+      { size: 1.35, opacity: 0.25 },
+    ];
+
+    glowLayers.forEach((layer) => {
+      const glowGeometry = new THREE.SphereGeometry(
+        starSize * layer.size,
+        16,
+        16
+      );
+      const glowMaterial = this.materialFactory.createGlowMaterial(
+        colorHex,
+        layer.opacity
+      );
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+      group.add(glow);
     });
-    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
-    group.add(glowMesh);
 
-    // Add point light for selected star
-    if (isSelected) {
-      const light = new THREE.PointLight(color, 2, 200);
-      group.add(light);
-    }
+    // Calculate connection stats for this system
+    const exploredGates = this.connectionsList.filter(
+      (c) => c.fromSystemId === node.systemId && c.isExplored
+    ).length;
+    const totalGates =
+      this.connectionsList.filter((c) => c.fromSystemId === node.systemId)
+        .length +
+      this.unexploredGatesList.filter((g) => g.systemId === node.systemId)
+        .length;
 
-    // Add text label
-    this.createLabel(group, node.systemName, starSize, isSelected);
+    // Add text label with connection stats
+    this.createLabel(
+      group,
+      node.systemName,
+      starSize,
+      isCurrent,
+      exploredGates,
+      totalGates
+    );
 
     return group;
   }
 
   /**
-   * Create a text label for a star
+   * Create a text label for a star with connection stats
    */
   private createLabel(
     parent: THREE.Group,
     text: string,
     offset: number,
-    isCurrent: boolean
+    isCurrent: boolean,
+    exploredGates: number,
+    totalGates: number
   ): void {
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    // Set canvas size
+    // Set canvas size (taller to fit connection stats)
     canvas.width = 512;
-    canvas.height = 128;
+    canvas.height = 192;
 
     // Draw text
     context.fillStyle = "rgba(0, 0, 0, 0)"; // Transparent background
     context.fillRect(0, 0, canvas.width, canvas.height);
 
+    // Draw star name
     context.font = isCurrent ? "bold 48px Arial" : "36px Arial";
     context.fillStyle = isCurrent ? "#ffffff" : "#aaaaaa";
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(text, canvas.width / 2, canvas.height / 2);
+    context.fillText(text, canvas.width / 2, canvas.height / 2 - 20);
+
+    // Draw connection stats below name
+    context.font = "28px Arial";
+    context.fillStyle = isCurrent ? "#cccccc" : "#888888";
+    context.fillText(
+      `${exploredGates}/${totalGates}`,
+      canvas.width / 2,
+      canvas.height / 2 + 30
+    );
 
     // Create texture from canvas
     const texture = new THREE.CanvasTexture(canvas);
@@ -301,7 +354,10 @@ export class ConstellationView {
 
     const sprite = new THREE.Sprite(material);
     sprite.position.y = offset + 10; // Position above star
-    sprite.scale.set(30, 7.5, 1); // Scale sprite appropriately
+    sprite.scale.set(30, 11.25, 1); // Scale sprite appropriately (taller for two lines)
+
+    // Make label non-clickable so only the star sphere can be clicked
+    sprite.raycast = () => {};
 
     parent.add(sprite);
   }
@@ -479,6 +535,7 @@ export class ConstellationView {
     this.currentSystemId = null;
     this.mysteryPositions.clear();
     this.unexploredGatesList = [];
+    this.starMaterials = []; // Clear star materials tracking
   }
 
   /**
@@ -883,9 +940,10 @@ export class ConstellationView {
   }
 
   /**
-   * Select a system and update visual indicators
+   * Select a system in the constellation view
+   * Public method to allow external selection (e.g., from home button)
    */
-  private selectSystem(systemId: string): void {
+  selectSystem(systemId: string): void {
     const oldSelectedId = this.selectedSystemId;
     this.selectedSystemId = systemId;
 
@@ -942,39 +1000,60 @@ export class ConstellationView {
       }
     }
 
-    // Rebuild the star visual with new selection state
+    // Rebuild the star visual - consistent size regardless of selection
     const color = new THREE.Color(node.starColor);
-    const starSize = isSelected ? this.STAR_SIZE * 1.5 : this.STAR_SIZE;
+    const colorHex = color.getHex();
+    const starSize = this.STAR_SIZE;
 
-    // Create star sphere
-    const starGeometry = new THREE.SphereGeometry(starSize, 16, 16);
-    const starMaterial = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.9,
-    });
+    // Create star sphere with shader material
+    const starGeometry = new THREE.SphereGeometry(starSize, 32, 32);
+    const starMaterial = this.materialFactory.createStarMaterial(colorHex);
     const starMesh = new THREE.Mesh(starGeometry, starMaterial);
     group.add(starMesh);
 
-    // Add glow effect
-    const glowGeometry = new THREE.SphereGeometry(starSize * 1.3, 16, 16);
-    const glowMaterial = new THREE.MeshBasicMaterial({
-      color,
-      transparent: true,
-      opacity: 0.3,
-      side: THREE.BackSide,
+    // Track material for animation updates
+    this.starMaterials.push(starMaterial);
+
+    // Add multiple glow layers like in system view
+    const glowLayers = [
+      { size: 1.1, opacity: 0.6 },
+      { size: 1.2, opacity: 0.4 },
+      { size: 1.35, opacity: 0.25 },
+    ];
+
+    glowLayers.forEach((layer) => {
+      const glowGeometry = new THREE.SphereGeometry(
+        starSize * layer.size,
+        16,
+        16
+      );
+      const glowMaterial = this.materialFactory.createGlowMaterial(
+        colorHex,
+        layer.opacity
+      );
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+      group.add(glow);
     });
-    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
-    group.add(glowMesh);
 
-    // Add point light for selected star
-    if (isSelected) {
-      const light = new THREE.PointLight(color, 2, 200);
-      group.add(light);
-    }
+    // Calculate connection stats for this system
+    const exploredGates = this.connectionsList.filter(
+      (c) => c.fromSystemId === node.systemId && c.isExplored
+    ).length;
+    const totalGates =
+      this.connectionsList.filter((c) => c.fromSystemId === node.systemId)
+        .length +
+      this.unexploredGatesList.filter((g) => g.systemId === node.systemId)
+        .length;
 
-    // Add text label
-    this.createLabel(group, node.systemName, starSize, isSelected);
+    // Add text label with connection stats
+    this.createLabel(
+      group,
+      node.systemName,
+      starSize,
+      isCurrent,
+      exploredGates,
+      totalGates
+    );
   }
 
   /**
@@ -1081,5 +1160,15 @@ export class ConstellationView {
     }
 
     return null;
+  }
+
+  /**
+   * Update star material animations
+   * Should be called in the animation loop
+   */
+  updateStarAnimations(time: number): void {
+    for (const material of this.starMaterials) {
+      material.uniforms.time.value = time;
+    }
   }
 }
