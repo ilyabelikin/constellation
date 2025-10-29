@@ -49,10 +49,8 @@ export function generateNewSystem(
   };
 
   const systemSeed = rng.nextInt(0, 1000000000);
-  const { star, planets, moons, asteroidBelts } = generateStarSystem(
-    systemSeed,
-    galaxyId
-  );
+  const { star, planets, moons, asteroidBelts, companionStars } =
+    generateStarSystem(systemSeed, galaxyId);
 
   const systemId = uuidv4();
 
@@ -100,6 +98,7 @@ export function generateNewSystem(
     moons,
     asteroidBelts,
     gates,
+    companionStars,
   };
 }
 
@@ -223,10 +222,8 @@ export function generateAdditionalSystems(
     };
 
     const systemSeed = rng.nextInt(0, 1000000000);
-    const { star, planets, moons, asteroidBelts } = generateStarSystem(
-      systemSeed,
-      galaxyId
-    );
+    const { star, planets, moons, asteroidBelts, companionStars } =
+      generateStarSystem(systemSeed, galaxyId);
 
     systems.push({
       id: uuidv4(),
@@ -238,6 +235,7 @@ export function generateAdditionalSystems(
       moons,
       asteroidBelts,
       gates: [], // Gates will be populated by generateSystemConnections
+      companionStars,
     });
   }
 

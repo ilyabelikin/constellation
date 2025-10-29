@@ -75,6 +75,25 @@ export class GameStateManager {
       velocity: { x: 0, y: 0, z: 0 },
     });
 
+    // Calculate positions of companion stars (for binary/trinary systems)
+    if (system.companionStars && system.companionStars.length > 0) {
+      for (const companionStar of system.companionStars) {
+        if (companionStar.orbitalElements) {
+          const state = calculateStateVectors(
+            companionStar.orbitalElements,
+            this.currentTime,
+            system.star.mass
+          );
+
+          bodies.push({
+            id: companionStar.id,
+            position: state.position,
+            velocity: state.velocity,
+          });
+        }
+      }
+    }
+
     // Calculate positions of planets
     const planetStates: Array<{
       id: string;

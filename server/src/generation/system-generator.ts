@@ -313,7 +313,8 @@ export function generatePlanet(
   starLuminosity: number,
   index: number,
   totalPlanets: number,
-  galaxyId: string
+  galaxyId: string,
+  starRadius: number = SOLAR_RADIUS
 ): CelestialBodyType {
   // Load planet types from configuration
   const types = planetTypesConfig.planetTypes;
@@ -372,7 +373,13 @@ export function generatePlanet(
 
   // Orbital elements with some randomness
   // Use Titius-Bode-like law with randomness for orbital distances
-  const baseDistance = 0.4 * Math.pow(1.6, index) * ASTRONOMICAL_UNIT;
+  // Ensure planets start beyond the star's VISUAL size (stars are rendered 40x larger for visibility)
+  const VISUAL_SIZE_MULTIPLIER = 40; // Must match client rendering constant
+  const starRadiusInAU = starRadius / ASTRONOMICAL_UNIT;
+  const visualStarRadiusInAU = starRadiusInAU * VISUAL_SIZE_MULTIPLIER;
+  const minStartDistance = Math.max(0.4, visualStarRadiusInAU * 1.5); // 1.5x visual radius for safety
+  const baseDistance =
+    minStartDistance * Math.pow(1.6, index) * ASTRONOMICAL_UNIT;
   const semiMajorAxis = baseDistance * rng.nextFloat(0.8, 1.2);
 
   // Calculate orbital period for debugging (Kepler's Third Law: T = 2π√(a³/GM))
@@ -881,10 +888,81 @@ export function generateStarSystem(
   planets: CelestialBodyType[];
   moons: CelestialBodyType[];
   asteroidBelts: AsteroidBelt[];
+  companionStars?: CelestialBodyType[]; // For binary/trinary systems
 } {
   const rng = new SeededRandom(seed);
 
   const star = generateStar(rng);
+
+  // Determine if this is a multi-star system
+  // 20% chance for binary, 3% chance for trinary
+  const multiStarRoll = rng.next();
+  const companionStars: CelestialBodyType[] = [];
+
+  console.log(
+    `Multi-star roll: ${multiStarRoll.toFixed(
+      3
+    )} (trinary if <0.03, binary if <0.23)`
+  );
+
+  if (multiStarRoll < 0.03) {
+    // Trinary system (3 stars total)
+    console.log(`✨ Generating TRINARY star system: ${star.name}`);
+    const companion1 = generateStar(rng);
+    const companion2 = generateStar(rng);
+
+    // First companion orbits at 2-8 AU from primary (around Jupiter/Saturn distance)
+    const distance1 = rng.nextFloat(2, 8) * ASTRONOMICAL_UNIT;
+    companion1.orbitalElements = {
+      semiMajorAxis: distance1,
+      eccentricity: rng.nextFloat(0.1, 0.4),
+      inclination: rng.nextFloat(0, 0.2), // Relatively aligned
+      longitudeOfAscendingNode: rng.nextFloat(0, 2 * Math.PI),
+      argumentOfPeriapsis: rng.nextFloat(0, 2 * Math.PI),
+      meanAnomalyAtEpoch: rng.nextFloat(0, 2 * Math.PI),
+      epoch: 0,
+    };
+    companion1.parentId = star.id;
+    companion1.name = `${star.name} B`;
+
+    // Second companion orbits farther (8-20 AU, outer system)
+    const distance2 = rng.nextFloat(8, 20) * ASTRONOMICAL_UNIT;
+    companion2.orbitalElements = {
+      semiMajorAxis: distance2,
+      eccentricity: rng.nextFloat(0.1, 0.5),
+      inclination: rng.nextFloat(0, 0.3),
+      longitudeOfAscendingNode: rng.nextFloat(0, 2 * Math.PI),
+      argumentOfPeriapsis: rng.nextFloat(0, 2 * Math.PI),
+      meanAnomalyAtEpoch: rng.nextFloat(0, 2 * Math.PI),
+      epoch: 0,
+    };
+    companion2.parentId = star.id;
+    companion2.name = `${star.name} C`;
+
+    companionStars.push(companion1, companion2);
+  } else if (multiStarRoll < 0.23) {
+    // Binary system (2 stars total)
+    console.log(`✨ Generating BINARY star system: ${star.name}`);
+    const companion = generateStar(rng);
+
+    // Companion orbits at 3-12 AU from primary (mid to outer system)
+    // Planets can orbit closer to primary or form circumbinary orbits
+    const distance = rng.nextFloat(3, 12) * ASTRONOMICAL_UNIT;
+    companion.orbitalElements = {
+      semiMajorAxis: distance,
+      eccentricity: rng.nextFloat(0.05, 0.3),
+      inclination: rng.nextFloat(0, 0.15),
+      longitudeOfAscendingNode: rng.nextFloat(0, 2 * Math.PI),
+      argumentOfPeriapsis: rng.nextFloat(0, 2 * Math.PI),
+      meanAnomalyAtEpoch: rng.nextFloat(0, 2 * Math.PI),
+      epoch: 0,
+    };
+    companion.parentId = star.id;
+    companion.name = `${star.name} B`;
+
+    companionStars.push(companion);
+  }
+
   const numPlanets = rng.nextInt(MIN_PLANETS, MAX_PLANETS);
 
   const planets: CelestialBodyType[] = [];
@@ -895,7 +973,8 @@ export function generateStarSystem(
       star.luminosity || 1.0,
       i,
       numPlanets,
-      galaxyId
+      galaxyId,
+      star.radius
     );
     planet.parentId = star.id;
     planets.push(planet);
@@ -1009,5 +1088,11 @@ export function generateStarSystem(
     asteroidBelts.push(belt);
   }
 
-  return { star, planets, moons: allMoons, asteroidBelts };
+  return {
+    star,
+    planets,
+    moons: allMoons,
+    asteroidBelts,
+    companionStars: companionStars.length > 0 ? companionStars : undefined,
+  };
 }

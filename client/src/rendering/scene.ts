@@ -39,7 +39,7 @@ export class SceneManager {
   private constellationView: ConstellationView;
 
   // Scene objects
-  private bodies: Map<string, THREE.Mesh> = new Map();
+  private bodies: Map<string, THREE.Mesh | THREE.Group> = new Map();
   private ships: Map<string, THREE.Group> = new Map();
   private gates: Map<string, THREE.Group> = new Map();
   private asteroids: Map<string, THREE.Mesh> = new Map();
@@ -198,8 +198,11 @@ export class SceneManager {
     this.scene.add(starMesh);
     this.bodies.set(system.star.id, starMesh);
 
-    // Store star material for animation updates
-    if (starMesh.material instanceof THREE.ShaderMaterial) {
+    // Store star material for animation updates (only for regular stars, not black holes)
+    if (
+      starMesh instanceof THREE.Mesh &&
+      starMesh.material instanceof THREE.ShaderMaterial
+    ) {
       this.starMaterials.push(starMesh.material);
     }
 
@@ -209,6 +212,40 @@ export class SceneManager {
         this.lights.push(object);
       }
     });
+
+    // Create companion stars (for binary/trinary systems)
+    if (system.companionStars && system.companionStars.length > 0) {
+      console.log(`Loading ${system.companionStars.length} companion star(s)`);
+      for (const companionStar of system.companionStars) {
+        const companionMesh = this.celestialBodyFactory.createStar(
+          companionStar,
+          this.scene
+        );
+        this.scene.add(companionMesh);
+        this.bodies.set(companionStar.id, companionMesh);
+
+        // Store companion star material for animation updates (only for regular stars, not black holes)
+        if (
+          companionMesh instanceof THREE.Mesh &&
+          companionMesh.material instanceof THREE.ShaderMaterial
+        ) {
+          this.starMaterials.push(companionMesh.material);
+        }
+
+        // Track lights added by companion star
+        this.scene.traverse((object) => {
+          if (object instanceof THREE.Light && !this.lights.includes(object)) {
+            this.lights.push(object);
+          }
+        });
+
+        // Create orbit line for companion star
+        const orbitLine =
+          this.celestialBodyFactory.createOrbitLine(companionStar);
+        this.scene.add(orbitLine);
+        this.orbitLines.set(companionStar.id, orbitLine);
+      }
+    }
 
     // Create planets
     for (const planet of system.planets) {
@@ -286,6 +323,9 @@ export class SceneManager {
   }
 
   private clearScene(): void {
+    // Dispose black hole renderers first
+    this.celestialBodyFactory.disposeBlackHoles();
+
     // Dispose and remove all bodies
     for (const mesh of this.bodies.values()) {
       this.disposeMesh(mesh);
@@ -384,22 +424,24 @@ export class SceneManager {
   /**
    * Properly disposes of a mesh and all its resources
    */
-  private disposeMesh(mesh: THREE.Mesh): void {
-    // Dispose geometry
-    if (mesh.geometry) {
-      mesh.geometry.dispose();
-    }
+  private disposeMesh(mesh: THREE.Mesh | THREE.Group): void {
+    if (mesh instanceof THREE.Mesh) {
+      // Dispose geometry
+      if (mesh.geometry) {
+        mesh.geometry.dispose();
+      }
 
-    // Dispose materials
-    if (mesh.material) {
-      if (Array.isArray(mesh.material)) {
-        mesh.material.forEach((material) => this.disposeMaterial(material));
-      } else {
-        this.disposeMaterial(mesh.material);
+      // Dispose materials
+      if (mesh.material) {
+        if (Array.isArray(mesh.material)) {
+          mesh.material.forEach((material) => this.disposeMaterial(material));
+        } else {
+          this.disposeMaterial(mesh.material);
+        }
       }
     }
 
-    // Dispose children (like atmosphere meshes)
+    // Dispose children (like atmosphere meshes or black hole components)
     mesh.children.forEach((child) => {
       if (child instanceof THREE.Mesh) {
         this.disposeMesh(child);
@@ -858,6 +900,10 @@ export class SceneManager {
     // Update interpolated game time
     this.timeInterpolator.update();
 
+    // Update black hole animations (accretion disk rotation, lensing arcs)
+    const deltaTime = 0.016; // Approximate 60fps
+    this.celestialBodyFactory.updateBlackHoles(this.camera, deltaTime);
+
     // Update star shader time uniforms for animation using interpolated game time
     for (const material of this.starMaterials) {
       material.uniforms.time.value = this.timeInterpolator.getGameTime();
@@ -949,7 +995,7 @@ export class SceneManager {
       }
 
       // Add planet rotation via shader uniform for smooth animation
-      if (mesh.userData.type === "planet") {
+      if (mesh.userData.type === "planet" && mesh instanceof THREE.Mesh) {
         // Rotate based on game time with realistic rotation periods
         const baseRotationSpeed = (2 * Math.PI) / 86400; // One Earth day
         const speedMultiplier = 0.5 + (bodyId.charCodeAt(0) % 10) * 0.15;
@@ -1005,8 +1051,8 @@ export class SceneManager {
             }
           }
         });
-      } else if (mesh.userData.type === "star") {
-        // Stars rotate very slowly
+      } else if (mesh.userData.type === "star" && !mesh.userData.isBlackHole) {
+        // Regular stars rotate very slowly (black holes don't rotate)
         mesh.rotation.y = this.timeInterpolator.getGameTime() * 0.00001;
       }
     }
@@ -1556,6 +1602,12 @@ export class SceneManager {
     const planetMesh = this.bodies.get(planetId);
     if (!planetMesh) {
       console.warn(`Planet ${planetId} not found in scene`);
+      return;
+    }
+
+    // Only works for Mesh objects (planets), not Groups (black holes)
+    if (!(planetMesh instanceof THREE.Mesh)) {
+      console.warn(`Cannot update seed for non-mesh object ${planetId}`);
       return;
     }
 

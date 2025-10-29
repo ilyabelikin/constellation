@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { MaterialFactory } from "./MaterialFactory.js";
+import { BlackHoleRenderer, BlackHoleData } from "./BlackHoleRenderer.js";
 
 /**
  * Factory for creating Three.js meshes for celestial bodies and ships
@@ -8,6 +9,7 @@ export class CelestialBodyFactory {
   private materialFactory: MaterialFactory;
   private scale: number;
   private bodySizeMultiplier: number;
+  private blackHoleRenderers: Map<string, BlackHoleRenderer> = new Map();
 
   constructor(scale: number, bodySizeMultiplier: number) {
     this.materialFactory = new MaterialFactory();
@@ -18,34 +20,72 @@ export class CelestialBodyFactory {
   /**
    * Creates a star mesh with glow layers and lighting
    */
-  createStar(star: any, scene: THREE.Scene): THREE.Mesh {
+  createStar(star: any, scene: THREE.Scene): THREE.Mesh | THREE.Group {
     const radius = star.radius * this.scale * this.bodySizeMultiplier;
-    const geometry = new THREE.SphereGeometry(radius, 64, 64);
+    const isBlackHole =
+      star.starType?.includes("Black Hole") || star.luminosity === 0;
 
+    // Use new black hole renderer for black holes
+    if (isBlackHole) {
+      // Configure black hole data - very compact decorations
+      const blackHoleData: BlackHoleData = {
+        accretionDiskColor: "#ff6600", // Orange/red accretion disk
+        accretionDiskInnerRadius: radius * 1.15, // Further reduced (1.2 * 0.7 ≈ 0.84, but keeping visible)
+        accretionDiskOuterRadius: radius * 1.75, // Further reduced (2.5 * 0.7 = 1.75)
+        eventHorizonRadius: radius,
+        hawkingRadiation: true, // Enable Hawking radiation glow
+      };
+
+      // Create black hole renderer
+      const blackHoleRenderer = new BlackHoleRenderer(
+        blackHoleData,
+        1.0,
+        1.0,
+        scene
+      );
+
+      // Store renderer for updates
+      this.blackHoleRenderers.set(star.id, blackHoleRenderer);
+
+      const group = blackHoleRenderer.getGroup();
+      group.userData = {
+        id: star.id,
+        type: "star",
+        body: star,
+        isBlackHole: true,
+      };
+
+      // Add ambient light for the system (so planets are always somewhat visible)
+      const ambient = new THREE.AmbientLight(0x404040, 0.5);
+      scene.add(ambient);
+
+      return group;
+    }
+
+    // Regular star rendering
+    const geometry = new THREE.SphereGeometry(radius, 64, 64);
     const material = this.materialFactory.createStarMaterial(
       star.color || 0xffff00
     );
-
     const mesh = new THREE.Mesh(geometry, material);
     mesh.userData = { id: star.id, type: "star", body: star };
 
-    // Add bright point light from the star (no distance limit, minimal decay for visibility)
+    // Regular stars emit light
     const light = new THREE.PointLight(star.color || 0xffff00, 30, 0, 0.5);
     light.position.set(0, 0, 0);
 
     // Enable shadows from the star with high quality settings
     light.castShadow = true;
-    light.shadow.mapSize.width = 4096; // Higher resolution for better moon shadows
+    light.shadow.mapSize.width = 4096;
     light.shadow.mapSize.height = 4096;
     light.shadow.camera.near = 1;
     light.shadow.camera.far = 1000000;
-    light.shadow.bias = -0.00001; // Fine-tuned to prevent shadow acne
-    light.shadow.radius = 2; // Soft shadow edges
+    light.shadow.bias = -0.00001;
+    light.shadow.radius = 2;
 
     scene.add(light);
 
-    // Add multiple layers of glow around the star for enhanced radiance
-    // Attach them to the star mesh so they're automatically cleaned up
+    // Regular star: normal glow layers
     const glowLayers = [
       { size: 1.1, opacity: 0.8 },
       { size: 1.2, opacity: 0.6 },
@@ -63,7 +103,7 @@ export class CelestialBodyFactory {
         layer.opacity
       );
       const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-      mesh.add(glow); // Attach to star mesh instead of scene
+      mesh.add(glow);
     });
 
     // Add ambient light for the system (so planets are always somewhat visible)
@@ -611,5 +651,25 @@ export class CelestialBodyFactory {
    */
   getMaterialFactory(): MaterialFactory {
     return this.materialFactory;
+  }
+
+  /**
+   * Update black hole animations
+   */
+  updateBlackHoles(camera: THREE.Camera, delta: number): void {
+    for (const renderer of this.blackHoleRenderers.values()) {
+      renderer.setCamera(camera);
+      renderer.update(delta);
+    }
+  }
+
+  /**
+   * Dispose of black hole renderers
+   */
+  disposeBlackHoles(): void {
+    for (const renderer of this.blackHoleRenderers.values()) {
+      renderer.dispose();
+    }
+    this.blackHoleRenderers.clear();
   }
 }

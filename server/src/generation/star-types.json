@@ -75,7 +75,7 @@
       "spectralClass": "K-III",
       "weight": 0.04,
       "massRange": [0.8, 8],
-      "radiusRange": [10, 100],
+      "radiusRange": [10, 50],
       "temperatureRange": [3500, 5000],
       "color": "#ff8c42",
       "luminosityFactor": 100.0
@@ -85,7 +85,7 @@
       "spectralClass": "M-Ia",
       "weight": 0.01,
       "massRange": [10, 40],
-      "radiusRange": [200, 800],
+      "radiusRange": [30, 80],
       "temperatureRange": [3000, 4000],
       "color": "#ff4757",
       "luminosityFactor": 100000.0
@@ -95,7 +95,7 @@
       "spectralClass": "B-Ia",
       "weight": 0.01,
       "massRange": [10, 50],
-      "radiusRange": [20, 200],
+      "radiusRange": [15, 60],
       "temperatureRange": [10000, 30000],
       "color": "#7d9eff",
       "luminosityFactor": 50000.0
@@ -129,6 +129,17 @@
       "temperatureRange": [500, 1300],
       "color": "#6b3410",
       "luminosityFactor": 0.000001
+    },
+    {
+      "name": "Black Hole",
+      "spectralClass": "BH",
+      "weight": 0.005,
+      "massRange": [3, 20],
+      "radiusRange": [0.5, 1.2],
+      "temperatureRange": [0, 0],
+      "color": "#606060",
+      "luminosityFactor": 0.0,
+      "isBlackHole": true
     }
   ]
 }

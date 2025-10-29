@@ -79,6 +79,7 @@ export class DatabaseQueries {
         planets: system.planets,
         moons: system.moons,
         asteroidBelts: system.asteroidBelts,
+        companionStars: system.companionStars, // Save companion stars for binary/trinary systems
       })
     );
   }
@@ -98,6 +99,7 @@ export class DatabaseQueries {
       planets: data.planets,
       moons: data.moons || [],
       asteroidBelts: data.asteroidBelts || [],
+      companionStars: data.companionStars, // Load companion stars
       gates,
     };
   }
@@ -119,6 +121,7 @@ export class DatabaseQueries {
         planets: data.planets,
         moons: data.moons || [],
         asteroidBelts: data.asteroidBelts || [],
+        companionStars: data.companionStars, // Load companion stars
         gates,
       };
     });

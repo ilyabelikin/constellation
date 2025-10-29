@@ -157,6 +157,7 @@ export interface StarSystem {
   moons: CelestialBodyType[]; // all moons in the system (flattened)
   asteroidBelts: AsteroidBelt[];
   gates: StarGate[];
+  companionStars?: CelestialBodyType[]; // For binary/trinary systems
 }
 
 export interface Galaxy {
@@ -210,6 +211,7 @@ export interface ConstellationNode {
   exploredGates: number; // Number of explored gates
   totalGates: number; // Total number of gates
   jumpsFromHome: number; // Number of gate jumps from home system
+  companionStars?: Array<{ color: string; type: string }>; // For binary/trinary systems
 }
 
 export interface ConstellationConnection {

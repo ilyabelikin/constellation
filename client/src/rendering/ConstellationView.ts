@@ -282,6 +282,70 @@ export class ConstellationView {
       group.add(glow);
     });
 
+    // Add companion stars for binary/trinary systems
+    if (node.companionStars && node.companionStars.length > 0) {
+      const companionSize = starSize * 0.6; // Smaller than primary
+      const companionDistance = starSize * 2.5; // Distance from primary
+
+      node.companionStars.forEach((companion, index) => {
+        const companionColor = new THREE.Color(companion.color);
+        const companionColorHex = companionColor.getHex();
+
+        // Position companions in a circle around the primary
+        // For binary: one on the right
+        // For trinary: positioned at 120 degree intervals
+        let angle: number;
+        if (node.companionStars!.length === 1) {
+          angle = 0; // Binary: companion to the right
+        } else {
+          angle =
+            (index * 2 * Math.PI) / node.companionStars!.length + Math.PI / 6;
+        }
+
+        const offsetX = Math.cos(angle) * companionDistance;
+        const offsetZ = Math.sin(angle) * companionDistance;
+
+        // Create companion star sphere
+        const companionGeometry = new THREE.SphereGeometry(
+          companionSize,
+          24,
+          24
+        );
+        const companionMaterial =
+          this.materialFactory.createStarMaterial(companionColorHex);
+        const companionMesh = new THREE.Mesh(
+          companionGeometry,
+          companionMaterial
+        );
+        companionMesh.position.set(offsetX, 0, offsetZ);
+        group.add(companionMesh);
+
+        // Track material for animation updates
+        this.starMaterials.push(companionMaterial);
+
+        // Add smaller glow layers for companions
+        const companionGlowLayers = [
+          { size: 1.15, opacity: 0.5 },
+          { size: 1.3, opacity: 0.3 },
+        ];
+
+        companionGlowLayers.forEach((layer) => {
+          const glowGeometry = new THREE.SphereGeometry(
+            companionSize * layer.size,
+            12,
+            12
+          );
+          const glowMaterial = this.materialFactory.createGlowMaterial(
+            companionColorHex,
+            layer.opacity
+          );
+          const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+          glow.position.set(offsetX, 0, offsetZ);
+          group.add(glow);
+        });
+      });
+    }
+
     // Calculate connection stats for this system
     const exploredGates = this.connectionsList.filter(
       (c) => c.fromSystemId === node.systemId && c.isExplored

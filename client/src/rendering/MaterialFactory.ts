@@ -401,58 +401,76 @@ export class MaterialFactory {
           return x * x * (3.0 - 2.0 * x);
         }
         
-        // 3D noise function for seamless sphere mapping with smoother transitions
+        // Improved 3D noise with better interpolation
         float noise(vec3 p) {
-          float n = sin(p.x * 5.0 + sin(p.y * 4.0)) * cos(p.z * 4.5 + sin(p.x * 3.0)) * 0.5 + 0.5;
-          return smoothNoise(n);
+          vec3 i = floor(p);
+          vec3 f = fract(p);
+          f = f * f * (3.0 - 2.0 * f); // Smooth interpolation
+          
+          float a = sin(i.x + i.y * 57.0 + i.z * 113.0);
+          float b = sin(i.x + 1.0 + i.y * 57.0 + i.z * 113.0);
+          float c = sin(i.x + (i.y + 1.0) * 57.0 + i.z * 113.0);
+          float d = sin(i.x + 1.0 + (i.y + 1.0) * 57.0 + i.z * 113.0);
+          
+          float e = sin(i.x + i.y * 57.0 + (i.z + 1.0) * 113.0);
+          float g = sin(i.x + 1.0 + i.y * 57.0 + (i.z + 1.0) * 113.0);
+          float h = sin(i.x + (i.y + 1.0) * 57.0 + (i.z + 1.0) * 113.0);
+          float k = sin(i.x + 1.0 + (i.y + 1.0) * 57.0 + (i.z + 1.0) * 113.0);
+          
+          return mix(
+            mix(mix(a, b, f.x), mix(c, d, f.x), f.y),
+            mix(mix(e, g, f.x), mix(h, k, f.x), f.y),
+            f.z
+          ) * 0.5 + 0.5;
         }
         
         void main() {
-          // Normalize position for consistent noise across the sphere
+          // Normalize position for consistent noise across all star sizes
           vec3 norm = normalize(vPosition);
           
           // Slow down animation significantly for more majestic movement
           float slowTime = time / 10.0;
           
-          // Create variation across the surface using 3D position with slow rotation
-          float n1 = noise(norm * 3.0 + slowTime * 0.0002);
-          float n2 = noise(norm * 6.0 + slowTime * 0.0003);
-          float n3 = noise(norm * 12.0 + slowTime * 0.0004);
+          // Use VERY low frequencies to avoid aliasing at any scale
+          // Large features that look good whether star is small or huge
+          float n1 = noise(norm * 1.5 + slowTime * 0.0002);
+          float n2 = noise(norm * 3.0 + slowTime * 0.0003);
+          float n3 = noise(norm * 5.0 + slowTime * 0.0004);
           
-          // Combine noise layers
-          float intensity = 0.85 + n1 * 0.1 + n2 * 0.05 + n3 * 0.025;
+          // Combine noise layers with minimal contribution for ultra-smooth appearance
+          float intensity = 0.94 + n1 * 0.03 + n2 * 0.015 + n3 * 0.008;
           
-          // Add some darker spots (sunspots) with very slow movement
-          float spot1Raw = sin(norm.x * 15.0 + norm.y * 10.0 + slowTime * 0.0001) * 0.5 + 0.5;
-          float spot2Raw = sin(norm.z * 12.0 + norm.x * 8.0 + slowTime * 0.00015) * 0.5 + 0.5;
-          float spot1 = smoothstep(0.3, 0.7, spot1Raw);
-          float spot2 = smoothstep(0.3, 0.7, spot2Raw);
-          intensity -= (spot1 * 0.1 + spot2 * 0.08);
+          // Add some darker spots (sunspots) with very low frequency and heavy smoothing
+          float spot1Raw = sin(norm.x * 8.0 + norm.y * 6.0 + slowTime * 0.0001) * 0.5 + 0.5;
+          float spot2Raw = sin(norm.z * 7.0 + norm.x * 5.0 + slowTime * 0.00015) * 0.5 + 0.5;
+          float spot1 = smoothstep(0.25, 0.75, spot1Raw);
+          float spot2 = smoothstep(0.25, 0.75, spot2Raw);
+          intensity -= (spot1 * 0.03 + spot2 * 0.025);
           
-          // Add brighter areas with medium rotation speed and smooth transitions
-          float bright1Raw = cos(norm.x * 8.0 + slowTime * 0.0005) * cos(norm.y * 6.0 - slowTime * 0.0004) * 0.5 + 0.5;
-          float bright2Raw = cos(norm.z * 7.0 + slowTime * 0.0006) * cos(norm.x * 5.0 + slowTime * 0.0003) * 0.5 + 0.5;
-          float bright3Raw = sin(norm.x * 10.0 + norm.z * 8.0 + slowTime * 0.0007) * cos(norm.y * 9.0 - slowTime * 0.0005) * 0.5 + 0.5;
-          float bright1 = smoothstep(0.4, 0.6, bright1Raw);
-          float bright2 = smoothstep(0.4, 0.6, bright2Raw);
-          float bright3 = smoothstep(0.4, 0.6, bright3Raw);
-          intensity += (bright1 * 0.25 + bright2 * 0.2 + bright3 * 0.3);
+          // Add brighter areas with low frequency and very smooth transitions
+          float bright1Raw = cos(norm.x * 4.0 + slowTime * 0.0005) * cos(norm.y * 3.5 - slowTime * 0.0004) * 0.5 + 0.5;
+          float bright2Raw = cos(norm.z * 4.5 + slowTime * 0.0006) * cos(norm.x * 3.8 + slowTime * 0.0003) * 0.5 + 0.5;
+          float bright3Raw = sin(norm.x * 5.0 + norm.z * 4.5 + slowTime * 0.0007) * cos(norm.y * 5.5 + slowTime * 0.0005) * 0.5 + 0.5;
+          float bright1 = smoothstep(0.35, 0.65, bright1Raw);
+          float bright2 = smoothstep(0.35, 0.65, bright2Raw);
+          float bright3 = smoothstep(0.35, 0.65, bright3Raw);
+          intensity += (bright1 * 0.1 + bright2 * 0.08 + bright3 * 0.11);
           
-          // Add swirling bright patterns with different rotation speeds and smooth transitions
-          float swirl1Raw = sin(norm.x * 12.0 + sin(norm.y * 8.0) + norm.z * 6.0 + slowTime * 0.0008) * 0.5 + 0.5;
-          float swirl2Raw = cos(norm.y * 10.0 + cos(norm.z * 7.0) + norm.x * 5.0 - slowTime * 0.0009) * 0.5 + 0.5;
-          float swirl3Raw = sin(norm.z * 11.0 + sin(norm.x * 9.0) + norm.y * 7.0 + slowTime * 0.001) * 0.5 + 0.5;
-          float swirl1 = smoothstep(0.5, 0.9, swirl1Raw);
-          float swirl2 = smoothstep(0.5, 0.9, swirl2Raw);
-          float swirl3 = smoothstep(0.5, 0.9, swirl3Raw);
-          intensity += (swirl1 * 0.35 + swirl2 * 0.3 + swirl3 * 0.25);
+          // Add swirling bright patterns with low frequency and extremely smooth transitions
+          float swirl1Raw = sin(norm.x * 6.0 + sin(norm.y * 4.5) + norm.z * 4.0 + slowTime * 0.0008) * 0.5 + 0.5;
+          float swirl2Raw = cos(norm.y * 6.5 + cos(norm.z * 4.8) + norm.x * 3.8 - slowTime * 0.0009) * 0.5 + 0.5;
+          float swirl3Raw = sin(norm.z * 6.8 + sin(norm.x * 5.5) + norm.y * 5.0 + slowTime * 0.001) * 0.5 + 0.5;
+          float swirl1 = smoothstep(0.45, 0.92, swirl1Raw);
+          float swirl2 = smoothstep(0.45, 0.92, swirl2Raw);
+          float swirl3 = smoothstep(0.45, 0.92, swirl3Raw);
+          intensity += (swirl1 * 0.13 + swirl2 * 0.11 + swirl3 * 0.09);
           
           // Add subtle breathing/pulsing effect
-          float pulse = sin(slowTime * 0.005) * 0.03 + 1.0;
+          float pulse = sin(slowTime * 0.005) * 0.02 + 1.0;
           intensity *= pulse;
           
-          // Clamp
-          intensity = clamp(intensity, 0.75, 1.6);
+          // Clamp to prevent over-exposure and graininess
+          intensity = clamp(intensity, 0.85, 1.4);
           
           gl_FragColor = vec4(baseColor * intensity, 1.0);
         }

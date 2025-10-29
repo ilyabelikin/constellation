@@ -819,6 +819,12 @@ export class ConstellationWebSocketServer {
         exploredGates,
         totalGates,
         jumpsFromHome: jumpsFromHome.get(system.id) ?? -1, // -1 if unreachable
+        companionStars: system.companionStars
+          ? system.companionStars.map((cs) => ({
+              color: cs.color || "#ffffff",
+              type: cs.starType || "Unknown",
+            }))
+          : undefined,
       };
     });
 

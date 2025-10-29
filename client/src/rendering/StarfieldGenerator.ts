@@ -10,7 +10,10 @@ export class StarfieldGenerator {
    * @param count - Number of stars to generate
    * @returns THREE.Points mesh representing the starfield
    */
-  createStarfield(radius: number = 50000, count: number = 10000): THREE.Points {
+  createStarfield(
+    radius: number = 200000,
+    count: number = 15000
+  ): THREE.Points {
     const geometry = new THREE.BufferGeometry();
     const vertices = [];
     const colors = [];
