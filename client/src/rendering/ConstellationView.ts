@@ -13,6 +13,7 @@ export class ConstellationView {
   private nodes: Map<string, THREE.Group> = new Map();
   private connections: THREE.Group = new THREE.Group();
   private currentSystemId: string | null = null;
+  private selectedSystemId: string | null = null; // Track selected system (starts as current system)
 
   // Scale factor for visualization (light years to Three.js units)
   private readonly SCALE = 5; // 1 light year = 5 units (very compact view)
@@ -29,6 +30,7 @@ export class ConstellationView {
     0
   );
   private dragOffset: THREE.Vector3 = new THREE.Vector3();
+  private draggedNodePreviousPosition: THREE.Vector3 = new THREE.Vector3(); // Track star position for moving mystery endpoints
   private connectionsList: ConstellationConnection[] = [];
   private nodesList: ConstellationNode[] = [];
   private mysteryPositions: Map<string, THREE.Vector3> = new Map(); // Store custom positions by gateId
@@ -51,10 +53,13 @@ export class ConstellationView {
     connectionsList: ConstellationConnection[],
     unexploredGates: UnexploredGate[],
     currentSystemId: string,
-    customPositions?: Record<string, { x: number; y: number; z: number }>
+    customPositions?: Record<string, { x: number; y: number; z: number }>,
+    preserveSelectedSystemId?: string | null
   ): void {
     this.clear();
     this.currentSystemId = currentSystemId;
+    // Preserve selection if provided, otherwise auto-select current system
+    this.selectedSystemId = preserveSelectedSystemId || currentSystemId;
     this.connectionsList = connectionsList;
     this.nodesList = nodes;
 
@@ -97,7 +102,13 @@ export class ConstellationView {
       placedPositions.push(position.clone());
 
       const isCurrent = node.systemId === currentSystemId;
-      const starGroup = this.createStarNode(node, position, isCurrent);
+      const isSelected = node.systemId === this.selectedSystemId;
+      const starGroup = this.createStarNode(
+        node,
+        position,
+        isCurrent,
+        isSelected
+      );
       this.nodes.set(node.systemId, starGroup);
       this.scene.add(starGroup);
     }
@@ -183,16 +194,19 @@ export class ConstellationView {
         });
 
         // Draw mystery path (purple dashed line)
-        this.createConnectionLine(fromPos, mysteryPos, false);
+        this.createConnectionLine(fromPos, mysteryPos, false, gate.systemId);
 
-        // Add purple sphere at endpoint (where the star will appear) with gateId
-        this.createUndiscoveredEndpoint(mysteryPos, gate.gateId);
+        // Add purple sphere at endpoint (where the star will appear) with gateId and systemId
+        this.createUndiscoveredEndpoint(mysteryPos, gate.gateId, gate.systemId);
       }
     }
 
     console.log(
       `Constellation view loaded: ${nodes.length} nodes, ${connectionsList.length} connections (${exploredCount} explored, ${unexploredCount} unexplored, ${skippedCount} skipped), ${unexploredGates.length} mystery paths`
     );
+
+    // Update visibility to only show mystery pathways for selected system
+    this.updateUnexploredGatesVisibility();
   }
 
   /**
@@ -201,7 +215,8 @@ export class ConstellationView {
   private createStarNode(
     node: ConstellationNode,
     position: THREE.Vector3,
-    isCurrent: boolean
+    isCurrent: boolean,
+    isSelected: boolean
   ): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(position);
@@ -209,13 +224,14 @@ export class ConstellationView {
       type: "constellationNode",
       systemId: node.systemId,
       systemName: node.systemName,
+      isCurrent: isCurrent,
     };
 
     // Parse star color
     const color = new THREE.Color(node.starColor);
 
-    // Create star sphere
-    const starSize = isCurrent ? this.STAR_SIZE * 1.5 : this.STAR_SIZE;
+    // Create star sphere - selected system is larger and brighter
+    const starSize = isSelected ? this.STAR_SIZE * 1.5 : this.STAR_SIZE;
     const starGeometry = new THREE.SphereGeometry(starSize, 16, 16);
     const starMaterial = new THREE.MeshBasicMaterial({
       color,
@@ -236,14 +252,14 @@ export class ConstellationView {
     const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
     group.add(glowMesh);
 
-    // Add point light for current star
-    if (isCurrent) {
+    // Add point light for selected star
+    if (isSelected) {
       const light = new THREE.PointLight(color, 2, 200);
       group.add(light);
     }
 
     // Add text label
-    this.createLabel(group, node.systemName, starSize, isCurrent);
+    this.createLabel(group, node.systemName, starSize, isSelected);
 
     return group;
   }
@@ -296,7 +312,8 @@ export class ConstellationView {
   private createConnectionLine(
     from: THREE.Vector3,
     to: THREE.Vector3,
-    isExplored: boolean
+    isExplored: boolean,
+    systemId?: string
   ): void {
     // Create a thick line using cylinder geometry (LineBasicMaterial linewidth doesn't work)
     const direction = new THREE.Vector3().subVectors(to, from);
@@ -329,6 +346,12 @@ export class ConstellationView {
       direction.normalize()
     );
 
+    // Store systemId for filtering unexplored connections
+    if (systemId) {
+      line.userData.systemId = systemId;
+      line.userData.type = "unexploredConnection";
+    }
+
     this.connections.add(line);
   }
 
@@ -337,7 +360,9 @@ export class ConstellationView {
    */
   private createUndiscoveredEndpoint(
     position: THREE.Vector3,
-    gateId?: string
+    gateId?: string,
+    systemId?: string,
+    pulsePhase?: number
   ): void {
     const geometry = new THREE.SphereGeometry(3, 16, 16); // Larger and smoother
     const material = new THREE.MeshBasicMaterial({
@@ -351,10 +376,12 @@ export class ConstellationView {
     sphere.userData = {
       type: "undiscoveredEndpoint",
       gateId: gateId, // Store gate ID directly
+      systemId: systemId, // Store system ID for filtering
     };
 
-    // Add pulsing animation data
-    sphere.userData.pulsePhase = Math.random() * Math.PI * 2;
+    // Add pulsing animation data - preserve existing phase if provided
+    sphere.userData.pulsePhase =
+      pulsePhase !== undefined ? pulsePhase : Math.random() * Math.PI * 2;
 
     this.connections.add(sphere);
 
@@ -368,6 +395,10 @@ export class ConstellationView {
     });
     const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
     glowMesh.position.copy(position);
+    glowMesh.userData = {
+      type: "undiscoveredEndpointGlow",
+      systemId: systemId, // Also store on glow for filtering
+    };
     this.connections.add(glowMesh);
   }
 
@@ -527,6 +558,9 @@ export class ConstellationView {
       if (object.userData.type === "constellationNode") {
         this.draggedNode = object as THREE.Group;
 
+        // Store initial position for calculating delta movement
+        this.draggedNodePreviousPosition.copy(this.draggedNode.position);
+
         // Set up drag plane at the node's position
         this.dragPlane.setFromNormalAndCoplanarPoint(
           new THREE.Vector3(0, 1, 0),
@@ -566,10 +600,41 @@ export class ConstellationView {
     const intersectPoint = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(this.dragPlane, intersectPoint)) {
       if (this.draggedNode) {
+        // Calculate how much the star moved
+        const delta = new THREE.Vector3()
+          .copy(intersectPoint)
+          .add(this.dragOffset)
+          .sub(this.draggedNodePreviousPosition);
+
         // Move the star node to the new position (with offset)
         this.draggedNode.position.copy(intersectPoint).add(this.dragOffset);
-        // Update connections that involve this node
+
+        // Move all mystery endpoints attached to this star by the same delta
+        const draggedSystemId = this.draggedNode.userData.systemId;
+        if (draggedSystemId) {
+          for (const unexploredGate of this.unexploredGatesList) {
+            if (unexploredGate.systemId === draggedSystemId) {
+              const currentPos = this.mysteryPositions.get(
+                unexploredGate.gateId
+              );
+              if (currentPos) {
+                currentPos.add(delta);
+              } else {
+                // Initialize with the delta applied
+                const newPos = unexploredGate.position.clone().add(delta);
+                this.mysteryPositions.set(unexploredGate.gateId, newPos);
+              }
+            }
+          }
+        }
+
+        // Update previous position for next frame
+        this.draggedNodePreviousPosition.copy(this.draggedNode.position);
+
+        // Update connections that involve this node (including mystery pathways)
         this.updateConnections();
+        // Restore visibility rules after updating connections
+        this.updateUnexploredGatesVisibility();
       } else if (this.draggedMystery) {
         // Move the mystery sphere to the new position (with offset)
         this.draggedMystery.position.copy(intersectPoint).add(this.dragOffset);
@@ -585,6 +650,8 @@ export class ConstellationView {
 
         // Update connections that involve this mystery sphere
         this.updateConnections();
+        // Restore visibility rules after updating connections
+        this.updateUnexploredGatesVisibility();
       }
     }
 
@@ -603,6 +670,18 @@ export class ConstellationView {
    * Update connection lines to match current node positions
    */
   private updateConnections(): void {
+    // Save pulse phases before clearing to preserve animation state
+    const savedPulsePhases = new Map<string, number>();
+    this.connections.traverse((child) => {
+      if (
+        child.userData.type === "undiscoveredEndpoint" &&
+        child.userData.gateId &&
+        child.userData.pulsePhase !== undefined
+      ) {
+        savedPulsePhases.set(child.userData.gateId, child.userData.pulsePhase);
+      }
+    });
+
     // Clear existing connections - DISPOSE PROPERLY to avoid memory leaks
     this.connections.traverse((child) => {
       if (child instanceof THREE.Mesh || child instanceof THREE.Line) {
@@ -656,11 +735,24 @@ export class ConstellationView {
           this.mysteryPositions.get(unexploredGate.gateId) ||
           unexploredGate.position;
 
-        // Draw mystery path (purple dashed line)
-        this.createConnectionLine(fromGroup.position, currentPos, false);
+        // Draw mystery path (purple dashed line) WITH systemId for filtering
+        this.createConnectionLine(
+          fromGroup.position,
+          currentPos,
+          false,
+          unexploredGate.systemId
+        );
 
-        // Add purple sphere at endpoint with gateId
-        this.createUndiscoveredEndpoint(currentPos, unexploredGate.gateId);
+        // Get saved pulse phase to maintain animation continuity
+        const savedPhase = savedPulsePhases.get(unexploredGate.gateId);
+
+        // Add purple sphere at endpoint with gateId, systemId, AND preserved pulse phase
+        this.createUndiscoveredEndpoint(
+          currentPos,
+          unexploredGate.gateId,
+          unexploredGate.systemId,
+          savedPhase
+        );
       }
     }
   }
@@ -743,13 +835,14 @@ export class ConstellationView {
   }
 
   /**
-   * Handle click on a star node to travel to that system
+   * Handle click on a star node - two-click system: first selects, second travels
+   * Returns: { systemId, action: 'select' | 'travel' } or null
    */
   onStarClick(
     event: MouseEvent,
     camera: THREE.Camera,
     raycaster: THREE.Raycaster
-  ): string | null {
+  ): { systemId: string; action: "select" | "travel" } | null {
     // Update raycaster
     const mouse = new THREE.Vector2(
       (event.clientX / window.innerWidth) * 2 - 1,
@@ -771,14 +864,167 @@ export class ConstellationView {
       if (object.userData.type === "constellationNode") {
         const systemId = object.userData.systemId;
 
-        // Don't travel if it's the current system
-        if (systemId !== this.currentSystemId) {
-          return systemId;
+        // Check if this is the already-selected system (second click = travel)
+        if (systemId === this.selectedSystemId) {
+          // Don't allow travel to current system (already there)
+          if (systemId === this.currentSystemId) {
+            return null;
+          }
+          return { systemId, action: "travel" };
+        } else {
+          // First click = select (allowed for any system, including current)
+          this.selectSystem(systemId);
+          return { systemId, action: "select" };
         }
       }
     }
 
     return null;
+  }
+
+  /**
+   * Select a system and update visual indicators
+   */
+  private selectSystem(systemId: string): void {
+    const oldSelectedId = this.selectedSystemId;
+    this.selectedSystemId = systemId;
+
+    // Update visual style of previously selected system (if any)
+    if (oldSelectedId) {
+      const oldNode = this.nodesList.find((n) => n.systemId === oldSelectedId);
+      const oldGroup = this.nodes.get(oldSelectedId);
+      if (oldNode && oldGroup) {
+        this.updateStarNodeVisual(
+          oldGroup,
+          oldNode,
+          oldSelectedId === this.currentSystemId,
+          false
+        );
+      }
+    }
+
+    // Update visual style of newly selected system
+    const newNode = this.nodesList.find((n) => n.systemId === systemId);
+    const newGroup = this.nodes.get(systemId);
+    if (newNode && newGroup) {
+      this.updateStarNodeVisual(
+        newGroup,
+        newNode,
+        systemId === this.currentSystemId,
+        true
+      );
+    }
+
+    // Update unexplored gates to only show for selected system
+    this.updateUnexploredGatesVisibility();
+  }
+
+  /**
+   * Update the visual appearance of a star node
+   */
+  private updateStarNodeVisual(
+    group: THREE.Group,
+    node: ConstellationNode,
+    isCurrent: boolean,
+    isSelected: boolean
+  ): void {
+    // Clear existing children
+    while (group.children.length > 0) {
+      const child = group.children[0];
+      group.remove(child);
+      if (child instanceof THREE.Mesh) {
+        child.geometry.dispose();
+        if (Array.isArray(child.material)) {
+          child.material.forEach((m) => m.dispose());
+        } else {
+          child.material.dispose();
+        }
+      }
+    }
+
+    // Rebuild the star visual with new selection state
+    const color = new THREE.Color(node.starColor);
+    const starSize = isSelected ? this.STAR_SIZE * 1.5 : this.STAR_SIZE;
+
+    // Create star sphere
+    const starGeometry = new THREE.SphereGeometry(starSize, 16, 16);
+    const starMaterial = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.9,
+    });
+    const starMesh = new THREE.Mesh(starGeometry, starMaterial);
+    group.add(starMesh);
+
+    // Add glow effect
+    const glowGeometry = new THREE.SphereGeometry(starSize * 1.3, 16, 16);
+    const glowMaterial = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.3,
+      side: THREE.BackSide,
+    });
+    const glowMesh = new THREE.Mesh(glowGeometry, glowMaterial);
+    group.add(glowMesh);
+
+    // Add point light for selected star
+    if (isSelected) {
+      const light = new THREE.PointLight(color, 2, 200);
+      group.add(light);
+    }
+
+    // Add text label
+    this.createLabel(group, node.systemName, starSize, isSelected);
+  }
+
+  /**
+   * Get the currently selected system ID
+   */
+  getSelectedSystemId(): string | null {
+    return this.selectedSystemId;
+  }
+
+  /**
+   * Get the position of a star node
+   */
+  getNodePosition(systemId: string): THREE.Vector3 | null {
+    const node = this.nodes.get(systemId);
+    return node ? node.position.clone() : null;
+  }
+
+  /**
+   * Clear the selection (reset to current system)
+   */
+  clearSelection(): void {
+    if (this.currentSystemId) {
+      this.selectSystem(this.currentSystemId);
+    }
+  }
+
+  /**
+   * Update visibility of unexplored gates based on selected system
+   * Only shows mystery pathways for the currently selected star
+   */
+  private updateUnexploredGatesVisibility(): void {
+    this.connections.traverse((child) => {
+      // Handle unexplored endpoints (purple spheres)
+      if (
+        child.userData.type === "undiscoveredEndpoint" ||
+        child.userData.type === "undiscoveredEndpointGlow"
+      ) {
+        if (child.userData.systemId) {
+          // Only show if this gate belongs to the selected system
+          child.visible = child.userData.systemId === this.selectedSystemId;
+        }
+      }
+      // Handle unexplored connection lines
+      else if (child.userData.type === "unexploredConnection") {
+        if (child.userData.systemId) {
+          // Only show if this connection belongs to the selected system
+          child.visible = child.userData.systemId === this.selectedSystemId;
+        }
+      }
+    });
   }
 
   /**

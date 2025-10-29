@@ -66,8 +66,9 @@ export class SceneManager {
   public onConstellationPositionsChanged:
     | ((positions: Record<string, { x: number; y: number; z: number }>) => void)
     | null = null;
-  public onConstellationSystemSelected: ((systemId: string) => void) | null =
-    null;
+  public onConstellationSystemSelected:
+    | ((systemId: string, action: "select" | "travel") => void)
+    | null = null;
   public onConstellationGateSelected: ((gateId: string) => void) | null = null;
 
   // Gate travel state
@@ -605,14 +606,17 @@ export class SceneManager {
             }
 
             // Then check for star clicks
-            const clickedSystemId = this.constellationView.onStarClick(
+            const clickResult = this.constellationView.onStarClick(
               event,
               this.camera,
               raycaster
             );
 
-            if (clickedSystemId && this.onConstellationSystemSelected) {
-              this.onConstellationSystemSelected(clickedSystemId);
+            if (clickResult && this.onConstellationSystemSelected) {
+              this.onConstellationSystemSelected(
+                clickResult.systemId,
+                clickResult.action
+              );
             }
           }
         }, 150);
@@ -717,14 +721,17 @@ export class SceneManager {
     // Handle constellation view clicks
     if (this.isConstellationViewActive) {
       const raycaster = new THREE.Raycaster();
-      const clickedSystemId = this.constellationView.onStarClick(
+      const clickResult = this.constellationView.onStarClick(
         new MouseEvent("click"), // We'll use the actual event in onMouseDown
         this.camera,
         raycaster
       );
 
-      if (clickedSystemId && this.onConstellationSystemSelected) {
-        this.onConstellationSystemSelected(clickedSystemId);
+      if (clickResult && this.onConstellationSystemSelected) {
+        this.onConstellationSystemSelected(
+          clickResult.systemId,
+          clickResult.action
+        );
       }
       return;
     }
@@ -1311,8 +1318,9 @@ export class SceneManager {
     connections: ConstellationConnection[],
     unexploredGates: UnexploredGate[],
     currentSystemId: string,
-    customPositions?: Record<string, { x: number; y: number; z: number }>
-  ): void {
+    customPositions?: Record<string, { x: number; y: number; z: number }>,
+    preserveSelectedSystemId?: string | null
+  ): string | null {
     // Hide system objects
     this.hideSystemObjects();
 
@@ -1322,14 +1330,37 @@ export class SceneManager {
       connections,
       unexploredGates,
       currentSystemId,
-      customPositions
+      customPositions,
+      preserveSelectedSystemId
     );
     this.isConstellationViewActive = true;
 
-    // Position camera for constellation view
-    this.cameraController.setConstellationView();
+    // Position camera for constellation view (only if not preserving - i.e., first open)
+    if (!preserveSelectedSystemId) {
+      this.cameraController.setConstellationView();
+    }
 
     console.log("Switched to constellation view");
+
+    // Return the initially selected system ID (current system)
+    return this.constellationView.getSelectedSystemId();
+  }
+
+  /**
+   * Center camera on a constellation node
+   */
+  centerOnConstellationNode(systemId: string): void {
+    const position = this.constellationView.getNodePosition(systemId);
+    if (position) {
+      this.cameraController.centerOnConstellationNode(position);
+    }
+  }
+
+  /**
+   * Get the currently selected system ID in constellation view
+   */
+  getConstellationSelectedSystemId(): string | null {
+    return this.constellationView.getSelectedSystemId();
   }
 
   /**

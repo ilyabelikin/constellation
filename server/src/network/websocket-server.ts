@@ -642,6 +642,13 @@ export class ConstellationWebSocketServer {
       // Update the current gate to point to the new system
       this.db.updateGateDestination(gateId, destinationSystem.id);
 
+      // Transfer mystery sphere position to the new system's position
+      this.db.transferMysteryPositionToSystem(
+        player.id,
+        gateId,
+        destinationSystem.id
+      );
+
       console.log(
         `Generated new system ${destinationSystem.id} with ${
           destinationSystem.gates.length

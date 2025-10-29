@@ -229,6 +229,14 @@ export class CameraController {
   }
 
   /**
+   * Center camera on a position in constellation view
+   */
+  centerOnConstellationNode(position: THREE.Vector3): void {
+    this.cameraTarget.copy(position);
+    // Keep existing distance and angles for smooth transitions
+  }
+
+  /**
    * Get the current camera distance
    * @returns Current distance from camera target
    */

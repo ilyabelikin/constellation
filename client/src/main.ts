@@ -1,7 +1,12 @@
 import { NetworkClient } from "./network/client";
 import { SceneManager } from "./rendering/scene";
 import { HUDManager } from "./ui/hud";
-import { Player, StarSystem, Ship } from "@constellation/shared";
+import {
+  Player,
+  StarSystem,
+  Ship,
+  ConstellationNode,
+} from "@constellation/shared";
 
 class ConstellationClient {
   private network: NetworkClient;
@@ -18,6 +23,8 @@ class ConstellationClient {
   private animationFrameId: number | null = null;
   private keyboardHandler: ((e: KeyboardEvent) => void) | null = null;
   private isExploringFromConstellation = false; // Flag to stay in constellation view after gate travel
+  private constellationNodes: ConstellationNode[] = []; // Store constellation data for system details
+  private constellationSelectedSystemId: string | null = null; // Remember selected system when exploring
 
   constructor() {
     const container = document.getElementById("canvas-container")!;
@@ -168,7 +175,6 @@ class ConstellationClient {
 
       // If we were exploring from constellation view, stay in constellation view
       if (this.isExploringFromConstellation) {
-        this.isExploringFromConstellation = false;
         console.log("Reloading constellation view after exploration");
 
         // Small delay to let the server process everything
@@ -208,14 +214,37 @@ class ConstellationClient {
         unexploredGates.length,
         "mystery gates"
       );
-      this.scene.showConstellationView(
+      this.constellationNodes = nodes; // Store for system details
+
+      // Preserve selection if we're reloading after gate exploration
+      const preserveSelection = this.isExploringFromConstellation
+        ? this.constellationSelectedSystemId
+        : null;
+
+      const selectedSystemId = this.scene.showConstellationView(
         nodes,
         connections,
         unexploredGates,
         currentSystemId,
-        customPositions
+        customPositions,
+        preserveSelection
       );
       this.hud.hideOutline();
+
+      // Show details for selected system
+      if (selectedSystemId) {
+        const selectedNode = nodes.find((n) => n.systemId === selectedSystemId);
+        if (selectedNode) {
+          this.hud.showConstellationSystemDetails(selectedNode);
+          // Don't auto-center camera - let user control their view
+        }
+      }
+
+      // Clear the preserved selection and flag after using it
+      if (this.isExploringFromConstellation) {
+        this.constellationSelectedSystemId = null;
+        this.isExploringFromConstellation = false;
+      }
     };
   }
 
@@ -354,19 +383,35 @@ class ConstellationClient {
       this.network.saveConstellationPositions(positions);
     };
 
-    this.scene.onConstellationSystemSelected = (systemId) => {
-      console.log("Constellation system selected:", systemId);
-      // Exit constellation view and travel to the selected system
-      this.scene.hideConstellationView();
-      if (this.system) {
-        this.hud.setSystem(this.system);
+    this.scene.onConstellationSystemSelected = (systemId, action) => {
+      if (action === "select") {
+        console.log("Constellation system selected (first click):", systemId);
+        // Find the node and show system details in HUD
+        const node = this.constellationNodes.find(
+          (n) => n.systemId === systemId
+        );
+        if (node) {
+          this.hud.showConstellationSystemDetails(node);
+          // Center camera on selected system
+          this.scene.centerOnConstellationNode(systemId);
+        }
+      } else if (action === "travel") {
+        console.log("Constellation system travel (second click):", systemId);
+        // Exit constellation view and travel to the selected system
+        this.scene.hideConstellationView();
+        if (this.system) {
+          this.hud.setSystem(this.system);
+        }
+        // Request the selected system's state
+        this.network.requestSystemState(systemId);
       }
-      // Request the selected system's state
-      this.network.requestSystemState(systemId);
     };
 
     this.scene.onConstellationGateSelected = (gateId) => {
       console.log("Constellation gate selected (exploring):", gateId);
+      // Save current selection to preserve it after exploration
+      this.constellationSelectedSystemId =
+        this.scene.getConstellationSelectedSystemId();
       // Use gate to explore new system, but stay in constellation view
       this.isExploringFromConstellation = true;
       this.network.useGate(gateId);

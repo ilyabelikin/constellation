@@ -1,4 +1,4 @@
-import { Player, StarSystem, SystemState, Ship } from "@constellation/shared";
+import { Player, StarSystem, SystemState, Ship, ConstellationNode } from "@constellation/shared";
 import { BodyDetailView } from "./BodyDetailView.js";
 import { GateDetailView } from "./GateDetailView.js";
 import { ShipDetailView } from "./ShipDetailView.js";
@@ -327,6 +327,8 @@ export class HUDManager {
   setPlayer(player: Player): void {
     this.player = player;
     this.hideAuthModal();
+    // Update body detail view with home planet reference
+    this.bodyDetailView.setHomePlanet(this.player, this.system);
   }
 
   setSystem(system: StarSystem): void {
@@ -334,6 +336,9 @@ export class HUDManager {
     // Apply theme FIRST so outline elements are created with the correct colors
     this.applyStarTheme(system.star.color);
     this.populateSystemOutline();
+
+    // Update body detail view with home planet reference
+    this.bodyDetailView.setHomePlanet(this.player, this.system);
 
     // Enable transitions after elements are rendered (next frame)
     // This prevents the green flash on initial load
@@ -645,6 +650,25 @@ export class HUDManager {
 
   updateState(state: SystemState): void {
     this.currentState = state;
+  }
+
+  /**
+   * Show constellation system details (when a system is selected in constellation view)
+   */
+  showConstellationSystemDetails(node: ConstellationNode): void {
+    // Calculate distance from origin (in light years)
+    const distance = Math.sqrt(
+      node.position.x * node.position.x +
+      node.position.y * node.position.y +
+      node.position.z * node.position.z
+    );
+    
+    // Show system info in body detail view
+    this.bodyDetailView.showConstellationSystem(node.systemName, distance);
+    
+    // Hide other detail views
+    this.gateDetailView.hide();
+    this.shipDetailView.hide();
   }
 
   /**

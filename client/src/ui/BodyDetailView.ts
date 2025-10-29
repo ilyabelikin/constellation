@@ -4,6 +4,8 @@ import {
   EARTH_MASS,
   LifeLevel,
   CivilizationLevel,
+  Player,
+  StarSystem,
 } from "@constellation/shared";
 
 /**
@@ -29,6 +31,10 @@ export class BodyDetailView {
   private currentBodyId: string | null = null;
   private userModifiedSeed: boolean = false; // Track if user has changed the slider
   private onSeedChange: ((seed: number) => void) | null = null;
+
+  // Home planet reference for relative mass display
+  private homePlanetMass: number = EARTH_MASS;
+  private homePlanetName: string = "Earth";
 
   constructor() {
     this.panel = document.getElementById("body-details-panel")!;
@@ -61,6 +67,28 @@ export class BodyDetailView {
    */
   setOnSeedChange(callback: (seed: number) => void): void {
     this.onSeedChange = callback;
+  }
+
+  /**
+   * Set the home planet reference for relative mass display
+   */
+  setHomePlanet(player: Player | null, system: StarSystem | null): void {
+    if (!player || !system) {
+      return; // Keep existing values if no player/system
+    }
+
+    // Only update if we're in the home system (or if we haven't set it yet)
+    if (system.id === player.homeSystemId || this.homePlanetName === "Earth") {
+      // Find the home planet in the system
+      const homePlanet = system.planets.find(
+        (p) => p.id === player.homePlanetId
+      );
+      if (homePlanet) {
+        this.homePlanetMass = homePlanet.mass;
+        this.homePlanetName = homePlanet.name;
+      }
+    }
+    // If we're in a different system and already have home planet data, keep it
   }
 
   /**
@@ -288,6 +316,34 @@ export class BodyDetailView {
   }
 
   /**
+   * Show constellation system info (simplified view for constellation mode)
+   */
+  showConstellationSystem(systemName: string, distance: number): void {
+    this.panel.classList.remove("hidden");
+    
+    this.nameElement.textContent = systemName;
+    this.typeElement.textContent = "Star System";
+    this.distanceElement.textContent = `${distance.toFixed(2)} light years`;
+    this.massElement.textContent = "-";
+    this.radiusElement.textContent = "-";
+    this.velocityElement.textContent = "-";
+    
+    // Hide optional fields
+    if (this.lifeElement) {
+      this.lifeElement.style.display = "none";
+    }
+    if (this.habitabilityElement) {
+      this.habitabilityElement.style.display = "none";
+    }
+    if (this.compositionElement) {
+      this.compositionElement.style.display = "none";
+    }
+    if (this.shapeElement) {
+      this.shapeElement.style.display = "none";
+    }
+  }
+
+  /**
    * Hide the detail panel
    * @param clearSelection - If true, clear the current selection (default true)
    */
@@ -304,7 +360,8 @@ export class BodyDetailView {
 
   private formatMass(mass: number): string {
     if (mass > 1e24) {
-      return `${(mass / EARTH_MASS).toFixed(2)} Earth masses`;
+      const relativeMass = mass / this.homePlanetMass;
+      return `${relativeMass.toFixed(2)} ${this.homePlanetName} masses`;
     } else if (mass > 1e20) {
       return `${(mass / 1e24).toFixed(2)} × 10²⁴ kg`;
     } else {

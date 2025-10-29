@@ -584,4 +584,28 @@ export class DatabaseQueries {
     );
     stmt.run(JSON.stringify(positions), playerId);
   }
+
+  /**
+   * When a gate is explored, transfer the mystery sphere position to the new system
+   */
+  transferMysteryPositionToSystem(
+    playerId: string,
+    gateId: string,
+    newSystemId: string
+  ): void {
+    const positions = this.getConstellationPositions(playerId);
+    const mysteryKey = `mystery_${gateId}`;
+
+    if (positions[mysteryKey]) {
+      // Transfer mystery position to the new system
+      positions[newSystemId] = positions[mysteryKey];
+      // Remove the mystery position
+      delete positions[mysteryKey];
+      // Save updated positions
+      this.saveConstellationPositions(playerId, positions);
+      console.log(
+        `Transferred mystery position for gate ${gateId} to system ${newSystemId}`
+      );
+    }
+  }
 }
