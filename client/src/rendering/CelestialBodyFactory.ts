@@ -87,9 +87,9 @@ export class CelestialBodyFactory {
 
     // Regular star: normal glow layers
     const glowLayers = [
-      { size: 1.1, opacity: 0.8 },
-      { size: 1.2, opacity: 0.6 },
-      { size: 1.35, opacity: 0.4 },
+      { size: 1.05, opacity: 0.8 },
+      { size: 1.1, opacity: 0.6 },
+      { size: 1.2, opacity: 0.4 },
     ];
 
     glowLayers.forEach((layer) => {

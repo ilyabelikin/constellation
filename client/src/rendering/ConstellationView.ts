@@ -263,9 +263,9 @@ export class ConstellationView {
 
     // Add multiple glow layers like in system view
     const glowLayers = [
-      { size: 1.1, opacity: 0.6 },
-      { size: 1.2, opacity: 0.4 },
-      { size: 1.35, opacity: 0.25 },
+      { size: 1.05, opacity: 0.6 },
+      { size: 1.1, opacity: 0.4 },
+      { size: 1.2, opacity: 0.25 },
     ];
 
     glowLayers.forEach((layer) => {
@@ -325,8 +325,8 @@ export class ConstellationView {
 
         // Add smaller glow layers for companions
         const companionGlowLayers = [
-          { size: 1.15, opacity: 0.5 },
-          { size: 1.3, opacity: 0.3 },
+          { size: 1.1, opacity: 0.5 },
+          { size: 1.2, opacity: 0.3 },
         ];
 
         companionGlowLayers.forEach((layer) => {
@@ -1080,9 +1080,9 @@ export class ConstellationView {
 
     // Add multiple glow layers like in system view
     const glowLayers = [
-      { size: 1.1, opacity: 0.6 },
-      { size: 1.2, opacity: 0.4 },
-      { size: 1.35, opacity: 0.25 },
+      { size: 1.05, opacity: 0.6 },
+      { size: 1.1, opacity: 0.4 },
+      { size: 1.2, opacity: 0.25 },
     ];
 
     glowLayers.forEach((layer) => {
