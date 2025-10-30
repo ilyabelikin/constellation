@@ -230,7 +230,12 @@ export class CelestialBodyFactory {
     const oe = planet.orbitalElements;
     const a = oe.semiMajorAxis * this.scale;
     const e = oe.eccentricity;
-    const segments = 128;
+
+    // Adaptive segment count based on orbit size
+    // Calculate circumference approximation (for ellipse with eccentricity)
+    const circumference = 2 * Math.PI * a * Math.sqrt((1 + e * e) / 2);
+    // Target: ~5 units per segment for smooth curves
+    const segments = Math.max(128, Math.ceil(circumference / 5));
 
     // Create ellipse points in orbital plane
     const points: THREE.Vector3[] = [];
