@@ -7,6 +7,7 @@ import {
   Vector3,
   SERVER_TICK_RATE,
   TIME_SCALE_DEFAULT,
+  CelestialBodyType,
 } from "@constellation/shared";
 import {
   calculateStateVectors,

@@ -223,7 +223,12 @@ function buildFragmentShader(): string {
     GLSL_UTILS +
     `
     uniform vec3 baseColor;
-    uniform vec3 lightPosition;
+    uniform vec3 lightPosition1;
+    uniform vec3 lightPosition2;
+    uniform vec3 lightPosition3;
+    uniform float lightIntensity1;
+    uniform float lightIntensity2;
+    uniform float lightIntensity3;
     uniform float rotation;
     uniform float planetSeed;
     uniform float orbitalDistance;
@@ -395,19 +400,52 @@ function buildFragmentShader(): string {
         }
       }
       
-      // Apply lighting
-      vec3 lightDir = normalize(lightPosition - vWorldPosition);
-      float diffuse = max(dot(vWorldNormal, lightDir), 0.0);
+      // Apply lighting from all light sources
+      float totalDiffuse = 0.0;
       
-      // Enhance lighting contrast
-      float lighting = diffuse * 0.85 + 0.15;
+      if (lightIntensity1 > 0.0) {
+        vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir1), 0.0) * lightIntensity1;
+      }
       
-      // Add very subtle specular for mineral-rich areas
+      if (lightIntensity2 > 0.0) {
+        vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir2), 0.0) * lightIntensity2;
+      }
+      
+      if (lightIntensity3 > 0.0) {
+        vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir3), 0.0) * lightIntensity3;
+      }
+      
+      // Clamp and enhance lighting contrast
+      totalDiffuse = clamp(totalDiffuse, 0.0, 1.0);
+      float lighting = totalDiffuse * 0.85 + 0.15;
+      
+      // Add very subtle specular for mineral-rich areas from all light sources
       if(hasMinerals > 0.5) {
         vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-        vec3 reflectDir = reflect(-lightDir, vWorldNormal);
-        float spec = pow(max(dot(viewDir, reflectDir), 0.0), 16.0);
-        intensity += spec * hasMinerals * 0.15;
+        
+        if (lightIntensity1 > 0.0) {
+          vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+          vec3 reflectDir1 = reflect(-lightDir1, vWorldNormal);
+          float spec1 = pow(max(dot(viewDir, reflectDir1), 0.0), 16.0);
+          intensity += spec1 * hasMinerals * 0.15 * lightIntensity1;
+        }
+        
+        if (lightIntensity2 > 0.0) {
+          vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+          vec3 reflectDir2 = reflect(-lightDir2, vWorldNormal);
+          float spec2 = pow(max(dot(viewDir, reflectDir2), 0.0), 16.0);
+          intensity += spec2 * hasMinerals * 0.15 * lightIntensity2;
+        }
+        
+        if (lightIntensity3 > 0.0) {
+          vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+          vec3 reflectDir3 = reflect(-lightDir3, vWorldNormal);
+          float spec3 = pow(max(dot(viewDir, reflectDir3), 0.0), 16.0);
+          intensity += spec3 * hasMinerals * 0.15 * lightIntensity3;
+        }
       }
       
       // Slight emissive for visibility on dark side
@@ -436,7 +474,12 @@ export function createRockyPlanetMaterial(
   return new THREE.ShaderMaterial({
     uniforms: {
       baseColor: { value: color },
-      lightPosition: { value: new THREE.Vector3(0, 0, 0) }, // Sun at origin
+      lightPosition1: { value: new THREE.Vector3(0, 0, 0) }, // Primary star
+      lightPosition2: { value: new THREE.Vector3(0, 0, 0) }, // Companion star 1
+      lightPosition3: { value: new THREE.Vector3(0, 0, 0) }, // Companion star 2
+      lightIntensity1: { value: 1.0 }, // Primary star intensity
+      lightIntensity2: { value: 0.0 }, // Companion star 1 intensity (0 if no companion)
+      lightIntensity3: { value: 0.0 }, // Companion star 2 intensity (0 if no companion)
       rotation: { value: 0 },
       planetSeed: { value: planetSeed },
       orbitalDistance: { value: orbitalDistance },

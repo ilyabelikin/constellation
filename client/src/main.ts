@@ -444,13 +444,22 @@ class ConstellationClient {
         }
       } else if (action === "travel") {
         console.log("Constellation system travel (second click):", systemId);
-        // Exit constellation view and travel to the selected system
+        // Exit constellation view
         this.scene.hideConstellationView();
-        if (this.system) {
+
+        // If it's the current system, just show the system view
+        // Otherwise, request the new system's state
+        if (this.system && this.system.id === systemId) {
+          console.log("Exiting to current system view");
           this.hud.setSystem(this.system);
+        } else {
+          console.log("Traveling to new system:", systemId);
+          // Request the selected system's state
+          this.network.requestSystemState(systemId);
+          if (this.system) {
+            this.hud.setSystem(this.system);
+          }
         }
-        // Request the selected system's state
-        this.network.requestSystemState(systemId);
       }
     };
 

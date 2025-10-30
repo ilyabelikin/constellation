@@ -342,18 +342,253 @@ export class DatabaseQueries {
   }
 
   /**
+   * Check if two line segments intersect in 2D (X-Y plane)
+   * Used to avoid crossing constellation paths
+   */
+  private doLinesIntersect(
+    p1: { x: number; y: number },
+    p2: { x: number; y: number },
+    p3: { x: number; y: number },
+    p4: { x: number; y: number }
+  ): boolean {
+    const det = (p2.x - p1.x) * (p4.y - p3.y) - (p4.x - p3.x) * (p2.y - p1.y);
+    if (Math.abs(det) < 0.0001) return false; // Parallel lines
+
+    const t =
+      ((p3.x - p1.x) * (p4.y - p3.y) - (p4.x - p3.x) * (p3.y - p1.y)) / det;
+    const u =
+      ((p3.x - p1.x) * (p2.y - p1.y) - (p2.x - p1.x) * (p3.y - p1.y)) / det;
+
+    // Check if intersection is within both line segments
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  }
+
+  /**
+   * Calculate distance from a point to a line segment in 2D
+   */
+  private distanceToLineSegment(
+    point: { x: number; y: number },
+    lineStart: { x: number; y: number },
+    lineEnd: { x: number; y: number }
+  ): number {
+    const dx = lineEnd.x - lineStart.x;
+    const dy = lineEnd.y - lineStart.y;
+    const lengthSquared = dx * dx + dy * dy;
+
+    if (lengthSquared === 0) {
+      // Line segment is a point
+      const pdx = point.x - lineStart.x;
+      const pdy = point.y - lineStart.y;
+      return Math.sqrt(pdx * pdx + pdy * pdy);
+    }
+
+    // Calculate projection parameter
+    const t = Math.max(
+      0,
+      Math.min(
+        1,
+        ((point.x - lineStart.x) * dx + (point.y - lineStart.y) * dy) /
+          lengthSquared
+      )
+    );
+
+    // Calculate closest point on segment
+    const closestX = lineStart.x + t * dx;
+    const closestY = lineStart.y + t * dy;
+
+    // Calculate distance
+    const pdx = point.x - closestX;
+    const pdy = point.y - closestY;
+    return Math.sqrt(pdx * pdx + pdy * pdy);
+  }
+
+  /**
+   * Calculate angular density of stars in a direction (how crowded is this direction?)
+   */
+  private calculateAngularDensity(
+    fromPos: { x: number; y: number; z: number },
+    targetAngle: number,
+    existingPositions: Array<{ x: number; y: number; z: number }>,
+    angularWindow: number = Math.PI / 6 // 30 degree window
+  ): number {
+    let density = 0;
+
+    for (const pos of existingPositions) {
+      if (pos.x === fromPos.x && pos.y === fromPos.y && pos.z === fromPos.z)
+        continue;
+
+      const dx = pos.x - fromPos.x;
+      const dy = pos.y - fromPos.y;
+      const angle = Math.atan2(dy, dx);
+
+      // Calculate angular difference (handling wraparound)
+      let angleDiff = Math.abs(angle - targetAngle);
+      if (angleDiff > Math.PI) {
+        angleDiff = 2 * Math.PI - angleDiff;
+      }
+
+      // If star is within the angular window, add to density
+      if (angleDiff < angularWindow) {
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Closer stars contribute more to density
+        density += 1 / Math.max(distance, 1);
+      }
+    }
+
+    return density;
+  }
+
+  /**
+   * Calculate how many stars are in the general direction (cluster detection)
+   */
+  private countStarsInDirection(
+    fromPos: { x: number; y: number; z: number },
+    targetPos: { x: number; y: number; z: number },
+    existingPositions: Array<{ x: number; y: number; z: number }>,
+    maxDistance: number = 15
+  ): number {
+    const targetDx = targetPos.x - fromPos.x;
+    const targetDy = targetPos.y - fromPos.y;
+    const targetAngle = Math.atan2(targetDy, targetDx);
+
+    let count = 0;
+    for (const pos of existingPositions) {
+      if (pos.x === fromPos.x && pos.y === fromPos.y && pos.z === fromPos.z)
+        continue;
+
+      const dx = pos.x - fromPos.x;
+      const dy = pos.y - fromPos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance > maxDistance) continue;
+
+      const angle = Math.atan2(dy, dx);
+      let angleDiff = Math.abs(angle - targetAngle);
+      if (angleDiff > Math.PI) {
+        angleDiff = 2 * Math.PI - angleDiff;
+      }
+
+      // Count stars within 45 degrees of the target direction
+      if (angleDiff < Math.PI / 4) {
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+  /**
+   * Score a position based on multiple criteria (lower is better)
+   * Heavily emphasizes free space and avoiding visual crossings
+   */
+  private scorePosition(
+    candidate: { x: number; y: number; z: number },
+    fromPos: { x: number; y: number; z: number },
+    existingPositions: Array<{ x: number; y: number; z: number }>,
+    existingConnections: Array<{
+      from: { x: number; y: number; z: number };
+      to: { x: number; y: number; z: number };
+    }>
+  ): number {
+    let score = 0;
+
+    // 1. Prefer moderate distances (not too far, not too close)
+    const dx = candidate.x - fromPos.x;
+    const dy = candidate.y - fromPos.y;
+    const dz = candidate.z - fromPos.z;
+    const distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    const idealDistance = 4.5;
+    score += Math.abs(distance - idealDistance) * 3;
+
+    // 2. HEAVILY penalize visual line crossings in 2D (XY plane - camera view)
+    let crossingCount = 0;
+    for (const connection of existingConnections) {
+      if (
+        this.doLinesIntersect(
+          { x: fromPos.x, y: fromPos.y },
+          { x: candidate.x, y: candidate.y },
+          { x: connection.from.x, y: connection.from.y },
+          { x: connection.to.x, y: connection.to.y }
+        )
+      ) {
+        crossingCount++;
+      }
+    }
+    score += crossingCount * 200; // VERY heavy penalty for visual crossings
+
+    // 3. Penalize proximity to existing lines (avoid near-misses in 2D view)
+    let minLineDistance = Infinity;
+    for (const connection of existingConnections) {
+      const dist = this.distanceToLineSegment(
+        { x: candidate.x, y: candidate.y },
+        { x: connection.from.x, y: connection.from.y },
+        { x: connection.to.x, y: connection.to.y }
+      );
+      minLineDistance = Math.min(minLineDistance, dist);
+    }
+    if (minLineDistance < 4) {
+      score += (4 - minLineDistance) * 15;
+    }
+
+    // 4. HEAVILY penalize directions towards star clusters
+    const starsInDirection = this.countStarsInDirection(
+      fromPos,
+      candidate,
+      existingPositions,
+      15
+    );
+    score += starsInDirection * 50; // Heavy penalty for each star in this direction
+
+    // 5. Penalize angular density (prefer empty directions)
+    const candidateAngle = Math.atan2(
+      candidate.y - fromPos.y,
+      candidate.x - fromPos.x
+    );
+    const angularDensity = this.calculateAngularDensity(
+      fromPos,
+      candidateAngle,
+      existingPositions,
+      Math.PI / 4 // 45 degree window
+    );
+    score += angularDensity * 30; // Penalty for crowded directions
+
+    // 6. Penalize proximity to any existing star
+    let minStarDistance = Infinity;
+    for (const pos of existingPositions) {
+      if (pos.x === fromPos.x && pos.y === fromPos.y && pos.z === fromPos.z)
+        continue;
+      const starDist = Math.sqrt(
+        (candidate.x - pos.x) ** 2 +
+          (candidate.y - pos.y) ** 2 +
+          (candidate.z - pos.z) ** 2
+      );
+      minStarDistance = Math.min(minStarDistance, starDist);
+    }
+    if (minStarDistance < 8) {
+      score += (8 - minStarDistance) * 8;
+    }
+
+    return score;
+  }
+
+  /**
    * Calculate position for an unexplored gate's future system
-   * Uses deterministic algorithm based on gate ID and existing positions
+   * Uses intelligent algorithm that considers existing connections and avoids crossings
    */
   calculateUnexploredGatePosition(
     gateId: string,
     currentSystemPos: { x: number; y: number; z: number },
-    existingPositions: Array<{ x: number; y: number; z: number }>
+    existingPositions: Array<{ x: number; y: number; z: number }>,
+    existingConnections?: Array<{
+      from: { x: number; y: number; z: number };
+      to: { x: number; y: number; z: number };
+    }>
   ): { x: number; y: number; z: number } {
     const MIN_DISTANCE_LY = 6;
+    const PREFERRED_MIN_DISTANCE = 3.5; // Try to place closer if possible
+    const PREFERRED_MAX_DISTANCE = 6; // Don't go too far
 
     // Calculate the average Z position of all existing stars to stay in the same plane
-    // (Z becomes Y in scene space, which is the vertical axis for the constellation view drag plane)
     let avgZ = currentSystemPos.z;
     if (existingPositions.length > 0) {
       const sumZ = existingPositions.reduce((sum, pos) => sum + pos.z, 0);
@@ -364,28 +599,111 @@ export class DatabaseQueries {
     const seed =
       gateId.charCodeAt(0) + gateId.charCodeAt(1) + gateId.charCodeAt(2);
 
-    // Start with a position based on the gate's seed
-    // Use golden angle for even distribution in the X-Y plane
-    const theta = ((seed * 137.508) % 360) * (Math.PI / 180); // Golden angle
-    const distance = 4 + ((seed % 100) / 100) * 4; // 4-8 light years from current
+    const connections = existingConnections || [];
 
-    // Keep Z variation minimal (stay in the plane)
-    const zVariation = (((seed * 0.382) % 100) / 100 - 0.5) * 1.5; // ±0.75 light years max
+    // Try multiple candidate positions and pick the best one
+    const candidates: Array<{
+      x: number;
+      y: number;
+      z: number;
+      score: number;
+    }> = [];
 
+    // Generate candidates with MORE angles and distances for better coverage
+    const angleSteps = 32; // Try 32 different angles (every 11.25 degrees)
+    const distanceSteps = 4; // Try 4 different distances
+
+    for (let angleIdx = 0; angleIdx < angleSteps; angleIdx++) {
+      for (let distIdx = 0; distIdx < distanceSteps; distIdx++) {
+        // Use deterministic angle based on seed and index
+        // Start with seed-based angle, then sample around the circle
+        const baseAngle =
+          ((seed * 137.508 + angleIdx * (360 / angleSteps)) % 360) *
+          (Math.PI / 180);
+        const distance =
+          PREFERRED_MIN_DISTANCE +
+          (distIdx * (PREFERRED_MAX_DISTANCE - PREFERRED_MIN_DISTANCE)) /
+            Math.max(distanceSteps - 1, 1);
+
+        // Small Z variation
+        const zVariation =
+          (((seed * 0.382 + angleIdx * 7 + distIdx * 3) % 100) / 100 - 0.5) *
+          1.0;
+
+        const candidate = {
+          x: currentSystemPos.x + Math.cos(baseAngle) * distance,
+          y: currentSystemPos.y + Math.sin(baseAngle) * distance,
+          z: avgZ + zVariation,
+          score: 0,
+        };
+
+        // Check for collisions with existing positions
+        let hasCollision = false;
+        for (const existingPos of existingPositions) {
+          const dx = candidate.x - existingPos.x;
+          const dy = candidate.y - existingPos.y;
+          const dz = candidate.z - existingPos.z;
+          const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+          if (dist < MIN_DISTANCE_LY) {
+            hasCollision = true;
+            break;
+          }
+        }
+
+        if (!hasCollision) {
+          // Score this position
+          candidate.score = this.scorePosition(
+            candidate,
+            currentSystemPos,
+            existingPositions,
+            connections
+          );
+          candidates.push(candidate);
+        }
+      }
+    }
+
+    // If we found good candidates, return the best one
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => a.score - b.score);
+      const best = candidates[0];
+
+      // Log scoring info for debugging
+      console.log(
+        `Gate ${gateId.substring(0, 8)}: Best score ${best.score.toFixed(
+          2
+        )} at angle ${
+          Math.atan2(best.y - currentSystemPos.y, best.x - currentSystemPos.x) *
+          (180 / Math.PI)
+        }°, distance ${Math.sqrt(
+          (best.x - currentSystemPos.x) ** 2 +
+            (best.y - currentSystemPos.y) ** 2
+        ).toFixed(2)} LY`
+      );
+
+      return { x: best.x, y: best.y, z: best.z };
+    }
+
+    // Fallback: If no good candidates found, use spiral pattern (old algorithm)
     let position = {
-      x: currentSystemPos.x + Math.cos(theta) * distance,
-      y: currentSystemPos.y + Math.sin(theta) * distance,
-      z: avgZ + zVariation, // Stay close to the average plane
+      x:
+        currentSystemPos.x +
+        Math.cos(((seed * 137.508) % 360) * (Math.PI / 180)) *
+          PREFERRED_MAX_DISTANCE,
+      y:
+        currentSystemPos.y +
+        Math.sin(((seed * 137.508) % 360) * (Math.PI / 180)) *
+          PREFERRED_MAX_DISTANCE,
+      z: avgZ,
     };
 
-    // Apply collision detection
     let attempts = 0;
     const maxAttempts = 50;
 
     while (attempts < maxAttempts) {
       let hasCollision = false;
 
-      // Check distance to all existing positions
       for (const existingPos of existingPositions) {
         const dx = position.x - existingPos.x;
         const dy = position.y - existingPos.y;
@@ -399,17 +717,17 @@ export class DatabaseQueries {
       }
 
       if (!hasCollision) {
-        break; // Found a good position
+        break;
       }
 
-      // Adjust position using spiral pattern in the X-Y plane
-      const angle = attempts * 0.618 * Math.PI * 2; // Golden angle
+      // Adjust position using spiral pattern
+      const angle = attempts * 0.618 * Math.PI * 2;
       const radius = MIN_DISTANCE_LY * (1 + attempts * 0.3);
-      const zJitter = (((attempts * 17) % 100) / 100 - 0.5) * 0.5; // Small vertical jitter ±0.25 LY
+      const zJitter = (((attempts * 17) % 100) / 100 - 0.5) * 0.5;
       position = {
         x: currentSystemPos.x + Math.cos(angle) * radius,
         y: currentSystemPos.y + Math.sin(angle) * radius,
-        z: avgZ + zJitter, // Keep near the plane even during collision resolution
+        z: avgZ + zJitter,
       };
 
       attempts++;
@@ -529,8 +847,30 @@ export class DatabaseQueries {
 
     // Collect all existing star positions (in galaxy coordinates)
     const existingPositions: Array<{ x: number; y: number; z: number }> = [];
+    const systemPositionMap = new Map<
+      string,
+      { x: number; y: number; z: number }
+    >();
     for (const system of systems) {
       existingPositions.push(system.position);
+      systemPositionMap.set(system.id, system.position);
+    }
+
+    // Build connection position data for smart positioning
+    const connectionPositions: Array<{
+      from: { x: number; y: number; z: number };
+      to: { x: number; y: number; z: number };
+    }> = [];
+
+    for (const connection of connections) {
+      const fromPos = systemPositionMap.get(connection.fromSystemId);
+      const toPos = systemPositionMap.get(connection.toSystemId);
+      if (fromPos && toPos) {
+        connectionPositions.push({
+          from: fromPos,
+          to: toPos,
+        });
+      }
     }
 
     // Process unexplored gates from all explored systems in the constellation
@@ -543,15 +883,26 @@ export class DatabaseQueries {
           !exploredGateIds.has(gate.id) &&
           gate.destinationSystemId.startsWith("PLACEHOLDER_")
         ) {
-          // Calculate position using shared helper function
+          // Calculate position using shared helper function with connection awareness
           const allPositions = [
             ...existingPositions,
             ...unexploredGates.map((g) => g.position),
           ];
+
+          // Build connections including already-placed unexplored gates
+          const allConnections = [
+            ...connectionPositions,
+            ...unexploredGates.map((g) => ({
+              from: systemPositionMap.get(g.systemId)!,
+              to: g.position,
+            })),
+          ];
+
           const position = this.calculateUnexploredGatePosition(
             gate.id,
             system.position,
-            allPositions
+            allPositions,
+            allConnections
           );
 
           unexploredGates.push({

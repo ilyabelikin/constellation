@@ -239,9 +239,10 @@ export class SceneManager {
           }
         });
 
-        // Create orbit line for companion star
+        // Create orbit line for companion star (initially hidden, shown when any star is selected)
         const orbitLine =
           this.celestialBodyFactory.createOrbitLine(companionStar);
+        orbitLine.visible = false; // Hide by default
         this.scene.add(orbitLine);
         this.orbitLines.set(companionStar.id, orbitLine);
       }
@@ -493,6 +494,31 @@ export class SceneManager {
         !this.timeInterpolator.getInterpolatedPosition(bodyState.id, 0)
       ) {
         mesh.position.copy(newPosition);
+      }
+    }
+
+    // Position planet orbit lines at companion star locations
+    if (this.system && this.system.companionStars) {
+      for (const companionStar of this.system.companionStars) {
+        const companionState = state.bodies.find(
+          (b) => b.id === companionStar.id
+        );
+        if (companionState) {
+          const companionPos = new THREE.Vector3(
+            companionState.position.x * this.SCALE,
+            companionState.position.z * this.SCALE,
+            companionState.position.y * this.SCALE
+          );
+          // Update orbit line positions for planets orbiting this companion star
+          for (const planet of this.system.planets) {
+            if (planet.parentId === companionStar.id) {
+              const orbitLine = this.orbitLines.get(planet.id);
+              if (orbitLine) {
+                orbitLine.position.copy(companionPos);
+              }
+            }
+          }
+        }
       }
     }
 
@@ -960,10 +986,17 @@ export class SceneManager {
         for (const ringGroup of this.rings.values()) {
           ringGroup.visible = true;
         }
-        for (const line of this.orbitLines.values()) {
-          line.visible = true;
+        // Show planet orbit lines for planets orbiting the primary star only
+        if (this.system) {
+          for (const planet of this.system.planets) {
+            const orbitLine = this.orbitLines.get(planet.id);
+            if (orbitLine) {
+              // Only show orbit lines for planets orbiting the primary star
+              orbitLine.visible = planet.parentId === this.system.star.id;
+            }
+          }
         }
-        // Moon orbit lines remain hidden (only shown when parent planet selected)
+        // Moon orbit lines, companion star orbit lines, and companion star planet orbit lines remain hidden unless their conditions are met
 
         // Position camera at exit gate
         this.gateTravelAnimator.positionAtExitGate(exitGateGroup);
@@ -980,6 +1013,50 @@ export class SceneManager {
 
     // Get interpolation factor for smooth orbital motion
     const lerpFactor = this.timeInterpolator.getLerpFactor(0.2);
+
+    // Collect all star positions for planet lighting
+    const starLightPositions: THREE.Vector3[] = [];
+    const starLightIntensities: number[] = [];
+
+    if (this.system) {
+      // Primary star is always at origin
+      starLightPositions.push(new THREE.Vector3(0, 0, 0));
+      starLightIntensities.push(1.0);
+
+      // Add companion stars if they exist
+      if (this.system.companionStars) {
+        for (const companionStar of this.system.companionStars) {
+          const companionMesh = this.bodies.get(companionStar.id);
+          if (companionMesh) {
+            const companionPos = this.timeInterpolator.getInterpolatedPosition(
+              companionStar.id,
+              lerpFactor
+            );
+            if (companionPos) {
+              starLightPositions.push(companionPos.clone());
+              // Companion star intensity - could be adjusted based on star properties
+              starLightIntensities.push(1.0);
+
+              // Update orbit line positions for planets orbiting this companion star
+              for (const planet of this.system.planets) {
+                if (planet.parentId === companionStar.id) {
+                  const orbitLine = this.orbitLines.get(planet.id);
+                  if (orbitLine) {
+                    orbitLine.position.copy(companionPos);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Ensure we have exactly 3 positions/intensities (pad with zeros if needed)
+    while (starLightPositions.length < 3) {
+      starLightPositions.push(new THREE.Vector3(0, 0, 0));
+      starLightIntensities.push(0.0);
+    }
 
     // Update planet positions and rotations
     for (const [bodyId, mesh] of this.bodies.entries()) {
@@ -1024,6 +1101,29 @@ export class SceneManager {
             mesh.material.uniforms.viewPosition.value.copy(
               this.camera.position
             );
+          }
+
+          // Update light positions from all stars in the system
+          if (mesh.material.uniforms.lightPosition1) {
+            mesh.material.uniforms.lightPosition1.value.copy(
+              starLightPositions[0]
+            );
+            mesh.material.uniforms.lightIntensity1.value =
+              starLightIntensities[0];
+          }
+          if (mesh.material.uniforms.lightPosition2) {
+            mesh.material.uniforms.lightPosition2.value.copy(
+              starLightPositions[1]
+            );
+            mesh.material.uniforms.lightIntensity2.value =
+              starLightIntensities[1];
+          }
+          if (mesh.material.uniforms.lightPosition3) {
+            mesh.material.uniforms.lightPosition3.value.copy(
+              starLightPositions[2]
+            );
+            mesh.material.uniforms.lightIntensity3.value =
+              starLightIntensities[2];
           }
         }
 
@@ -1234,6 +1334,12 @@ export class SceneManager {
       // Handle moon orbit line visibility based on planet selection
       this.updateMoonOrbitVisibility(objectId);
 
+      // Handle companion star orbit line visibility based on star selection
+      this.updateCompanionStarOrbitVisibility(objectId);
+
+      // Handle planet orbit line visibility based on star selection
+      this.updatePlanetOrbitVisibility(objectId);
+
       // Notify listeners
       if (this.onObjectSelected) {
         this.onObjectSelected(objectId);
@@ -1247,7 +1353,10 @@ export class SceneManager {
   }
 
   /**
-   * Show/hide moon orbit lines based on whether their parent planet is selected
+   * Show/hide moon orbit lines based on whether their parent planet or a sibling moon is selected
+   * General rule: show orbits of all objects at the same hierarchical level
+   * - Planet selected → show all moons orbiting that planet
+   * - Moon selected → show all moons orbiting the same planet (including itself)
    */
   private updateMoonOrbitVisibility(selectedObjectId: string): void {
     if (!this.system) return;
@@ -1257,17 +1366,143 @@ export class SceneManager {
       (p) => p.id === selectedObjectId
     );
 
+    // Check if selected object is a moon
+    const selectedMoon = this.system.moons.find(
+      (m) => m.id === selectedObjectId
+    );
+
     // Hide all moon orbit lines first
     for (const line of this.moonOrbitLines.values()) {
       line.visible = false;
     }
 
-    // If a planet is selected, show its moons' orbit lines
-    if (selectedPlanet && selectedPlanet.moons) {
-      for (const moon of selectedPlanet.moons) {
-        const moonOrbitLine = this.moonOrbitLines.get(moon.id);
-        if (moonOrbitLine) {
-          moonOrbitLine.visible = true;
+    // Determine which planet's moons to show
+    let parentPlanetId: string | null = null;
+
+    if (selectedPlanet) {
+      // Planet selected - show its moons
+      parentPlanetId = selectedPlanet.id;
+    } else if (selectedMoon) {
+      // Moon selected - show all moons orbiting the same planet
+      parentPlanetId = selectedMoon.parentId;
+    }
+
+    // Show moon orbit lines for moons orbiting the determined planet
+    if (parentPlanetId) {
+      for (const moon of this.system.moons) {
+        if (moon.parentId === parentPlanetId) {
+          const moonOrbitLine = this.moonOrbitLines.get(moon.id);
+          if (moonOrbitLine) {
+            moonOrbitLine.visible = true;
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Show/hide companion star orbit lines based on whether any star is selected
+   * In multi-star systems, all companion star orbits should be visible when any star is selected
+   */
+  private updateCompanionStarOrbitVisibility(selectedObjectId: string): void {
+    if (!this.system || !this.system.companionStars) return;
+
+    // Check if selected object is any star in the system
+    const isStarSelected =
+      this.system.star.id === selectedObjectId ||
+      this.system.companionStars.some((star) => star.id === selectedObjectId);
+
+    // Show or hide all companion star orbit lines based on whether a star is selected
+    for (const companionStar of this.system.companionStars) {
+      const orbitLine = this.orbitLines.get(companionStar.id);
+      if (orbitLine) {
+        orbitLine.visible = isStarSelected;
+      }
+    }
+  }
+
+  /**
+   * Show/hide planet orbit lines based on which object is selected
+   * Hierarchical visibility rules:
+   * - Star selected → show all planets orbiting that star
+   * - Planet selected → show all planets orbiting the same star (siblings)
+   * - Moon selected → show ONLY the parent planet's orbit (not all planets)
+   */
+  private updatePlanetOrbitVisibility(selectedObjectId: string): void {
+    if (!this.system) return;
+
+    // Check if selected object is a star
+    const isPrimaryStarSelected = this.system.star.id === selectedObjectId;
+    const selectedCompanionStar = this.system.companionStars?.find(
+      (star) => star.id === selectedObjectId
+    );
+
+    // Check if selected object is a planet
+    const selectedPlanet = this.system.planets.find(
+      (p) => p.id === selectedObjectId
+    );
+
+    // Check if selected object is a moon
+    const selectedMoon = this.system.moons.find(
+      (m) => m.id === selectedObjectId
+    );
+
+    // Hide all planet orbit lines first
+    for (const planet of this.system.planets) {
+      const orbitLine = this.orbitLines.get(planet.id);
+      if (orbitLine) {
+        orbitLine.visible = false;
+      }
+    }
+
+    if (isPrimaryStarSelected) {
+      // Primary star selected - show all planets orbiting it
+      for (const planet of this.system.planets) {
+        if (planet.parentId === this.system.star.id) {
+          const orbitLine = this.orbitLines.get(planet.id);
+          if (orbitLine) {
+            orbitLine.visible = true;
+          }
+        }
+      }
+    } else if (selectedCompanionStar) {
+      // Companion star selected - show all planets orbiting it
+      for (const planet of this.system.planets) {
+        if (planet.parentId === selectedCompanionStar.id) {
+          const orbitLine = this.orbitLines.get(planet.id);
+          if (orbitLine) {
+            orbitLine.visible = true;
+          }
+        }
+      }
+    } else if (selectedPlanet) {
+      // Planet selected - show all planets orbiting the same star (siblings)
+      const parentStarId = selectedPlanet.parentId || this.system.star.id;
+      for (const planet of this.system.planets) {
+        if (planet.parentId === parentStarId) {
+          const orbitLine = this.orbitLines.get(planet.id);
+          if (orbitLine) {
+            orbitLine.visible = true;
+          }
+        }
+      }
+    } else if (selectedMoon) {
+      // Moon selected - show ONLY the parent planet's orbit (not all planets)
+      const parentPlanetId = selectedMoon.parentId;
+      if (parentPlanetId) {
+        const orbitLine = this.orbitLines.get(parentPlanetId);
+        if (orbitLine) {
+          orbitLine.visible = true;
+        }
+      }
+    } else {
+      // Nothing relevant selected (gate, asteroid) - show only primary star's planets (default)
+      for (const planet of this.system.planets) {
+        if (planet.parentId === this.system.star.id) {
+          const orbitLine = this.orbitLines.get(planet.id);
+          if (orbitLine) {
+            orbitLine.visible = true;
+          }
         }
       }
     }
@@ -1530,10 +1765,17 @@ export class SceneManager {
     for (const ringGroup of this.rings.values()) {
       ringGroup.visible = true;
     }
-    for (const line of this.orbitLines.values()) {
-      line.visible = true;
+    // Show planet orbit lines for planets orbiting the primary star only
+    if (this.system) {
+      for (const planet of this.system.planets) {
+        const orbitLine = this.orbitLines.get(planet.id);
+        if (orbitLine) {
+          // Only show orbit lines for planets orbiting the primary star
+          orbitLine.visible = planet.parentId === this.system.star.id;
+        }
+      }
     }
-    // Moon orbit lines remain hidden unless parent planet is selected
+    // Moon orbit lines, companion star orbit lines, and companion star planet orbit lines remain hidden unless their conditions are met
   }
 
   /**

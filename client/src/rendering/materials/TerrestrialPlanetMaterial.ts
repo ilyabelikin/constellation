@@ -89,7 +89,12 @@ export function createTerrestrialPlanetMaterial(
 
   const fragmentShader = `
     uniform vec3 baseColor;
-    uniform vec3 lightPosition;
+    uniform vec3 lightPosition1;
+    uniform vec3 lightPosition2;
+    uniform vec3 lightPosition3;
+    uniform float lightIntensity1;
+    uniform float lightIntensity2;
+    uniform float lightIntensity3;
     uniform vec3 viewPosition;
     uniform float time;
     uniform float rotation;
@@ -320,33 +325,54 @@ export function createTerrestrialPlanetMaterial(
         float waves = turbulence3D(samplePos * 1.0, 3) * 0.1;
         intensity += waves;
         
-        // OCEAN SPECULAR HIGHLIGHTS - Make water reflective
+        // OCEAN SPECULAR HIGHLIGHTS - Make water reflective from all light sources
         // Calculate view direction (from surface to camera)
         vec3 viewDir = normalize(viewPosition - vWorldPosition);
-        vec3 lightDir = normalize(lightPosition - vWorldPosition);
         
-        // Use Blinn-Phong for specular - more realistic than Phong
-        vec3 halfVector = normalize(lightDir + viewDir);
-        float specularAngle = max(dot(vWorldNormal, halfVector), 0.0);
-        
-        // High shininess for water (smooth surface)
+        // Calculate specular from each light source
+        float oceanSpecular = 0.0;
         float shininess = 128.0;
-        float specular = pow(specularAngle, shininess);
-        
-        // Specular is stronger at glancing angles (Fresnel effect)
         float viewAngle = max(dot(vWorldNormal, viewDir), 0.0);
-        float fresnel = pow(1.0 - viewAngle, 3.0); // Increases at edges
-        specular *= (0.5 + fresnel * 1.5); // Boost at edges
+        float fresnel = pow(1.0 - viewAngle, 3.0); // Fresnel effect
         
-        // Only add specular on sunlit side
-        float sunlit = max(dot(vWorldNormal, lightDir), 0.0);
-        specular *= sunlit;
+        // Light source 1
+        if (lightIntensity1 > 0.0) {
+          vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+          vec3 halfVector1 = normalize(lightDir1 + viewDir);
+          float specularAngle1 = max(dot(vWorldNormal, halfVector1), 0.0);
+          float specular1 = pow(specularAngle1, shininess);
+          specular1 *= (0.5 + fresnel * 1.5);
+          float sunlit1 = max(dot(vWorldNormal, lightDir1), 0.0);
+          specular1 *= sunlit1 * lightIntensity1;
+          oceanSpecular += specular1;
+        }
+        
+        // Light source 2
+        if (lightIntensity2 > 0.0) {
+          vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+          vec3 halfVector2 = normalize(lightDir2 + viewDir);
+          float specularAngle2 = max(dot(vWorldNormal, halfVector2), 0.0);
+          float specular2 = pow(specularAngle2, shininess);
+          specular2 *= (0.5 + fresnel * 1.5);
+          float sunlit2 = max(dot(vWorldNormal, lightDir2), 0.0);
+          specular2 *= sunlit2 * lightIntensity2;
+          oceanSpecular += specular2;
+        }
+        
+        // Light source 3
+        if (lightIntensity3 > 0.0) {
+          vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+          vec3 halfVector3 = normalize(lightDir3 + viewDir);
+          float specularAngle3 = max(dot(vWorldNormal, halfVector3), 0.0);
+          float specular3 = pow(specularAngle3, shininess);
+          specular3 *= (0.5 + fresnel * 1.5);
+          float sunlit3 = max(dot(vWorldNormal, lightDir3), 0.0);
+          specular3 *= sunlit3 * lightIntensity3;
+          oceanSpecular += specular3;
+        }
         
         // Vary specular strength with wave patterns for dynamic shimmer
-        specular *= (1.0 + waves * 2.0);
-        
-        // Store specular for later (add after main lighting)
-        float oceanSpecular = specular * 0.8;
+        oceanSpecular *= (1.0 + waves * 2.0) * 0.8;
         
         // Add sea ice near ice caps (broken ice floes in cold water)
         // Only appears in transition zone between ice caps and open ocean
@@ -393,9 +419,17 @@ export function createTerrestrialPlanetMaterial(
         // Calculate brightness based on civilization level
         float cityBrightness = (civilizationLevel - 1.0) / 6.0; // 0 to 1.0
         
-        // Only show on night side
-        vec3 lightDir = normalize(lightPosition - vWorldPosition);
-        float nightSide = 1.0 - max(dot(vWorldNormal, lightDir), 0.0);
+        // Only show on night side - check all light sources
+        vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+        vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+        vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+        
+        float lit1 = max(dot(vWorldNormal, lightDir1), 0.0) * lightIntensity1;
+        float lit2 = max(dot(vWorldNormal, lightDir2), 0.0) * lightIntensity2;
+        float lit3 = max(dot(vWorldNormal, lightDir3), 0.0) * lightIntensity3;
+        float totalLit = clamp(lit1 + lit2 + lit3, 0.0, 1.0);
+        
+        float nightSide = 1.0 - totalLit;
         float nightFactor = smoothstep(0.2, 0.8, nightSide);
         
         if (nightFactor > 0.1) {
@@ -478,13 +512,30 @@ export function createTerrestrialPlanetMaterial(
         }
       }
 
-      // Apply Lambert lighting with proper world-space light direction
-      vec3 lightDir = normalize(lightPosition - vWorldPosition);
-      float diffuse = max(dot(vWorldNormal, lightDir), 0.0);
+      // Apply Lambert lighting from all light sources
+      float totalDiffuse = 0.0;
+      
+      if (lightIntensity1 > 0.0) {
+        vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir1), 0.0) * lightIntensity1;
+      }
+      
+      if (lightIntensity2 > 0.0) {
+        vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir2), 0.0) * lightIntensity2;
+      }
+      
+      if (lightIntensity3 > 0.0) {
+        vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir3), 0.0) * lightIntensity3;
+      }
+      
+      // Clamp total diffuse to reasonable range
+      totalDiffuse = clamp(totalDiffuse, 0.0, 1.0);
       
       // Ambient + diffuse lighting with modulated color
       vec3 ambient = colorModulation * 0.3;
-      vec3 diffuseColor = colorModulation * diffuse * intensity;
+      vec3 diffuseColor = colorModulation * totalDiffuse * intensity;
       
       // Add ocean specular highlights (bright white reflections)
       vec3 specularColor = vec3(1.0, 1.0, 1.0) * oceanSpecular;
@@ -499,7 +550,12 @@ export function createTerrestrialPlanetMaterial(
   return new THREE.ShaderMaterial({
     uniforms: {
       baseColor: { value: color },
-      lightPosition: { value: new THREE.Vector3(0, 0, 0) }, // Sun at origin
+      lightPosition1: { value: new THREE.Vector3(0, 0, 0) }, // Primary star
+      lightPosition2: { value: new THREE.Vector3(0, 0, 0) }, // Companion star 1
+      lightPosition3: { value: new THREE.Vector3(0, 0, 0) }, // Companion star 2
+      lightIntensity1: { value: 1.0 }, // Primary star intensity
+      lightIntensity2: { value: 0.0 }, // Companion star 1 intensity (0 if no companion)
+      lightIntensity3: { value: 0.0 }, // Companion star 2 intensity (0 if no companion)
       viewPosition: { value: new THREE.Vector3(0, 0, 0) }, // Will be updated each frame
       time: { value: 0 },
       rotation: { value: 0 },

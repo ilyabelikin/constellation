@@ -26,6 +26,7 @@ export class CameraController {
   onMouseDown(event: MouseEvent): void {
     if (event.button === 0) {
       // Left mouse button
+      this.isDragging = false; // Reset dragging state for new click
       this.previousMousePosition = { x: event.clientX, y: event.clientY };
     }
   }

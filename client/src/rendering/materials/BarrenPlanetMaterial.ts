@@ -244,7 +244,12 @@ function buildFragmentShader(): string {
     GLSL_UTILS +
     `
     uniform vec3 baseColor;
-    uniform vec3 lightPosition;
+    uniform vec3 lightPosition1;
+    uniform vec3 lightPosition2;
+    uniform vec3 lightPosition3;
+    uniform float lightIntensity1;
+    uniform float lightIntensity2;
+    uniform float lightIntensity3;
     uniform float rotation;
     uniform float planetSeed;
     uniform float orbitalDistance;
@@ -425,38 +430,76 @@ function buildFragmentShader(): string {
       float dustBrightness = turbulence3D(samplePos * 4.0, 4);
       intensity += (dustBrightness - 0.5) * 0.08;
       
-      // Apply lighting
-      vec3 lightDir = normalize(lightPosition - vWorldPosition);
-      float diffuse = max(dot(vWorldNormal, lightDir), 0.0);
+      // Apply lighting from all light sources
+      float totalDiffuse = 0.0;
+      
+      if (lightIntensity1 > 0.0) {
+        vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir1), 0.0) * lightIntensity1;
+      }
+      
+      if (lightIntensity2 > 0.0) {
+        vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir2), 0.0) * lightIntensity2;
+      }
+      
+      if (lightIntensity3 > 0.0) {
+        vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+        totalDiffuse += max(dot(vWorldNormal, lightDir3), 0.0) * lightIntensity3;
+      }
+      
+      // Clamp total diffuse
+      totalDiffuse = clamp(totalDiffuse, 0.0, 1.0);
       
       // Softer lighting for dust-covered surfaces (dust scatters light)
       float dustScattering = 0.25 + (1.0 - dustThickness) * 0.1;
-      float lighting = diffuse * (1.0 - dustScattering) + dustScattering;
+      float lighting = totalDiffuse * (1.0 - dustScattering) + dustScattering;
       
-      // Dust specular reflection - very subtle, matte surface with occasional glints
+      // Dust specular reflection from all light sources - very subtle, matte surface with occasional glints
       vec3 viewDir = normalize(cameraPosition - vWorldPosition);
       
       // Microsurface glints from dust particles
       float microGlints = turbulence3D(samplePos * 25.0, 3);
       microGlints = smoothstep(0.7, 0.9, microGlints);
       
-      // Very subtle specular from dust particles
-      vec3 halfVector = normalize(lightDir + viewDir);
-      float specAngle = max(dot(vWorldNormal, halfVector), 0.0);
-      
-      // Low shininess for matte dust
-      float dustSpec = pow(specAngle, 8.0) * microGlints * 0.12 * dustThickness;
-      
       // Fresnel effect - dust reflects more at grazing angles
       float viewAngle = max(dot(vWorldNormal, viewDir), 0.0);
       float fresnel = pow(1.0 - viewAngle, 4.0);
-      dustSpec += fresnel * 0.05 * dustThickness;
       
-      // Only add specular on sunlit side
-      float sunlit = max(dot(vWorldNormal, lightDir), 0.0);
-      dustSpec *= sunlit;
+      float totalDustSpec = 0.0;
       
-      vec3 specularColor = vec3(1.0, 0.98, 0.95) * dustSpec; // Slightly warm specular
+      // Calculate dust specular from each light source
+      if (lightIntensity1 > 0.0) {
+        vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+        vec3 halfVector1 = normalize(lightDir1 + viewDir);
+        float specAngle1 = max(dot(vWorldNormal, halfVector1), 0.0);
+        float dustSpec1 = pow(specAngle1, 8.0) * microGlints * 0.12 * dustThickness;
+        dustSpec1 += fresnel * 0.05 * dustThickness;
+        float sunlit1 = max(dot(vWorldNormal, lightDir1), 0.0);
+        totalDustSpec += dustSpec1 * sunlit1 * lightIntensity1;
+      }
+      
+      if (lightIntensity2 > 0.0) {
+        vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+        vec3 halfVector2 = normalize(lightDir2 + viewDir);
+        float specAngle2 = max(dot(vWorldNormal, halfVector2), 0.0);
+        float dustSpec2 = pow(specAngle2, 8.0) * microGlints * 0.12 * dustThickness;
+        dustSpec2 += fresnel * 0.05 * dustThickness;
+        float sunlit2 = max(dot(vWorldNormal, lightDir2), 0.0);
+        totalDustSpec += dustSpec2 * sunlit2 * lightIntensity2;
+      }
+      
+      if (lightIntensity3 > 0.0) {
+        vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+        vec3 halfVector3 = normalize(lightDir3 + viewDir);
+        float specAngle3 = max(dot(vWorldNormal, halfVector3), 0.0);
+        float dustSpec3 = pow(specAngle3, 8.0) * microGlints * 0.12 * dustThickness;
+        dustSpec3 += fresnel * 0.05 * dustThickness;
+        float sunlit3 = max(dot(vWorldNormal, lightDir3), 0.0);
+        totalDustSpec += dustSpec3 * sunlit3 * lightIntensity3;
+      }
+      
+      vec3 specularColor = vec3(1.0, 0.98, 0.95) * totalDustSpec; // Slightly warm specular
       
       // Slight emissive for visibility on dark side
       float emissive = 0.12;
@@ -490,7 +533,12 @@ export function createBarrenPlanetMaterial(
   return new THREE.ShaderMaterial({
     uniforms: {
       baseColor: { value: color },
-      lightPosition: { value: new THREE.Vector3(0, 0, 0) }, // Sun at origin
+      lightPosition1: { value: new THREE.Vector3(0, 0, 0) }, // Primary star
+      lightPosition2: { value: new THREE.Vector3(0, 0, 0) }, // Companion star 1
+      lightPosition3: { value: new THREE.Vector3(0, 0, 0) }, // Companion star 2
+      lightIntensity1: { value: 1.0 }, // Primary star intensity
+      lightIntensity2: { value: 0.0 }, // Companion star 1 intensity (0 if no companion)
+      lightIntensity3: { value: 0.0 }, // Companion star 2 intensity (0 if no companion)
       rotation: { value: 0 },
       planetSeed: { value: planetSeed },
       orbitalDistance: { value: orbitalDistance },

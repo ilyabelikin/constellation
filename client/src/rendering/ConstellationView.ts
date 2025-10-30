@@ -198,7 +198,8 @@ export class ConstellationView {
           );
           mysteryPos = this.adjustPositionToAvoidOverlap(
             mysteryPos,
-            existingPositions
+            existingPositions,
+            fromPos // Pass source position for connection-aware positioning
           );
         }
 
@@ -261,26 +262,7 @@ export class ConstellationView {
     // Track material for animation updates
     this.starMaterials.push(starMaterial);
 
-    // Add multiple glow layers like in system view
-    const glowLayers = [
-      { size: 1.05, opacity: 0.6 },
-      { size: 1.1, opacity: 0.4 },
-      { size: 1.2, opacity: 0.25 },
-    ];
-
-    glowLayers.forEach((layer) => {
-      const glowGeometry = new THREE.SphereGeometry(
-        starSize * layer.size,
-        16,
-        16
-      );
-      const glowMaterial = this.materialFactory.createGlowMaterial(
-        colorHex,
-        layer.opacity
-      );
-      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-      group.add(glow);
-    });
+    // No geometry-based glow layers - using shader-based transparent edge glow instead
 
     // Add companion stars for binary/trinary systems
     if (node.companionStars && node.companionStars.length > 0) {
@@ -323,26 +305,7 @@ export class ConstellationView {
         // Track material for animation updates
         this.starMaterials.push(companionMaterial);
 
-        // Add smaller glow layers for companions
-        const companionGlowLayers = [
-          { size: 1.1, opacity: 0.5 },
-          { size: 1.2, opacity: 0.3 },
-        ];
-
-        companionGlowLayers.forEach((layer) => {
-          const glowGeometry = new THREE.SphereGeometry(
-            companionSize * layer.size,
-            12,
-            12
-          );
-          const glowMaterial = this.materialFactory.createGlowMaterial(
-            companionColorHex,
-            layer.opacity
-          );
-          const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-          glow.position.set(offsetX, 0, offsetZ);
-          group.add(glow);
-        });
+        // No geometry-based glow layers - using shader-based transparent edge glow instead
       });
     }
 
@@ -913,15 +876,112 @@ export class ConstellationView {
   }
 
   /**
-   * Adjust position to avoid overlapping with existing stars
+   * Check if two line segments intersect in 2D (X-Z plane in scene space)
+   */
+  private doLinesIntersect2D(
+    p1: THREE.Vector3,
+    p2: THREE.Vector3,
+    p3: THREE.Vector3,
+    p4: THREE.Vector3
+  ): boolean {
+    const det = (p2.x - p1.x) * (p4.z - p3.z) - (p4.x - p3.x) * (p2.z - p1.z);
+    if (Math.abs(det) < 0.0001) return false; // Parallel lines
+
+    const t =
+      ((p3.x - p1.x) * (p4.z - p3.z) - (p4.x - p3.x) * (p3.z - p1.z)) / det;
+    const u =
+      ((p3.x - p1.x) * (p2.z - p1.z) - (p2.x - p1.x) * (p3.z - p1.z)) / det;
+
+    // Check if intersection is within both line segments
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+  }
+
+  /**
+   * Count how many existing connections a new line would cross
+   */
+  private countLineCrossings(
+    fromPos: THREE.Vector3,
+    toPos: THREE.Vector3
+  ): number {
+    let crossings = 0;
+
+    // Check against all connection lines
+    this.connections.traverse((child) => {
+      if (child instanceof THREE.Line) {
+        const positions = child.geometry.attributes.position;
+        if (positions && positions.count >= 2) {
+          const lineStart = new THREE.Vector3(
+            positions.getX(0),
+            positions.getY(0),
+            positions.getZ(0)
+          );
+          const lineEnd = new THREE.Vector3(
+            positions.getX(1),
+            positions.getY(1),
+            positions.getZ(1)
+          );
+
+          if (this.doLinesIntersect2D(fromPos, toPos, lineStart, lineEnd)) {
+            crossings++;
+          }
+        }
+      }
+    });
+
+    return crossings;
+  }
+
+  /**
+   * Count how many stars are in a given direction (cluster detection)
+   */
+  private countStarsInDirection(
+    fromPos: THREE.Vector3,
+    toPos: THREE.Vector3,
+    maxDistance: number = 75 // Scene units (15 LY * 5 scale)
+  ): number {
+    const targetDx = toPos.x - fromPos.x;
+    const targetDz = toPos.z - fromPos.z;
+    const targetAngle = Math.atan2(targetDz, targetDx);
+
+    let count = 0;
+    for (const node of this.nodes.values()) {
+      if (node.position.equals(fromPos)) continue;
+
+      const dx = node.position.x - fromPos.x;
+      const dz = node.position.z - fromPos.z;
+      const distance = Math.sqrt(dx * dx + dz * dz);
+
+      if (distance > maxDistance) continue;
+
+      const angle = Math.atan2(dz, dx);
+      let angleDiff = Math.abs(angle - targetAngle);
+      if (angleDiff > Math.PI) {
+        angleDiff = 2 * Math.PI - angleDiff;
+      }
+
+      // Count stars within 45 degrees of the target direction
+      if (angleDiff < Math.PI / 4) {
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+  /**
+   * Adjust position to avoid overlapping with existing stars and minimize line crossings
+   * Heavily emphasizes free space and avoiding clusters
    */
   private adjustPositionToAvoidOverlap(
     position: THREE.Vector3,
-    existingPositions: THREE.Vector3[]
+    existingPositions: THREE.Vector3[],
+    sourcePosition?: THREE.Vector3
   ): THREE.Vector3 {
     const adjustedPosition = position.clone();
     let attempts = 0;
-    const maxAttempts = 50;
+    const maxAttempts = 64; // Try more positions
+    let bestPosition = adjustedPosition.clone();
+    let bestScore = Infinity;
 
     while (attempts < maxAttempts) {
       let hasOverlap = false;
@@ -936,23 +996,115 @@ export class ConstellationView {
       }
 
       if (!hasOverlap) {
-        return adjustedPosition;
+        // Position is valid, now score it
+        let score = 0;
+
+        if (sourcePosition) {
+          // 1. Prefer moderate distances
+          const distance = adjustedPosition.distanceTo(sourcePosition);
+          const idealDistance = 22.5; // 4.5 LY * 5 scale
+          score += Math.abs(distance - idealDistance) * 1.5;
+
+          // 2. VERY heavy penalty for visual line crossings
+          const crossings = this.countLineCrossings(
+            sourcePosition,
+            adjustedPosition
+          );
+          score += crossings * 200;
+
+          // 3. Heavy penalty for directions towards star clusters
+          const starsInDirection = this.countStarsInDirection(
+            sourcePosition,
+            adjustedPosition,
+            75 // 15 LY * 5 scale
+          );
+          score += starsInDirection * 50;
+
+          // 4. Penalize proximity to existing lines
+          let minLineDistance = Infinity;
+          this.connections.traverse((child) => {
+            if (child instanceof THREE.Line) {
+              const positions = child.geometry.attributes.position;
+              if (positions && positions.count >= 2) {
+                const lineStart = new THREE.Vector3(
+                  positions.getX(0),
+                  positions.getY(0),
+                  positions.getZ(0)
+                );
+                const lineEnd = new THREE.Vector3(
+                  positions.getX(1),
+                  positions.getY(1),
+                  positions.getZ(1)
+                );
+
+                // Calculate distance in XZ plane
+                const dx = adjustedPosition.x;
+                const dz = adjustedPosition.z;
+                const lsx = lineStart.x;
+                const lsz = lineStart.z;
+                const lex = lineEnd.x;
+                const lez = lineEnd.z;
+
+                const lineDx = lex - lsx;
+                const lineDz = lez - lsz;
+                const lengthSq = lineDx * lineDx + lineDz * lineDz;
+
+                if (lengthSq > 0.001) {
+                  const t = Math.max(
+                    0,
+                    Math.min(
+                      1,
+                      ((dx - lsx) * lineDx + (dz - lsz) * lineDz) / lengthSq
+                    )
+                  );
+                  const closestX = lsx + t * lineDx;
+                  const closestZ = lsz + t * lineDz;
+                  const dist = Math.sqrt(
+                    (dx - closestX) ** 2 + (dz - closestZ) ** 2
+                  );
+                  minLineDistance = Math.min(minLineDistance, dist);
+                }
+              }
+            }
+          });
+
+          if (minLineDistance < 20) {
+            // Less than 4 LY
+            score += (20 - minLineDistance) * 3;
+          }
+        }
+
+        // Track best position found
+        if (score < bestScore) {
+          bestScore = score;
+          bestPosition.copy(adjustedPosition);
+        }
+
+        // If we found a perfect position (no crossings, no clusters), use it immediately
+        if (score < 10) {
+          return adjustedPosition;
+        }
+
+        // If we've tried enough positions and have a decent one, use it
+        if (attempts > 20 && bestScore < 150) {
+          return bestPosition;
+        }
       }
 
-      // If overlap detected, nudge position in a spiral pattern
+      // Try next position in spiral pattern with tighter spacing
       const angle = attempts * 0.618 * Math.PI * 2; // Golden angle for better distribution
-      const radius = this.MIN_STAR_DISTANCE * (1 + attempts * 0.3);
+      const radius = this.MIN_STAR_DISTANCE * (1 + attempts * 0.2);
       adjustedPosition.x = position.x + Math.cos(angle) * radius;
       adjustedPosition.z = position.z + Math.sin(angle) * radius;
       // Keep y relatively similar to avoid too much vertical spread
       adjustedPosition.y =
-        position.y + Math.sin(attempts) * this.MIN_STAR_DISTANCE * 0.3;
+        position.y + Math.sin(attempts) * this.MIN_STAR_DISTANCE * 0.15;
 
       attempts++;
     }
 
-    // If we couldn't find a good spot, return the adjusted position anyway
-    return adjustedPosition;
+    // Return best position found, or adjusted position if nothing good was found
+    return bestScore < Infinity ? bestPosition : adjustedPosition;
   }
 
   /**
@@ -987,10 +1139,8 @@ export class ConstellationView {
 
         // Check if this is the already-selected system (second click = travel)
         if (systemId === this.selectedSystemId) {
-          // Don't allow travel to current system (already there)
-          if (systemId === this.currentSystemId) {
-            return null;
-          }
+          // Second click on selected system = exit to system view
+          // Even if it's the current system, allow it to exit constellation view
           return { systemId, action: "travel" };
         } else {
           // First click = select (allowed for any system, including current)
@@ -1078,26 +1228,52 @@ export class ConstellationView {
     // Track material for animation updates
     this.starMaterials.push(starMaterial);
 
-    // Add multiple glow layers like in system view
-    const glowLayers = [
-      { size: 1.05, opacity: 0.6 },
-      { size: 1.1, opacity: 0.4 },
-      { size: 1.2, opacity: 0.25 },
-    ];
+    // No geometry-based glow layers - using shader-based transparent edge glow instead
 
-    glowLayers.forEach((layer) => {
-      const glowGeometry = new THREE.SphereGeometry(
-        starSize * layer.size,
-        16,
-        16
-      );
-      const glowMaterial = this.materialFactory.createGlowMaterial(
-        colorHex,
-        layer.opacity
-      );
-      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-      group.add(glow);
-    });
+    // Add companion stars for binary/trinary systems
+    if (node.companionStars && node.companionStars.length > 0) {
+      const companionSize = starSize * 0.6; // Smaller than primary
+      const companionDistance = starSize * 2.5; // Distance from primary
+
+      node.companionStars.forEach((companion, index) => {
+        const companionColor = new THREE.Color(companion.color);
+        const companionColorHex = companionColor.getHex();
+
+        // Position companions in a circle around the primary
+        // For binary: one on the right
+        // For trinary: positioned at 120 degree intervals
+        let angle: number;
+        if (node.companionStars!.length === 1) {
+          angle = 0; // Binary: companion to the right
+        } else {
+          angle =
+            (index * 2 * Math.PI) / node.companionStars!.length + Math.PI / 6;
+        }
+
+        const offsetX = Math.cos(angle) * companionDistance;
+        const offsetZ = Math.sin(angle) * companionDistance;
+
+        // Create companion star sphere
+        const companionGeometry = new THREE.SphereGeometry(
+          companionSize,
+          24,
+          24
+        );
+        const companionMaterial =
+          this.materialFactory.createStarMaterial(companionColorHex);
+        const companionMesh = new THREE.Mesh(
+          companionGeometry,
+          companionMaterial
+        );
+        companionMesh.position.set(offsetX, 0, offsetZ);
+        group.add(companionMesh);
+
+        // Track material for animation updates
+        this.starMaterials.push(companionMaterial);
+
+        // No geometry-based glow layers - using shader-based transparent edge glow instead
+      });
+    }
 
     // Calculate connection stats for this system
     const exploredGates = this.connectionsList.filter(
@@ -1185,12 +1361,13 @@ export class ConstellationView {
     );
     raycaster.setFromCamera(mouse, camera);
 
-    // Get all unexplored endpoint spheres
+    // Get all visible unexplored endpoint spheres
     const unexploredEndpoints: THREE.Object3D[] = [];
     this.connections.traverse((object) => {
       if (
         object.userData.type === "undiscoveredEndpoint" &&
-        object.userData.gateId
+        object.userData.gateId &&
+        object.visible
       ) {
         unexploredEndpoints.push(object);
       }
