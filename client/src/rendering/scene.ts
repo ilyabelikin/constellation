@@ -906,12 +906,16 @@ export class SceneManager {
 
     // Update star shader time uniforms for animation using interpolated game time
     for (const material of this.starMaterials) {
-      material.uniforms.time.value = this.timeInterpolator.getGameTime();
+      if (material.uniforms.time) {
+        material.uniforms.time.value = this.timeInterpolator.getGameTime();
+      }
     }
 
     // Update gate shader time uniforms for animation
     for (const material of this.gateMaterials) {
-      material.uniforms.time.value = this.timeInterpolator.getGameTime();
+      if (material.uniforms.time) {
+        material.uniforms.time.value = this.timeInterpolator.getGameTime();
+      }
     }
 
     // Handle gate travel animation

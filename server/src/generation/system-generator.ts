@@ -987,6 +987,89 @@ export function generateStarSystem(
     return aAxis - bAxis;
   });
 
+  // Initialize asteroid belts array (will be populated for primary and companion stars)
+  const asteroidBelts: AsteroidBelt[] = [];
+
+  // Generate planets and asteroids around companion stars
+  if (companionStars.length > 0) {
+    for (const companionStar of companionStars) {
+      // Calculate Hill sphere radius (stable orbital zone)
+      // Hill sphere: r_H ≈ a * (m / (3*M))^(1/3)
+      // where a = distance to primary, m = companion mass, M = primary mass
+      const companionDistance = companionStar.orbitalElements?.semiMajorAxis || 0;
+      const massRatio = companionStar.mass / star.mass;
+      const hillSphereRadius = companionDistance * Math.pow(massRatio / 3.0, 1.0 / 3.0);
+      
+      // Only generate planets if there's enough space (at least 0.5 AU)
+      if (hillSphereRadius > 0.5 * ASTRONOMICAL_UNIT) {
+        // Companion stars typically have fewer planets (0-4)
+        // Probability decreases with distance from primary (tighter orbits = less stable)
+        const distanceFactor = Math.min(companionDistance / (15 * ASTRONOMICAL_UNIT), 1.0);
+        const planetChance = 0.4 * distanceFactor; // 40% chance at close range, decreases with distance
+        
+        if (rng.next() < planetChance) {
+          const numCompanionPlanets = rng.nextInt(1, Math.min(4, Math.floor(hillSphereRadius / (0.5 * ASTRONOMICAL_UNIT))));
+          
+          console.log(`Generating ${numCompanionPlanets} planet(s) around companion star ${companionStar.name}`);
+          
+          for (let i = 0; i < numCompanionPlanets; i++) {
+            // Generate planets closer to companion star (smaller orbits)
+            // Use companion star's mass and luminosity
+            const planet = generatePlanet(
+              rng,
+              companionStar.mass,
+              companionStar.luminosity || 1.0,
+              i,
+              numCompanionPlanets,
+              galaxyId,
+              companionStar.radius
+            );
+            
+            // Scale orbital distance to fit within Hill sphere
+            // Planets should orbit at 0.05-0.25 AU from companion (scaled by available space)
+            const maxOrbitDistance = Math.min(hillSphereRadius * 0.8, 0.5 * ASTRONOMICAL_UNIT);
+            const minOrbitDistance = Math.max(companionStar.radius * 50, 0.05 * ASTRONOMICAL_UNIT); // Safety margin
+            
+            if (planet.orbitalElements) {
+              // Scale the semi-major axis to fit within stable zone
+              const position = i / Math.max(numCompanionPlanets - 1, 1);
+              planet.orbitalElements.semiMajorAxis = minOrbitDistance + 
+                (maxOrbitDistance - minOrbitDistance) * position * rng.nextFloat(0.7, 1.0);
+            }
+            
+            planet.parentId = companionStar.id;
+            planets.push(planet);
+          }
+        }
+        
+        // Generate asteroid belts around companion stars (30% chance)
+        if (rng.next() < 0.3 && hillSphereRadius > 0.3 * ASTRONOMICAL_UNIT) {
+          // Place asteroid belt in outer part of stable zone
+          const beltInnerRadius = hillSphereRadius * 0.6;
+          const beltOuterRadius = hillSphereRadius * 0.9;
+          
+          const belt = generateAsteroidBelt(
+            rng,
+            companionStar.id,
+            asteroidBelts.length,
+            beltInnerRadius,
+            beltOuterRadius,
+            galaxyId
+          );
+          asteroidBelts.push(belt);
+          console.log(`Generated asteroid belt around companion star ${companionStar.name}`);
+        }
+      }
+    }
+    
+    // Re-sort all planets (primary + companion) by semi-major axis
+    planets.sort((a, b) => {
+      const aAxis = a.orbitalElements?.semiMajorAxis || 0;
+      const bAxis = b.orbitalElements?.semiMajorAxis || 0;
+      return aAxis - bAxis;
+    });
+  }
+
   // Generate moons for some planets
   // Larger planets are more likely to have moons
   // About 50% of planets get moons
@@ -1042,8 +1125,7 @@ export function generateStarSystem(
     }
   }
 
-  // Generate asteroid belts (0 to 2 belts)
-  const asteroidBelts: AsteroidBelt[] = [];
+  // Generate asteroid belts for primary star (0 to 2 belts)
   const numBelts = rng.nextInt(0, 2);
 
   for (let i = 0; i < numBelts; i++) {

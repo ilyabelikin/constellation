@@ -373,7 +373,7 @@ function generateTerrestrialTexture(
  */
 export class MaterialFactory {
   /**
-   * Creates a shader material for stars with procedural animated texture
+   * Creates a shader material for stars with procedural animated texture and built-in glow
    */
   createStarMaterial(color: number): THREE.ShaderMaterial {
     return new THREE.ShaderMaterial({
@@ -384,10 +384,17 @@ export class MaterialFactory {
       vertexShader: `
         varying vec2 vUv;
         varying vec3 vPosition;
+        varying vec3 vNormal;
+        varying vec3 vViewPosition;
         void main() {
           vUv = uv;
           vPosition = position;
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          vNormal = normalize(normalMatrix * normal);
+          
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          vViewPosition = -mvPosition.xyz;
+          
+          gl_Position = projectionMatrix * mvPosition;
         }
       `,
       fragmentShader: `
@@ -395,6 +402,8 @@ export class MaterialFactory {
         uniform float time;
         varying vec2 vUv;
         varying vec3 vPosition;
+        varying vec3 vNormal;
+        varying vec3 vViewPosition;
         
         // Smooth interpolation function
         float smoothNoise(float x) {
@@ -472,9 +481,31 @@ export class MaterialFactory {
           // Clamp to prevent over-exposure and graininess
           intensity = clamp(intensity, 0.85, 1.4);
           
-          gl_FragColor = vec4(baseColor * intensity, 1.0);
+          // Calculate base star color
+          vec3 starColor = baseColor * intensity;
+          
+          // Calculate atmospheric glow and transparency at edges
+          vec3 viewDir = normalize(vViewPosition);
+          float edgeFactor = abs(dot(viewDir, vNormal));
+          
+          // Center is opaque (1.0), edges become transparent (fade out)
+          // This simulates the star's atmosphere thinning at the limb
+          float alpha = smoothstep(0.0, 0.3, edgeFactor); // Smooth falloff at edges
+          
+          // Add bright atmospheric glow at edges (limb brightening)
+          float glowIntensity = pow(1.0 - edgeFactor, 2.0) * 0.6;
+          vec3 glowColor = baseColor * 2.0; // Much brighter version of star color
+          
+          // Blend the glow with the star surface
+          vec3 finalColor = starColor + glowColor * glowIntensity;
+          
+          // Output with transparency at edges
+          gl_FragColor = vec4(finalColor, alpha);
         }
       `,
+      transparent: true,
+      blending: THREE.NormalBlending,
+      depthWrite: true,
     });
   }
 

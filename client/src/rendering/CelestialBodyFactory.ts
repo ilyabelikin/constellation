@@ -85,26 +85,38 @@ export class CelestialBodyFactory {
 
     scene.add(light);
 
-    // Regular star: normal glow layers
-    const glowLayers = [
-      { size: 1.05, opacity: 0.8 },
-      { size: 1.1, opacity: 0.6 },
-      { size: 1.2, opacity: 0.4 },
-    ];
+    // For very large stars (like blue giants), skip glow layers entirely to prevent aliasing
+    // The star surface shader itself provides enough visual interest
+    // Only add glow for smaller stars
+    const starSizeThreshold = 50; // Adjust based on your scale
 
-    glowLayers.forEach((layer) => {
-      const glowGeometry = new THREE.SphereGeometry(
-        radius * layer.size,
-        32,
-        32
-      );
-      const glowMaterial = this.materialFactory.createGlowMaterial(
-        star.color || 0xffff00,
-        layer.opacity
-      );
-      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-      mesh.add(glow);
-    });
+    if (radius < starSizeThreshold) {
+      // Smaller stars: use glow layers with high polygon count
+      const glowLayers = [
+        { size: 1.05, opacity: 0.5 },
+        { size: 1.15, opacity: 0.3 },
+        { size: 1.3, opacity: 0.15 },
+      ];
+
+      glowLayers.forEach((layer) => {
+        const glowGeometry = new THREE.SphereGeometry(
+          radius * layer.size,
+          256,
+          256
+        );
+        const glowMaterial = new THREE.MeshBasicMaterial({
+          color: star.color || 0xffff00,
+          transparent: true,
+          opacity: layer.opacity,
+          blending: THREE.AdditiveBlending,
+          side: THREE.FrontSide,
+          depthWrite: false,
+        });
+        const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+        mesh.add(glow);
+      });
+    }
+    // Large stars (blue giants, etc.) have no glow layers to prevent noise artifacts
 
     // Add ambient light for the system (so planets are always somewhat visible)
     const ambient = new THREE.AmbientLight(0x404040, 0.5);

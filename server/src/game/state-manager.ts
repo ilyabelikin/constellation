@@ -75,7 +75,22 @@ export class GameStateManager {
       velocity: { x: 0, y: 0, z: 0 },
     });
 
+    // Create a map of companion stars by ID for quick lookup
+    const companionStarsMap = new Map<string, CelestialBodyType>();
+    if (system.companionStars) {
+      system.companionStars.forEach((cs) => {
+        companionStarsMap.set(cs.id, cs);
+      });
+    }
+
     // Calculate positions of companion stars (for binary/trinary systems)
+    // Store states for use in planet position calculations
+    const companionStarStates: Array<{
+      id: string;
+      mass: number;
+      position: Vector3;
+      velocity: Vector3;
+    }> = [];
     if (system.companionStars && system.companionStars.length > 0) {
       for (const companionStar of system.companionStars) {
         if (companionStar.orbitalElements) {
@@ -87,6 +102,13 @@ export class GameStateManager {
 
           bodies.push({
             id: companionStar.id,
+            position: state.position,
+            velocity: state.velocity,
+          });
+
+          companionStarStates.push({
+            id: companionStar.id,
+            mass: companionStar.mass,
             position: state.position,
             velocity: state.velocity,
           });
@@ -104,23 +126,55 @@ export class GameStateManager {
 
     for (const planet of system.planets) {
       if (planet.orbitalElements) {
+        // Determine parent mass and if planet orbits a companion star
+        let parentMass = system.star.mass;
+        let parentPosition: Vector3 = { x: 0, y: 0, z: 0 };
+        let parentVelocity: Vector3 = { x: 0, y: 0, z: 0 };
+        const isOrbitingCompanion = planet.parentId && planet.parentId !== system.star.id && companionStarsMap.has(planet.parentId);
+
+        if (isOrbitingCompanion && planet.parentId) {
+          // Planet orbits a companion star
+          const companionStar = companionStarsMap.get(planet.parentId);
+          if (companionStar) {
+            parentMass = companionStar.mass;
+            const companionState = companionStarStates.find((cs) => cs.id === planet.parentId);
+            if (companionState) {
+              parentPosition = companionState.position;
+              parentVelocity = companionState.velocity;
+            }
+          }
+        }
+
+        // Calculate planet position relative to its parent
         const state = calculateStateVectors(
           planet.orbitalElements,
           this.currentTime,
-          system.star.mass
+          parentMass
         );
+
+        // If orbiting a companion star, add companion star's position
+        const absolutePosition: Vector3 = {
+          x: state.position.x + parentPosition.x,
+          y: state.position.y + parentPosition.y,
+          z: state.position.z + parentPosition.z,
+        };
+        const absoluteVelocity: Vector3 = {
+          x: state.velocity.x + parentVelocity.x,
+          y: state.velocity.y + parentVelocity.y,
+          z: state.velocity.z + parentVelocity.z,
+        };
 
         bodies.push({
           id: planet.id,
-          position: state.position,
-          velocity: state.velocity,
+          position: absolutePosition,
+          velocity: absoluteVelocity,
         });
 
         planetStates.push({
           id: planet.id,
           mass: planet.mass,
-          position: state.position,
-          velocity: state.velocity,
+          position: absolutePosition,
+          velocity: absoluteVelocity,
         });
       }
     }
