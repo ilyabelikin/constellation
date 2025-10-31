@@ -39,9 +39,14 @@ export class GateTravelAnimator {
   private hyperspaceSquares: THREE.Mesh[] = []; // Fast-moving spheres rushing towards camera
   private hyperspacePlanes: THREE.Mesh[] = []; // Fast-moving squares (planes) with color variation
   private hyperspaceStreaks: THREE.Line[] = []; // Streak lines from dots moving through hyperspace
+  private hyperspaceVortex: THREE.Mesh[] = []; // Spinning vortex tunnel segments
+  private hyperspaceRings: THREE.Mesh[] = []; // Expanding energy rings
+  private hyperspaceLightning: THREE.Line[] = []; // Lightning bolt effects
+  private hyperspaceSpirals: THREE.Mesh[] = []; // Spiral particle trails
   private entryGateMesh: THREE.Group | null = null; // Reference to entry gate for expansion effect
   private entryGateOriginalScale: THREE.Vector3 = new THREE.Vector3(1, 1, 1);
   private cameraShakeOffset: THREE.Vector3 = new THREE.Vector3(); // Camera shake for hyperspace
+  private cameraRollAngle: number = 0; // Camera barrel roll angle
   private originalBackgroundColor: THREE.Color | null = null; // Store original scene background color
   
   private exitGateId: string | null = null;
@@ -193,10 +198,14 @@ export class GateTravelAnimator {
 
     // Create hyperspace effects when entering travel phase (only once)
     if (travelProgress >= 0 && this.hyperspaceSquares.length === 0) {
-      console.log("Creating hyperspace effects");
+      console.log("Creating EPIC hyperspace effects");
       this.createHyperspaceEffects();
       this.createHyperspacePlanes();
       this.createHyperspaceStreaks();
+      this.createHyperspaceVortex();
+      this.createHyperspaceRings();
+      this.createHyperspaceLightning();
+      this.createHyperspaceSpirals();
       
       // Set scene background to gate color after we've moved inside the gate
       if (this.scene && this.originalBackgroundColor) {
@@ -264,9 +273,15 @@ export class GateTravelAnimator {
     // Apply shake offset to camera position
     this.camera.position.add(this.cameraShakeOffset);
     
+    // Apply barrel roll rotation for more dramatic effect
+    this.applyCameraBarrelRoll(travelProgress);
+    
     // Make camera look forward in travel direction (use position with shake for more dynamic look)
     const lookTarget = this.camera.position.clone().add(this.travelDirection.clone().multiplyScalar(100));
     this.camera.lookAt(lookTarget);
+    
+    // Apply the roll rotation AFTER lookAt (so it rolls around the forward axis)
+    this.camera.rotateZ(this.cameraRollAngle);
 
     // Update hyperspace effects
     if (this.hyperspaceSquares.length > 0) {
@@ -277,6 +292,18 @@ export class GateTravelAnimator {
     }
     if (this.hyperspaceStreaks.length > 0) {
       this.updateHyperspaceStreaks(travelProgress);
+    }
+    if (this.hyperspaceVortex.length > 0) {
+      this.updateHyperspaceVortex(travelProgress);
+    }
+    if (this.hyperspaceRings.length > 0) {
+      this.updateHyperspaceRings(travelProgress);
+    }
+    if (this.hyperspaceLightning.length > 0) {
+      this.updateHyperspaceLightning(travelProgress);
+    }
+    if (this.hyperspaceSpirals.length > 0) {
+      this.updateHyperspaceSpirals(travelProgress);
     }
     
     // Debug: log shake and streak count periodically
@@ -291,8 +318,9 @@ export class GateTravelAnimator {
     // Animation complete - position at exit gate and start exit animation
     this.isTraveling = false;
 
-    // Clear camera shake
+    // Clear camera shake and roll
     this.cameraShakeOffset.set(0, 0, 0);
+    this.cameraRollAngle = 0;
 
     // Reset scene background to original color
     if (this.scene && this.originalBackgroundColor) {
@@ -1123,6 +1151,475 @@ export class GateTravelAnimator {
   }
 
   /**
+   * Create hyperspace vortex tunnel - spinning rings that create tunnel effect
+   */
+  private createHyperspaceVortex(): void {
+    if (!this.camera || !this.scene) return;
+
+    console.log("Creating hyperspace vortex tunnel");
+
+    const cameraWorldPos = this.camera.position.clone();
+    const cameraForward = new THREE.Vector3();
+    this.camera.getWorldDirection(cameraForward);
+
+    // Create 20 vortex ring segments (reduced from 30 for subtlety)
+    for (let i = 0; i < 20; i++) {
+      const distance = 50 + i * 50; // Spread out along tunnel
+      const position = cameraWorldPos.clone().add(cameraForward.clone().multiplyScalar(distance));
+      
+      // Create torus (ring) geometry - MUCH thinner
+      const radius = 20 + Math.sin(i * 0.5) * 5; // Vary radius for interesting tunnel shape
+      const tubeRadius = 0.3; // Much thinner tube (was 1.5)
+      const geometry = new THREE.TorusGeometry(radius, tubeRadius, 6, 16); // Lower detail too
+      
+      const material = new THREE.MeshBasicMaterial({
+        color: this.startColor.clone(),
+        transparent: true,
+        opacity: 0.2, // Much more transparent (was 0.4)
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      
+      const ring = new THREE.Mesh(geometry, material);
+      ring.position.copy(position);
+      
+      // Orient ring perpendicular to travel direction
+      ring.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        cameraForward
+      );
+      
+      // Store rotation speed and initial distance
+      ring.userData.rotationSpeed = 2 + Math.random() * 3;
+      ring.userData.initialDistance = distance;
+      
+      this.scene.add(ring);
+      this.hyperspaceVortex.push(ring);
+    }
+    
+    console.log(`Created ${this.hyperspaceVortex.length} vortex rings`);
+  }
+
+  /**
+   * Update hyperspace vortex - rings spin and rush towards camera
+   */
+  private updateHyperspaceVortex(travelProgress: number): void {
+    const cameraWorldPos = this.camera.position.clone();
+    const cameraForward = new THREE.Vector3();
+    this.camera.getWorldDirection(cameraForward);
+
+    // Color transition
+    let colorProgress = 0;
+    if (travelProgress > 0.3) {
+      colorProgress = (travelProgress - 0.3) / 0.7;
+    }
+    const currentColor = new THREE.Color().lerpColors(this.startColor, this.endColor, colorProgress);
+
+    this.hyperspaceVortex.forEach((ring, index) => {
+      const material = ring.material as THREE.MeshBasicMaterial;
+      material.color.copy(currentColor);
+      
+      // Spin the rings
+      const time = performance.now() * 0.001;
+      ring.rotation.z = time * ring.userData.rotationSpeed;
+      
+      // Move rings towards camera
+      const baseSpeed = 400.0;
+      const speedMultiplier = 1 + travelProgress * 6;
+      const speed = baseSpeed * speedMultiplier;
+      
+      const moveDirection = cameraForward.clone().negate();
+      ring.position.add(moveDirection.multiplyScalar(speed * 0.016));
+      
+      // Fade opacity based on distance - much more subtle
+      const distanceToCamera = ring.position.distanceTo(cameraWorldPos);
+      if (distanceToCamera < 100) {
+        material.opacity = 0.1 + (distanceToCamera / 100) * 0.15;
+      } else {
+        material.opacity = 0.25;
+      }
+      
+      // Wrap around when they pass the camera
+      const aheadOfCamera = ring.position.clone().sub(cameraWorldPos).dot(cameraForward);
+      if (aheadOfCamera < -50 || distanceToCamera > 2000) {
+        const newDistance = 1000 + Math.random() * 500;
+        ring.position.copy(cameraWorldPos).add(cameraForward.clone().multiplyScalar(newDistance));
+        
+        // Re-orient ring
+        ring.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 0, 1),
+          cameraForward
+        );
+      }
+    });
+  }
+
+  /**
+   * Create hyperspace energy rings - expanding rings that pulse outward
+   */
+  private createHyperspaceRings(): void {
+    if (!this.camera || !this.scene) return;
+
+    console.log("Creating hyperspace energy rings");
+
+    // Create 10 expanding energy rings - much thinner (reduced from 15)
+    for (let i = 0; i < 10; i++) {
+      const geometry = new THREE.RingGeometry(1, 1.2, 24); // Thinner ring (was 1 to 2)
+      
+      const material = new THREE.MeshBasicMaterial({
+        color: this.startColor.clone(),
+        transparent: true,
+        opacity: 0.3, // Much more subtle (was 0.8)
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      
+      const ring = new THREE.Mesh(geometry, material);
+      ring.position.copy(this.camera.position);
+      
+      const cameraForward = new THREE.Vector3();
+      this.camera.getWorldDirection(cameraForward);
+      ring.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        cameraForward
+      );
+      
+      // Store expansion data
+      ring.userData.expansionSpeed = 30 + Math.random() * 20;
+      ring.userData.currentRadius = 1;
+      ring.userData.spawnTime = performance.now() + i * 100; // Stagger spawns
+      ring.userData.hasSpawned = false;
+      
+      this.scene.add(ring);
+      this.hyperspaceRings.push(ring);
+    }
+    
+    console.log(`Created ${this.hyperspaceRings.length} energy rings`);
+  }
+
+  /**
+   * Update hyperspace energy rings - expand and fade
+   */
+  private updateHyperspaceRings(travelProgress: number): void {
+    const time = performance.now();
+    const cameraWorldPos = this.camera.position.clone();
+    const cameraForward = new THREE.Vector3();
+    this.camera.getWorldDirection(cameraForward);
+
+    // Color transition
+    let colorProgress = 0;
+    if (travelProgress > 0.3) {
+      colorProgress = (travelProgress - 0.3) / 0.7;
+    }
+    const currentColor = new THREE.Color().lerpColors(this.startColor, this.endColor, colorProgress);
+
+    this.hyperspaceRings.forEach((ring) => {
+      const material = ring.material as THREE.MeshBasicMaterial;
+      material.color.copy(currentColor);
+      
+      // Check if ring should spawn
+      if (!ring.userData.hasSpawned && time >= ring.userData.spawnTime) {
+        ring.userData.hasSpawned = true;
+        ring.position.copy(cameraWorldPos);
+        ring.quaternion.setFromUnitVectors(
+          new THREE.Vector3(0, 0, 1),
+          cameraForward
+        );
+      }
+      
+      if (ring.userData.hasSpawned) {
+        // Expand the ring
+        const expansionSpeed = ring.userData.expansionSpeed * (1 + travelProgress * 2);
+        ring.userData.currentRadius += expansionSpeed * 0.016;
+        
+        const newRadius = ring.userData.currentRadius;
+        ring.scale.set(newRadius, newRadius, 1);
+        
+        // Fade out as it expands - more subtle
+        const fadeProgress = Math.min(newRadius / 80, 1);
+        material.opacity = 0.3 * (1 - fadeProgress);
+        
+        // Reset when too large
+        if (newRadius > 80) {
+          ring.userData.hasSpawned = false;
+          ring.userData.currentRadius = 1;
+          ring.userData.spawnTime = time + Math.random() * 300;
+          ring.scale.set(1, 1, 1);
+        }
+      } else {
+        material.opacity = 0;
+      }
+    });
+  }
+
+  /**
+   * Create hyperspace lightning - electric bolts that crackle around
+   */
+  private createHyperspaceLightning(): void {
+    if (!this.camera || !this.scene) return;
+
+    console.log("Creating hyperspace lightning");
+
+    // Create 20 lightning bolts
+    for (let i = 0; i < 20; i++) {
+      // Create jagged line for lightning
+      const points: THREE.Vector3[] = [];
+      const segments = 8;
+      
+      for (let j = 0; j <= segments; j++) {
+        points.push(new THREE.Vector3(0, 0, 0));
+      }
+      
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      
+      const material = new THREE.LineBasicMaterial({
+        color: 0xffffff, // White lightning
+        transparent: true,
+        opacity: 1.0,
+        linewidth: 2,
+      });
+      
+      const line = new THREE.Line(geometry, material);
+      line.renderOrder = 1000;
+      
+      // Store lightning properties
+      line.userData.segments = segments;
+      line.userData.flashTime = Math.random() * 2000;
+      line.userData.duration = 100 + Math.random() * 200;
+      line.userData.isFlashing = false;
+      line.userData.intensity = 0.5 + Math.random() * 0.5;
+      
+      this.scene.add(line);
+      this.hyperspaceLightning.push(line);
+    }
+    
+    console.log(`Created ${this.hyperspaceLightning.length} lightning bolts`);
+  }
+
+  /**
+   * Update hyperspace lightning - flash and crackle
+   */
+  private updateHyperspaceLightning(travelProgress: number): void {
+    const time = performance.now();
+    const cameraWorldPos = this.camera.position.clone();
+    const cameraForward = new THREE.Vector3();
+    this.camera.getWorldDirection(cameraForward);
+
+    this.hyperspaceLightning.forEach((line) => {
+      const geometry = line.geometry as THREE.BufferGeometry;
+      const positions = geometry.attributes.position.array as Float32Array;
+      const material = line.material as THREE.LineBasicMaterial;
+      
+      // Check if should flash
+      if (!line.userData.isFlashing && time >= line.userData.flashTime) {
+        line.userData.isFlashing = true;
+        line.userData.flashStartTime = time;
+        
+        // Generate random lightning path
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 20 + Math.random() * 40;
+        const distanceAhead = 100 + Math.random() * 400;
+        
+        const right = new THREE.Vector3().crossVectors(cameraForward, new THREE.Vector3(0, 1, 0));
+        if (right.length() < 0.1) right.set(1, 0, 0);
+        right.normalize();
+        const up = new THREE.Vector3().crossVectors(right, cameraForward).normalize();
+        
+        const startOffset = right.clone().multiplyScalar(Math.cos(angle) * radius)
+          .add(up.clone().multiplyScalar(Math.sin(angle) * radius));
+        const startPos = cameraWorldPos.clone()
+          .add(cameraForward.clone().multiplyScalar(distanceAhead))
+          .add(startOffset);
+        
+        const endAngle = angle + (Math.random() - 0.5) * Math.PI * 0.5;
+        const endRadius = radius + (Math.random() - 0.5) * 20;
+        const endOffset = right.clone().multiplyScalar(Math.cos(endAngle) * endRadius)
+          .add(up.clone().multiplyScalar(Math.sin(endAngle) * endRadius));
+        const endPos = cameraWorldPos.clone()
+          .add(cameraForward.clone().multiplyScalar(distanceAhead + 50))
+          .add(endOffset);
+        
+        // Generate jagged path
+        for (let i = 0; i <= line.userData.segments; i++) {
+          const t = i / line.userData.segments;
+          const pos = new THREE.Vector3().lerpVectors(startPos, endPos, t);
+          
+          // Add random jitter for lightning effect
+          if (i > 0 && i < line.userData.segments) {
+            pos.add(right.clone().multiplyScalar((Math.random() - 0.5) * 8));
+            pos.add(up.clone().multiplyScalar((Math.random() - 0.5) * 8));
+          }
+          
+          positions[i * 3] = pos.x;
+          positions[i * 3 + 1] = pos.y;
+          positions[i * 3 + 2] = pos.z;
+        }
+        
+        geometry.attributes.position.needsUpdate = true;
+      }
+      
+      // Update flash animation
+      if (line.userData.isFlashing) {
+        const flashElapsed = time - line.userData.flashStartTime;
+        const flashProgress = flashElapsed / line.userData.duration;
+        
+        if (flashProgress < 1) {
+          // Pulse opacity for flickering effect
+          const flicker = Math.sin(flashProgress * Math.PI * 10) * 0.3 + 0.7;
+          material.opacity = (1 - flashProgress) * line.userData.intensity * flicker;
+          
+          // Mix colors for variety
+          if (Math.random() < 0.3) {
+            material.color.setHex(0x88ffff); // Cyan lightning
+          } else {
+            material.color.setHex(0xffffff); // White lightning
+          }
+        } else {
+          // Flash complete
+          line.userData.isFlashing = false;
+          material.opacity = 0;
+          line.userData.flashTime = time + 200 + Math.random() * 800; // Next flash
+        }
+      } else {
+        material.opacity = 0;
+      }
+    });
+  }
+
+  /**
+   * Create hyperspace spirals - particles that spiral around the camera path
+   */
+  private createHyperspaceSpirals(): void {
+    if (!this.camera || !this.scene) return;
+
+    console.log("Creating hyperspace spirals");
+
+    const cameraWorldPos = this.camera.position.clone();
+    const cameraForward = new THREE.Vector3();
+    this.camera.getWorldDirection(cameraForward);
+
+    // Create 100 spiral particles
+    for (let i = 0; i < 100; i++) {
+      const geometry = new THREE.SphereGeometry(0.8, 8, 8);
+      
+      const material = new THREE.MeshBasicMaterial({
+        color: this.startColor.clone(),
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      
+      const particle = new THREE.Mesh(geometry, material);
+      
+      // Position along spiral path
+      const angle = (i / 100) * Math.PI * 4; // 2 full spirals
+      const radius = 15 + Math.sin(angle * 0.5) * 5;
+      const distanceAhead = 50 + (i / 100) * 800;
+      
+      const right = new THREE.Vector3().crossVectors(cameraForward, new THREE.Vector3(0, 1, 0));
+      if (right.length() < 0.1) right.set(1, 0, 0);
+      right.normalize();
+      const up = new THREE.Vector3().crossVectors(right, cameraForward).normalize();
+      
+      const spiralOffset = right.clone().multiplyScalar(Math.cos(angle) * radius)
+        .add(up.clone().multiplyScalar(Math.sin(angle) * radius));
+      
+      particle.position.copy(cameraWorldPos)
+        .add(cameraForward.clone().multiplyScalar(distanceAhead))
+        .add(spiralOffset);
+      
+      // Store spiral properties
+      particle.userData.angle = angle;
+      particle.userData.radius = radius;
+      particle.userData.spiralSpeed = 1.5 + Math.random() * 1.0;
+      
+      this.scene.add(particle);
+      this.hyperspaceSpirals.push(particle);
+    }
+    
+    console.log(`Created ${this.hyperspaceSpirals.length} spiral particles`);
+  }
+
+  /**
+   * Update hyperspace spirals - rotate around path
+   */
+  private updateHyperspaceSpirals(travelProgress: number): void {
+    const cameraWorldPos = this.camera.position.clone();
+    const cameraForward = new THREE.Vector3();
+    this.camera.getWorldDirection(cameraForward);
+
+    // Color transition
+    let colorProgress = 0;
+    if (travelProgress > 0.3) {
+      colorProgress = (travelProgress - 0.3) / 0.7;
+    }
+    const currentColor = new THREE.Color().lerpColors(this.startColor, this.endColor, colorProgress);
+
+    const right = new THREE.Vector3().crossVectors(cameraForward, new THREE.Vector3(0, 1, 0));
+    if (right.length() < 0.1) right.set(1, 0, 0);
+    right.normalize();
+    const up = new THREE.Vector3().crossVectors(right, cameraForward).normalize();
+
+    this.hyperspaceSpirals.forEach((particle) => {
+      const material = particle.material as THREE.MeshBasicMaterial;
+      material.color.copy(currentColor);
+      
+      // Update spiral angle
+      particle.userData.angle += particle.userData.spiralSpeed * 0.016 * (1 + travelProgress * 3);
+      
+      // Move towards camera
+      const baseSpeed = 300.0;
+      const speedMultiplier = 1 + travelProgress * 5;
+      const speed = baseSpeed * speedMultiplier;
+      
+      const moveDirection = cameraForward.clone().negate();
+      particle.position.add(moveDirection.multiplyScalar(speed * 0.016));
+      
+      // Rotate around spiral path as it moves
+      const angle = particle.userData.angle;
+      const radius = particle.userData.radius;
+      
+      // Calculate the spiral offset that would be at this angle
+      const spiralOffset = right.clone().multiplyScalar(Math.cos(angle) * radius)
+        .add(up.clone().multiplyScalar(Math.sin(angle) * radius));
+      
+      // Get distance along forward axis
+      const forwardDistance = particle.position.clone().sub(cameraWorldPos).dot(cameraForward);
+      
+      // Reposition particle on the spiral
+      if (forwardDistance > 10) { // Only adjust if not too close to camera
+        const targetPos = cameraWorldPos.clone()
+          .add(cameraForward.clone().multiplyScalar(forwardDistance))
+          .add(spiralOffset);
+        
+        // Smoothly interpolate to spiral position
+        particle.position.lerp(targetPos, 0.1);
+      }
+      
+      // Wrap around when passing camera
+      const aheadOfCamera = particle.position.clone().sub(cameraWorldPos).dot(cameraForward);
+      if (aheadOfCamera < -50) {
+        const newDistance = 600 + Math.random() * 400;
+        const newAngle = Math.random() * Math.PI * 2;
+        const newRadius = 15 + Math.sin(newAngle * 0.5) * 5;
+        
+        particle.userData.angle = newAngle;
+        particle.userData.radius = newRadius;
+        
+        const newSpiralOffset = right.clone().multiplyScalar(Math.cos(newAngle) * newRadius)
+          .add(up.clone().multiplyScalar(Math.sin(newAngle) * newRadius));
+        
+        particle.position.copy(cameraWorldPos)
+          .add(cameraForward.clone().multiplyScalar(newDistance))
+          .add(newSpiralOffset);
+      }
+    });
+  }
+
+  /**
    * Remove all hyperspace effects
    */
   private removeHyperspaceEffects(): void {
@@ -1153,7 +1650,43 @@ export class GateTravelAnimator {
     });
     this.hyperspaceStreaks = [];
     
-    console.log("Removed hyperspace effects");
+    this.hyperspaceVortex.forEach((ring) => {
+      if (this.scene) {
+        this.scene.remove(ring);
+      }
+      ring.geometry.dispose();
+      (ring.material as THREE.Material).dispose();
+    });
+    this.hyperspaceVortex = [];
+    
+    this.hyperspaceRings.forEach((ring) => {
+      if (this.scene) {
+        this.scene.remove(ring);
+      }
+      ring.geometry.dispose();
+      (ring.material as THREE.Material).dispose();
+    });
+    this.hyperspaceRings = [];
+    
+    this.hyperspaceLightning.forEach((bolt) => {
+      if (this.scene) {
+        this.scene.remove(bolt);
+      }
+      bolt.geometry.dispose();
+      (bolt.material as THREE.Material).dispose();
+    });
+    this.hyperspaceLightning = [];
+    
+    this.hyperspaceSpirals.forEach((particle) => {
+      if (this.scene) {
+        this.scene.remove(particle);
+      }
+      particle.geometry.dispose();
+      (particle.material as THREE.Material).dispose();
+    });
+    this.hyperspaceSpirals = [];
+    
+    console.log("Removed EPIC hyperspace effects");
   }
 
   /**
@@ -1178,6 +1711,17 @@ export class GateTravelAnimator {
       (Math.cos(time * 2.7) + Math.sin(time * 11) + fastShake) * shakeMagnitude,
       (Math.sin(time * 1.9) + Math.cos(time * 7)) * shakeMagnitude * 0.8
     );
+  }
+
+  /**
+   * Apply barrel roll rotation to camera for dramatic effect
+   */
+  private applyCameraBarrelRoll(travelProgress: number): void {
+    // Smooth barrel roll that intensifies with speed
+    // Complete 2 full rotations during travel, with varying speed
+    const time = performance.now() * 0.001;
+    const rollSpeed = 1 + travelProgress * 3; // Gets faster
+    this.cameraRollAngle = Math.sin(time * rollSpeed) * 0.15 * travelProgress;
   }
 
   /**
