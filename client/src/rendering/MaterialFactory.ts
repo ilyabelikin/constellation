@@ -5,6 +5,7 @@ import { createRockyPlanetMaterial } from "./materials/RockyPlanetMaterial";
 import { createBarrenPlanetMaterial } from "./materials/BarrenPlanetMaterial";
 import { createIcePlanetMaterial, regenerateIcePlanetTexture as regenerateIcePlanetTextureModule } from "./materials/IcePlanetMaterial";
 import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
+import { createDesertCloudMaterial as createDesertCloudMaterialModule } from "./materials/DesertCloudMaterial";
 import { createTerrestrialAtmosphereGlowMaterial as createTerrestrialAtmosphereGlowMaterialModule } from "./materials/TerrestrialAtmosphereGlowMaterial";
 import { createDesertAtmosphereGlowMaterial as createDesertAtmosphereGlowMaterialModule } from "./materials/DesertAtmosphereGlowMaterial";
 import { createStarMaterial as createStarMaterialModule } from "./materials/StarMaterial";
@@ -1368,6 +1369,18 @@ export class MaterialFactory {
     planetSeed: number = 0
   ): THREE.ShaderMaterial {
     return createCloudMaterialModule(baseColor, cloudCoverage, planetSeed);
+  }
+
+  /**
+   * Creates a shader material for desert sand storm layers
+   * with 3D patterns and multi-directional wind movement
+   */
+  createDesertCloudMaterial(
+    baseColor: number,
+    stormCoverage: number = 0.5,
+    planetSeed: number = 0
+  ): THREE.ShaderMaterial {
+    return createDesertCloudMaterialModule(baseColor, stormCoverage, planetSeed);
   }
 
 
