@@ -22,6 +22,7 @@ import {
   getOceanColorType,
   getAtmosphereColor,
 } from "./materials/planetColorUtils";
+import { getDesertAtmosphereColor } from "./materials/DesertAtmosphereGlowMaterial";
 
 /**
  * Main scene manager that orchestrates all rendering components
@@ -2011,18 +2012,28 @@ export class SceneManager {
           }
         }
 
-        // Update atmosphere color for terrestrial planets
+        // Update atmosphere color based on planet type
         if (
           child.material.uniforms.atmosphereColor &&
           planetMesh.material instanceof THREE.ShaderMaterial &&
           planetMesh.material.uniforms.planetSeed
         ) {
-          // Recalculate atmosphere color based on new seed using shared utility
-          const oceanType = getOceanColorType(newSeed);
-          const atmosphereColor = getAtmosphereColor(oceanType);
+          const surfaceType = planet.surfaceType;
 
-          child.material.uniforms.atmosphereColor.value = atmosphereColor;
-          console.log(`Updated atmosphere color for seed ${newSeed}`);
+          if (surfaceType === "terrestrial") {
+            // Recalculate atmosphere color for terrestrial planets based on ocean type
+            const oceanType = getOceanColorType(newSeed);
+            const atmosphereColor = getAtmosphereColor(oceanType);
+            child.material.uniforms.atmosphereColor.value = atmosphereColor;
+            console.log(
+              `Updated terrestrial atmosphere color for seed ${newSeed}`
+            );
+          } else if (surfaceType === "desert") {
+            // Recalculate atmosphere color for desert planets based on palette type
+            const atmosphereColor = getDesertAtmosphereColor(newSeed);
+            child.material.uniforms.atmosphereColor.value = atmosphereColor;
+            console.log(`Updated desert atmosphere color for seed ${newSeed}`);
+          }
         }
       }
     });

@@ -8,7 +8,9 @@ import * as THREE from "three";
 export function createDesertPlanetMaterial(
   baseColor: number,
   planetSeed: number,
-  hasAtmosphere: boolean = false
+  hasAtmosphere: boolean = false,
+  orbitalDistance: number = 1.0,
+  habitability: number = 0.0
 ): THREE.ShaderMaterial {
   const color = new THREE.Color(baseColor);
 
@@ -160,6 +162,8 @@ export function createDesertPlanetMaterial(
     uniform float rotation;
     uniform float planetSeed;
     uniform float hasAtmosphere; // 1.0 if has atmosphere, 0.0 if airless
+    uniform float orbitalDistance;
+    uniform float habitability;
 
     varying vec2 vUv;
     varying vec3 vNormal;
@@ -298,7 +302,96 @@ export function createDesertPlanetMaterial(
       float waterLevel = 0.15 + waterLevelSeed * 0.10; // 0.15-0.25 range
       bool isWater = elevation < waterLevel;
       
-      if (isWater) {
+      // Check for ice caps (only for planets with atmosphere)
+      float distanceFromPole = abs(vUv.y - 0.5) * 2.0; // 0 at poles, 1 at equator
+      bool isIceCap = false;
+      
+      if (hasAtmosphere > 0.5) {
+        // Ice cap size varies with orbital distance
+        float temperatureFactor = clamp(orbitalDistance, 0.0, 2.0);
+        float minIceThreshold, maxIceThreshold;
+        
+        if (temperatureFactor < 0.5) {
+          // Hot desert - minimal ice caps
+          minIceThreshold = 0.92;
+          maxIceThreshold = 0.96;
+        } else if (temperatureFactor < 1.0) {
+          // Temperate desert - small ice caps
+          minIceThreshold = 0.80;
+          maxIceThreshold = 0.90;
+        } else if (temperatureFactor < 1.5) {
+          // Cool desert - moderate ice caps
+          minIceThreshold = 0.50;
+          maxIceThreshold = 0.75;
+        } else {
+          // Cold desert - large ice caps
+          minIceThreshold = 0.25;
+          maxIceThreshold = 0.50;
+        }
+        
+        // Generate seed-based variety
+        float iceCapSizeSeed = seededRandom(planetSeed * 1.9);
+        float baseIceThreshold = minIceThreshold + iceCapSizeSeed * (maxIceThreshold - minIceThreshold);
+        
+        // Add noise to ice cap boundary for irregular shape
+        float iceNoise = turbulence3D(samplePos * 0.8, 4) * 0.12;
+        float iceThreshold = baseIceThreshold - iceNoise;
+        
+        isIceCap = distanceFromPole > iceThreshold;
+      }
+      
+      if (isIceCap) {
+        // DESERT ICE CAPS - beige/tan tinted ice, appropriate for desert planets
+        // Get the palette type to match ice with sand colors
+        int paletteType = int(paletteTypeSeed * 8.0);
+        if (paletteType > 7) paletteType = 7;
+        
+        // Calculate distance from pole center for layering
+        float polarDistance = distanceFromPole;
+        float iceNoise = turbulence3D(samplePos * 0.8, 4) * 0.12;
+        float iceThreshold = 0.85 - iceNoise; // Recompute for layering
+        
+        // Inner core ice (closest to pole) - light beige, more pure
+        float innerIceThreshold = iceThreshold + 0.05;
+        bool isInnerIce = polarDistance > innerIceThreshold;
+        
+        if (isInnerIce) {
+          // Core: Light beige-white (desert-appropriate ice)
+          // Slightly tinted based on palette
+          vec3 baseIce = vec3(0.95, 0.93, 0.88); // Warm white
+          
+          // Add subtle tint from palette
+          if (paletteType == 0) baseIce *= vec3(1.0, 0.98, 0.92); // Golden tint
+          else if (paletteType == 1) baseIce *= vec3(1.0, 0.92, 0.88); // Mars red tint
+          else if (paletteType == 2) baseIce *= vec3(1.0, 1.0, 0.98); // Pure white
+          else if (paletteType == 3) baseIce *= vec3(1.0, 0.95, 0.90); // Namib orange tint
+          else if (paletteType == 5) baseIce *= vec3(1.0, 0.96, 0.96); // Rose tint
+          else if (paletteType == 7) baseIce *= vec3(0.98, 0.94, 0.98); // Purple tint
+          
+          colorModulation = baseIce;
+          intensity = 1.1;
+        } else {
+          // Outer ice: More tan/beige, transitioning to sand
+          vec3 outerIce = vec3(0.88, 0.85, 0.78);
+          
+          // Stronger tint from palette for outer ice
+          if (paletteType == 0) outerIce *= vec3(1.0, 0.96, 0.85); // Golden
+          else if (paletteType == 1) outerIce *= vec3(1.0, 0.88, 0.80); // Mars red
+          else if (paletteType == 2) outerIce *= vec3(1.0, 0.98, 0.92); // White desert
+          else if (paletteType == 3) outerIce *= vec3(1.0, 0.90, 0.82); // Namib orange
+          else if (paletteType == 5) outerIce *= vec3(1.0, 0.90, 0.88); // Rose
+          else if (paletteType == 6) outerIce *= vec3(0.90, 0.82, 0.75); // Dark brown
+          else if (paletteType == 7) outerIce *= vec3(0.95, 0.88, 0.90); // Purple
+          
+          colorModulation = outerIce;
+          intensity = 0.95;
+        }
+        
+        // Add gentle texture variation to ice
+        float iceTexture = turbulence3D(samplePos * 2.0, 3);
+        intensity -= smoothstep(0.45, 0.55, iceTexture) * 0.06;
+      }
+      else if (isWater) {
         // WATER - small oases or dry lakes
         vec3 waterColor = getPaletteColor(paletteType, 5, colorVariationSeed);
         
@@ -458,6 +551,8 @@ export function createDesertPlanetMaterial(
       rotation: { value: 0.0 },
       planetSeed: { value: planetSeed },
       hasAtmosphere: { value: hasAtmosphere ? 1.0 : 0.0 },
+      orbitalDistance: { value: orbitalDistance },
+      habitability: { value: habitability },
     },
     vertexShader,
     fragmentShader,

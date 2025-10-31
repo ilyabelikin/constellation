@@ -148,14 +148,16 @@ export class CelestialBodyFactory {
       const isTerrestrial = planet.surfaceType === "terrestrial";
       const isDesert = planet.surfaceType === "desert";
 
-      // Use sandy/dusty color for desert atmosphere
-      const atmosphereColor = isDesert ? (planet.color || 0xd4a373) : (planet.color || 0x88ccff);
-
-      const atmosphereMaterial = this.materialFactory.createAtmosphereMaterial(
-        atmosphereColor,
-        planetSeed,
-        isTerrestrial
-      );
+      // Use specific atmosphere material based on planet type
+      const atmosphereMaterial = isTerrestrial
+        ? this.materialFactory.createTerrestrialAtmosphereGlowMaterial(
+            planetSeed
+          )
+        : isDesert
+        ? this.materialFactory.createDesertAtmosphereGlowMaterial(planetSeed)
+        : this.materialFactory.createGenericAtmosphereMaterial(
+            planet.color || 0x88ccff
+          );
 
       const atmosphereMesh = new THREE.Mesh(
         atmosphereGeometry,
@@ -166,7 +168,7 @@ export class CelestialBodyFactory {
       // Add weather/cloud layers (for terrestrial and desert planets)
       if (isTerrestrial || isDesert) {
         const cloudCoverage = planet.cloudCoverage || 0.5;
-        
+
         // Cloud colors: white for terrestrial, sandy for desert (sandstorms)
         const cloudColor1 = isDesert ? 0xd4a373 : 0xffffff;
         const cloudColor2 = isDesert ? 0xc89060 : 0xffffff;

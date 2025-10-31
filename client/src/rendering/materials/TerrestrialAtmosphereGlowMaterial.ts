@@ -2,29 +2,16 @@ import * as THREE from "three";
 import { getOceanColorType, getAtmosphereColor } from "./planetColorUtils";
 
 /**
- * Creates a shader material for planet atmospheres with enhanced Fresnel effect
- * For terrestrial planets, syncs with ocean color based on seed
+ * Creates a shader material for terrestrial planet atmospheres
+ * Syncs with ocean color based on seed for visual consistency
+ * Uses standard glow intensity
  */
-export function createAtmosphereMaterial(
-  color: number,
-  planetSeed?: number,
-  isTerrestrial: boolean = false
+export function createTerrestrialAtmosphereGlowMaterial(
+  planetSeed: number
 ): THREE.ShaderMaterial {
-  let atmosphereColor = new THREE.Color(color);
-
-  // For terrestrial planets, use ocean color logic
-  if (isTerrestrial && planetSeed !== undefined) {
-    const oceanType = getOceanColorType(planetSeed);
-    atmosphereColor = getAtmosphereColor(oceanType);
-  } else {
-    // Default behavior for non-terrestrial planets
-    atmosphereColor.multiplyScalar(1.3); // Brighter
-
-    // For Earth-like colors (blue/green), add slight cyan tint
-    if (atmosphereColor.b > atmosphereColor.r) {
-      atmosphereColor.g = Math.min(atmosphereColor.g * 1.2, 1.0);
-    }
-  }
+  // Calculate atmosphere color based on ocean type
+  const oceanType = getOceanColorType(planetSeed);
+  const atmosphereColor = getAtmosphereColor(oceanType);
 
   const vertexShader = `
     varying vec3 vNormal;
@@ -45,15 +32,19 @@ export function createAtmosphereMaterial(
       // Enhanced Fresnel effect - stronger glow at edges
       float edgeFactor = dot(vNormal, vec3(0.0, 0.0, 1.0));
       
-      // Multi-layer atmospheric glow
+      // Multi-layer atmospheric glow (standard intensity)
+      float innerMultiplier = 0.4;
+      float outerMultiplier = 0.8;
+      float scatterMultiplier = 0.3;
+      
       // Inner glow - subtle and smooth
-      float innerGlow = pow(0.8 - edgeFactor, 1.5) * 0.4;
+      float innerGlow = pow(0.8 - edgeFactor, 1.5) * innerMultiplier;
       
       // Outer glow - more intense at the very edge
-      float outerGlow = pow(0.7 - edgeFactor, 2.5) * 0.8;
+      float outerGlow = pow(0.7 - edgeFactor, 2.5) * outerMultiplier;
       
       // Atmospheric scattering - brightest near horizon
-      float scattering = smoothstep(0.0, 0.4, 1.0 - edgeFactor) * 0.3;
+      float scattering = smoothstep(0.0, 0.4, 1.0 - edgeFactor) * scatterMultiplier;
       
       // Combine glows
       float intensity = innerGlow + outerGlow + scattering;
@@ -78,3 +69,4 @@ export function createAtmosphereMaterial(
     side: THREE.BackSide,
   });
 }
+
