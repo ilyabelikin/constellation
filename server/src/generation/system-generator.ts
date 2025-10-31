@@ -413,8 +413,9 @@ export function generatePlanet(
   // Determine if planet has atmosphere
   const hasAtmosphere = rng.next() < planetType.atmosphereChance;
 
-  // Generate cloud coverage for planets with atmosphere (0.3 to 0.9)
-  const cloudCoverage = hasAtmosphere ? rng.nextFloat(0.3, 0.9) : undefined;
+  // Generate cloud coverage for planets with atmosphere (0.45 to 0.70)
+  // Narrower range to keep variety closer to the middle
+  const cloudCoverage = hasAtmosphere ? rng.nextFloat(0.45, 0.7) : undefined;
 
   // Generate procedural name (galaxyId will be passed from caller)
   const planetName = generatePlanetName(rng, galaxyId);
@@ -502,12 +503,30 @@ export function generatePlanet(
 
   // Generate rings for some gas giants
   // Gas giants: mass > 15 Earth masses
+  // Make ring generation seed-specific: create deterministic seed from planet index and properties
   const massInEarthMasses = mass / EARTH_MASS;
   if (massInEarthMasses > 15) {
-    const ringChance = rng.next();
+    // Create a deterministic seed for this planet's ring generation
+    // Use planet name (which is deterministic) combined with index to create a unique seed
+    // This ensures the same planet always gets the same ring configuration
+    // Hash the planet name to a number for seed calculation
+    let nameHash = 0;
+    for (let i = 0; i < planetName.length; i++) {
+      nameHash = ((nameHash << 5) - nameHash + planetName.charCodeAt(i)) | 0;
+    }
+    // Combine name hash with index and mass/radius for unique seed
+    // Use large multipliers to ensure different planets get different seeds
+    const ringSeed =
+      Math.abs(nameHash) * 1000000 +
+      index * 10000 +
+      Math.floor(massInEarthMasses * 100) +
+      Math.floor((radius / EARTH_RADIUS) * 10);
+    const ringRng = new SeededRandom(ringSeed);
+
+    const ringChance = ringRng.next();
     // 40% chance for rings
     if (ringChance < 0.4) {
-      planet.rings = generateRings(rng, radius, planetType.color);
+      planet.rings = generateRings(ringRng, radius, planetType.color);
     }
   }
 
@@ -911,8 +930,34 @@ export function generateStarSystem(
     const companion1 = generateStar(rng);
     const companion2 = generateStar(rng);
 
-    // First companion orbits at 2-8 AU from primary (around Jupiter/Saturn distance)
-    const distance1 = rng.nextFloat(2, 8) * ASTRONOMICAL_UNIT;
+    // Calculate minimum safe distance based on visual size of stars
+    // Stars are rendered 40x larger for visibility
+    const VISUAL_SIZE_MULTIPLIER = 40;
+    const primaryVisualRadius =
+      (star.radius / ASTRONOMICAL_UNIT) * VISUAL_SIZE_MULTIPLIER;
+    const companion1VisualRadius =
+      (companion1.radius / ASTRONOMICAL_UNIT) * VISUAL_SIZE_MULTIPLIER;
+    const companion2VisualRadius =
+      (companion2.radius / ASTRONOMICAL_UNIT) * VISUAL_SIZE_MULTIPLIER;
+
+    // First companion orbits closer (ensure clearance from primary)
+    const minDistance1 = Math.max(
+      2,
+      (primaryVisualRadius + companion1VisualRadius) * 2.5
+    );
+    const distance1 =
+      rng.nextFloat(minDistance1, minDistance1 * 4) * ASTRONOMICAL_UNIT;
+
+    console.log(
+      `Trinary system: Primary radius ${primaryVisualRadius.toFixed(
+        2
+      )} AU (visual), Companion1 radius ${companion1VisualRadius.toFixed(
+        2
+      )} AU (visual), Distance1 ${(distance1 / ASTRONOMICAL_UNIT).toFixed(
+        2
+      )} AU`
+    );
+
     companion1.orbitalElements = {
       semiMajorAxis: distance1,
       eccentricity: rng.nextFloat(0.1, 0.4),
@@ -925,8 +970,22 @@ export function generateStarSystem(
     companion1.parentId = star.id;
     companion1.name = `${star.name} B`;
 
-    // Second companion orbits farther (8-20 AU, outer system)
-    const distance2 = rng.nextFloat(8, 20) * ASTRONOMICAL_UNIT;
+    // Second companion orbits farther (must be beyond first companion)
+    const minDistance2 = Math.max(
+      distance1 / ASTRONOMICAL_UNIT + companion1VisualRadius * 3,
+      (primaryVisualRadius + companion2VisualRadius) * 3
+    );
+    const distance2 =
+      rng.nextFloat(minDistance2, minDistance2 * 2.5) * ASTRONOMICAL_UNIT;
+
+    console.log(
+      `Companion2 radius ${companion2VisualRadius.toFixed(
+        2
+      )} AU (visual), Distance2 ${(distance2 / ASTRONOMICAL_UNIT).toFixed(
+        2
+      )} AU`
+    );
+
     companion2.orbitalElements = {
       semiMajorAxis: distance2,
       eccentricity: rng.nextFloat(0.1, 0.5),
@@ -945,9 +1004,31 @@ export function generateStarSystem(
     console.log(`✨ Generating BINARY star system: ${star.name}`);
     const companion = generateStar(rng);
 
-    // Companion orbits at 3-12 AU from primary (mid to outer system)
-    // Planets can orbit closer to primary or form circumbinary orbits
-    const distance = rng.nextFloat(3, 12) * ASTRONOMICAL_UNIT;
+    // Calculate minimum safe distance based on visual size of both stars
+    // Stars are rendered 40x larger for visibility
+    const VISUAL_SIZE_MULTIPLIER = 40;
+    const primaryVisualRadius =
+      (star.radius / ASTRONOMICAL_UNIT) * VISUAL_SIZE_MULTIPLIER;
+    const companionVisualRadius =
+      (companion.radius / ASTRONOMICAL_UNIT) * VISUAL_SIZE_MULTIPLIER;
+    const minSafeDistance = Math.max(
+      3,
+      (primaryVisualRadius + companionVisualRadius) * 2.5
+    ); // 2.5x for clearance
+
+    // Companion orbits at safe distance from primary (mid to outer system)
+    // Ensure minimum 3 AU, but scale up for large stars
+    const distance =
+      rng.nextFloat(minSafeDistance, minSafeDistance * 4) * ASTRONOMICAL_UNIT;
+
+    console.log(
+      `Binary system: Primary radius ${primaryVisualRadius.toFixed(
+        2
+      )} AU (visual), Companion radius ${companionVisualRadius.toFixed(
+        2
+      )} AU (visual), Distance ${(distance / ASTRONOMICAL_UNIT).toFixed(2)} AU`
+    );
+
     companion.orbitalElements = {
       semiMajorAxis: distance,
       eccentricity: rng.nextFloat(0.05, 0.3),
@@ -996,22 +1077,35 @@ export function generateStarSystem(
       // Calculate Hill sphere radius (stable orbital zone)
       // Hill sphere: r_H ≈ a * (m / (3*M))^(1/3)
       // where a = distance to primary, m = companion mass, M = primary mass
-      const companionDistance = companionStar.orbitalElements?.semiMajorAxis || 0;
+      const companionDistance =
+        companionStar.orbitalElements?.semiMajorAxis || 0;
       const massRatio = companionStar.mass / star.mass;
-      const hillSphereRadius = companionDistance * Math.pow(massRatio / 3.0, 1.0 / 3.0);
-      
+      const hillSphereRadius =
+        companionDistance * Math.pow(massRatio / 3.0, 1.0 / 3.0);
+
       // Only generate planets if there's enough space (at least 0.5 AU)
       if (hillSphereRadius > 0.5 * ASTRONOMICAL_UNIT) {
         // Companion stars typically have fewer planets (0-4)
         // Probability decreases with distance from primary (tighter orbits = less stable)
-        const distanceFactor = Math.min(companionDistance / (15 * ASTRONOMICAL_UNIT), 1.0);
+        const distanceFactor = Math.min(
+          companionDistance / (15 * ASTRONOMICAL_UNIT),
+          1.0
+        );
         const planetChance = 0.4 * distanceFactor; // 40% chance at close range, decreases with distance
-        
+
         if (rng.next() < planetChance) {
-          const numCompanionPlanets = rng.nextInt(1, Math.min(4, Math.floor(hillSphereRadius / (0.5 * ASTRONOMICAL_UNIT))));
-          
-          console.log(`Generating ${numCompanionPlanets} planet(s) around companion star ${companionStar.name}`);
-          
+          const numCompanionPlanets = rng.nextInt(
+            1,
+            Math.min(
+              4,
+              Math.floor(hillSphereRadius / (0.5 * ASTRONOMICAL_UNIT))
+            )
+          );
+
+          console.log(
+            `Generating ${numCompanionPlanets} planet(s) around companion star ${companionStar.name}`
+          );
+
           for (let i = 0; i < numCompanionPlanets; i++) {
             // Generate planets closer to companion star (smaller orbits)
             // Use companion star's mass and luminosity
@@ -1024,30 +1118,39 @@ export function generateStarSystem(
               galaxyId,
               companionStar.radius
             );
-            
+
             // Scale orbital distance to fit within Hill sphere
             // Planets should orbit at 0.05-0.25 AU from companion (scaled by available space)
-            const maxOrbitDistance = Math.min(hillSphereRadius * 0.8, 0.5 * ASTRONOMICAL_UNIT);
-            const minOrbitDistance = Math.max(companionStar.radius * 50, 0.05 * ASTRONOMICAL_UNIT); // Safety margin
-            
+            const maxOrbitDistance = Math.min(
+              hillSphereRadius * 0.8,
+              0.5 * ASTRONOMICAL_UNIT
+            );
+            const minOrbitDistance = Math.max(
+              companionStar.radius * 50,
+              0.05 * ASTRONOMICAL_UNIT
+            ); // Safety margin
+
             if (planet.orbitalElements) {
               // Scale the semi-major axis to fit within stable zone
               const position = i / Math.max(numCompanionPlanets - 1, 1);
-              planet.orbitalElements.semiMajorAxis = minOrbitDistance + 
-                (maxOrbitDistance - minOrbitDistance) * position * rng.nextFloat(0.7, 1.0);
+              planet.orbitalElements.semiMajorAxis =
+                minOrbitDistance +
+                (maxOrbitDistance - minOrbitDistance) *
+                  position *
+                  rng.nextFloat(0.7, 1.0);
             }
-            
+
             planet.parentId = companionStar.id;
             planets.push(planet);
           }
         }
-        
+
         // Generate asteroid belts around companion stars (30% chance)
         if (rng.next() < 0.3 && hillSphereRadius > 0.3 * ASTRONOMICAL_UNIT) {
           // Place asteroid belt in outer part of stable zone
           const beltInnerRadius = hillSphereRadius * 0.6;
           const beltOuterRadius = hillSphereRadius * 0.9;
-          
+
           const belt = generateAsteroidBelt(
             rng,
             companionStar.id,
@@ -1057,11 +1160,13 @@ export function generateStarSystem(
             galaxyId
           );
           asteroidBelts.push(belt);
-          console.log(`Generated asteroid belt around companion star ${companionStar.name}`);
+          console.log(
+            `Generated asteroid belt around companion star ${companionStar.name}`
+          );
         }
       }
     }
-    
+
     // Re-sort all planets (primary + companion) by semi-major axis
     planets.sort((a, b) => {
       const aAxis = a.orbitalElements?.semiMajorAxis || 0;

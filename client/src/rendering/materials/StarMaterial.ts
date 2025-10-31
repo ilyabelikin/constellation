@@ -119,11 +119,20 @@ export function createStarMaterial(color: number): THREE.ShaderMaterial {
         
         // Center is opaque (1.0), edges become transparent (fade out)
         // This simulates the star's atmosphere thinning at the limb
-        float alpha = smoothstep(0.0, 0.3, edgeFactor); // Smooth falloff at edges
+        // Increased range (0.0 to 0.5) makes the transparent area deeper
+        float alpha = smoothstep(0.0, 0.5, edgeFactor); // Deeper falloff at edges
         
         // Add bright atmospheric glow at edges (limb brightening)
-        float glowIntensity = pow(1.0 - edgeFactor, 2.0) * 0.6;
-        vec3 glowColor = baseColor * 2.0; // Much brighter version of star color
+        // Increased power and multiplier for deeper, more intense glow
+        float glowIntensity = pow(1.0 - edgeFactor, 1.5) * 1.2;
+        
+        // Blend glow color towards white at edges for stronger glow impression
+        // At edges (low edgeFactor), mix towards white; at center, use colored glow
+        // Reduced white mix to preserve star's color personality
+        float whiteMix = pow(1.0 - edgeFactor, 2.0) * 0.5; // Reduced white mix at edges
+        vec3 whiteGlow = vec3(1.0) * 2.0; // Less intense white glow
+        vec3 coloredGlow = baseColor * 2.8; // Slightly brighter colored glow
+        vec3 glowColor = mix(coloredGlow, whiteGlow, whiteMix);
         
         // Blend the glow with the star surface
         vec3 finalColor = starColor + glowColor * glowIntensity;

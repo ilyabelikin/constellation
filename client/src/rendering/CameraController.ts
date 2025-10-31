@@ -99,10 +99,10 @@ export class CameraController {
 
     let shouldTravelThroughGate = false;
 
-    // Three-level zoom system for planets:
-    // 1. First click: uniform distance to compare sizes, no tracking
-    // 2. Second click (same object): size-based zoom to fill screen + track object
-    // 3. Third click (same object, already tracking): back to uniform distance, stop tracking
+    // Camera behavior for different object types:
+    // - Stars: don't track (they don't move)
+    // - Gates: two-click system (first zooms + tracks, second triggers travel)
+    // - All other objects (planets, moons, asteroids): track on first click
     if (mesh.userData.type === "star") {
       // Stars always use size-based zoom (they're huge)
       const objectRadius =
@@ -113,20 +113,19 @@ export class CameraController {
       this.isTrackingObject = false; // Don't track stars (they don't move)
     } else if (mesh.userData.type === "gate") {
       // Gates: two-click system
-      // First click: zoom in and track
+      // First click: zoom in close and track (builds anticipation)
       // Second click: trigger gate travel (handled in SceneManager)
       if (isAlreadySelected && wasTracking) {
         // Second click: keep tracking and signal ready to travel
         this.isTrackingObject = true;
         shouldTravelThroughGate = true;
       } else {
-        // First click: zoom close and start tracking
-        this.cameraDistance = 40; // Close enough to see details
+        // First click: zoom VERY close to gate for dramatic buildup
+        this.cameraDistance = 25; // Much closer to feel the gate's energy
         this.isTrackingObject = true; // Track gates as they orbit
       }
     } else if (mesh.userData.type === "asteroid") {
-      // Asteroids: single-click zoom system (they're too small for two-click)
-      // Always zoom in close on first click and track them
+      // Asteroids: zoom in close and track on first click
       const objectRadius =
         mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
           ? mesh.geometry.boundingSphere.radius
@@ -135,8 +134,7 @@ export class CameraController {
       this.cameraDistance = objectRadius * 5;
       this.isTrackingObject = true; // Always track asteroids
     } else if (mesh.userData.type === "moon") {
-      // Moons: single-click zoom system (similar to asteroids)
-      // Always zoom in close on first click and track them
+      // Moons: zoom in close and track on first click
       const objectRadius =
         mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
           ? mesh.geometry.boundingSphere.radius
@@ -144,22 +142,15 @@ export class CameraController {
       // Zoom close to moons since they're relatively small
       this.cameraDistance = objectRadius * 4;
       this.isTrackingObject = true; // Always track moons
-    } else if (isAlreadySelected && wasTracking) {
-      // Third click: already tracking, reset to uniform distance and stop tracking
-      this.cameraDistance = 50;
-      this.isTrackingObject = false;
-    } else if (isAlreadySelected) {
-      // Second click on same planet: zoom to fill screen and start tracking
+    } else {
+      // Planets and other objects: zoom in close and track on first click
       const objectRadius =
         mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
           ? mesh.geometry.boundingSphere.radius
           : 10;
+      // Zoom to fill screen nicely
       this.cameraDistance = objectRadius * 3;
-      this.isTrackingObject = true; // Start tracking the planet
-    } else {
-      // First click: uniform distance to show relative sizes, no tracking
-      this.cameraDistance = 50;
-      this.isTrackingObject = false;
+      this.isTrackingObject = true; // Always track moving objects
     }
 
     return shouldTravelThroughGate;
@@ -254,6 +245,24 @@ export class CameraController {
   }
 
   /**
+   * Position camera at a specific object with a given distance
+   * Used for positioning at exit gate after hyperspace travel
+   * @param objectId - ID of the object
+   * @param mesh - The mesh or group to position at
+   * @param distance - Distance from the object
+   */
+  positionAtObject(
+    objectId: string,
+    mesh: THREE.Mesh | THREE.Group,
+    distance: number
+  ): void {
+    this.cameraTarget.copy(mesh.position);
+    this.cameraDistance = distance;
+    this.selectedObjectId = objectId;
+    this.isTrackingObject = true; // Track the gate so camera follows it
+  }
+
+  /**
    * Smoothly transition to system view during gate travel animation
    * @param distance - Current camera distance
    * @param progress - Animation progress from 0 to 1
@@ -283,8 +292,12 @@ export class CameraController {
   /**
    * Updates camera position and tracking
    * @param trackedObject - Optional mesh or group to track (if tracking is enabled)
+   * @param shakeOffset - Optional camera shake offset (for gate travel animation)
    */
-  update(trackedObject?: THREE.Mesh | THREE.Group): void {
+  update(
+    trackedObject?: THREE.Mesh | THREE.Group,
+    shakeOffset?: THREE.Vector3
+  ): void {
     // Update camera target to follow selected object if tracking is enabled
     if (this.isTrackingObject && trackedObject) {
       this.cameraTarget.copy(trackedObject.position);
@@ -301,11 +314,16 @@ export class CameraController {
       Math.sin(this.cameraPhi) *
       Math.sin(this.cameraTheta);
 
-    const targetPosition = new THREE.Vector3(
+    let targetPosition = new THREE.Vector3(
       this.cameraTarget.x + x,
       this.cameraTarget.y + y,
       this.cameraTarget.z + z
     );
+
+    // Apply shake offset if provided (for hyperspace animation)
+    if (shakeOffset) {
+      targetPosition.add(shakeOffset);
+    }
 
     // Smooth camera movement
     const cameraLerpFactor = 0.1;

@@ -91,6 +91,15 @@ class ConstellationClient {
             this.hud.updateObjectDetails(objectId);
           });
         });
+      } else {
+        // No pending focus object, auto-select the main star
+        console.log(`Auto-selecting main star: ${system.star.id}`);
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            this.scene.centerOnObject(system.star.id);
+            this.hud.updateObjectDetails(system.star.id);
+          });
+        });
       }
     };
 
@@ -189,17 +198,23 @@ class ConstellationClient {
         return;
       }
 
-      // Normal gate travel: load system and animate
-      this.scene.loadSystem(destinationSystem);
-
+      // Normal gate travel: animate FIRST, then load system during animation
       // Hide HUD outline during travel
       this.hud.hideOutline();
 
-      // Animate from exit gate to normal view, passing a callback for when done
-      this.scene.animateExitGate(exitGateId, () => {
-        // Animation complete - show HUD and select exit gate
+      // Start the gate travel animation with the current system's entry gate
+      // The new system will be loaded during the animation (in the flash phase)
+      // The animation will end with the camera positioned at the exit gate
+      this.scene.animateGateTravel(destinationSystem, exitGateId, () => {
+        // Animation complete - camera is now at the exit gate
         this.hud.setSystem(destinationSystem);
-        this.scene.centerOnObject(exitGateId);
+
+        // After a brief moment, smoothly transition from exit gate to the star
+        setTimeout(() => {
+          if (destinationSystem && destinationSystem.star) {
+            this.scene.centerOnObject(destinationSystem.star.id);
+          }
+        }, 800); // 800ms delay for smooth transition
       });
     };
 
@@ -363,6 +378,12 @@ class ConstellationClient {
       }
       // Show nice system overview
       this.scene.showSystemView();
+
+      // Auto-select the main star
+      if (this.system) {
+        this.scene.centerOnObject(this.system.star.id);
+        this.hud.updateObjectDetails(this.system.star.id);
+      }
     };
 
     this.hud.onNavigateConstellation = () => {
@@ -452,9 +473,18 @@ class ConstellationClient {
         if (this.system && this.system.id === systemId) {
           console.log("Exiting to current system view");
           this.hud.setSystem(this.system);
+
+          // Auto-select the main star when exiting to current system
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              this.scene.centerOnObject(this.system!.star.id);
+              this.hud.updateObjectDetails(this.system!.star.id);
+            });
+          });
         } else {
           console.log("Traveling to new system:", systemId);
           // Request the selected system's state
+          // (Star will be auto-selected in onSystemData handler)
           this.network.requestSystemState(systemId);
           if (this.system) {
             this.hud.setSystem(this.system);

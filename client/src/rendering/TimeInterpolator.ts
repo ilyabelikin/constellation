@@ -98,7 +98,9 @@ export class TimeInterpolator {
   getLerpFactor(interpolationDuration: number = 0.2): number {
     const currentRealTime = performance.now() / 1000;
     const timeSinceUpdate = currentRealTime - this.lastUpdateRealTime;
-    return Math.min(timeSinceUpdate / interpolationDuration, 1.0);
+    // Allow slight extrapolation (up to 1.5x) to avoid "sticking" when updates are slightly delayed
+    // This prevents visible jumps when network timing isn't perfect
+    return Math.min(timeSinceUpdate / interpolationDuration, 1.5);
   }
 
   /**

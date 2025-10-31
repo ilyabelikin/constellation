@@ -5,6 +5,7 @@ import {
   SystemState,
   ShipState,
   ASTRONOMICAL_UNIT,
+  EARTH_MASS,
   ConstellationNode,
   ConstellationConnection,
   UnexploredGate,
@@ -77,6 +78,8 @@ export class SceneManager {
   // Gate travel state
   private entryGateId: string | null = null;
   private exitGateId: string | null = null;
+  private pendingDestinationSystem: StarSystem | null = null;
+  private hasLoadedDestinationDuringTravel = false;
 
   // Event listener references for cleanup
   private resizeHandler: () => void;
@@ -152,6 +155,10 @@ export class SceneManager {
       this.camera,
       this.cameraController
     );
+    // Set scene reference for hyperspace effects
+    this.gateTravelAnimator.setScene(this.scene);
+    // Set scene manager reference for accessing exit gate
+    this.gateTravelAnimator.setSceneManager(this);
 
     // Initialize constellation view
     this.constellationView = new ConstellationView(this.scene);
@@ -947,24 +954,37 @@ export class SceneManager {
     // Handle gate travel animation
     const animState = this.gateTravelAnimator.update();
 
+    // Load destination system during hyperspace-exit phase (before we need to show it)
     if (
-      animState.phase === "zoom-in" &&
-      animState.progress >= 0.75 &&
+      this.pendingDestinationSystem &&
+      !this.hasLoadedDestinationDuringTravel &&
+      animState.phase === "hyperspace-exit" &&
+      animState.progress >= 0.1
+    ) {
+      console.log("Loading destination system during hyperspace-exit...");
+      this.loadSystem(this.pendingDestinationSystem);
+      this.hasLoadedDestinationDuringTravel = true;
+      this.pendingDestinationSystem = null;
+    }
+
+    // Hide entry gate during hyperspace acceleration
+    if (
+      animState.phase === "hyperspace-enter" &&
+      animState.progress >= 0.5 &&
       this.entryGateId
     ) {
-      // Hide entry gate near end of zoom-in phase
       const entryGateGroup = this.gates.get(this.entryGateId);
       if (entryGateGroup && entryGateGroup.visible) {
         entryGateGroup.visible = false;
       }
     }
 
+    // Show scene and position at exit gate during hyperspace exit
     if (
-      animState.phase === "flash" &&
-      animState.progress >= 0.5 &&
+      animState.phase === "hyperspace-exit" &&
+      animState.progress >= 0.3 &&
       this.exitGateId
     ) {
-      // Show scene and position at exit gate (mid-flash)
       const exitGateGroup = this.gates.get(this.exitGateId);
       if (exitGateGroup && !exitGateGroup.visible) {
         // Show all objects
@@ -1009,6 +1029,8 @@ export class SceneManager {
     if (animState.isComplete && this.entryGateId) {
       // Clear entry gate ID when animation completes
       this.entryGateId = null;
+      this.hasLoadedDestinationDuringTravel = false;
+      this.pendingDestinationSystem = null;
     }
 
     // Get interpolation factor for smooth orbital motion
@@ -1172,15 +1194,26 @@ export class SceneManager {
         gateGroup.position.copy(interpolatedPos);
       }
 
-      // Rotate the gate's inner core (very slow rotation)
+      // Animate the energy ball (slight rotation)
       gateGroup.traverse((child) => {
-        if (child.userData.rotatingCore) {
-          child.rotation.z = this.timeInterpolator.getGameTime() * 0.0001;
+        if (child.userData.energyBall) {
+          child.rotation.y = this.timeInterpolator.getGameTime() * 0.0002;
+          child.rotation.x = this.timeInterpolator.getGameTime() * 0.00015;
+        }
+        // Rotate banners around the energy ball
+        if (child.userData.banner) {
+          const bannerIndex = child.userData.bannerIndex || 0;
+          const offset = (bannerIndex / 3) * Math.PI * 2;
+          child.rotation.y =
+            this.timeInterpolator.getGameTime() * 0.0003 + offset;
+        }
+        // Animate particles floating around
+        if (child.userData.particles && child instanceof THREE.Points) {
+          child.rotation.y = this.timeInterpolator.getGameTime() * 0.0001;
+          child.rotation.x =
+            Math.sin(this.timeInterpolator.getGameTime() * 0.0002) * 0.2;
         }
       });
-
-      // Rotate the entire gate structure extremely slowly for visual interest
-      gateGroup.rotation.y = this.timeInterpolator.getGameTime() * 0.00005;
     }
 
     // Update asteroid positions and rotations
@@ -1311,7 +1344,13 @@ export class SceneManager {
         this.asteroids.get(selectedObjectId) ||
         this.moons.get(selectedObjectId)
       : undefined;
-    this.cameraController.update(trackedMesh);
+
+    // Apply camera shake during gate travel animation
+    const shakeOffset = this.gateTravelAnimator.isAnimating()
+      ? this.gateTravelAnimator.getCameraShakeOffset()
+      : undefined;
+
+    this.cameraController.update(trackedMesh, shakeOffset);
   }
 
   render(): void {
@@ -1516,27 +1555,38 @@ export class SceneManager {
   }
 
   /**
-   * Animate gate travel with zoom and flash effect
+   * Animate gate travel with hyperspace effects
+   * This starts the animation with the current system, then loads the destination system mid-animation
+   * @param destinationSystem - The system to travel to
    * @param exitGateId - The ID of the exit gate to arrive at
    * @param onComplete - Optional callback to run when animation completes
    */
-  animateExitGate(exitGateId: string, onComplete?: () => void): void {
+  animateGateTravel(
+    destinationSystem: StarSystem,
+    exitGateId: string,
+    onComplete?: () => void
+  ): void {
     // Get the entry gate (the one we're traveling through)
     const entryGateGroup = this.entryGateId
       ? this.gates.get(this.entryGateId)
       : null;
 
     if (!entryGateGroup) {
-      console.warn(`Entry gate not found, skipping animation`);
-      // Still call completion callback
+      console.warn(`Entry gate not found, loading system immediately`);
+      // Load system immediately and skip animation
+      this.loadSystem(destinationSystem);
       if (onComplete) {
         onComplete();
       }
       return;
     }
 
-    // Store exit gate ID for repositioning during animation
+    console.log("Starting hyperspace animation from gate:", this.entryGateId);
+
+    // Store exit gate ID and destination system for later
     this.exitGateId = exitGateId;
+    this.pendingDestinationSystem = destinationSystem;
+    this.hasLoadedDestinationDuringTravel = false;
 
     // Hide all celestial bodies, ships, asteroids, and orbit lines EXCEPT the entry gate
     // Keep starfield visible throughout
@@ -1555,19 +1605,69 @@ export class SceneManager {
     for (const mesh of this.asteroids.values()) {
       mesh.visible = false;
     }
+    for (const mesh of this.moons.values()) {
+      mesh.visible = false;
+    }
+    for (const ringGroup of this.rings.values()) {
+      ringGroup.visible = false;
+    }
     for (const line of this.orbitLines.values()) {
       line.visible = false;
     }
 
+    // Calculate system view distance for the current system
+    const systemViewDistance = this.calculateSystemViewDistance();
+
+    // Check if the entry gate is explored (we know entryGateId is not null here)
+    const isExploredGate = this.entryGateId
+      ? this.exploredGateIds.has(this.entryGateId)
+      : true;
+
+    // Start the gate travel animation
+    // The destination system will be loaded during the animation in the update() loop
+    // Pass the exit gate ID so we can position the camera there when animation completes
+    this.gateTravelAnimator.startTravel(
+      systemViewDistance,
+      exitGateId,
+      onComplete,
+      isExploredGate
+    );
+  }
+
+  /**
+   * Legacy method - kept for compatibility
+   * @deprecated Use animateGateTravel instead
+   */
+  animateExitGate(exitGateId: string, onComplete?: () => void): void {
+    // This method is deprecated but kept for backward compatibility
+    console.warn(
+      "animateExitGate is deprecated, system should already be loaded"
+    );
+
+    // Store exit gate ID for repositioning during animation
+    this.exitGateId = exitGateId;
+
     // Calculate system view distance for the animator
     const systemViewDistance = this.calculateSystemViewDistance();
 
+    // Default to explored gate (legacy method assumes explored)
+    const isExploredGate = true;
+
     // Start the gate travel animation
-    this.gateTravelAnimator.startTravel(systemViewDistance, onComplete);
+    this.gateTravelAnimator.startTravel(
+      systemViewDistance,
+      exitGateId,
+      onComplete,
+      isExploredGate
+    );
   }
 
   getSelectedObjectId(): string | null {
     return this.cameraController.getSelectedObjectId();
+  }
+
+  getGateMesh(gateId: string): THREE.Group | undefined {
+    return this.gates.get(gateId);
   }
 
   getSystem(): StarSystem | null {
@@ -1857,6 +1957,13 @@ export class SceneManager {
       return;
     }
 
+    // Get planet data from userData
+    const planet = planetMesh.userData.body;
+    if (!planet) {
+      console.warn(`Planet data not found for ${planetId}`);
+      return;
+    }
+
     // Update the planetSeed uniform if this is a ShaderMaterial
     if (
       planetMesh.material instanceof THREE.ShaderMaterial &&
@@ -1900,5 +2007,50 @@ export class SceneManager {
         }
       }
     });
+
+    // Regenerate rings for gas giants using the new seed
+    // Check if planet is a gas giant (mass > 15 Earth masses or has rings)
+    const massInEarthMasses = planet.mass / EARTH_MASS;
+    if (massInEarthMasses > 15) {
+      // Generate rings using the seed slider value
+      const rings = this.celestialBodyFactory.generateRingsFromSeed(
+        newSeed,
+        planet.radius,
+        planet.color || "#d4a373"
+      );
+
+      // Remove old rings if they exist
+      const oldRingGroup = this.rings.get(planetId);
+      if (oldRingGroup) {
+        // Dispose of old ring meshes
+        oldRingGroup.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            if (child.material instanceof THREE.Material) {
+              child.material.dispose();
+            }
+          }
+        });
+        this.scene.remove(oldRingGroup);
+      }
+
+      // Create new rings with the seed
+      if (rings.length > 0) {
+        const newRingGroup = this.celestialBodyFactory.createRingsGroup(
+          rings,
+          planetId
+        );
+        this.scene.add(newRingGroup);
+        this.rings.set(planetId, newRingGroup);
+
+        // Position rings at planet location
+        const planetPosition = planetMesh.position.clone();
+        newRingGroup.position.copy(planetPosition);
+
+        console.log(
+          `Regenerated rings for planet ${planetId} with seed ${newSeed}`
+        );
+      }
+    }
   }
 }

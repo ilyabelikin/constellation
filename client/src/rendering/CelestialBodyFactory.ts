@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import { MaterialFactory } from "./MaterialFactory.js";
 import { BlackHoleRenderer, BlackHoleData } from "./BlackHoleRenderer.js";
+import { PlanetaryRing } from "@constellation/shared";
+import { seededRandom } from "./materials/planetColorUtils.js";
 
 /**
  * Factory for creating Three.js meshes for celestial bodies and ships
@@ -333,7 +335,7 @@ export class CelestialBodyFactory {
   }
 
   /**
-   * Creates a star gate mesh with futuristic design
+   * Creates a star gate mesh as a pulsating energy ball with banner effects
    */
   createGate(gate: any, isExplored: boolean): THREE.Group {
     const gateGroup = new THREE.Group();
@@ -342,74 +344,158 @@ export class CelestialBodyFactory {
     // Gate color based on exploration status
     const gateColor = isExplored ? 0xfbbf24 : 0xa855f7; // Yellow vs Purple
 
-    // Main outer ring (torus) - 3x smaller than before
-    const ringRadius = 5;
-    const tubeRadius = 0.7;
-    const ringGeometry = new THREE.TorusGeometry(
-      ringRadius,
-      tubeRadius,
-      16,
-      32
-    );
-    const ringMaterial = this.materialFactory.createGateMaterial(
+    // Main energy ball
+    const ballRadius = 4;
+    const ballGeometry = new THREE.SphereGeometry(ballRadius, 32, 32);
+    const ballMaterial = this.materialFactory.createEnergyBallMaterial(
       gateColor,
       isExplored
     );
-    const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-    gateGroup.add(ring);
+    const energyBall = new THREE.Mesh(ballGeometry, ballMaterial);
+    energyBall.userData.energyBall = true; // Mark for animation
+    gateGroup.add(energyBall);
 
-    // Inner rotating cylinder (the "portal" core)
-    const coreRadius = ringRadius * 0.7;
-    const coreHeight = 1.3;
-    const coreGeometry = new THREE.CylinderGeometry(
-      coreRadius,
-      coreRadius,
-      coreHeight,
-      32
-    );
-    const coreMaterial = this.materialFactory.createGateMaterial(
+    // Outer glow layer
+    const glowGeometry = new THREE.SphereGeometry(ballRadius * 1.4, 32, 32);
+    const glowMaterial = this.materialFactory.createGlowMaterial(
       gateColor,
-      isExplored
+      0.3
     );
-    const core = new THREE.Mesh(coreGeometry, coreMaterial);
-    core.rotation.x = Math.PI / 2; // Rotate to align with ring
-    core.userData.rotatingCore = true; // Mark for animation
-    gateGroup.add(core);
+    const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+    gateGroup.add(glow);
 
-    // Decorative spheres at cardinal points
-    const spherePositions = [
-      { x: ringRadius + tubeRadius + 0.7, y: 0, z: 0 },
-      { x: -(ringRadius + tubeRadius + 0.7), y: 0, z: 0 },
-      { x: 0, y: ringRadius + tubeRadius + 0.7, z: 0 },
-      { x: 0, y: -(ringRadius + tubeRadius + 0.7), z: 0 },
-    ];
+    // Create flowing banner ribbons around the energy ball
+    const numBanners = 3;
+    const bannerRadius = ballRadius * 1.8;
 
-    for (const pos of spherePositions) {
-      const sphereGeometry = new THREE.SphereGeometry(0.4, 16, 16);
-      const sphereMaterial = new THREE.MeshStandardMaterial({
-        color: gateColor,
-        emissive: gateColor,
-        emissiveIntensity: 1.5,
-        metalness: 0.8,
-        roughness: 0.2,
-      });
-      const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
-      sphere.position.set(pos.x, pos.y, pos.z);
-      gateGroup.add(sphere);
+    for (let i = 0; i < numBanners; i++) {
+      const angle = (i / numBanners) * Math.PI * 2;
 
-      // Add glow around spheres
-      const glowGeometry = new THREE.SphereGeometry(0.6, 16, 16);
-      const glowMaterial = this.materialFactory.createGlowMaterial(
-        gateColor,
-        0.4
+      // Create ribbon geometry - a curved plane
+      const ribbonPoints: THREE.Vector3[] = [];
+      const segments = 40;
+      const ribbonLength = Math.PI * 2; // Full circle
+
+      for (let j = 0; j <= segments; j++) {
+        const t = (j / segments) * ribbonLength;
+        const spiralAngle = angle + t;
+        const heightOscillation = Math.sin(t * 2) * 2;
+
+        // Create a flowing spiral pattern
+        const x = Math.cos(spiralAngle) * bannerRadius;
+        const y = heightOscillation;
+        const z = Math.sin(spiralAngle) * bannerRadius;
+
+        ribbonPoints.push(new THREE.Vector3(x, y, z));
+      }
+
+      // Create ribbon geometry with width
+      const ribbonWidth = 1.5;
+      const ribbonGeometry = new THREE.BufferGeometry();
+      const positions: number[] = [];
+      const uvs: number[] = [];
+      const indices: number[] = [];
+
+      for (let j = 0; j < ribbonPoints.length; j++) {
+        const point = ribbonPoints[j];
+        const nextPoint =
+          ribbonPoints[Math.min(j + 1, ribbonPoints.length - 1)];
+
+        // Calculate perpendicular direction for ribbon width
+        const direction = new THREE.Vector3()
+          .subVectors(nextPoint, point)
+          .normalize();
+        const perpendicular = new THREE.Vector3(
+          -direction.z,
+          0,
+          direction.x
+        ).normalize();
+
+        // Add vertices for both sides of the ribbon
+        const offset = perpendicular.multiplyScalar(ribbonWidth / 2);
+        positions.push(
+          point.x + offset.x,
+          point.y + offset.y,
+          point.z + offset.z,
+          point.x - offset.x,
+          point.y - offset.y,
+          point.z - offset.z
+        );
+
+        uvs.push(j / segments, 0);
+        uvs.push(j / segments, 1);
+
+        if (j < ribbonPoints.length - 1) {
+          const baseIndex = j * 2;
+          indices.push(
+            baseIndex,
+            baseIndex + 1,
+            baseIndex + 2,
+            baseIndex + 1,
+            baseIndex + 3,
+            baseIndex + 2
+          );
+        }
+      }
+
+      ribbonGeometry.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(positions, 3)
       );
-      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
-      glow.position.set(pos.x, pos.y, pos.z);
-      gateGroup.add(glow);
+      ribbonGeometry.setAttribute(
+        "uv",
+        new THREE.Float32BufferAttribute(uvs, 2)
+      );
+      ribbonGeometry.setIndex(indices);
+      ribbonGeometry.computeVertexNormals();
+
+      const ribbonMaterial = this.materialFactory.createBannerMaterial(
+        gateColor,
+        isExplored
+      );
+      const ribbon = new THREE.Mesh(ribbonGeometry, ribbonMaterial);
+      ribbon.userData.banner = true;
+      ribbon.userData.bannerIndex = i;
+      gateGroup.add(ribbon);
     }
 
-    // Add a point light for the gate
-    const gateLight = new THREE.PointLight(gateColor, 5, 100);
+    // Add energy particles/sparks
+    const particleCount = 20;
+    const particleGeometry = new THREE.BufferGeometry();
+    const particlePositions: number[] = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      // Random position around the ball
+      const theta = Math.random() * Math.PI * 2;
+      const phi = Math.random() * Math.PI;
+      const r = ballRadius * (1.1 + Math.random() * 0.3);
+
+      const x = r * Math.sin(phi) * Math.cos(theta);
+      const y = r * Math.sin(phi) * Math.sin(theta);
+      const z = r * Math.cos(phi);
+
+      particlePositions.push(x, y, z);
+    }
+
+    particleGeometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(particlePositions, 3)
+    );
+
+    const particleMaterial = new THREE.PointsMaterial({
+      color: gateColor,
+      size: 0.3,
+      transparent: true,
+      opacity: 0.8,
+      blending: THREE.AdditiveBlending,
+    });
+
+    const particles = new THREE.Points(particleGeometry, particleMaterial);
+    particles.userData.particles = true;
+    gateGroup.add(particles);
+
+    // Add a stronger point light for the energy ball
+    const gateLight = new THREE.PointLight(gateColor, 8, 150);
     gateLight.position.set(0, 0, 0);
     gateGroup.add(gateLight);
 
@@ -601,23 +687,112 @@ export class CelestialBodyFactory {
   }
 
   /**
-   * Creates planetary rings for a gas giant
-   * Returns a Group containing all ring bands with proper inclination
+   * Generates planetary rings for a gas giant using a seed
+   * This allows client-side regeneration with different seeds (e.g., debug slider)
    */
-  createRings(planet: any): THREE.Group | null {
-    if (!planet.rings || planet.rings.length === 0) {
-      return null;
+  generateRingsFromSeed(
+    seed: number,
+    planetRadius: number,
+    planetColor: string
+  ): PlanetaryRing[] {
+    const rings: PlanetaryRing[] = [];
+
+    // Simple RNG using seededRandom function
+    let rngCounter = 0;
+    const next = () => {
+      rngCounter++;
+      return seededRandom(seed + rngCounter * 1000);
+    };
+    const nextFloat = (min: number, max: number) => {
+      return min + next() * (max - min);
+    };
+
+    // Decide on ring complexity: 2-7 ring bands (including thin rings)
+    const numBands = Math.floor(nextFloat(2, 7.5));
+
+    // Ring starts at 1.5-2.5x planet radius
+    const ringStartMultiplier = nextFloat(1.5, 2.5);
+    const innerRadius = planetRadius * ringStartMultiplier;
+
+    // Ring extends to 2.5-4.5x planet radius
+    const ringEndMultiplier = nextFloat(2.5, 4.5);
+    const outerRadius = planetRadius * ringEndMultiplier;
+
+    // Ring inclination (tilt relative to orbital plane)
+    // 70% chance: nearly aligned (0-10 degrees)
+    // 30% chance: tilted (10-30 degrees)
+    const inclinationChance = next();
+    const inclination =
+      inclinationChance < 0.7
+        ? nextFloat(0, 0.175) // 0-10 degrees
+        : nextFloat(0.175, 0.524); // 10-30 degrees
+
+    // Parse planet color to create ring variations
+    const baseColor = parseInt(planetColor.replace("#", ""), 16);
+    const r = (baseColor >> 16) & 0xff;
+    const g = (baseColor >> 8) & 0xff;
+    const b = baseColor & 0xff;
+
+    // Create ring bands with varying shades and widths
+    const bandWidth = (outerRadius - innerRadius) / numBands;
+
+    for (let i = 0; i < numBands; i++) {
+      const bandInnerRadius = innerRadius + i * bandWidth;
+      let bandOuterRadius = innerRadius + (i + 1) * bandWidth;
+
+      // 30% chance for this to be a very thin ring
+      const isThinRing = next() < 0.3;
+      if (isThinRing) {
+        // Make it very thin (5-15% of normal width)
+        const thinFactor = nextFloat(0.05, 0.15);
+        bandOuterRadius = bandInnerRadius + bandWidth * thinFactor;
+      }
+
+      // Add gaps between bands (larger gaps for regular rings, smaller for thin rings)
+      const gapSize = isThinRing ? bandWidth * 0.05 : bandWidth * 0.1;
+      const adjustedInnerRadius =
+        i > 0 ? bandInnerRadius + gapSize / 2 : bandInnerRadius;
+      const adjustedOuterRadius =
+        i < numBands - 1 ? bandOuterRadius - gapSize / 2 : bandOuterRadius;
+
+      // Vary shade for each band (darker to lighter or vice versa)
+      const shadeFactor = nextFloat(0.6, 1.2);
+      const bandR = Math.min(255, Math.floor(r * shadeFactor));
+      const bandG = Math.min(255, Math.floor(g * shadeFactor));
+      const bandB = Math.min(255, Math.floor(b * shadeFactor));
+
+      const bandColor = `#${((1 << 24) + (bandR << 16) + (bandG << 8) + bandB)
+        .toString(16)
+        .slice(1)}`;
+
+      // Vary opacity: thin rings are more translucent (0.2-0.4), regular rings (0.3-0.7)
+      const opacity = isThinRing ? nextFloat(0.2, 0.4) : nextFloat(0.3, 0.7);
+
+      rings.push({
+        innerRadius: adjustedInnerRadius,
+        outerRadius: adjustedOuterRadius,
+        color: bandColor,
+        opacity,
+        inclination, // All bands share same inclination
+      });
     }
 
+    return rings;
+  }
+
+  /**
+   * Creates ring visual group from rings array
+   */
+  createRingsGroup(rings: PlanetaryRing[], planetId: string): THREE.Group {
     const ringGroup = new THREE.Group();
     ringGroup.userData = {
-      id: `${planet.id}-rings`,
+      id: `${planetId}-rings`,
       type: "rings",
-      parentId: planet.id,
+      parentId: planetId,
     };
 
     // Create each ring band as a separate mesh
-    for (const ring of planet.rings) {
+    for (const ring of rings) {
       // Apply same scaling as the planet itself (scale + bodySizeMultiplier)
       const innerRadius =
         ring.innerRadius * this.scale * this.bodySizeMultiplier;
@@ -661,6 +836,17 @@ export class CelestialBodyFactory {
     }
 
     return ringGroup;
+  }
+
+  /**
+   * Creates planetary rings for a gas giant from planet data
+   * Returns a Group containing all ring bands with proper inclination
+   */
+  createRings(planet: any): THREE.Group | null {
+    if (!planet.rings || planet.rings.length === 0) {
+      return null;
+    }
+    return this.createRingsGroup(planet.rings, planet.id);
   }
 
   /**

@@ -167,9 +167,10 @@ export function createCloudMaterial(
       float latitudeFactor = abs(vUv.y - 0.5) * 2.0; // 0 at equator, 1 at poles
       float latitudeDensity = 0.7 + sin(latitudeFactor * 3.14159) * 0.3; // Varies between 0.7 and 1.0
       
-      // Generate seed-based coverage variation (0.6 to 2.0 multiplier for 2x coverage)
+      // Generate seed-based coverage variation (0.85 to 1.15 multiplier for moderate variety)
+      // Narrower range to keep variety closer to the middle
       float coverageSeed = seededRandom(planetSeed * 2.1);
-      float seedCoverage = 0.6 + coverageSeed * 1.4;
+      float seedCoverage = 0.85 + coverageSeed * 0.30;
       float finalCoverage = cloudCoverage * seedCoverage;
       
       // Adjust threshold based on cloud coverage parameter

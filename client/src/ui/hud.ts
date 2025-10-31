@@ -16,6 +16,7 @@ export class HUDManager {
   private system: StarSystem | null = null;
   private currentState: SystemState | null = null;
   private ship: Ship | null = null;
+  private selectedObjectId: string | null = null;
 
   // Detail views
   private bodyDetailView: BodyDetailView;
@@ -402,6 +403,8 @@ export class HUDManager {
 
   setSystem(system: StarSystem): void {
     this.system = system;
+    // Reset selected object when changing systems
+    this.selectedObjectId = null;
     // Apply theme FIRST so outline elements are created with the correct colors
     this.applyStarTheme(system.star.color);
     this.populateSystemOutline();
@@ -437,6 +440,8 @@ export class HUDManager {
     this.gateDetailView.hide();
     this.shipDetailView.hide();
     this.constellationSystemDetailView.hide();
+    // Reset selected object when hiding all panels
+    this.selectedObjectId = null;
   }
 
   private populateSystemOutline(): void {
@@ -543,7 +548,9 @@ export class HUDManager {
               moonItem.dataset.moonIndex = "0"; // Track which moon to show next
               moonItem.addEventListener("click", () => {
                 // Cycle through moons
-                const currentIndex = parseInt(moonItem.dataset.moonIndex || "0");
+                const currentIndex = parseInt(
+                  moonItem.dataset.moonIndex || "0"
+                );
                 const moons = planet.moons;
 
                 if (moons && moons.length > 0) {
@@ -574,7 +581,9 @@ export class HUDManager {
           beltItem.dataset.asteroidIndex = "0"; // Track which asteroid to show next
           beltItem.addEventListener("click", () => {
             // Cycle through asteroids in the belt
-            const currentIndex = parseInt(beltItem.dataset.asteroidIndex || "0");
+            const currentIndex = parseInt(
+              beltItem.dataset.asteroidIndex || "0"
+            );
             const asteroids = belt.asteroids;
 
             if (asteroids && asteroids.length > 0) {
@@ -694,6 +703,14 @@ export class HUDManager {
       return;
     }
 
+    // If the same object is already selected, don't re-show the details view
+    if (this.selectedObjectId === objectId) {
+      return;
+    }
+
+    // Update the selected object ID
+    this.selectedObjectId = objectId;
+
     // Update outline selection
     this.updateSelectedInOutline(objectId);
 
@@ -784,6 +801,8 @@ export class HUDManager {
     this.bodyDetailView.hide();
     this.gateDetailView.hide();
     this.shipDetailView.hide();
+    // Reset selected object when showing constellation details
+    this.selectedObjectId = null;
   }
 
   /**
