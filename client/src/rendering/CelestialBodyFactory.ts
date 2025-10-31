@@ -119,7 +119,8 @@ export class CelestialBodyFactory {
       planet.id, // Pass planet ID as seed for unique textures
       orbitalDistance, // Pass orbital distance for environmental effects
       planet.habitability, // Pass habitability for ice cap sizing
-      planet.civilizationLevel // Pass civilization level for city lights
+      planet.civilizationLevel, // Pass civilization level for city lights
+      planet.hasAtmosphere // Pass atmosphere flag for desert craters/sandstorms
     );
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -145,9 +146,13 @@ export class CelestialBodyFactory {
         .split("")
         .reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
       const isTerrestrial = planet.surfaceType === "terrestrial";
+      const isDesert = planet.surfaceType === "desert";
+
+      // Use sandy/dusty color for desert atmosphere
+      const atmosphereColor = isDesert ? (planet.color || 0xd4a373) : (planet.color || 0x88ccff);
 
       const atmosphereMaterial = this.materialFactory.createAtmosphereMaterial(
-        planet.color || 0x88ccff,
+        atmosphereColor,
         planetSeed,
         isTerrestrial
       );
@@ -158,36 +163,40 @@ export class CelestialBodyFactory {
       );
       mesh.add(atmosphereMesh); // Attach to planet so it rotates together
 
-      // Add weather/cloud layers (for terrestrial planets only)
-      const cloudCoverage = planet.cloudCoverage || 0.5;
-      const cloudColor1 = 0xffffff; // White clouds for terrestrial planets
-      const cloudColor2 = 0xffffff; // White clouds for terrestrial planets
+      // Add weather/cloud layers (for terrestrial and desert planets)
+      if (isTerrestrial || isDesert) {
+        const cloudCoverage = planet.cloudCoverage || 0.5;
+        
+        // Cloud colors: white for terrestrial, sandy for desert (sandstorms)
+        const cloudColor1 = isDesert ? 0xd4a373 : 0xffffff;
+        const cloudColor2 = isDesert ? 0xc89060 : 0xffffff;
 
-      // Layer 1: Lower clouds (faster rotation)
-      const cloudRadius1 = radius * 1.02; // Just above surface
-      const cloudGeometry1 = new THREE.SphereGeometry(cloudRadius1, 48, 48);
-      const cloudMaterial1 = this.materialFactory.createCloudMaterial(
-        cloudColor1,
-        cloudCoverage,
-        planetSeed
-      );
-      const cloudMesh1 = new THREE.Mesh(cloudGeometry1, cloudMaterial1);
-      cloudMesh1.userData.cloudLayer = 1;
-      cloudMesh1.userData.rotationSpeed = 0.3; // Faster rotation
-      mesh.add(cloudMesh1);
+        // Layer 1: Lower clouds/sandstorms (faster rotation)
+        const cloudRadius1 = radius * 1.02; // Just above surface
+        const cloudGeometry1 = new THREE.SphereGeometry(cloudRadius1, 48, 48);
+        const cloudMaterial1 = this.materialFactory.createCloudMaterial(
+          cloudColor1,
+          isDesert ? cloudCoverage * 0.4 : cloudCoverage, // Less coverage for sandstorms
+          planetSeed
+        );
+        const cloudMesh1 = new THREE.Mesh(cloudGeometry1, cloudMaterial1);
+        cloudMesh1.userData.cloudLayer = 1;
+        cloudMesh1.userData.rotationSpeed = isDesert ? 0.5 : 0.3; // Faster for sandstorms
+        mesh.add(cloudMesh1);
 
-      // Layer 2: Upper clouds (slower rotation, less dense)
-      const cloudRadius2 = radius * 1.035; // Between surface and atmosphere
-      const cloudGeometry2 = new THREE.SphereGeometry(cloudRadius2, 48, 48);
-      const cloudMaterial2 = this.materialFactory.createCloudMaterial(
-        cloudColor2,
-        cloudCoverage * 0.6, // Upper layer has 60% of base coverage
-        planetSeed + 1000 // Slightly different seed for upper layer
-      );
-      const cloudMesh2 = new THREE.Mesh(cloudGeometry2, cloudMaterial2);
-      cloudMesh2.userData.cloudLayer = 2;
-      cloudMesh2.userData.rotationSpeed = 0.15; // Slower rotation
-      mesh.add(cloudMesh2);
+        // Layer 2: Upper clouds/dust (slower rotation, less dense)
+        const cloudRadius2 = radius * 1.035; // Between surface and atmosphere
+        const cloudGeometry2 = new THREE.SphereGeometry(cloudRadius2, 48, 48);
+        const cloudMaterial2 = this.materialFactory.createCloudMaterial(
+          cloudColor2,
+          isDesert ? cloudCoverage * 0.25 : cloudCoverage * 0.6, // Thinner dust layer
+          planetSeed + 1000 // Slightly different seed for upper layer
+        );
+        const cloudMesh2 = new THREE.Mesh(cloudGeometry2, cloudMaterial2);
+        cloudMesh2.userData.cloudLayer = 2;
+        cloudMesh2.userData.rotationSpeed = isDesert ? 0.25 : 0.15; // Varied speed
+        mesh.add(cloudMesh2);
+      }
     }
 
     return mesh;

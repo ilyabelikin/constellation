@@ -1622,9 +1622,12 @@ export class SceneManager {
 
     // Check if the entry gate was explored BEFORE travel
     // Use passed parameter if available, otherwise check current state (fallback)
-    const isExploredGate = wasEntryGateExplored !== undefined
-      ? wasEntryGateExplored
-      : (this.entryGateId ? this.exploredGateIds.has(this.entryGateId) : true);
+    const isExploredGate =
+      wasEntryGateExplored !== undefined
+        ? wasEntryGateExplored
+        : this.entryGateId
+        ? this.exploredGateIds.has(this.entryGateId)
+        : true;
 
     // Start the gate travel animation
     // The destination system will be loaded during the animation in the update() loop
@@ -1986,6 +1989,8 @@ export class SceneManager {
         .regenerateIcePlanetTexture(planetMesh.material, newSeed);
       console.log(`Updated ice planet ${planetId} seed to ${newSeed}`);
     }
+    // Desert planets are now handled by the ShaderMaterial check above
+    // (they use the planetSeed uniform like other shader-based planets)
 
     // Update cloud layers and atmosphere if they exist
     planetMesh.children.forEach((child) => {

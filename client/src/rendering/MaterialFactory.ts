@@ -7,7 +7,7 @@ import { createIcePlanetMaterial, regenerateIcePlanetTexture as regenerateIcePla
 import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
 import { createAtmosphereMaterial as createAtmosphereMaterialModule } from "./materials/AtmosphereMaterial";
 import { createStarMaterial as createStarMaterialModule } from "./materials/StarMaterial";
-import { createDesertPlanetMaterial } from "./materials/DesertPlanetMaterial";
+import { createDesertPlanetMaterial, regenerateDesertPlanetTexture as regenerateDesertPlanetTextureModule } from "./materials/DesertPlanetMaterial";
 
 /**
  * Generate terrestrial planet texture with continents, oceans, and rivers
@@ -222,7 +222,8 @@ export class MaterialFactory {
     seed?: string,
     orbitalDistance?: number,
     habitability?: number,
-    civilizationLevel?: string
+    civilizationLevel?: string,
+    hasAtmosphere?: boolean
   ): THREE.Material {
     // Generate unique seed number from string id
     const numericSeed = seed
@@ -284,9 +285,9 @@ export class MaterialFactory {
       );
     }
 
-    // Use modular material for Desert planets (sand dunes, arid)
+    // Use shader material for Desert planets (sand dunes, arid)
     if (surfaceType === "desert") {
-      return createDesertPlanetMaterial(color, numericSeed);
+      return createDesertPlanetMaterial(color, numericSeed, hasAtmosphere || false);
     }
 
     // Ice planets use MeshPhongMaterial with canvas-generated textures
@@ -1483,5 +1484,16 @@ export class MaterialFactory {
     newSeed: number
   ): void {
     regenerateIcePlanetTextureModule(material, newSeed);
+  }
+
+  /**
+   * Regenerate desert planet with a new seed
+   * Used for debug mode to iterate on desert planet appearances
+   */
+  regenerateDesertPlanetTexture(
+    material: THREE.ShaderMaterial,
+    newSeed: number
+  ): void {
+    regenerateDesertPlanetTextureModule(material, newSeed);
   }
 }
