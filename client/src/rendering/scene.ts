@@ -13,6 +13,7 @@ import {
 import { CameraController } from "./CameraController.js";
 import { InteractionManager } from "./InteractionManager.js";
 import { CelestialBodyFactory } from "./CelestialBodyFactory.js";
+import { GateFactory } from "./GateFactory.js";
 import { TimeInterpolator } from "./TimeInterpolator.js";
 import { StarfieldGenerator } from "./StarfieldGenerator.js";
 import { GateTravelAnimator } from "./GateTravelAnimator.js";
@@ -34,6 +35,7 @@ export class SceneManager {
   private cameraController: CameraController;
   private interactionManager: InteractionManager;
   private celestialBodyFactory: CelestialBodyFactory;
+  private gateFactory: GateFactory;
   private timeInterpolator: TimeInterpolator;
   private starfieldGenerator: StarfieldGenerator;
   private gateTravelAnimator: GateTravelAnimator;
@@ -143,6 +145,7 @@ export class SceneManager {
       this.SCALE,
       this.BODY_SIZE_MULTIPLIER
     );
+    this.gateFactory = new GateFactory();
     this.timeInterpolator = new TimeInterpolator();
     this.starfieldGenerator = new StarfieldGenerator();
 
@@ -281,7 +284,7 @@ export class SceneManager {
     // Create gates
     for (const gate of system.gates) {
       const isExplored = this.exploredGateIds.has(gate.id);
-      const gateGroup = this.celestialBodyFactory.createGate(gate, isExplored);
+      const gateGroup = this.gateFactory.createGate(gate, isExplored);
       this.scene.add(gateGroup);
       this.gates.set(gate.id, gateGroup);
 
