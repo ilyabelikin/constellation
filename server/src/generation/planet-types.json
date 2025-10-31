@@ -106,7 +106,7 @@
       "radiusRange": [3.5, 5.5],
       "color": "#74b9d8",
       "atmosphereChance": 0,
-      "surfaceType": "banded",
+      "surfaceType": "ice_giant",
       "baseHabitability": 0.0,
       "lifeChance": 0.0
     },

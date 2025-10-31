@@ -4,6 +4,7 @@ import { createTerrestrialPlanetMaterial } from "./materials/TerrestrialPlanetMa
 import { createRockyPlanetMaterial } from "./materials/RockyPlanetMaterial";
 import { createBarrenPlanetMaterial } from "./materials/BarrenPlanetMaterial";
 import { createIcePlanetMaterial, regenerateIcePlanetTexture as regenerateIcePlanetTextureModule } from "./materials/IcePlanetMaterial";
+import { createIceGiantMaterial } from "./materials/IceGiantMaterial";
 import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
 import { createDesertCloudMaterial as createDesertCloudMaterialModule } from "./materials/DesertCloudMaterial";
 import { createTerrestrialAtmosphereGlowMaterial as createTerrestrialAtmosphereGlowMaterialModule } from "./materials/TerrestrialAtmosphereGlowMaterial";
@@ -301,6 +302,11 @@ export class MaterialFactory {
     // Ice planets use MeshPhongMaterial with canvas-generated textures
     if (surfaceType === "icy" && seed) {
       return createIcePlanetMaterial(color, numericSeed);
+    }
+
+    // Ice giants use custom shader with soft cloud patterns (Neptune/Uranus-like)
+    if (surfaceType === "ice_giant") {
+      return createIceGiantMaterial(color, numericSeed);
     }
 
     // Terrestrial planets use shader with continent/ocean generation (similar to clouds)
