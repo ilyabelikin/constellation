@@ -3,180 +3,10 @@ import { SurfaceTypeShaderValue, SurfaceTypeName } from "@constellation/shared";
 import { createTerrestrialPlanetMaterial } from "./materials/TerrestrialPlanetMaterial";
 import { createRockyPlanetMaterial } from "./materials/RockyPlanetMaterial";
 import { createBarrenPlanetMaterial } from "./materials/BarrenPlanetMaterial";
+import { createIcePlanetMaterial, regenerateIcePlanetTexture as regenerateIcePlanetTextureModule } from "./materials/IcePlanetMaterial";
 import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
 import { createAtmosphereMaterial as createAtmosphereMaterialModule } from "./materials/AtmosphereMaterial";
 import { createStarMaterial as createStarMaterialModule } from "./materials/StarMaterial";
-
-/**
- * Generate ice planet crack texture using Canvas 2D API
- * Following the exact algorithm from the documentation
- */
-function generateIcePlanetTexture(
-  seed: number,
-  baseColor: string
-): THREE.Texture {
-  const width = 2048;
-  const height = 1024;
-
-  // Create canvas
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d")!;
-
-  // Seeded random number generator
-  const seededRandom = (s: number): number => {
-    const x = Math.sin(s) * 10000;
-    return x - Math.floor(x);
-  };
-
-  // Fill with base ice color
-  ctx.fillStyle = baseColor;
-  ctx.fillRect(0, 0, width, height);
-
-  // Ice planet crack styling
-  const crackColor = "rgba(10, 10, 20, 0.6)"; // Dark blue-black
-
-  // Use seed to create variety in crack parameters for each planet
-  const crackDensitySeed = seededRandom(seed * 1.1);
-  const crackLengthSeed = seededRandom(seed * 1.3);
-  const crackBendSeed = seededRandom(seed * 1.7);
-  const fineCrackSeed = seededRandom(seed * 2.1);
-
-  // Vary number of crack systems (10-40 range based on density seed)
-  const numCrackSystems = 10 + Math.floor(crackDensitySeed * 30);
-
-  // Vary crack length multiplier (0.7 to 1.3)
-  const lengthMultiplier = 0.7 + crackLengthSeed * 0.6;
-
-  // Vary bend/jaggedness (0.3 to 0.9 radians)
-  const bendAmount = 0.3 + crackBendSeed * 0.6;
-
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  // Main crack systems
-  for (let i = 0; i < numCrackSystems; i++) {
-    const startX = seededRandom(seed + i * 123) * width;
-    const startY = seededRandom(seed + i * 456) * height;
-    // Vary branches: use density seed to affect branch count (1-6 branches)
-    const numBranches =
-      1 +
-      Math.floor(
-        seededRandom(seed + i * 789) * 5 * (0.5 + crackDensitySeed * 0.5)
-      );
-
-    for (let b = 0; b < numBranches; b++) {
-      const branchSeed = seed + i * 1000 + b * 100;
-      let angle = seededRandom(branchSeed) * Math.PI * 2;
-      let x = startX;
-      let y = startY;
-
-      const segments = 8 + Math.floor(seededRandom(branchSeed + 1) * 15); // 8-23 segments
-      const segmentLength =
-        (3 + seededRandom(branchSeed + 2) * 8) * lengthMultiplier; // Vary length per planet
-
-      const path: Array<{ x: number; y: number; widthFactor: number }> = [
-        { x, y, widthFactor: 1 },
-      ];
-
-      // Build crack path
-      for (let s = 0; s < segments; s++) {
-        angle += (seededRandom(branchSeed + s * 7) - 0.5) * bendAmount; // Vary bend per planet
-        x += Math.cos(angle) * segmentLength;
-        y += Math.sin(angle) * segmentLength;
-
-        // Wrap around horizontally (sphere mapping)
-        if (x < 0) x += width;
-        if (x > width) x -= width;
-        if (y < 0 || y > height) break;
-
-        const widthFactor = 1 - s / segments;
-        path.push({ x, y, widthFactor });
-      }
-
-      // Draw crack
-      ctx.strokeStyle = crackColor;
-      ctx.beginPath();
-      ctx.moveTo(path[0].x, path[0].y);
-      for (let p = 1; p < path.length; p++) {
-        ctx.lineTo(path[p].x, path[p].y);
-        // Taper from 2.5 to 0.5 pixels
-        ctx.lineWidth = 2.0 * path[p].widthFactor + 0.5;
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(path[p].x, path[p].y);
-      }
-
-      // Sub-branches (30% chance)
-      if (seededRandom(branchSeed + 999) > 0.6 && path.length > 5) {
-        const subBranchAngle =
-          angle + (seededRandom(branchSeed + 888) - 0.5) * Math.PI * 0.5;
-        const subSegments = 3 + Math.floor(seededRandom(branchSeed + 777) * 6); // 3-8 segments
-
-        let subX = path[path.length - 1].x;
-        let subY = path[path.length - 1].y;
-        const subPath: Array<{ x: number; y: number; widthFactor: number }> = [
-          { x: subX, y: subY, widthFactor: 1 },
-        ];
-
-        for (let ss = 0; ss < subSegments; ss++) {
-          subX += Math.cos(subBranchAngle) * segmentLength * 0.7; // 70% of parent length
-          subY += Math.sin(subBranchAngle) * segmentLength * 0.7;
-
-          if (subX < 0) subX += width;
-          if (subX > width) subX -= width;
-          if (subY < 0 || subY > height) break;
-
-          const widthFactor = 1 - ss / subSegments;
-          subPath.push({ x: subX, y: subY, widthFactor });
-        }
-
-        ctx.strokeStyle = crackColor;
-        ctx.beginPath();
-        ctx.moveTo(subPath[0].x, subPath[0].y);
-        for (let p = 1; p < subPath.length; p++) {
-          ctx.lineTo(subPath[p].x, subPath[p].y);
-          // Taper from 1.3 to 0.3 pixels for sub-branches
-          ctx.lineWidth = 1.0 * subPath[p].widthFactor + 0.3;
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(subPath[p].x, subPath[p].y);
-        }
-      }
-    }
-  }
-
-  // Fine detail cracks - vary count based on seed (20-80 range)
-  const numFineCracks = 20 + Math.floor(fineCrackSeed * 60);
-
-  for (let i = 0; i < numFineCracks; i++) {
-    const fx = seededRandom(seed + i * 234 + 5000) * width;
-    const fy = seededRandom(seed + i * 567 + 5000) * height;
-    const fAngle = seededRandom(seed + i * 890 + 5000) * Math.PI * 2;
-    // Vary fine crack length using length multiplier (7-45 pixel range)
-    const fLength =
-      (10 + seededRandom(seed + i * 111 + 5000) * 25) * lengthMultiplier;
-
-    const endX = fx + Math.cos(fAngle) * fLength;
-    const endY = fy + Math.sin(fAngle) * fLength;
-
-    ctx.strokeStyle = crackColor;
-    ctx.beginPath();
-    ctx.moveTo(fx, fy);
-    ctx.lineTo(endX, endY);
-    ctx.lineWidth = 1.0;
-    ctx.stroke();
-  }
-
-  // Create Three.js texture
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping; // Horizontal wrap for sphere
-  texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.needsUpdate = true;
-
-  return texture;
-}
 
 /**
  * Generate terrestrial planet texture with continents, oceans, and rivers
@@ -468,20 +298,7 @@ export class MaterialFactory {
 
     // Ice planets use MeshPhongMaterial with canvas-generated textures
     if (surfaceType === "icy" && seed) {
-      // Generate crack texture
-      const crackTexture = generateIcePlanetTexture(
-        numericSeed,
-        new THREE.Color(color).getStyle()
-      );
-
-      // Create MeshPhongMaterial with high shininess and reflectivity for ice
-      return new THREE.MeshPhongMaterial({
-        map: crackTexture,
-        shininess: 100, // High shininess for glossy ice surface
-        specular: new THREE.Color("#ffffff"), // White specular highlights
-        emissive: new THREE.Color(color),
-        emissiveIntensity: 0.1, // Subtle self-illumination
-      });
+      return createIcePlanetMaterial(color, numericSeed);
     }
 
     // Terrestrial planets use shader with continent/ocean generation (similar to clouds)
@@ -1855,5 +1672,16 @@ export class MaterialFactory {
         }
       `,
     });
+  }
+
+  /**
+   * Regenerate ice planet texture with a new seed
+   * Used for debug mode to iterate on ice planet appearances
+   */
+  regenerateIcePlanetTexture(
+    material: THREE.MeshPhongMaterial,
+    newSeed: number
+  ): void {
+    regenerateIcePlanetTextureModule(material, newSeed);
   }
 }

@@ -119,14 +119,7 @@ export class ConstellationView {
 
       placedPositions.push(position.clone());
 
-      const isCurrent = node.systemId === currentSystemId;
-      const isSelected = node.systemId === this.selectedSystemId;
-      const starGroup = this.createStarNode(
-        node,
-        position,
-        isCurrent,
-        isSelected
-      );
+      const starGroup = this.createStarNode(node, position);
       this.nodes.set(node.systemId, starGroup);
       this.scene.add(starGroup);
     }
@@ -233,9 +226,7 @@ export class ConstellationView {
    */
   private createStarNode(
     node: ConstellationNode,
-    position: THREE.Vector3,
-    isCurrent: boolean,
-    isSelected: boolean
+    position: THREE.Vector3
   ): THREE.Group {
     const group = new THREE.Group();
     group.position.copy(position);
@@ -243,7 +234,7 @@ export class ConstellationView {
       type: "constellationNode",
       systemId: node.systemId,
       systemName: node.systemName,
-      isCurrent: isCurrent,
+      isCurrent: node.systemId === this.currentSystemId,
     };
 
     // Parse star color
@@ -322,9 +313,8 @@ export class ConstellationView {
     // Add text label with connection stats
     this.createLabel(
       group,
-      node.systemName,
+      node,
       starSize,
-      isCurrent,
       exploredGates,
       totalGates
     );
@@ -337,9 +327,8 @@ export class ConstellationView {
    */
   private createLabel(
     parent: THREE.Group,
-    text: string,
+    node: ConstellationNode,
     offset: number,
-    isCurrent: boolean,
     exploredGates: number,
     totalGates: number
   ): void {
@@ -355,16 +344,19 @@ export class ConstellationView {
     context.fillStyle = "rgba(0, 0, 0, 0)"; // Transparent background
     context.fillRect(0, 0, canvas.width, canvas.height);
 
+    // System is bright if it's selected (selection starts at current system)
+    const isSelected = node.systemId === this.selectedSystemId;
+    
     // Draw star name
-    context.font = isCurrent ? "bold 48px Arial" : "36px Arial";
-    context.fillStyle = isCurrent ? "#ffffff" : "#aaaaaa";
+    context.font = isSelected ? "bold 48px Arial" : "36px Arial";
+    context.fillStyle = isSelected ? "#ffffff" : "#aaaaaa";
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(text, canvas.width / 2, canvas.height / 2 - 20);
+    context.fillText(node.systemName, canvas.width / 2, canvas.height / 2 - 20);
 
     // Draw connection stats below name
     context.font = "28px Arial";
-    context.fillStyle = isCurrent ? "#cccccc" : "#888888";
+    context.fillStyle = isSelected ? "#cccccc" : "#888888";
     context.fillText(
       `${exploredGates}/${totalGates}`,
       canvas.width / 2,
@@ -376,7 +368,7 @@ export class ConstellationView {
     const material = new THREE.SpriteMaterial({
       map: texture,
       transparent: true,
-      opacity: isCurrent ? 1.0 : 0.7,
+      opacity: isSelected ? 1.0 : 0.7,
     });
 
     const sprite = new THREE.Sprite(material);
@@ -1166,12 +1158,7 @@ export class ConstellationView {
       const oldNode = this.nodesList.find((n) => n.systemId === oldSelectedId);
       const oldGroup = this.nodes.get(oldSelectedId);
       if (oldNode && oldGroup) {
-        this.updateStarNodeVisual(
-          oldGroup,
-          oldNode,
-          oldSelectedId === this.currentSystemId,
-          false
-        );
+        this.updateStarNodeVisual(oldGroup, oldNode);
       }
     }
 
@@ -1179,12 +1166,7 @@ export class ConstellationView {
     const newNode = this.nodesList.find((n) => n.systemId === systemId);
     const newGroup = this.nodes.get(systemId);
     if (newNode && newGroup) {
-      this.updateStarNodeVisual(
-        newGroup,
-        newNode,
-        systemId === this.currentSystemId,
-        true
-      );
+      this.updateStarNodeVisual(newGroup, newNode);
     }
 
     // Update unexplored gates to only show for selected system
@@ -1196,9 +1178,7 @@ export class ConstellationView {
    */
   private updateStarNodeVisual(
     group: THREE.Group,
-    node: ConstellationNode,
-    isCurrent: boolean,
-    isSelected: boolean
+    node: ConstellationNode
   ): void {
     // Clear existing children
     while (group.children.length > 0) {
@@ -1288,9 +1268,8 @@ export class ConstellationView {
     // Add text label with connection stats
     this.createLabel(
       group,
-      node.systemName,
+      node,
       starSize,
-      isCurrent,
       exploredGates,
       totalGates
     );
