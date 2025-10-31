@@ -1552,10 +1552,18 @@ export class SceneManager {
    * @param exitGateId - The ID of the exit gate to arrive at
    * @param onComplete - Optional callback to run when animation completes
    */
+  /**
+   * Get the current entry gate ID (for checking exploration status before travel)
+   */
+  getEntryGateId(): string | null {
+    return this.entryGateId;
+  }
+
   animateGateTravel(
     destinationSystem: StarSystem,
     exitGateId: string,
-    onComplete?: () => void
+    onComplete?: () => void,
+    wasEntryGateExplored?: boolean
   ): void {
     // Get the entry gate (the one we're traveling through)
     const entryGateGroup = this.entryGateId
@@ -1609,10 +1617,11 @@ export class SceneManager {
     // Calculate system view distance for the current system
     const systemViewDistance = this.calculateSystemViewDistance();
 
-    // Check if the entry gate is explored (we know entryGateId is not null here)
-    const isExploredGate = this.entryGateId
-      ? this.exploredGateIds.has(this.entryGateId)
-      : true;
+    // Check if the entry gate was explored BEFORE travel
+    // Use passed parameter if available, otherwise check current state (fallback)
+    const isExploredGate = wasEntryGateExplored !== undefined
+      ? wasEntryGateExplored
+      : (this.entryGateId ? this.exploredGateIds.has(this.entryGateId) : true);
 
     // Start the gate travel animation
     // The destination system will be loaded during the animation in the update() loop

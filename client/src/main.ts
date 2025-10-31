@@ -175,6 +175,15 @@ class ConstellationClient {
       );
 
       // Update player's current system ID and explored gates FIRST (before rendering UI)
+      // BUT: Check if entry gate was explored BEFORE updating, so we can show correct color in animation
+      // player.exploredGateIds is an array, so convert to Set for easier checking
+      const oldExploredGateIds = this.player?.exploredGateIds || [];
+      const oldExploredGateIdsSet = new Set(oldExploredGateIds);
+      const entryGateId = this.scene.getEntryGateId(); // Get entry gate ID before updating
+      const wasEntryGateExplored = entryGateId ? oldExploredGateIdsSet.has(entryGateId) : true;
+      
+      console.log("Entry gate exploration check - entryGateId:", entryGateId, "wasExplored:", wasEntryGateExplored, "oldExploredGates:", oldExploredGateIds);
+      
       if (this.player) {
         this.player.currentSystemId = destinationSystem.id;
         this.player.exploredGateIds = exploredGateIds;
@@ -205,6 +214,7 @@ class ConstellationClient {
       // Start the gate travel animation with the current system's entry gate
       // The new system will be loaded during the animation (in the flash phase)
       // The animation will end with the camera positioned at the exit gate
+      // Pass wasEntryGateExplored so animation shows correct color (purple for unexplored)
       this.scene.animateGateTravel(destinationSystem, exitGateId, () => {
         // Animation complete - camera is now at the exit gate (zoomed in)
         // Exit animation will automatically move outward from gate
@@ -212,7 +222,7 @@ class ConstellationClient {
 
         // Exit animation will smoothly transition to star automatically
         // No need for separate transition - it's handled in the exit animation
-      });
+      }, wasEntryGateExplored);
     };
 
     this.network.onConstellationData = (
