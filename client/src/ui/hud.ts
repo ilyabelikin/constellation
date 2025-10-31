@@ -403,8 +403,11 @@ export class HUDManager {
 
   setSystem(system: StarSystem): void {
     this.system = system;
-    // Reset selected object when changing systems
-    this.selectedObjectId = null;
+
+    // CRITICAL: Hide all panels when changing systems
+    // This prevents detail panels from the previous system from remaining visible
+    this.hideDetailPanels();
+
     // Apply theme FIRST so outline elements are created with the correct colors
     this.applyStarTheme(system.star.color);
     this.populateSystemOutline();
@@ -436,12 +439,14 @@ export class HUDManager {
   }
 
   hideDetailPanels(): void {
+    // CRITICAL: Reset selected object ID FIRST to prevent race conditions
+    this.selectedObjectId = null;
+
+    // Then hide all detail panels
     this.bodyDetailView.hide();
     this.gateDetailView.hide();
     this.shipDetailView.hide();
     this.constellationSystemDetailView.hide();
-    // Reset selected object when hiding all panels
-    this.selectedObjectId = null;
   }
 
   private populateSystemOutline(): void {
@@ -703,21 +708,25 @@ export class HUDManager {
       return;
     }
 
-    // If the same object is already selected, don't re-show the details view
+    // CRITICAL: Check if the same object is already selected FIRST
+    // If it is, do nothing to avoid flickering the UI
     if (this.selectedObjectId === objectId) {
       return;
     }
+
+    // CRITICAL: Hide ALL detail panels before showing a new one
+    // This ensures only one detail panel is visible at a time
+    // Even if multiple calls happen rapidly, only the last one will show its panel
+    this.bodyDetailView.hide(false);
+    this.gateDetailView.hide();
+    this.shipDetailView.hide();
+    this.constellationSystemDetailView.hide();
 
     // Update the selected object ID
     this.selectedObjectId = objectId;
 
     // Update outline selection
     this.updateSelectedInOutline(objectId);
-
-    // Hide all detail panels (but don't clear body selection - preserves debug slider state)
-    this.bodyDetailView.hide(false);
-    this.gateDetailView.hide();
-    this.shipDetailView.hide();
 
     // Check if it's a gate
     const gate = this.system.gates?.find((g) => g.id === objectId);
@@ -794,15 +803,16 @@ export class HUDManager {
    * Show constellation system details (when a system is selected in constellation view)
    */
   showConstellationSystemDetails(node: ConstellationNode): void {
-    // Show system info in constellation system detail view
-    this.constellationSystemDetailView.show(node);
+    // CRITICAL: Reset selected object ID FIRST to prevent showing multiple panels
+    this.selectedObjectId = null;
 
-    // Hide other detail views
+    // Hide all other detail views BEFORE showing constellation details
     this.bodyDetailView.hide();
     this.gateDetailView.hide();
     this.shipDetailView.hide();
-    // Reset selected object when showing constellation details
-    this.selectedObjectId = null;
+
+    // Finally, show system info in constellation system detail view
+    this.constellationSystemDetailView.show(node);
   }
 
   /**

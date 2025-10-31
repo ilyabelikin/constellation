@@ -376,13 +376,27 @@ class ConstellationClient {
     };
 
     this.hud.onNavigateSystem = () => {
-      // If in constellation view, return to system view first
+      // If in constellation view, check if a different system is selected
       if (this.scene.isInConstellationView()) {
+        const selectedSystemId = this.scene.getConstellationSelectedSystemId();
+        
+        // If a different system is selected in constellation view, navigate to it
+        if (selectedSystemId && this.player && selectedSystemId !== this.player.currentSystemId) {
+          console.log("Navigating to selected constellation system:", selectedSystemId);
+          this.scene.hideConstellationView();
+          
+          // Request the selected system's state
+          this.network.requestSystemState(selectedSystemId);
+          return;
+        }
+        
+        // Otherwise, just return to current system view
         this.scene.hideConstellationView();
         if (this.system) {
           this.hud.setSystem(this.system);
         }
       }
+      
       // Show nice system overview
       this.scene.showSystemView();
 
