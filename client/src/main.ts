@@ -206,15 +206,12 @@ class ConstellationClient {
       // The new system will be loaded during the animation (in the flash phase)
       // The animation will end with the camera positioned at the exit gate
       this.scene.animateGateTravel(destinationSystem, exitGateId, () => {
-        // Animation complete - camera is now at the exit gate
+        // Animation complete - camera is now at the exit gate (zoomed in)
+        // Exit animation will automatically move outward from gate
         this.hud.setSystem(destinationSystem);
 
-        // After a brief moment, smoothly transition from exit gate to the star
-        setTimeout(() => {
-          if (destinationSystem && destinationSystem.star) {
-            this.scene.centerOnObject(destinationSystem.star.id);
-          }
-        }, 800); // 800ms delay for smooth transition
+        // Exit animation will smoothly transition to star automatically
+        // No need for separate transition - it's handled in the exit animation
       });
     };
 

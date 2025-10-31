@@ -366,4 +366,11 @@ export class CameraController {
   getCameraTarget(): THREE.Vector3 {
     return this.cameraTarget;
   }
+
+  /**
+   * Sets the camera target position
+   */
+  setCameraTarget(target: THREE.Vector3): void {
+    this.cameraTarget.copy(target);
+  }
 }

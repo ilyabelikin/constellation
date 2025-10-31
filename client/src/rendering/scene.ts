@@ -954,23 +954,23 @@ export class SceneManager {
     // Handle gate travel animation
     const animState = this.gateTravelAnimator.update();
 
-    // Load destination system during hyperspace-exit phase (before we need to show it)
+    // Load destination system during travel phase (mid-way through travel)
     if (
       this.pendingDestinationSystem &&
       !this.hasLoadedDestinationDuringTravel &&
-      animState.phase === "hyperspace-exit" &&
-      animState.progress >= 0.1
+      animState.phase === "travel" &&
+      animState.progress >= 0.5
     ) {
-      console.log("Loading destination system during hyperspace-exit...");
+      console.log("Loading destination system during travel...");
       this.loadSystem(this.pendingDestinationSystem);
       this.hasLoadedDestinationDuringTravel = true;
       this.pendingDestinationSystem = null;
     }
 
-    // Hide entry gate during hyperspace acceleration
+    // Hide entry gate during zoom-in phase when we get very close
     if (
-      animState.phase === "hyperspace-enter" &&
-      animState.progress >= 0.5 &&
+      animState.phase === "zoom-in" &&
+      animState.progress >= 0.8 &&
       this.entryGateId
     ) {
       const entryGateGroup = this.gates.get(this.entryGateId);
@@ -979,12 +979,8 @@ export class SceneManager {
       }
     }
 
-    // Show scene and position at exit gate during hyperspace exit
-    if (
-      animState.phase === "hyperspace-exit" &&
-      animState.progress >= 0.3 &&
-      this.exitGateId
-    ) {
+    // Show scene when animation completes
+    if (animState.isComplete && this.exitGateId) {
       const exitGateGroup = this.gates.get(this.exitGateId);
       if (exitGateGroup && !exitGateGroup.visible) {
         // Show all objects
@@ -1017,9 +1013,6 @@ export class SceneManager {
           }
         }
         // Moon orbit lines, companion star orbit lines, and companion star planet orbit lines remain hidden unless their conditions are met
-
-        // Position camera at exit gate
-        this.gateTravelAnimator.positionAtExitGate(exitGateGroup);
 
         // Clear exit gate ID so we don't reposition again
         this.exitGateId = null;
@@ -1335,22 +1328,20 @@ export class SceneManager {
       });
     }
 
-    // Update camera with tracked object if tracking is enabled
-    const selectedObjectId = this.cameraController.getSelectedObjectId();
-    const trackedMesh = selectedObjectId
-      ? this.bodies.get(selectedObjectId) ||
-        this.ships.get(selectedObjectId) ||
-        this.gates.get(selectedObjectId) ||
-        this.asteroids.get(selectedObjectId) ||
-        this.moons.get(selectedObjectId)
-      : undefined;
+    // Skip camera controller update during gate travel (we handle camera directly)
+    if (!this.gateTravelAnimator.isAnimating()) {
+      // Update camera with tracked object if tracking is enabled
+      const selectedObjectId = this.cameraController.getSelectedObjectId();
+      const trackedMesh = selectedObjectId
+        ? this.bodies.get(selectedObjectId) ||
+          this.ships.get(selectedObjectId) ||
+          this.gates.get(selectedObjectId) ||
+          this.asteroids.get(selectedObjectId) ||
+          this.moons.get(selectedObjectId)
+        : undefined;
 
-    // Apply camera shake during gate travel animation
-    const shakeOffset = this.gateTravelAnimator.isAnimating()
-      ? this.gateTravelAnimator.getCameraShakeOffset()
-      : undefined;
-
-    this.cameraController.update(trackedMesh, shakeOffset);
+      this.cameraController.update(trackedMesh);
+    }
   }
 
   render(): void {
@@ -1630,7 +1621,8 @@ export class SceneManager {
       systemViewDistance,
       exitGateId,
       onComplete,
-      isExploredGate
+      isExploredGate,
+      entryGateGroup // Pass entry gate mesh for positioning
     );
   }
 
