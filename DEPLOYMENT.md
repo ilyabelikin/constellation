@@ -12,6 +12,9 @@ git push origin main
 
 # 2. Deploy to server
 ./deploy.sh
+
+# OR deploy and reset the database (starts fresh)
+./deploy.sh --reset
 ```
 
 **That's it!** Your game will be live at http://ilyabelikin.tplinkdns.com in 1-2 minutes.
@@ -27,6 +30,33 @@ The `deploy.sh` script automatically:
 - ✅ Builds all packages (shared, server, client)
 - ✅ Restarts the game server
 - ✅ Fixes file permissions
+
+### Deploy with Database Reset
+
+Use the `--reset` flag to start with a fresh database:
+
+```bash
+./deploy.sh --reset
+```
+
+This will:
+
+- 🔒 Create a timestamped backup of the current database
+- 🗑️ Delete the existing database
+- 🔄 Generate a new galaxy when the server starts
+
+**Use cases for `--reset`:**
+
+- Testing galaxy generation changes
+- Starting fresh after major schema changes
+- Cleaning up test data
+- Regenerating the universe
+
+**Safety features:**
+
+- 3-second countdown to cancel
+- Automatic backup before deletion
+- Backups stored in `/root/constellation/server/data/`
 
 No manual steps needed!
 
@@ -147,12 +177,20 @@ ssh root@ilyabelikin.tplinkdns.com "ls -la /root/constellation/client/dist/"
 
 ## Backup Your Database
 
-Before major updates, backup your game data:
+**Automatic backups:** When using `./deploy.sh --reset`, a backup is automatically created before deletion.
+
+**Manual backup:** Before major updates, backup your game data manually:
 
 ```bash
 ssh root@ilyabelikin.tplinkdns.com \
   "cp /root/constellation/server/data/constellation.db \
    /root/constellation/server/data/constellation.db.backup-\$(date +%Y%m%d-%H%M)"
+```
+
+**View all backups:**
+
+```bash
+ssh root@ilyabelikin.tplinkdns.com "ls -lh /root/constellation/server/data/*.backup*"
 ```
 
 ---

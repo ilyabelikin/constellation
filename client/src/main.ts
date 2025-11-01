@@ -435,10 +435,17 @@ class ConstellationClient {
     };
 
     this.hud.onTimeToggle = () => {
+      // Show loading spinner
+      this.hud.setTimeToggleLoading(true);
+      
       if (this.isPaused) {
         this.network.resumeTime();
+        // Optimistically update local state (server will confirm)
+        this.isPaused = false;
       } else {
         this.network.pauseTime();
+        // Optimistically update local state (server will confirm)
+        this.isPaused = true;
       }
     };
 
@@ -564,10 +571,18 @@ class ConstellationClient {
       // Spacebar to toggle pause/play
       if (event.code === "Space" && !isInputField) {
         event.preventDefault(); // Prevent page scroll
+        
+        // Show loading spinner
+        this.hud.setTimeToggleLoading(true);
+        
         if (this.isPaused) {
           this.network.resumeTime();
+          // Optimistically update local state (server will confirm)
+          this.isPaused = false;
         } else {
           this.network.pauseTime();
+          // Optimistically update local state (server will confirm)
+          this.isPaused = true;
         }
       }
     };
@@ -585,7 +600,14 @@ class ConstellationClient {
     try {
       // Determine WebSocket URL based on current location
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.host; // includes hostname and port
+      
+      // In development mode (localhost:3030), connect to server on port 8080
+      // In production, use the same host (proxied by Caddy)
+      let host = window.location.host;
+      if (window.location.hostname === 'localhost' && window.location.port === '3030') {
+        host = 'localhost:8080';
+      }
+      
       const wsUrl = `${protocol}//${host}`;
       
       console.log(`Connecting to WebSocket at: ${wsUrl}`);

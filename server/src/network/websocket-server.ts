@@ -331,7 +331,7 @@ export class ConstellationWebSocketServer {
     }
 
     // Load galaxy time state (new galaxy starts at 0, paused)
-    this.gameState.loadGalaxy(galaxy.id, 0, true, 1);
+    this.gameState.loadGalaxy(galaxy.id, 0, true, TIME_SCALE_DEFAULT);
     this.gameState.resetTime();
 
     // Create player

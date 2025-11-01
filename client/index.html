@@ -187,6 +187,21 @@
             background: var(--primary-color-active);
         }
 
+        /* Spinner animation */
+        .spinner {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--primary-color-dim);
+            border-top-color: var(--primary-color);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
         #auth-modal {
             position: fixed;
             top: 50%;

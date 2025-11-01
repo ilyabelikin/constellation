@@ -65,6 +65,8 @@ export class HUDManager {
   private playerProfileCloseButton: HTMLElement;
 
   private isPaused = false;
+  private isTimeToggleLoading = false;
+  private lastButtonState: { isPaused: boolean; isLoading: boolean } | null = null;
   private metPlayers: { id: string; name: string }[] = [];
   private networkClient: any = null; // Reference to network client for requesting stats
 
@@ -751,7 +753,17 @@ export class HUDManager {
   }
 
   updateTime(currentTime: number, isPaused: boolean, timeScale: number): void {
+    const pauseStateChanged = this.isPaused !== isPaused;
     this.isPaused = isPaused;
+    
+    // Clear loading state when server confirms
+    if (this.isTimeToggleLoading) {
+      this.isTimeToggleLoading = false;
+      this.updateTimeToggleButtonIfNeeded();
+    } else if (pauseStateChanged) {
+      // Only update button if pause state changed
+      this.updateTimeToggleButtonIfNeeded();
+    }
 
     // Convert to days and hours (skip minutes - too fast at 10000x scale)
     const days = Math.floor(currentTime / 86400);
@@ -759,7 +771,33 @@ export class HUDManager {
 
     this.timeDisplay.textContent = `${days}d ${hours}h`;
     this.timeScaleDisplay.textContent = `${timeScale.toFixed(0)}x`;
-    this.timeToggleButton.textContent = isPaused ? "Resume" : "Pause";
+  }
+
+  private updateTimeToggleButtonIfNeeded(): void {
+    // Only update if state actually changed
+    if (
+      !this.lastButtonState ||
+      this.lastButtonState.isPaused !== this.isPaused ||
+      this.lastButtonState.isLoading !== this.isTimeToggleLoading
+    ) {
+      this.lastButtonState = {
+        isPaused: this.isPaused,
+        isLoading: this.isTimeToggleLoading,
+      };
+      
+      if (this.isTimeToggleLoading) {
+        this.timeToggleButton.innerHTML = '<span class="spinner"></span>';
+        this.timeToggleButton.disabled = true;
+      } else {
+        this.timeToggleButton.textContent = this.isPaused ? "Resume" : "Pause";
+        this.timeToggleButton.disabled = false;
+      }
+    }
+  }
+
+  setTimeToggleLoading(loading: boolean): void {
+    this.isTimeToggleLoading = loading;
+    this.updateTimeToggleButtonIfNeeded();
   }
 
   updateObjectDetails(objectId: string): void {
