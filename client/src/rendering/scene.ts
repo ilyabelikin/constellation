@@ -2032,6 +2032,7 @@ export class SceneManager {
     }
 
     // Update the planetSeed uniform if this is a ShaderMaterial
+    // This handles ice planets, desert planets, and other shader-based planets
     if (
       planetMesh.material instanceof THREE.ShaderMaterial &&
       planetMesh.material.uniforms.planetSeed
@@ -2039,18 +2040,6 @@ export class SceneManager {
       planetMesh.material.uniforms.planetSeed.value = newSeed;
       console.log(`Updated planet ${planetId} seed to ${newSeed}`);
     }
-    // Handle ice planets (MeshPhongMaterial with canvas textures)
-    else if (
-      planetMesh.material instanceof THREE.MeshPhongMaterial &&
-      (planetMesh.material as any).userData?.isIcePlanet
-    ) {
-      this.celestialBodyFactory
-        .getMaterialFactory()
-        .regenerateIcePlanetTexture(planetMesh.material, newSeed);
-      console.log(`Updated ice planet ${planetId} seed to ${newSeed}`);
-    }
-    // Desert planets are now handled by the ShaderMaterial check above
-    // (they use the planetSeed uniform like other shader-based planets)
 
     // Update cloud layers and atmosphere if they exist
     planetMesh.children.forEach((child) => {

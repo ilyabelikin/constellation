@@ -3,14 +3,12 @@ import { SurfaceTypeShaderValue, SurfaceTypeName } from "@constellation/shared";
 import { createTerrestrialPlanetMaterial } from "./materials/TerrestrialPlanetMaterial";
 import { createRockyPlanetMaterial } from "./materials/RockyPlanetMaterial";
 import { createBarrenPlanetMaterial } from "./materials/BarrenPlanetMaterial";
-import {
-  createIcePlanetMaterial,
-  regenerateIcePlanetTexture as regenerateIcePlanetTextureModule,
-} from "./materials/IcePlanetMaterial";
+import { createIcePlanetMaterial } from "./materials/IcePlanetMaterial";
 import { createIceGiantMaterial } from "./materials/IceGiantMaterial";
 import { createGasGiantMaterial } from "./materials/GasGiantMaterial";
 import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
 import { createDesertCloudMaterial as createDesertCloudMaterialModule } from "./materials/DesertCloudMaterial";
+import { createIceCloudMaterial as createIceCloudMaterialModule } from "./materials/IceCloudMaterial";
 import { createTerrestrialAtmosphereGlowMaterial as createTerrestrialAtmosphereGlowMaterialModule } from "./materials/TerrestrialAtmosphereGlowMaterial";
 import { createDesertAtmosphereGlowMaterial as createDesertAtmosphereGlowMaterialModule } from "./materials/DesertAtmosphereGlowMaterial";
 import { createStarMaterial as createStarMaterialModule } from "./materials/StarMaterial";
@@ -20,7 +18,6 @@ import {
 } from "./materials/DesertPlanetMaterial";
 import { createOceanicPlanetMaterial } from "./materials/OceanicPlanetMaterial";
 import { createVolcanicPlanetMaterial } from "./materials/VolcanicPlanetMaterial";
-import { createIcyPlanetShaderMaterial } from "./materials/IcyPlanetShaderMaterial";
 import { createAsteroidMaterial as createAsteroidMaterialModule } from "./materials/AsteroidMaterial";
 
 /**
@@ -119,7 +116,7 @@ export class MaterialFactory {
       );
     }
 
-    // Ice planets use MeshPhongMaterial with canvas-generated textures
+    // Ice planets use 3D shader with procedural ice features
     if (surfaceType === "icy" && seed) {
       return createIcePlanetMaterial(color, numericSeed);
     }
@@ -399,7 +396,7 @@ export class MaterialFactory {
           
           // Note: Gas giant rendering now handled by GasGiantMaterial.ts
           // This fallback case should not be reached for gas_giant surface type
-          // NOTE: Icy planets now use IcePlanetMaterial or IcyPlanetShaderMaterial
+          // NOTE: Icy planets now use IcePlanetMaterial (canvas-based)
           if(false && surfaceType == SURFACE_ICY) {
             // Use 3D position for seamless noise
             vec3 rotatedPos = vPosition;
@@ -575,7 +572,7 @@ export class MaterialFactory {
           
           // Add specular reflection for icy, oceanic, and terrestrial planets from all light sources
           vec3 specular = vec3(0.0);
-          // NOTE: Icy planets now use IcePlanetMaterial or IcyPlanetShaderMaterial
+          // NOTE: Icy planets now use IcePlanetMaterial (canvas-based)
           if(false && surfaceType == SURFACE_ICY) {
             // Ice is very reflective - calculate from each light source
             vec3 viewDir = normalize(cameraPosition - vWorldPosition);
@@ -752,7 +749,10 @@ export class MaterialFactory {
    * Creates a generic shader material for planet atmospheres
    * Used for gas giants and other non-terrestrial, non-desert planets
    */
-  createGenericAtmosphereMaterial(color: number): THREE.ShaderMaterial {
+  createGenericAtmosphereMaterial(
+    color: number,
+    opacityMultiplier: number = 1.0
+  ): THREE.ShaderMaterial {
     const atmosphereColor = new THREE.Color(color);
     atmosphereColor.multiplyScalar(1.3); // Brighter
 
@@ -773,6 +773,7 @@ export class MaterialFactory {
 
     const fragmentShader = `
       uniform vec3 atmosphereColor;
+      uniform float opacityMultiplier;
       varying vec3 vNormal;
       varying vec3 vPosition;
       
@@ -795,7 +796,7 @@ export class MaterialFactory {
         float scattering = smoothstep(0.0, 0.4, 1.0 - edgeFactor) * scatterMultiplier;
         
         // Combine glows
-        float intensity = innerGlow + outerGlow + scattering;
+        float intensity = (innerGlow + outerGlow + scattering) * opacityMultiplier;
         
         // Add slight color shift at edge (atmospheric scattering effect)
         vec3 finalColor = atmosphereColor;
@@ -809,6 +810,7 @@ export class MaterialFactory {
     return new THREE.ShaderMaterial({
       uniforms: {
         atmosphereColor: { value: atmosphereColor },
+        opacityMultiplier: { value: opacityMultiplier },
       },
       vertexShader,
       fragmentShader,
@@ -872,6 +874,17 @@ export class MaterialFactory {
   }
 
   /**
+   * Creates a shader material for ice world frost/ice crystal clouds
+   */
+  createIceCloudMaterial(
+    baseColor: number,
+    frostCoverage: number = 0.5,
+    planetSeed: number = 0
+  ): THREE.ShaderMaterial {
+    return createIceCloudMaterialModule(baseColor, frostCoverage, planetSeed);
+  }
+
+  /**
    * Creates a shader material for asteroids based on composition
    */
   createAsteroidMaterial(
@@ -880,17 +893,6 @@ export class MaterialFactory {
     shape: "spherical" | "elliptical" | "rugged"
   ): THREE.ShaderMaterial {
     return createAsteroidMaterialModule(composition, color, shape);
-  }
-
-  /**
-   * Regenerate ice planet texture with a new seed
-   * Used for debug mode to iterate on ice planet appearances
-   */
-  regenerateIcePlanetTexture(
-    material: THREE.MeshPhongMaterial,
-    newSeed: number
-  ): void {
-    regenerateIcePlanetTextureModule(material, newSeed);
   }
 
   /**

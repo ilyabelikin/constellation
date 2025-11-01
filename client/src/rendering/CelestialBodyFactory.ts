@@ -149,6 +149,7 @@ export class CelestialBodyFactory {
         .reduce((acc: number, char: string) => acc + char.charCodeAt(0), 0);
       const isTerrestrial = planet.surfaceType === "terrestrial";
       const isDesert = planet.surfaceType === "desert";
+      const isIcy = planet.surfaceType === "icy";
 
       // Use specific atmosphere material based on planet type
       const atmosphereMaterial = isTerrestrial
@@ -157,6 +158,11 @@ export class CelestialBodyFactory {
           )
         : isDesert
         ? this.materialFactory.createDesertAtmosphereGlowMaterial(planetSeed)
+        : isIcy
+        ? this.materialFactory.createGenericAtmosphereMaterial(
+            planet.color || 0xd0e8ff,
+            0.5 // Thin ice world atmosphere (50% opacity)
+          )
         : this.materialFactory.createGenericAtmosphereMaterial(
             planet.color || 0x88ccff
           );
@@ -167,8 +173,8 @@ export class CelestialBodyFactory {
       );
       mesh.add(atmosphereMesh); // Attach to planet so it rotates together
 
-      // Add weather/cloud layers (for terrestrial and desert planets)
-      if (isTerrestrial || isDesert) {
+      // Add weather/cloud layers (for terrestrial, desert, and ice planets)
+      if (isTerrestrial || isDesert || isIcy) {
         const cloudCoverage = planet.cloudCoverage || 0.5;
 
         if (isDesert) {
@@ -202,6 +208,38 @@ export class CelestialBodyFactory {
           cloudMesh2.userData.cloudLayer = 2;
           cloudMesh2.userData.isDesertStorm = true; // Mark as desert storm layer
           cloudMesh2.userData.rotationSpeed = 0.2; // Slower upper layer
+          mesh.add(cloudMesh2);
+        } else if (isIcy) {
+          // Ice planets: Use ice crystal/frost cloud material (thin atmosphere)
+          const frostColor1 = 0xf0f8ff; // Pale icy blue
+          const frostColor2 = 0xe8f4f8; // Slightly darker icy blue
+
+          // Layer 1: Lower frost layer (sparse ice crystals)
+          const cloudRadius1 = radius * 1.02; // Just above surface
+          const cloudGeometry1 = new THREE.SphereGeometry(cloudRadius1, 48, 48);
+          const cloudMaterial1 = this.materialFactory.createIceCloudMaterial(
+            frostColor1,
+            cloudCoverage * 0.2, // Sparse frost coverage (thin atmosphere)
+            planetSeed
+          );
+          const cloudMesh1 = new THREE.Mesh(cloudGeometry1, cloudMaterial1);
+          cloudMesh1.userData.cloudLayer = 1;
+          cloudMesh1.userData.isIceFrost = true; // Mark as ice frost layer
+          cloudMesh1.userData.rotationSpeed = 1.0; // Rotates with planet (thin atmosphere)
+          mesh.add(cloudMesh1);
+
+          // Layer 2: Upper frost layer (very wispy ice crystals)
+          const cloudRadius2 = radius * 1.035; // Between surface and atmosphere
+          const cloudGeometry2 = new THREE.SphereGeometry(cloudRadius2, 48, 48);
+          const cloudMaterial2 = this.materialFactory.createIceCloudMaterial(
+            frostColor2,
+            cloudCoverage * 0.12, // Very thin high-altitude frost
+            planetSeed + 1000 // Different seed for upper layer
+          );
+          const cloudMesh2 = new THREE.Mesh(cloudGeometry2, cloudMaterial2);
+          cloudMesh2.userData.cloudLayer = 2;
+          cloudMesh2.userData.isIceFrost = true; // Mark as ice frost layer
+          cloudMesh2.userData.rotationSpeed = 1.0; // Rotates with planet (thin atmosphere)
           mesh.add(cloudMesh2);
         } else {
           // Terrestrial planets: Use regular cloud material
