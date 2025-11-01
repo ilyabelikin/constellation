@@ -155,41 +155,32 @@ export function createIceGiantMaterial(
       );
       vec3 samplePos = normalize(rotatedPos);
       
-      // Very slow atmospheric flow animation
-      float slowTime = time * 0.00001 * (0.5 + cloudSpeedSeed * 1.0);
-      
-      // Latitude affects flow speed (differential rotation like Neptune)
-      float latitude = abs(v - 0.5) * 2.0;
-      float latitudeFlow = (1.0 - latitude * 0.4);
-      
-      // Gentle rotation around Y-axis for atmospheric circulation
-      float flowAngle = slowTime * latitudeFlow * 0.3;
-      float cosFlow = cos(flowAngle);
-      float sinFlow = sin(flowAngle);
-      vec3 flowingSamplePos = vec3(
-        samplePos.x * cosFlow - samplePos.z * sinFlow,
-        samplePos.y,
-        samplePos.x * sinFlow + samplePos.z * cosFlow
+      // Use static seed-based offset instead of time-based animation
+      // This creates varied patterns per planet without geometric artifacts
+      vec3 seedOffset = vec3(
+        flowSeed1 * 10.0,
+        flowSeed2 * 10.0,
+        (flowSeed1 + flowSeed2) * 5.0
       );
       
-      // Add multi-directional turbulent distortion to keep patterns organic
-      // Use 3D turbulence to create complex, non-uniform flow
+      // Add static turbulent distortion to keep patterns organic
+      // No time component - patterns stay consistent
       vec3 turbulentFlow1 = vec3(
-        turbulence3D(samplePos * 0.5 + vec3(slowTime * 0.1, 0.0, 0.0), 3),
-        turbulence3D(samplePos * 0.5 + vec3(0.0, slowTime * 0.12, 0.0), 3),
-        turbulence3D(samplePos * 0.5 + vec3(0.0, 0.0, slowTime * 0.08), 3)
+        turbulence3D(samplePos * 0.5 + seedOffset * 0.1, 3),
+        turbulence3D(samplePos * 0.5 + seedOffset * 0.12, 3),
+        turbulence3D(samplePos * 0.5 + seedOffset * 0.08, 3)
       ) * 0.08;
       
       vec3 turbulentFlow2 = vec3(
-        turbulence3D(samplePos * 0.8 + vec3(slowTime * 0.15, slowTime * 0.1, 0.0), 4),
-        turbulence3D(samplePos * 0.8 + vec3(0.0, slowTime * 0.1, slowTime * 0.15), 4),
-        turbulence3D(samplePos * 0.8 + vec3(slowTime * 0.1, 0.0, slowTime * 0.12), 4)
+        turbulence3D(samplePos * 0.8 + seedOffset * 0.15, 4),
+        turbulence3D(samplePos * 0.8 + seedOffset * 0.1, 4),
+        turbulence3D(samplePos * 0.8 + seedOffset * 0.12, 4)
       ) * 0.05;
       
-      // Add gentle circular eddies at different scales and speeds
-      float eddyAngle1 = slowTime * 0.15 + flowSeed1 * 100.0;
-      float eddyAngle2 = slowTime * 0.08 + flowSeed2 * 80.0;
-      float eddyAngle3 = slowTime * 0.2 + flowSeed1 * 60.0;
+      // Add static seed-based distortion instead of animated eddies
+      float eddyAngle1 = flowSeed1 * 100.0;
+      float eddyAngle2 = flowSeed2 * 80.0;
+      float eddyAngle3 = flowSeed1 * 60.0;
       
       vec3 eddyOffset = vec3(
         sin(eddyAngle1) * 0.03 + cos(eddyAngle2) * 0.025 + sin(eddyAngle3 * 0.5) * 0.02,
@@ -197,8 +188,8 @@ export function createIceGiantMaterial(
         cos(eddyAngle1) * 0.03 + sin(eddyAngle2) * 0.025 + cos(eddyAngle3 * 0.6) * 0.02
       );
       
-      // Combine all flows for organic, multi-directional movement
-      vec3 finalSamplePos = flowingSamplePos + turbulentFlow1 + turbulentFlow2 + eddyOffset;
+      // Combine all static distortions for organic patterns without animation
+      vec3 finalSamplePos = samplePos + turbulentFlow1 + turbulentFlow2 + eddyOffset;
       
       // Cloud scale varies per planet (1.5 - 3.0 range for larger features)
       float cloudScale = 1.5 + cloudScaleSeed * 1.5;

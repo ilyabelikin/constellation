@@ -194,35 +194,9 @@ function buildVertexShader(): string {
       // Apply very subtle displacement
       displacedPosition = position + normal * totalDisplacement;
       
-      // Calculate normal perturbation (very gentle)
-      float epsilon = 0.08;
-      
-      // Better tangent calculation that handles poles correctly
-      vec3 up = abs(normal.y) > 0.999 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-      vec3 tangent = normalize(cross(up, normal));
-      vec3 bitangent = normalize(cross(normal, tangent));
-      
-      vec3 posX = normalize(position + tangent * epsilon);
-      vec3 rotX = vec3(
-        posX.x * cosRot - posX.z * sinRot,
-        posX.y,
-        posX.x * sinRot + posX.z * cosRot
-      );
-      float dispX = fbm3D(rotX * 0.3 * terrainScale, 4) * 0.02;
-      
-      vec3 posY = normalize(position + bitangent * epsilon);
-      vec3 rotY = vec3(
-        posY.x * cosRot - posY.z * sinRot,
-        posY.y,
-        posY.x * sinRot + posY.z * cosRot
-      );
-      float dispY = fbm3D(rotY * 0.3 * terrainScale, 4) * 0.02;
-      
-      vec2 gradient = vec2(dispX - totalDisplacement, dispY - totalDisplacement) / epsilon;
-      
-      // Very gentle normal perturbation for smooth surfaces
-      vec3 perturbation = tangent * gradient.x + bitangent * gradient.y;
-      displacedNormal = normalize(normal - perturbation * 0.15);
+      // Use the original normal without perturbation to eliminate vibration artifacts
+      // The fragment shader will handle all the visual detail
+      displacedNormal = normal;
       
       vNormal = normalize(normalMatrix * displacedNormal);
       vPosition = position;

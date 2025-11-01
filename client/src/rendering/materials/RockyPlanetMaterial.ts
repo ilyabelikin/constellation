@@ -93,25 +93,31 @@ const GLSL_UTILS = `
             // Enhanced crater profile with central peak
             float normalizedDist = dist / craterSize;
             
-            // Bowl depth - deeper in center
+            // Smooth falloff at crater edge to reduce artifacts
+            float edgeFalloff = smoothstep(0.95, 1.0, normalizedDist);
+            
+            // Bowl depth - deeper in center with smooth transition
             float bowlDepth = -0.3 * (1.0 - normalizedDist * normalizedDist);
             
-            // Rim height - raised edge
+            // Rim height - raised edge with smoothed transitions
             float rimStart = 0.75;
             float rimEnd = 0.95;
             float rimHeight = 0.0;
-            if(normalizedDist > rimStart) {
+            if(normalizedDist > rimStart && normalizedDist < rimEnd) {
               float rimPos = (normalizedDist - rimStart) / (rimEnd - rimStart);
-              rimHeight = 0.18 * sin(rimPos * 3.14159);
+              // Use smoothstep for smoother rim transitions
+              rimHeight = 0.18 * sin(rimPos * 3.14159) * (1.0 - smoothstep(0.85, 1.0, rimPos));
             }
             
-            // Central peak for large craters
+            // Central peak for large craters with smooth transitions
             float centralPeak = 0.0;
             if(normalizedDist < 0.15 && craterSize > 0.4) {
-              centralPeak = 0.08 * (1.0 - normalizedDist / 0.15);
+              float peakFalloff = smoothstep(0.15, 0.12, normalizedDist);
+              centralPeak = 0.08 * peakFalloff;
             }
             
-            craterEffect += bowlDepth + rimHeight + centralPeak;
+            // Apply edge falloff to reduce boundary artifacts
+            craterEffect += (bowlDepth + rimHeight + centralPeak) * (1.0 - edgeFalloff);
           }
         }
       }
@@ -164,44 +170,13 @@ function buildVertexShader(): string {
       
       float totalDisplacement = largeCraters + mediumCraters + smallCraters;
       
-      // Apply displacement along normal direction
-      float displacementAmount = totalDisplacement * 0.08;
+      // Apply displacement along normal direction with reduced intensity
+      float displacementAmount = totalDisplacement * 0.05;
       displacedPosition = position + normal * displacementAmount;
       
-      // Calculate normal perturbation for realistic lighting
-      float epsilon = 0.05;
-      
-      vec3 tangent = normalize(cross(normal, vec3(0.0, 1.0, 0.0)));
-      if(length(tangent) < 0.1) {
-        tangent = normalize(cross(normal, vec3(1.0, 0.0, 0.0)));
-      }
-      vec3 bitangent = normalize(cross(normal, tangent));
-      
-      // Sample displacement in tangent space
-      vec3 posX = normalize(position + tangent * epsilon);
-      vec3 rotX = vec3(
-        posX.x * cosRot - posX.z * sinRot,
-        posX.y,
-        posX.x * sinRot + posX.z * cosRot
-      );
-      float dispX = (craters3D(rotX, 0.6 * craterScaleMultiplier) + 
-                    craters3D(rotX, 1.25 * craterScaleMultiplier) * 0.7) * 0.08;
-      
-      vec3 posY = normalize(position + bitangent * epsilon);
-      vec3 rotY = vec3(
-        posY.x * cosRot - posY.z * sinRot,
-        posY.y,
-        posY.x * sinRot + posY.z * cosRot
-      );
-      float dispY = (craters3D(rotY, 0.6 * craterScaleMultiplier) + 
-                    craters3D(rotY, 1.25 * craterScaleMultiplier) * 0.7) * 0.08;
-      
-      // Calculate gradient
-      vec2 gradient = vec2(dispX - displacementAmount, dispY - displacementAmount) / epsilon;
-      
-      // Perturb normal
-      vec3 perturbation = tangent * gradient.x + bitangent * gradient.y;
-      displacedNormal = normalize(normal - perturbation * 0.3);
+      // Use the original normal without perturbation to eliminate vibration artifacts
+      // The fragment shader will handle all the visual detail
+      displacedNormal = normal;
       
       vNormal = normalize(normalMatrix * displacedNormal);
       vPosition = position;

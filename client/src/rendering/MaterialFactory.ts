@@ -586,51 +586,29 @@ export class MaterialFactory {
             );
             vec3 samplePos = normalize(rotatedPos);
             
-            // Generate seed-based animation variety
-            float animSpeedSeed = seededRandom(planetSeed * 2.9);
+            // Generate seed-based distortion variety (no animation)
             float turbulenceSeed1 = seededRandom(planetSeed * 3.1);
             float turbulenceSeed2 = seededRandom(planetSeed * 3.7);
             
-            // Add very slow atmospheric rotation animation (jet streams rotate around planet)
-            float slowTime = time * 0.000008 * (0.7 + animSpeedSeed * 0.6); // Vary speed per planet
-            
-            // Different latitudes rotate at different speeds (differential rotation)
-            // Equatorial regions rotate faster, polar regions slower (like Jupiter)
-            float latitude = abs(v - 0.5) * 2.0; // 0 at equator, 1 at poles
-            float jetStreamSpeed = (1.0 - latitude * 0.7); // Faster at equator
-            
-            // Apply ROTATIONAL transformation around Y-axis (planet's rotation axis)
-            // This creates circular motion instead of linear drift
-            float rotationAngle = slowTime * jetStreamSpeed * 0.8;
-            
-            // Rotate the sampling position around Y-axis for circular jet stream motion
-            float cosRot2 = cos(rotationAngle);
-            float sinRot2 = sin(rotationAngle);
-            vec3 rotatedSamplePos = vec3(
-              samplePos.x * cosRot2 - samplePos.z * sinRot2,
-              samplePos.y,
-              samplePos.x * sinRot2 + samplePos.z * cosRot2
-            );
-            
-            // Add circular eddies at different scales (rotating disturbances)
-            // Small eddies rotating faster
-            float smallEddyAngle = slowTime * 0.5 + turbulenceSeed1 * 100.0;
+            // Use static seed-based distortion instead of time-based animation
+            // Add seed-based circular distortions at different scales (static)
+            float smallEddyAngle = turbulenceSeed1 * 100.0;
             vec3 smallEddyRotation = vec3(
               sin(smallEddyAngle) * 0.08,
               cos(smallEddyAngle * 0.7) * 0.04,
               cos(smallEddyAngle) * 0.08
             );
             
-            // Medium eddies rotating slower
-            float mediumEddyAngle = slowTime * 0.2 + turbulenceSeed2 * 80.0;
+            // Medium eddies with different seed offset
+            float mediumEddyAngle = turbulenceSeed2 * 80.0;
             vec3 mediumEddyRotation = vec3(
               sin(mediumEddyAngle) * 0.12,
               cos(mediumEddyAngle * 0.8) * 0.08,
               cos(mediumEddyAngle) * 0.12
             );
             
-            // Combine rotations
-            vec3 totalRotation = rotatedSamplePos + smallEddyRotation + mediumEddyRotation;
+            // Combine static distortions for pattern variation
+            vec3 totalRotation = samplePos + smallEddyRotation + mediumEddyRotation;
             
             // Create flowing turbulent bands using 3D noise with rotational motion
             float flow = turbulence3D(totalRotation * vec3(3.0, 2.5, 3.0), 6);
@@ -645,36 +623,26 @@ export class MaterialFactory {
             float bandMix = mainBands * 0.6 + subBands * 0.3 + fineBands * 0.1;
             
             // Add turbulent spots and storms using 3D noise - scaled down for larger storm features
-            // Storms rotate in circular patterns with some wobble
+            // Use static seed-based offset instead of rotation animation
             float stormSeed = seededRandom(planetSeed * 4.3);
-            float stormRotationAngle = slowTime * 0.4 + stormSeed * 100.0;
             
-            // Create circular storm motion with spiral component
-            vec3 stormRotation = vec3(
-              samplePos.x * cos(stormRotationAngle) - samplePos.z * sin(stormRotationAngle),
-              samplePos.y,
-              samplePos.x * sin(stormRotationAngle) + samplePos.z * cos(stormRotationAngle)
+            // Create static seed-based offset for storm patterns
+            vec3 stormOffset = vec3(
+              sin(stormSeed * 100.0) * 0.2,
+              cos(stormSeed * 100.0) * 0.15,
+              sin(stormSeed * 70.0) * 0.2
             );
             
-            // Add some wobble/precession to storm motion
-            float wobbleAngle = slowTime * 0.15 + stormSeed * 70.0;
-            vec3 stormWobble = vec3(
-              sin(wobbleAngle) * 0.1,
-              cos(wobbleAngle * 0.8) * 0.08,
-              cos(wobbleAngle) * 0.1
-            );
-            
-            float storms = turbulence3D((stormRotation + stormWobble) * vec3(4.0, 3.0, 4.0), 5);
+            float storms = turbulence3D((samplePos + stormOffset) * vec3(4.0, 3.0, 4.0), 5);
             float spotPattern = smoothstep(0.6, 0.8, storms);
             
             // Create color variations across bands
-            // Add very slow color shifting to simulate changing atmospheric chemistry
-            // Use multiple frequencies for less predictable variation
+            // Use static seed-based color variation instead of time-based shifting
             float colorShiftSeed = seededRandom(planetSeed * 5.7);
-            float colorShift = sin(slowTime * 0.05 + colorShiftSeed * 50.0) * 0.03 
-                             + cos(slowTime * 0.04 + colorShiftSeed * 80.0) * 0.02 
-                             + 1.0; // Subtle ~5% color variation
-            float colorBand = sin(v * 15.0 + flow * 0.3 + slowTime * 0.025) * 0.5 + 0.5;
+            float colorShift = sin(colorShiftSeed * 50.0) * 0.03 
+                             + cos(colorShiftSeed * 80.0) * 0.02 
+                             + 1.0; // Subtle seed-based color variation
+            float colorBand = sin(v * 15.0 + flow * 0.3) * 0.5 + 0.5;
             
             // Rich color palette for gas giants using varied base color
             vec3 lightBand = variedBaseColor * 1.3 * colorShift; // Brighter zones with color shift
@@ -692,10 +660,8 @@ export class MaterialFactory {
               1.0 + sin(colorBand * 3.14159) * 0.15
             );
             
-            // Intensity variations from turbulence
-            // Add subtle atmospheric pulsing (turbulence changes) - very slow
-            float atmosphericPulse = sin(slowTime * 0.08) * 0.03 + 1.0; // Subtle 3% intensity variation
-            intensity = (0.85 + bandMix * 0.3 + storms * 0.15) * atmosphericPulse;
+            // Intensity variations from turbulence (static)
+            intensity = 0.85 + bandMix * 0.3 + storms * 0.15;
             
             // Add polar storms with contrasting colors
             float polarDistance = abs(v - 0.5) * 2.0; // 0 at equator, 1 at poles
@@ -707,19 +673,19 @@ export class MaterialFactory {
               vec2 toPole = vec2(u, v) - poleCenter;
               float distFromPole = length(toPole) * 4.0; // Scale for visibility
               
-              // Add rotation to polar vortices (spinning storms) with chaotic variation
+              // Add static seed-based distortion to polar vortices
               float vortexSeed = seededRandom(planetSeed * 5.1);
-              // Non-uniform rotation speed (speeds up and slows down) - much slower
-              float vortexRotation = slowTime * 0.5 * (1.0 + sin(slowTime * 0.12 + vortexSeed * 100.0) * 0.3);
+              // Static seed-based rotation offset (no animation)
+              float vortexRotation = vortexSeed * 6.28; // 0 to 2*PI
               float poleSign = v > 0.5 ? 1.0 : -1.0; // Opposite rotation for each pole
               
-              // Spiral distortion using 3D noise with rotation
+              // Spiral distortion using 3D noise with static offset
               float angle = atan(toPole.y, toPole.x) + vortexRotation * poleSign;
               vec3 spiralPos = samplePos + vec3(distFromPole * 1.2, angle * 0.8, distFromPole * 1.2);
               float spiral = turbulence3D(spiralPos, 5);
               
               // Create storm pattern using 3D noise - scaled for larger features
-              // Add rotation to the vortex pattern itself
+              // Add static offset to the vortex pattern
               vec3 vortexPos = samplePos * vec3(8.0, 12.0, 8.0) + vec3(spiral * 0.5 + vortexRotation * poleSign * 0.3, spiral * 0.3, 0.0);
               float vortexPattern = turbulence3D(vortexPos, 6);
               
