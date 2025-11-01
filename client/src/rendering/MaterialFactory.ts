@@ -18,197 +18,10 @@ import {
   createDesertPlanetMaterial,
   regenerateDesertPlanetTexture as regenerateDesertPlanetTextureModule,
 } from "./materials/DesertPlanetMaterial";
-
-/**
- * Generate terrestrial planet texture with continents, oceans, and rivers
- * Using multi-octave Perlin noise for realistic terrain
- */
-function generateTerrestrialTexture(
-  seed: number,
-  baseColor: string
-): THREE.Texture {
-  const width = 2048;
-  const height = 1024;
-
-  // Create canvas
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext("2d")!;
-
-  // Seeded random number generator
-  const seededRandom = (s: number): number => {
-    const x = Math.sin(s) * 10000;
-    return x - Math.floor(x);
-  };
-
-  // Perlin-like noise function (simplified for performance)
-  const noise2D = (x: number, y: number, s: number): number => {
-    const n = seededRandom(
-      Math.floor(x * 1000 + s) * 0.1 + Math.floor(y * 1000 + s) * 0.2 + s
-    );
-    return n;
-  };
-
-  // Multi-octave noise for terrain elevation
-  const multiOctaveNoise = (
-    x: number,
-    y: number,
-    octaves: number,
-    s: number
-  ): number => {
-    let value = 0;
-    let amplitude = 1;
-    let frequency = 1;
-    let maxValue = 0;
-
-    for (let i = 0; i < octaves; i++) {
-      value += noise2D(x * frequency, y * frequency, s + i * 100) * amplitude;
-      maxValue += amplitude;
-      amplitude *= 0.5;
-      frequency *= 2;
-    }
-
-    return value / maxValue;
-  };
-
-  // Detect planet type from base color
-  const baseColorObj = new THREE.Color(baseColor);
-  const r = baseColorObj.r;
-  const g = baseColorObj.g;
-  const b = baseColorObj.b;
-
-  // Determine if this is a desert world (reddish/sandy) or Earth-like (bluish/greenish)
-  const isDesert = r > 0.5 && r > g * 1.3 && r > b * 1.3; // Red dominant
-
-  // Generate planet variety parameters
-  const waterLevelSeed = seededRandom(seed * 1.2);
-  const continentSizeSeed = seededRandom(seed * 1.5);
-  const mountainsSeed = seededRandom(seed * 1.8);
-
-  // Water level varies by planet type
-  let waterLevel: number;
-  if (isDesert) {
-    // Desert planets: very little water (5-25%)
-    waterLevel = 0.75 + waterLevelSeed * 0.2;
-  } else {
-    // Earth-like: moderate water (40-70%)
-    waterLevel = 0.3 + waterLevelSeed * 0.3;
-  }
-
-  // Continent size: affects noise frequency
-  const continentScale = 2 + continentSizeSeed * 4; // 2-6 range
-
-  // Generate terrain
-  const imageData = ctx.createImageData(width, height);
-  const data = imageData.data;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const u = x / width;
-      const v = y / height;
-
-      // Generate elevation using multi-octave noise
-      const elevation = multiOctaveNoise(
-        u * continentScale,
-        v * continentScale,
-        6,
-        seed
-      );
-
-      // Determine if land or ocean
-      const idx = (y * width + x) * 4;
-
-      if (elevation > waterLevel) {
-        // LAND - vary color by elevation and planet type
-        const heightAboveSea = (elevation - waterLevel) / (1 - waterLevel);
-
-        if (isDesert) {
-          // DESERT PLANET - sandy, rocky terrain
-          const noise = seededRandom(seed + x * 0.1 + y * 0.1);
-
-          // Low areas - sand dunes
-          if (heightAboveSea < 0.3) {
-            data[idx] = 200 + noise * 40; // R - light sand
-            data[idx + 1] = 160 + noise * 30; // G
-            data[idx + 2] = 100 + noise * 20; // B
-          }
-          // Mid areas - darker sand/rock
-          else if (heightAboveSea < 0.6) {
-            data[idx] = 180 + noise * 30; // R - darker sand
-            data[idx + 1] = 130 + noise * 25; // G
-            data[idx + 2] = 80 + noise * 15; // B
-          }
-          // High areas - rocky mountains
-          else {
-            data[idx] = 140 + noise * 20; // R - dark rock
-            data[idx + 1] = 100 + noise * 15; // G
-            data[idx + 2] = 70 + noise * 10; // B
-          }
-        } else {
-          // EARTH-LIKE PLANET - varied biomes
-          const noise = seededRandom(seed + x * 0.1 + y * 0.1);
-
-          // Beach (just above water)
-          if (heightAboveSea < 0.1) {
-            data[idx] = 220; // R - sandy beach
-            data[idx + 1] = 200; // G
-            data[idx + 2] = 150; // B
-          }
-          // Plains/lowlands - green vegetation
-          else if (heightAboveSea < 0.4) {
-            data[idx] = 60 + noise * 40; // R - lush green
-            data[idx + 1] = 120 + noise * 50; // G
-            data[idx + 2] = 40 + noise * 30; // B
-          }
-          // Highlands - darker vegetation
-          else if (heightAboveSea < 0.7) {
-            data[idx] = 80 + noise * 30; // R - forest green
-            data[idx + 1] = 100 + noise * 30; // G
-            data[idx + 2] = 50 + noise * 20; // B
-          }
-          // Mountains - rocky/snowy
-          else {
-            data[idx] = 160 + noise * 40; // R - mountain gray
-            data[idx + 1] = 160 + noise * 40; // G
-            data[idx + 2] = 160 + noise * 40; // B
-          }
-        }
-
-        data[idx + 3] = 255; // Alpha
-      } else {
-        // WATER - varies by planet type
-        const depth = (waterLevel - elevation) / waterLevel;
-
-        if (isDesert) {
-          // Desert planets - small oases or dry lakes (brownish water)
-          const depthFactor = 1 - depth * 0.4;
-          data[idx] = 100 * depthFactor; // R - murky water
-          data[idx + 1] = 140 * depthFactor; // G
-          data[idx + 2] = 160 * depthFactor; // B
-        } else {
-          // Earth-like - deep blue oceans
-          const depthFactor = 1 - depth * 0.6;
-          data[idx] = 20 * depthFactor; // R - deep blue
-          data[idx + 1] = 60 * depthFactor; // G
-          data[idx + 2] = 140 * depthFactor; // B
-        }
-
-        data[idx + 3] = 255; // Alpha
-      }
-    }
-  }
-
-  ctx.putImageData(imageData, 0, 0);
-
-  // Create Three.js texture
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.needsUpdate = true;
-
-  return texture;
-}
+import { createOceanicPlanetMaterial } from "./materials/OceanicPlanetMaterial";
+import { createVolcanicPlanetMaterial } from "./materials/VolcanicPlanetMaterial";
+import { createIcyPlanetShaderMaterial } from "./materials/IcyPlanetShaderMaterial";
+import { createAsteroidMaterial as createAsteroidMaterialModule } from "./materials/AsteroidMaterial";
 
 /**
  * Factory for creating shader materials for celestial bodies and ships
@@ -321,24 +134,23 @@ export class MaterialFactory {
       return createGasGiantMaterial(color, numericSeed);
     }
 
-    // Terrestrial planets use shader with continent/ocean generation (similar to clouds)
-    // Commented out for now - keeping canvas approach available for future use
-    /*
-    if (surfaceType === "smooth" && seed) {
-      // Generate continent/ocean texture
-      const terrainTexture = generateTerrestrialTexture(
+    // Oceanic planets use custom shader with water currents and depth variation
+    if (surfaceType === "oceanic") {
+      return createOceanicPlanetMaterial(
+        color,
         numericSeed,
-        new THREE.Color(color).getStyle()
+        normalizedDistance
       );
-      
-      // Use MeshStandardMaterial for PBR lighting with the terrain texture
-      return new THREE.MeshStandardMaterial({
-        map: terrainTexture,
-        roughness: 0.8, // Somewhat rough surface (land)
-        metalness: 0.1, // Slightly metallic (minerals)
-      });
     }
-    */
+
+    // Volcanic planets use custom shader with animated lava flows
+    if (surfaceType === "volcanic") {
+      return createVolcanicPlanetMaterial(
+        color,
+        numericSeed,
+        normalizedDistance
+      );
+    }
 
     // All other planets use custom shader
     return new THREE.ShaderMaterial({
@@ -587,8 +399,8 @@ export class MaterialFactory {
           
           // Note: Gas giant rendering now handled by GasGiantMaterial.ts
           // This fallback case should not be reached for gas_giant surface type
-          // Icy planets with thin branching crack networks
-          if(surfaceType == SURFACE_ICY) {
+          // NOTE: Icy planets now use IcePlanetMaterial or IcyPlanetShaderMaterial
+          if(false && surfaceType == SURFACE_ICY) {
             // Use 3D position for seamless noise
             vec3 rotatedPos = vPosition;
             float cosRot = cos(rotation);
@@ -728,159 +540,9 @@ export class MaterialFactory {
             vec3 crackColor = vec3(0.03, 0.03, 0.06); // Darker blue-black
             colorModulation = mix(iceSurface, crackColor, totalCracks * 0.7);
           }
-          // Volcanic planets with lava flows
-          else if(surfaceType == SURFACE_VOLCANIC) {
-            // Slow time for gradual lava movement
-            float slowTime = time * 0.00005;
-            
-            // Generate seed-based variety parameters for this planet
-            float lavaDensitySeed = seededRandom(planetSeed * 1.1);
-            float lavaWidthSeed = seededRandom(planetSeed * 1.3);
-            float lavaColorSeed = seededRandom(planetSeed * 1.7);
-            float hotspotSeed = seededRandom(planetSeed * 2.1);
-            float flowSpeedSeed = seededRandom(planetSeed * 2.3);
-            float rockColorSeed = seededRandom(planetSeed * 2.7);
-            
-            // Vary lava coverage (0.4 = ~60% rock, 1.2 = ~90% lava)
-            float lavaCoverage = 0.4 + lavaDensitySeed * 0.8;
-            
-            // Vary lava flow widths (0.06 - 0.12 range for main threshold)
-            float lavaThickness = 0.06 + lavaWidthSeed * 0.06;
-            
-            // Vary flow speed (0.7x - 1.3x of base speed)
-            float flowSpeed = 0.7 + flowSpeedSeed * 0.6;
-            
-            // Vary hotspot density (0.65 - 0.80 threshold = more or fewer pools)
-            float hotspotThreshold = 0.65 + hotspotSeed * 0.15;
-            
-            // Use 3D position for seamless noise (no UV seam or pole distortion)
-            // Apply rotation to the sampling position
-            vec3 rotatedPos = vPosition;
-            float cosRot = cos(rotation);
-            float sinRot = sin(rotation);
-            rotatedPos = vec3(
-              vPosition.x * cosRot - vPosition.z * sinRot,
-              vPosition.y,
-              vPosition.x * sinRot + vPosition.z * cosRot
-            );
-            
-            // Normalize and scale for lava pattern generation
-            vec3 samplePos = normalize(rotatedPos);
-            
-            // Dark rocky base with turbulent variation (static) using 3D noise
-            // Scale reduced to make patterns larger
-            float baseRock = turbulence3D(samplePos * 3.0, 4) * 0.2;
-            vec3 rockTint = vec3(
-              0.2 + rockColorSeed * 0.15,        // R: 0.20 - 0.35
-              0.2 + rockColorSeed * 0.10,        // G: 0.20 - 0.30  
-              0.2 + rockColorSeed * 0.08         // B: 0.20 - 0.28
-            );
-            
-            // Add seed-based offset to lava patterns for uniqueness
-            vec3 seedOffset1 = vec3(seededRandom(planetSeed * 3.1), seededRandom(planetSeed * 3.2), seededRandom(planetSeed * 3.3)) * 10.0;
-            vec3 seedOffset2 = vec3(seededRandom(planetSeed * 3.7), seededRandom(planetSeed * 3.8), seededRandom(planetSeed * 3.9)) * 10.0;
-            vec3 seedOffset3 = vec3(seededRandom(planetSeed * 4.1), seededRandom(planetSeed * 4.2), seededRandom(planetSeed * 4.3)) * 10.0;
-            
-            // Time-based flow offset in 3D (primarily along one axis for directional flow)
-            vec3 flowOffset1 = vec3(slowTime * 0.3 * flowSpeed, slowTime * 0.1 * flowSpeed, 0.0);
-            vec3 flowOffset2 = vec3(slowTime * 0.25 * flowSpeed, slowTime * 0.12 * flowSpeed, 0.0);
-            vec3 flowOffset3 = vec3(slowTime * 0.4 * flowSpeed, slowTime * 0.15 * flowSpeed, 0.0);
-            vec3 flowOffset4 = vec3(slowTime * 0.6 * flowSpeed, slowTime * 0.2 * flowSpeed, 0.0);
-            
-            // Create glowing lava veins at multiple scales with flowing animation using 3D noise
-            // Scale reduced to make patterns larger (6.0 -> 2.5, etc.)
-            // Large lava flows - main rivers of lava (slow flow)
-            float lava1 = abs(turbulence3D(samplePos * 2.5 + seedOffset1 + flowOffset1, 4) - 0.5);
-            float lava2 = abs(turbulence3D(samplePos * 2.5 + seedOffset2 + flowOffset2, 4) - 0.5);
-            float largeLava = smoothstep(lavaThickness, 0.0, lava1) * 1.2 * lavaCoverage;
-            largeLava += smoothstep(lavaThickness, 0.0, lava2) * 1.2 * lavaCoverage;
-            
-            // Medium lava cracks - branching flows (medium speed)
-            float lava3 = abs(turbulence3D(samplePos * 5.0 + seedOffset1 * 0.5 + flowOffset3, 3) - 0.5);
-            float mediumLava = smoothstep(lavaThickness * 0.75, 0.0, lava3) * 0.9 * lavaCoverage;
-            
-            // Fine lava cracks - small glowing veins (faster flow for thin streams)
-            float lava4 = abs(turbulence3D(samplePos * 10.0 + seedOffset3 + flowOffset4, 2) - 0.5);
-            float fineLava = smoothstep(lavaThickness * 0.5, 0.0, lava4) * 0.6 * lavaCoverage;
-            
-            // Combine all lava flows
-            float totalLava = largeLava + mediumLava + fineLava;
-            
-            // Hot spots - pulsing lava pools with animation using 3D noise
-            float hotSpots = turbulence3D(samplePos * 4.0 + seedOffset2 * 0.3 + vec3(slowTime * 0.2 * flowSpeed, slowTime * 0.08 * flowSpeed, 0.0), 5);
-            float poolPattern = smoothstep(hotspotThreshold, hotspotThreshold + 0.15, hotSpots) * 0.8;
-            
-            // Add slow pulsing effect to lava intensity (breathing effect)
-            // Vary pulse speed slightly per planet (0.0002 - 0.0004)
-            float pulseSpeed = 0.0002 + flowSpeedSeed * 0.0002;
-            float pulse = sin(time * pulseSpeed) * 0.15 + 0.85; // Gentle pulsing
-            float fastPulse = sin(time * pulseSpeed * 2.5) * 0.1 + 0.9; // Subtle faster pulse for variety
-            
-            // Dark rocky base with glowing lava
-            intensity = 0.3 + baseRock; // Dark base
-            intensity += (totalLava * pulse + poolPattern * fastPulse); // Add pulsing glowing lava
-            
-            // Color: dark gray rock transitions to bright orange/red lava
-            vec3 darkRock = rockTint;
-            
-            // Vary lava color - some planets have more orange, some more red, some more yellow
-            vec3 glowingLava = vec3(
-              1.8 + lavaColorSeed * 0.4,         // R: 1.8 - 2.2 (always bright red)
-              0.5 + lavaColorSeed * 0.3,         // G: 0.5 - 0.8 (orange to yellow)
-              0.1 + (1.0 - lavaColorSeed) * 0.2  // B: 0.1 - 0.3 (minimal blue, redder when seed is low)
-            );
-            
-            // Add color variation to lava based on flow speed (hotter = brighter/whiter)
-            float lavaHeat = pulse * fastPulse;
-            vec3 hotLava = mix(glowingLava, glowingLava * vec3(1.3, 1.5, 2.0), lavaHeat * 0.3); // Brighter and whiter when pulsing
-            
-            colorModulation = mix(darkRock, hotLava, clamp(totalLava + poolPattern, 0.0, 1.0));
-          }
-          // Oceanic planets with water currents
-          else if(surfaceType == SURFACE_OCEANIC) {
-            // Use 3D position for seamless noise
-            vec3 rotatedPos = vPosition;
-            float cosRot = cos(rotation);
-            float sinRot = sin(rotation);
-            rotatedPos = vec3(
-              vPosition.x * cosRot - vPosition.z * sinRot,
-              vPosition.y,
-              vPosition.x * sinRot + vPosition.z * cosRot
-            );
-            vec3 samplePos = normalize(rotatedPos);
-            
-            // Smooth water base with subtle variation using 3D noise - scaled for larger patterns
-            float baseNoise = turbulence3D(samplePos * 2.0, 3) * 0.1;
-            
-            // Create water current patterns at multiple scales using 3D noise
-            // Large currents - main flow patterns - scaled for larger features
-            float current1 = abs(turbulence3D(samplePos * 3.0, 4) - 0.5);
-            float current2 = abs(turbulence3D(samplePos * 3.0 + vec3(4.0, 2.0, 0.0), 4) - 0.5);
-            float largeCurrent = smoothstep(0.05, 0.0, current1) * 0.25;
-            largeCurrent += smoothstep(0.05, 0.0, current2) * 0.25;
-            
-            // Medium currents - secondary flows
-            float current3 = abs(turbulence3D(samplePos * 6.0 + vec3(1.2, 2.8, 0.0), 3) - 0.5);
-            float mediumCurrent = smoothstep(0.04, 0.0, current3) * 0.15;
-            
-            // Fine currents - small details
-            float current4 = abs(turbulence3D(samplePos * 12.0 + vec3(6.0, 8.0, 0.0), 2) - 0.5);
-            float fineCurrent = smoothstep(0.03, 0.0, current4) * 0.1;
-            
-            // Combine all currents
-            float totalCurrents = largeCurrent + mediumCurrent + fineCurrent;
-            
-            // Create depth variation - deeper water is darker using 3D noise
-            float depthVariation = turbulence3D(samplePos * 2.5, 4);
-            
-            // Keep intensity lower to preserve water color (0.6 - 0.9 range)
-            intensity = 0.6 + baseNoise + depthVariation * 0.15;
-            intensity += totalCurrents * 0.3; // Currents create lighter areas
-            
-            // Enhance water color saturation - preserve varied base blue/green
-            colorModulation = variedBaseColor * 1.15; // Boost saturation
-          }
           // Fallback for any unhandled surface types
+          // NOTE: Oceanic planets now use OceanicPlanetMaterial
+          // NOTE: Volcanic planets now use VolcanicPlanetMaterial
           else {
             intensity = 0.8;
             colorModulation = variedBaseColor;
@@ -913,7 +575,8 @@ export class MaterialFactory {
           
           // Add specular reflection for icy, oceanic, and terrestrial planets from all light sources
           vec3 specular = vec3(0.0);
-          if(surfaceType == SURFACE_ICY) {
+          // NOTE: Icy planets now use IcePlanetMaterial or IcyPlanetShaderMaterial
+          if(false && surfaceType == SURFACE_ICY) {
             // Ice is very reflective - calculate from each light source
             vec3 viewDir = normalize(cameraPosition - vWorldPosition);
             
@@ -938,32 +601,7 @@ export class MaterialFactory {
               specular += vec3(1.0) * spec3 * 0.6 * lightIntensity3;
             }
           }
-          else if(surfaceType == SURFACE_OCEANIC) {
-            // Water is moderately reflective - calculate from each light source
-            vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-            
-            if (lightIntensity1 > 0.0) {
-              vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
-              vec3 reflectDir1 = reflect(-lightDir1, vWorldNormal);
-              float spec1 = pow(max(dot(viewDir, reflectDir1), 0.0), 16.0);
-              specular += variedBaseColor * spec1 * 0.4 * lightIntensity1;
-            }
-            
-            if (lightIntensity2 > 0.0) {
-              vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
-              vec3 reflectDir2 = reflect(-lightDir2, vWorldNormal);
-              float spec2 = pow(max(dot(viewDir, reflectDir2), 0.0), 16.0);
-              specular += variedBaseColor * spec2 * 0.4 * lightIntensity2;
-            }
-            
-            if (lightIntensity3 > 0.0) {
-              vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
-              vec3 reflectDir3 = reflect(-lightDir3, vWorldNormal);
-              float spec3 = pow(max(dot(viewDir, reflectDir3), 0.0), 16.0);
-              specular += variedBaseColor * spec3 * 0.4 * lightIntensity3;
-            }
-          }
-          else if(surfaceType == SURFACE_TERRESTRIAL) {
+          if(surfaceType == SURFACE_TERRESTRIAL) {
             // Terrestrial planets - specular on oceans and ice caps
             // NOTE: This is fallback code - terrestrial planets should use TerrestrialPlanetMaterial
             vec3 viewDir = normalize(cameraPosition - vWorldPosition);
@@ -1241,185 +879,7 @@ export class MaterialFactory {
     color: number,
     shape: "spherical" | "elliptical" | "rugged"
   ): THREE.ShaderMaterial {
-    return new THREE.ShaderMaterial({
-      uniforms: {
-        baseColor: { value: new THREE.Color(color) },
-        lightPosition: { value: new THREE.Vector3(0, 0, 0) },
-        composition: {
-          value:
-            composition === "water" ? 0.0 : composition === "metal" ? 1.0 : 2.0,
-        },
-        shape: {
-          value:
-            shape === "spherical" ? 0.0 : shape === "elliptical" ? 1.0 : 2.0,
-        },
-      },
-      vertexShader: `
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        varying vec3 vWorldPosition;
-        varying vec3 vWorldNormal;
-        
-        void main() {
-          vNormal = normalize(normalMatrix * normal);
-          vPosition = position;
-          vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-          vWorldPosition = worldPosition.xyz;
-          vWorldNormal = normalize(mat3(modelMatrix) * normal);
-          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-        }
-      `,
-      fragmentShader: `
-        uniform vec3 baseColor;
-        uniform vec3 lightPosition;
-        uniform float composition;
-        uniform float shape;
-        varying vec3 vNormal;
-        varying vec3 vPosition;
-        varying vec3 vWorldPosition;
-        varying vec3 vWorldNormal;
-        
-        // Hash function for 2D (for craters)
-        float hash2(vec2 p) {
-          return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
-        }
-        
-        // Hash function for 3D (for noise)
-        float hash(vec3 p) {
-          return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453123);
-        }
-        
-        // 3D noise function
-        float noise(vec3 p) {
-          vec3 i = floor(p);
-          vec3 f = fract(p);
-          f = f * f * (3.0 - 2.0 * f);
-          
-          return mix(
-            mix(
-              mix(hash(i + vec3(0,0,0)), hash(i + vec3(1,0,0)), f.x),
-              mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x),
-              f.y
-            ),
-            mix(
-              mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x),
-              mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x),
-              f.y
-            ),
-            f.z
-          );
-        }
-        
-        // Generate craters (adapted from planet shader)
-        float craters(vec2 uv, float scale) {
-          vec2 grid = floor(uv * scale);
-          vec2 localUV = fract(uv * scale);
-          
-          float craterEffect = 0.0;
-          
-          // Check this cell and neighboring cells
-          for(float y = -1.0; y <= 1.0; y++) {
-            for(float x = -1.0; x <= 1.0; x++) {
-              vec2 neighbor = grid + vec2(x, y);
-              
-              // Generate random position for crater in this cell
-              vec2 craterPos = vec2(
-                hash2(neighbor),
-                hash2(neighbor + vec2(13.7, 27.3))
-              );
-              
-              // Generate random size (smaller for asteroids)
-              float craterSize = 0.15 + hash2(neighbor + vec2(50.1, 60.2)) * 0.25;
-              
-              // Calculate distance to crater center
-              vec2 toCenter = (localUV - vec2(x, y)) - craterPos;
-              float dist = length(toCenter);
-              
-              // Only create crater if random value is above threshold
-              float shouldExist = hash2(neighbor + vec2(100.0, 200.0));
-              if(shouldExist > 0.55) { // More craters on asteroids
-                // Crater bowl with raised rim
-                if(dist < craterSize) {
-                  float rimDist = abs(dist - craterSize * 0.85) / (craterSize * 0.15);
-                  float rimHeight = smoothstep(1.0, 0.0, rimDist) * 0.2;
-                  float bowlDepth = smoothstep(craterSize, 0.0, dist) * -0.3;
-                  craterEffect += bowlDepth + rimHeight;
-                }
-              }
-            }
-          }
-          
-          return craterEffect;
-        }
-        
-        void main() {
-          // Lighting
-          vec3 lightDir = normalize(lightPosition - vWorldPosition);
-          float diffuse = max(dot(vWorldNormal, lightDir), 0.0);
-          
-          // Ambient light (higher for asteroids so they're visible even in shadow)
-          float ambient = 0.5;
-          
-          // Surface variation based on noise
-          float n1 = noise(vPosition * 5.0);
-          float n2 = noise(vPosition * 15.0);
-          float surfaceVariation = n1 * 0.7 + n2 * 0.3;
-          
-          // Add craters for spherical and elliptical asteroids
-          float craterIntensity = 0.0;
-          if (shape < 1.5) { // spherical (0.0) or elliptical (1.0)
-            // Calculate spherical UV coordinates for crater mapping
-            vec3 norm = normalize(vPosition);
-            float u = atan(norm.z, norm.x) / (2.0 * 3.14159) + 0.5;
-            float v = asin(norm.y) / 3.14159 + 0.5;
-            
-            // Multiple layers of craters at different scales
-            float largeCraters = craters(vec2(u, v), 6.0);
-            float mediumCraters = craters(vec2(u, v), 12.0) * 0.7;
-            float smallCraters = craters(vec2(u, v), 24.0) * 0.5;
-            
-            craterIntensity = largeCraters + mediumCraters + smallCraters;
-          }
-          
-          // Material properties based on composition
-          float roughness = 0.9; // Default (silica)
-          float metallic = 0.1;
-          float specular = 0.1;
-          
-          if (composition < 0.5) {
-            // Water ice - smoother, more reflective
-            roughness = 0.3;
-            metallic = 0.0;
-            specular = 0.5;
-          } else if (composition < 1.5) {
-            // Metal - very reflective
-            roughness = 0.2;
-            metallic = 0.8;
-            specular = 0.9;
-          }
-          
-          // Specular highlight
-          vec3 viewDir = normalize(cameraPosition - vWorldPosition);
-          vec3 reflectDir = reflect(-lightDir, vWorldNormal);
-          float spec = pow(max(dot(viewDir, reflectDir), 0.0), 32.0 * (1.0 - roughness));
-          vec3 specularColor = vec3(1.0) * spec * specular;
-          
-          // Combine lighting with crater intensity
-          float lighting = ambient + diffuse * (1.0 - ambient);
-          lighting += craterIntensity; // Add crater depth and height variations
-          
-          // Apply surface variation
-          vec3 surfaceColor = baseColor * (0.8 + surfaceVariation * 0.4);
-          
-          // Mix in metallic reflections
-          surfaceColor = mix(surfaceColor, surfaceColor * 1.5, metallic);
-          
-          vec3 finalColor = surfaceColor * lighting + specularColor;
-          
-          gl_FragColor = vec4(finalColor, 1.0);
-        }
-      `,
-    });
+    return createAsteroidMaterialModule(composition, color, shape);
   }
 
   /**
