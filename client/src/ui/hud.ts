@@ -41,7 +41,7 @@ export class HUDManager {
   private timeSection: HTMLElement;
   private timeDisplay: HTMLElement;
   private timeScaleDisplay: HTMLElement;
-  private timeToggleButton: HTMLElement;
+  private timeToggleButton: HTMLButtonElement;
   private playersDisplay: HTMLElement;
 
   private systemOutline: HTMLElement;
@@ -66,7 +66,8 @@ export class HUDManager {
 
   private isPaused = false;
   private isTimeToggleLoading = false;
-  private lastButtonState: { isPaused: boolean; isLoading: boolean } | null = null;
+  private lastButtonState: { isPaused: boolean; isLoading: boolean } | null =
+    null;
   private metPlayers: { id: string; name: string }[] = [];
   private networkClient: any = null; // Reference to network client for requesting stats
 
@@ -129,7 +130,9 @@ export class HUDManager {
     this.timeSection = document.querySelector(".hud-top-right")!;
     this.timeDisplay = document.getElementById("time-display")!;
     this.timeScaleDisplay = document.getElementById("time-scale")!;
-    this.timeToggleButton = document.getElementById("time-toggle")!;
+    this.timeToggleButton = document.getElementById(
+      "time-toggle"
+    ) as HTMLButtonElement;
     this.playersDisplay = document.getElementById("players-display")!;
 
     // System outline
@@ -159,7 +162,9 @@ export class HUDManager {
     this.playerProfileModal = document.getElementById("player-profile-modal")!;
     this.playerProfileName = document.getElementById("player-profile-name")!;
     this.playerProfileStars = document.getElementById("player-profile-stars")!;
-    this.playerProfileCloseButton = document.getElementById("player-profile-close-button")!;
+    this.playerProfileCloseButton = document.getElementById(
+      "player-profile-close-button"
+    )!;
 
     // Player profile close button handler
     this.playerProfileCloseButton.addEventListener("click", () => {
@@ -755,7 +760,7 @@ export class HUDManager {
   updateTime(currentTime: number, isPaused: boolean, timeScale: number): void {
     const pauseStateChanged = this.isPaused !== isPaused;
     this.isPaused = isPaused;
-    
+
     // Clear loading state when server confirms
     if (this.isTimeToggleLoading) {
       this.isTimeToggleLoading = false;
@@ -784,7 +789,7 @@ export class HUDManager {
         isPaused: this.isPaused,
         isLoading: this.isTimeToggleLoading,
       };
-      
+
       if (this.isTimeToggleLoading) {
         this.timeToggleButton.innerHTML = '<span class="spinner"></span>';
         this.timeToggleButton.disabled = true;
@@ -1029,11 +1034,15 @@ export class HUDManager {
     });
   }
 
-  showPlayerDiscovery(discoveryType: "discovered" | "wasDiscovered", playerNames: string[], systemName: string): void {
+  showPlayerDiscovery(
+    discoveryType: "discovered" | "wasDiscovered",
+    playerNames: string[],
+    systemName: string
+  ): void {
     if (playerNames.length === 0) return;
 
     let message = "";
-    
+
     if (discoveryType === "discovered") {
       // You discovered another player's civilization
       if (playerNames.length === 1) {
@@ -1067,21 +1076,25 @@ export class HUDManager {
     this.discoveryModal.style.display = "flex";
   }
 
-  updatePlayersDisplay(metPlayers: { id: string; name: string }[], totalPlayers: number): void {
+  updatePlayersDisplay(
+    metPlayers: { id: string; name: string }[],
+    totalPlayers: number
+  ): void {
     this.metPlayers = metPlayers;
     const unmetCount = totalPlayers - metPlayers.length - 1; // -1 for self
-    
+
     // Clear existing content
     this.playersDisplay.innerHTML = "";
-    
+
     // Create a container for the players text
     const playersText = document.createElement("span");
     playersText.textContent = "Players: ";
     this.playersDisplay.appendChild(playersText);
-    
+
     if (metPlayers.length === 0) {
       const statusText = document.createElement("span");
-      statusText.textContent = unmetCount > 0 ? `${unmetCount} unmet` : "you alone";
+      statusText.textContent =
+        unmetCount > 0 ? `${unmetCount} unmet` : "you alone";
       this.playersDisplay.appendChild(statusText);
     } else {
       // Add clickable player names
@@ -1101,7 +1114,7 @@ export class HUDManager {
           playerLink.style.color = "var(--primary-color)";
         });
         this.playersDisplay.appendChild(playerLink);
-        
+
         // Add separators
         if (index < metPlayers.length - 1) {
           const separator = document.createElement("span");
@@ -1109,7 +1122,7 @@ export class HUDManager {
           this.playersDisplay.appendChild(separator);
         }
       });
-      
+
       // Add unmet count if any
       if (unmetCount > 0) {
         const andText = document.createElement("span");
@@ -1121,23 +1134,29 @@ export class HUDManager {
 
   private openPlayerProfileModal(player: { id: string; name: string }): void {
     this.playerProfileName.textContent = player.name;
-    
+
     // Show loading state
     this.playerProfileStars.textContent = "Loading...";
-    
+
     this.playerProfileModal.classList.remove("hidden");
     this.playerProfileModal.style.display = "flex";
-    
+
     // Request player stats from server
     if (this.networkClient) {
       this.networkClient.requestPlayerStats(player.id);
     }
   }
 
-  updatePlayerProfileStats(playerId: string, playerName: string, starsDiscovered: number): void {
+  updatePlayerProfileStats(
+    playerId: string,
+    playerName: string,
+    starsDiscovered: number
+  ): void {
     // Update the modal if it's currently showing this player
-    if (!this.playerProfileModal.classList.contains("hidden") && 
-        this.playerProfileName.textContent === playerName) {
+    if (
+      !this.playerProfileModal.classList.contains("hidden") &&
+      this.playerProfileName.textContent === playerName
+    ) {
       this.playerProfileStars.textContent = starsDiscovered.toString();
     }
   }
