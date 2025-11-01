@@ -3,14 +3,21 @@ import { SurfaceTypeShaderValue, SurfaceTypeName } from "@constellation/shared";
 import { createTerrestrialPlanetMaterial } from "./materials/TerrestrialPlanetMaterial";
 import { createRockyPlanetMaterial } from "./materials/RockyPlanetMaterial";
 import { createBarrenPlanetMaterial } from "./materials/BarrenPlanetMaterial";
-import { createIcePlanetMaterial, regenerateIcePlanetTexture as regenerateIcePlanetTextureModule } from "./materials/IcePlanetMaterial";
+import {
+  createIcePlanetMaterial,
+  regenerateIcePlanetTexture as regenerateIcePlanetTextureModule,
+} from "./materials/IcePlanetMaterial";
 import { createIceGiantMaterial } from "./materials/IceGiantMaterial";
+import { createGasGiantMaterial } from "./materials/GasGiantMaterial";
 import { createCloudMaterial as createCloudMaterialModule } from "./materials/CloudMaterial";
 import { createDesertCloudMaterial as createDesertCloudMaterialModule } from "./materials/DesertCloudMaterial";
 import { createTerrestrialAtmosphereGlowMaterial as createTerrestrialAtmosphereGlowMaterialModule } from "./materials/TerrestrialAtmosphereGlowMaterial";
 import { createDesertAtmosphereGlowMaterial as createDesertAtmosphereGlowMaterialModule } from "./materials/DesertAtmosphereGlowMaterial";
 import { createStarMaterial as createStarMaterialModule } from "./materials/StarMaterial";
-import { createDesertPlanetMaterial, regenerateDesertPlanetTexture as regenerateDesertPlanetTextureModule } from "./materials/DesertPlanetMaterial";
+import {
+  createDesertPlanetMaterial,
+  regenerateDesertPlanetTexture as regenerateDesertPlanetTextureModule,
+} from "./materials/DesertPlanetMaterial";
 
 /**
  * Generate terrestrial planet texture with continents, oceans, and rivers
@@ -309,6 +316,11 @@ export class MaterialFactory {
       return createIceGiantMaterial(color, numericSeed);
     }
 
+    // Gas giants use custom shader with thick colorful bands (Jupiter/Saturn-like)
+    if (surfaceType === "gas_giant") {
+      return createGasGiantMaterial(color, numericSeed);
+    }
+
     // Terrestrial planets use shader with continent/ocean generation (similar to clouds)
     // Commented out for now - keeping canvas approach available for future use
     /*
@@ -398,7 +410,7 @@ export class MaterialFactory {
         const float SURFACE_DESERT = 1.0;
         const float SURFACE_BARREN = 2.0;
         const float SURFACE_ROCKY = 3.0;
-        const float SURFACE_BANDED = 4.0;
+        const float SURFACE_GAS_GIANT = 4.0;
         const float SURFACE_ICY = 5.0;
         const float SURFACE_VOLCANIC = 6.0;
         const float SURFACE_OCEANIC = 7.0;
@@ -573,146 +585,10 @@ export class MaterialFactory {
           float intensity = 1.0;
           vec3 colorModulation = vec3(1.0);
           
-          // Gas giant thick colorful bands
-          if(surfaceType == SURFACE_BANDED) {
-            // Use 3D position for seamless noise
-            vec3 rotatedPos = vPosition;
-            float cosRot = cos(rotation);
-            float sinRot = sin(rotation);
-            rotatedPos = vec3(
-              vPosition.x * cosRot - vPosition.z * sinRot,
-              vPosition.y,
-              vPosition.x * sinRot + vPosition.z * cosRot
-            );
-            vec3 samplePos = normalize(rotatedPos);
-            
-            // Generate seed-based distortion variety (no animation)
-            float turbulenceSeed1 = seededRandom(planetSeed * 3.1);
-            float turbulenceSeed2 = seededRandom(planetSeed * 3.7);
-            
-            // Use static seed-based distortion instead of time-based animation
-            // Add seed-based circular distortions at different scales (static)
-            float smallEddyAngle = turbulenceSeed1 * 100.0;
-            vec3 smallEddyRotation = vec3(
-              sin(smallEddyAngle) * 0.08,
-              cos(smallEddyAngle * 0.7) * 0.04,
-              cos(smallEddyAngle) * 0.08
-            );
-            
-            // Medium eddies with different seed offset
-            float mediumEddyAngle = turbulenceSeed2 * 80.0;
-            vec3 mediumEddyRotation = vec3(
-              sin(mediumEddyAngle) * 0.12,
-              cos(mediumEddyAngle * 0.8) * 0.08,
-              cos(mediumEddyAngle) * 0.12
-            );
-            
-            // Combine static distortions for pattern variation
-            vec3 totalRotation = samplePos + smallEddyRotation + mediumEddyRotation;
-            
-            // Create flowing turbulent bands using 3D noise with rotational motion
-            float flow = turbulence3D(totalRotation * vec3(3.0, 2.5, 3.0), 6);
-            float distortion = turbulence3D(totalRotation * vec3(4.5, 1.5, 4.5) + vec3(flow * 0.5, 0.0, 0.0), 4) * 0.3;
-            
-            // Multiple band layers with different frequencies - use latitude (v) for horizontal bands
-            float mainBands = sin((v + distortion) * 20.0) * 0.5 + 0.5;
-            float subBands = sin((v + distortion * 1.5) * 40.0) * 0.5 + 0.5;
-            float fineBands = sin((v + flow * 0.2) * 80.0) * 0.5 + 0.5;
-            
-            // Combine bands with different weights
-            float bandMix = mainBands * 0.6 + subBands * 0.3 + fineBands * 0.1;
-            
-            // Add turbulent spots and storms using 3D noise - scaled down for larger storm features
-            // Use static seed-based offset instead of rotation animation
-            float stormSeed = seededRandom(planetSeed * 4.3);
-            
-            // Create static seed-based offset for storm patterns
-            vec3 stormOffset = vec3(
-              sin(stormSeed * 100.0) * 0.2,
-              cos(stormSeed * 100.0) * 0.15,
-              sin(stormSeed * 70.0) * 0.2
-            );
-            
-            float storms = turbulence3D((samplePos + stormOffset) * vec3(4.0, 3.0, 4.0), 5);
-            float spotPattern = smoothstep(0.6, 0.8, storms);
-            
-            // Create color variations across bands
-            // Use static seed-based color variation instead of time-based shifting
-            float colorShiftSeed = seededRandom(planetSeed * 5.7);
-            float colorShift = sin(colorShiftSeed * 50.0) * 0.03 
-                             + cos(colorShiftSeed * 80.0) * 0.02 
-                             + 1.0; // Subtle seed-based color variation
-            float colorBand = sin(v * 15.0 + flow * 0.3) * 0.5 + 0.5;
-            
-            // Rich color palette for gas giants using varied base color
-            vec3 lightBand = variedBaseColor * 1.3 * colorShift; // Brighter zones with color shift
-            vec3 darkBand = variedBaseColor * 0.7; // Darker zones stay stable
-            vec3 stormColor = variedBaseColor * vec3(1.2, 1.1, 0.9) * colorShift; // Slightly warmer storms with variation
-            
-            // Mix colors based on bands and turbulence
-            colorModulation = mix(darkBand, lightBand, bandMix);
-            colorModulation = mix(colorModulation, stormColor, spotPattern * 0.4);
-            
-            // Add extra saturation and color variation
-            colorModulation *= vec3(
-              1.0 + colorBand * 0.2,
-              1.0 + (1.0 - colorBand) * 0.15,
-              1.0 + sin(colorBand * 3.14159) * 0.15
-            );
-            
-            // Intensity variations from turbulence (static)
-            intensity = 0.85 + bandMix * 0.3 + storms * 0.15;
-            
-            // Add polar storms with contrasting colors
-            float polarDistance = abs(v - 0.5) * 2.0; // 0 at equator, 1 at poles
-            if(polarDistance > 0.7) {
-              float poleIntensity = smoothstep(0.7, 0.95, polarDistance);
-              
-              // Create swirling vortex pattern at poles using 3D noise
-              vec2 poleCenter = vec2(0.5, v > 0.5 ? 1.0 : 0.0);
-              vec2 toPole = vec2(u, v) - poleCenter;
-              float distFromPole = length(toPole) * 4.0; // Scale for visibility
-              
-              // Add static seed-based distortion to polar vortices
-              float vortexSeed = seededRandom(planetSeed * 5.1);
-              // Static seed-based rotation offset (no animation)
-              float vortexRotation = vortexSeed * 6.28; // 0 to 2*PI
-              float poleSign = v > 0.5 ? 1.0 : -1.0; // Opposite rotation for each pole
-              
-              // Spiral distortion using 3D noise with static offset
-              float angle = atan(toPole.y, toPole.x) + vortexRotation * poleSign;
-              vec3 spiralPos = samplePos + vec3(distFromPole * 1.2, angle * 0.8, distFromPole * 1.2);
-              float spiral = turbulence3D(spiralPos, 5);
-              
-              // Create storm pattern using 3D noise - scaled for larger features
-              // Add static offset to the vortex pattern
-              vec3 vortexPos = samplePos * vec3(8.0, 12.0, 8.0) + vec3(spiral * 0.5 + vortexRotation * poleSign * 0.3, spiral * 0.3, 0.0);
-              float vortexPattern = turbulence3D(vortexPos, 6);
-              
-              // Storm mask - visible only near poles
-              float stormMask = smoothstep(0.8, 0.4, distFromPole) * poleIntensity;
-              
-              // Contrasting color for polar storms
-              // Use complementary hue by shifting RGB channels
-              vec3 polarStormColor = vec3(
-                variedBaseColor.b * 1.4,  // Shift colors for contrast
-                variedBaseColor.r * 1.2,
-                variedBaseColor.g * 1.3
-              );
-              
-              // Add variation within the storm
-              float stormColorVariation = vortexPattern * 0.3 + 0.7;
-              polarStormColor *= stormColorVariation;
-              
-              // Blend polar storm into the base color
-              colorModulation = mix(colorModulation, polarStormColor, stormMask * 0.8);
-              
-              // Add extra intensity variation in storms
-              intensity += stormMask * (vortexPattern - 0.5) * 0.4;
-            }
-          }
+          // Note: Gas giant rendering now handled by GasGiantMaterial.ts
+          // This fallback case should not be reached for gas_giant surface type
           // Icy planets with thin branching crack networks
-          else if(surfaceType == SURFACE_ICY) {
+          if(surfaceType == SURFACE_ICY) {
             // Use 3D position for seamless noise
             vec3 rotatedPos = vPosition;
             float cosRot = cos(rotation);
@@ -1230,9 +1106,7 @@ export class MaterialFactory {
    * Creates a shader material for desert planet atmospheres
    * Syncs with sand palette color based on seed, uses subtle glow
    */
-  createDesertAtmosphereGlowMaterial(
-    planetSeed: number
-  ): THREE.ShaderMaterial {
+  createDesertAtmosphereGlowMaterial(planetSeed: number): THREE.ShaderMaterial {
     return createDesertAtmosphereGlowMaterialModule(planetSeed);
   }
 
@@ -1352,9 +1226,12 @@ export class MaterialFactory {
     stormCoverage: number = 0.5,
     planetSeed: number = 0
   ): THREE.ShaderMaterial {
-    return createDesertCloudMaterialModule(baseColor, stormCoverage, planetSeed);
+    return createDesertCloudMaterialModule(
+      baseColor,
+      stormCoverage,
+      planetSeed
+    );
   }
-
 
   /**
    * Creates a shader material for asteroids based on composition

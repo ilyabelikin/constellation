@@ -78,6 +78,10 @@ export class SceneManager {
   // Callback to check if keyboard input should be blocked (e.g., modal is open)
   public shouldBlockKeyboardInput: (() => boolean) | null = null;
 
+  // Planet rotation tracking for smooth rotation (avoids discontinuities from time updates)
+  private planetRotations: Map<string, number> = new Map();
+  private lastRotationUpdateTime: number = 0;
+
   // Gate travel state
   private entryGateId: string | null = null;
   private exitGateId: string | null = null;
@@ -206,6 +210,8 @@ export class SceneManager {
       system.star,
       this.scene
     );
+    // Primary star is always at the origin (0, 0, 0) in our coordinate system
+    starMesh.position.set(0, 0, 0);
     this.scene.add(starMesh);
     this.bodies.set(system.star.id, starMesh);
 
@@ -337,6 +343,10 @@ export class SceneManager {
   private clearScene(): void {
     // Dispose black hole renderers first
     this.celestialBodyFactory.disposeBlackHoles();
+
+    // Clear planet rotation tracking
+    this.planetRotations.clear();
+    this.lastRotationUpdateTime = 0;
 
     // Dispose and remove all bodies
     for (const mesh of this.bodies.values()) {
@@ -490,6 +500,12 @@ export class SceneManager {
 
     // Update body positions with interpolation tracking
     for (const bodyState of state.bodies) {
+      // Skip position updates for the primary star (it should always be at origin)
+      // Companion stars still get updated since they orbit
+      if (this.system && bodyState.id === this.system.star.id) {
+        continue;
+      }
+
       const newPosition = new THREE.Vector3(
         bodyState.position.x * this.SCALE,
         bodyState.position.z * this.SCALE,
@@ -1031,6 +1047,7 @@ export class SceneManager {
     }
 
     // Get interpolation factor for smooth orbital motion
+    // Match server update rate: 5Hz = 0.2s per update
     const lerpFactor = this.timeInterpolator.getLerpFactor(0.2);
 
     // Collect all star positions for planet lighting
@@ -1077,20 +1094,30 @@ export class SceneManager {
       starLightIntensities.push(0.0);
     }
 
+    // Calculate delta time for smooth rotation updates (once per frame, not per planet)
+    const currentRotationTime = performance.now() / 1000;
+    const rotationDeltaTime = this.lastRotationUpdateTime === 0 ? 0.016 : currentRotationTime - this.lastRotationUpdateTime;
+
     // Update planet positions and rotations
     for (const [bodyId, mesh] of this.bodies.entries()) {
-      // Smooth orbital motion interpolation
-      const interpolatedPos = this.timeInterpolator.getInterpolatedPosition(
-        bodyId,
-        lerpFactor
-      );
-      if (interpolatedPos) {
-        mesh.position.copy(interpolatedPos);
+      // Update positions for all bodies except the primary star (which stays at origin)
+      // Companion stars still get updated since they orbit
+      const isPrimaryStar = this.system && bodyId === this.system.star.id;
+      
+      if (!isPrimaryStar) {
+        // Smooth orbital motion interpolation
+        const interpolatedPos = this.timeInterpolator.getInterpolatedPosition(
+          bodyId,
+          lerpFactor
+        );
+        if (interpolatedPos) {
+          mesh.position.copy(interpolatedPos);
 
-        // Update ring position to follow planet
-        const ringGroup = this.rings.get(bodyId);
-        if (ringGroup) {
-          ringGroup.position.copy(interpolatedPos);
+          // Update ring position to follow planet
+          const ringGroup = this.rings.get(bodyId);
+          if (ringGroup) {
+            ringGroup.position.copy(interpolatedPos);
+          }
         }
       }
 
@@ -1100,7 +1127,23 @@ export class SceneManager {
         const baseRotationSpeed = (2 * Math.PI) / 86400; // One Earth day
         const speedMultiplier = 0.5 + (bodyId.charCodeAt(0) % 10) * 0.15;
         const rotationSpeed = baseRotationSpeed * speedMultiplier;
-        const rotation = this.timeInterpolator.getGameTime() * rotationSpeed;
+        
+        // Use incremental rotation to avoid discontinuities from time updates
+        // Initialize rotation if not exists
+        if (!this.planetRotations.has(bodyId)) {
+          this.planetRotations.set(bodyId, 0);
+        }
+        
+        // Increment rotation based on real time elapsed (not game time)
+        // This ensures smooth visual rotation even if game time has small jumps
+        if (!this.timeInterpolator.getIsPaused() && rotationDeltaTime > 0) {
+          // Increment rotation based on time scale
+          const rotationIncrement = rotationSpeed * rotationDeltaTime * this.timeInterpolator.getTimeScale();
+          const currentRotation = this.planetRotations.get(bodyId)! + rotationIncrement;
+          this.planetRotations.set(bodyId, currentRotation);
+        }
+        
+        const rotation = this.planetRotations.get(bodyId)!;
 
         // Update shader uniform if using ShaderMaterial
         if (
@@ -1161,12 +1204,25 @@ export class SceneManager {
           if (child.userData.cloudLayer && child instanceof THREE.Mesh) {
             const cloudMaterial = child.material as THREE.ShaderMaterial;
             if (cloudMaterial.uniforms && cloudMaterial.uniforms.rotation) {
-              const cloudRotationSpeed =
-                baseRotationSpeed * child.userData.rotationSpeed;
-              cloudMaterial.uniforms.rotation.value =
-                this.timeInterpolator.getGameTime() * cloudRotationSpeed;
+              const cloudId = `${bodyId}_cloud_${child.userData.cloudLayer}`;
+              
+              // Initialize cloud rotation if not exists
+              if (!this.planetRotations.has(cloudId)) {
+                this.planetRotations.set(cloudId, 0);
+              }
+              
+              // Increment cloud rotation
+              if (!this.timeInterpolator.getIsPaused() && rotationDeltaTime > 0) {
+                const cloudRotationSpeed =
+                  baseRotationSpeed * child.userData.rotationSpeed;
+                const cloudRotationIncrement = cloudRotationSpeed * rotationDeltaTime * this.timeInterpolator.getTimeScale();
+                const currentCloudRotation = this.planetRotations.get(cloudId)! + cloudRotationIncrement;
+                this.planetRotations.set(cloudId, currentCloudRotation);
+              }
+              
+              cloudMaterial.uniforms.rotation.value = this.planetRotations.get(cloudId)!;
 
-              // Update time uniform for evolving cloud patterns
+              // Update time uniform for evolving cloud patterns (use game time for these effects)
               if (cloudMaterial.uniforms.time) {
                 cloudMaterial.uniforms.time.value =
                   this.timeInterpolator.getGameTime();
@@ -1331,6 +1387,9 @@ export class SceneManager {
         }
       });
     }
+
+    // Update rotation update time for next frame
+    this.lastRotationUpdateTime = currentRotationTime;
 
     // Skip camera controller update during gate travel (we handle camera directly)
     if (!this.gateTravelAnimator.isAnimating()) {

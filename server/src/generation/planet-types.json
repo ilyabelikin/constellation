@@ -95,7 +95,7 @@
       "radiusRange": [2.0, 3.5],
       "color": "#7cb3d9",
       "atmosphereChance": 0,
-      "surfaceType": "banded",
+      "surfaceType": "gas_giant",
       "baseHabitability": 0.0,
       "lifeChance": 0.0
     },
@@ -117,7 +117,7 @@
       "radiusRange": [8, 12],
       "color": "#d4a373",
       "atmosphereChance": 0,
-      "surfaceType": "banded",
+      "surfaceType": "gas_giant",
       "baseHabitability": 0.0,
       "lifeChance": 0.0
     },
@@ -128,7 +128,7 @@
       "radiusRange": [10, 14],
       "color": "#c9a96e",
       "atmosphereChance": 0,
-      "surfaceType": "banded",
+      "surfaceType": "gas_giant",
       "baseHabitability": 0.0,
       "lifeChance": 0.0
     },
@@ -139,7 +139,7 @@
       "radiusRange": [12, 16],
       "color": "#b8956a",
       "atmosphereChance": 0,
-      "surfaceType": "banded",
+      "surfaceType": "gas_giant",
       "baseHabitability": 0.0,
       "lifeChance": 0.0
     }

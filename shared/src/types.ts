@@ -6,7 +6,7 @@ export const SurfaceType = {
   DESERT: "desert", // Arid desert worlds with sand dunes
   BARREN: "barren", // Ancient, smooth, dust-covered worlds
   ROCKY: "rocky", // Rocky, heavily cratered surfaces
-  BANDED: "banded", // Gas giants with bands (Jupiter, Saturn)
+  GAS_GIANT: "gas_giant", // Gas giants with bands (Jupiter, Saturn)
   ICE_GIANT: "ice_giant", // Ice giants with soft clouds (Neptune, Uranus)
   ICY: "icy", // Frozen ice worlds
   VOLCANIC: "volcanic", // Lava worlds
@@ -22,7 +22,7 @@ export const SurfaceTypeShaderValue: Record<SurfaceTypeName, number> = {
   [SurfaceType.DESERT]: 1.0,
   [SurfaceType.BARREN]: 2.0,
   [SurfaceType.ROCKY]: 3.0,
-  [SurfaceType.BANDED]: 4.0,
+  [SurfaceType.GAS_GIANT]: 4.0,
   [SurfaceType.ICE_GIANT]: 8.0,
   [SurfaceType.ICY]: 5.0,
   [SurfaceType.VOLCANIC]: 6.0,

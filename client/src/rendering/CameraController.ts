@@ -148,8 +148,16 @@ export class CameraController {
         mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
           ? mesh.geometry.boundingSphere.radius
           : 10;
+      
+      // Rocky and barren planets use vertex displacement in shaders,
+      // making them appear larger than their bounding sphere radius.
+      // Use a larger multiplier to avoid zooming too close.
+      const planetType = mesh.userData.body?.surfaceType;
+      const hasVertexDisplacement = planetType === "rocky" || planetType === "barren";
+      const distanceMultiplier = hasVertexDisplacement ? 4 : 3;
+      
       // Zoom to fill screen nicely
-      this.cameraDistance = objectRadius * 3;
+      this.cameraDistance = objectRadius * distanceMultiplier;
       this.isTrackingObject = true; // Always track moving objects
     }
 
@@ -300,7 +308,10 @@ export class CameraController {
   ): void {
     // Update camera target to follow selected object if tracking is enabled
     if (this.isTrackingObject && trackedObject) {
-      this.cameraTarget.copy(trackedObject.position);
+      // Smoothly lerp the camera target to the object's position
+      // This prevents the "jumping" effect when zoomed in close
+      const targetLerpFactor = 0.15;
+      this.cameraTarget.lerp(trackedObject.position, targetLerpFactor);
     }
 
     // Calculate camera position based on spherical coordinates

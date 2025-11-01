@@ -134,7 +134,7 @@ export class CelestialBodyFactory {
 
     // Add atmosphere if planet has one
     // Skip for gas giants - their surface texture IS the atmosphere
-    const isGasGiant = planet.surfaceType === "banded";
+    const isGasGiant = planet.surfaceType === "gas_giant";
     if (planet.hasAtmosphere && !isGasGiant) {
       const atmosphereRadius = radius * 1.08; // 8% larger than planet for more visible glow
       const atmosphereGeometry = new THREE.SphereGeometry(
