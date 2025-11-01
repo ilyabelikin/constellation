@@ -32,6 +32,7 @@ class ConstellationClient {
     this.network = new NetworkClient();
     this.scene = new SceneManager(container);
     this.hud = new HUDManager();
+    this.hud.setNetworkClient(this.network);
 
     this.setupNetworkHandlers();
     this.setupHUDHandlers();
@@ -132,7 +133,8 @@ class ConstellationClient {
       // If galaxy not found, automatically create it
       if (message === "Galaxy not found" && this.lastGalaxyName) {
         console.log("Galaxy not found, creating:", this.lastGalaxyName);
-        this.network.createGalaxy(this.lastGalaxyName);
+        const playerName = this.hud.getPlayerName();
+        this.network.createGalaxy(this.lastGalaxyName, playerName);
       } else {
         this.hud.showError(message);
       }
@@ -153,7 +155,8 @@ class ConstellationClient {
       console.log("Galaxy reset:", galaxyId);
       this.hud.clearError();
       // After reset, automatically join the galaxy
-      this.network.joinGalaxy(this.lastGalaxyName);
+      const playerName = this.hud.getPlayerName();
+      this.network.joinGalaxy(this.lastGalaxyName, playerName);
     };
 
     this.network.onGalaxyInfo = (galaxyName, exists, currentTime) => {
@@ -278,6 +281,21 @@ class ConstellationClient {
       console.log("Search results received:", results.length, "results");
       this.hud.displaySearchResults(results);
     };
+
+    this.network.onPlayerDiscovery = (discoveryType, playerNames, systemName) => {
+      console.log("Player discovery:", discoveryType, playerNames, "at", systemName);
+      this.hud.showPlayerDiscovery(discoveryType, playerNames, systemName);
+    };
+
+    this.network.onGalaxyPlayers = (metPlayers, totalPlayers) => {
+      console.log("Galaxy players:", metPlayers, "total:", totalPlayers);
+      this.hud.updatePlayersDisplay(metPlayers, totalPlayers);
+    };
+
+    this.network.onPlayerStats = (playerId, playerName, starsDiscovered) => {
+      console.log("Player stats:", playerName, "stars:", starsDiscovered);
+      this.hud.updatePlayerProfileStats(playerId, playerName, starsDiscovered);
+    };
   }
 
   private setupHUDHandlers(): void {
@@ -314,10 +332,13 @@ class ConstellationClient {
       if (!this.isConnected) {
         await this.connect();
       }
+      // Get player name and join galaxy
+      const playerName = this.hud.getPlayerName();
+      
       // Store the name and try to join first
       // If it doesn't exist, it will be created automatically
       this.lastGalaxyName = name;
-      this.network.joinGalaxy(name);
+      this.network.joinGalaxy(name, playerName);
     };
 
     this.hud.onResetGalaxy = async (name) => {
@@ -325,9 +346,10 @@ class ConstellationClient {
       if (!this.isConnected) {
         await this.connect();
       }
-      // Reset (delete and recreate) the galaxy
+      // Get player name and reset (delete and recreate) the galaxy
+      const playerName = this.hud.getPlayerName();
       this.lastGalaxyName = name;
-      this.network.resetGalaxy(name);
+      this.network.resetGalaxy(name, playerName);
     };
 
     this.hud.onNavigateHome = () => {

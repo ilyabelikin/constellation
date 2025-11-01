@@ -27,6 +27,7 @@ export class HUDManager {
   // HUD elements
   private authModal: HTMLElement;
   private errorMessage: HTMLElement;
+  private playerNameInput: HTMLInputElement;
   private galaxyNameInput: HTMLInputElement;
   private galaxyTimeDisplay: HTMLElement;
   private exploreGalaxyButton: HTMLElement;
@@ -41,6 +42,7 @@ export class HUDManager {
   private timeDisplay: HTMLElement;
   private timeScaleDisplay: HTMLElement;
   private timeToggleButton: HTMLElement;
+  private playersDisplay: HTMLElement;
 
   private systemOutline: HTMLElement;
   private outlineList: HTMLElement;
@@ -51,7 +53,20 @@ export class HUDManager {
   private searchInput: HTMLInputElement;
   private searchResults: HTMLElement;
 
+  // Discovery modal elements
+  private discoveryModal: HTMLElement;
+  private discoveryMessage: HTMLElement;
+  private discoveryOkButton: HTMLElement;
+
+  // Player profile modal elements
+  private playerProfileModal: HTMLElement;
+  private playerProfileName: HTMLElement;
+  private playerProfileStars: HTMLElement;
+  private playerProfileCloseButton: HTMLElement;
+
   private isPaused = false;
+  private metPlayers: { id: string; name: string }[] = [];
+  private networkClient: any = null; // Reference to network client for requesting stats
 
   // Event handler references for cleanup
   private exploreGalaxyHandler: () => void;
@@ -81,12 +96,26 @@ export class HUDManager {
     // Auth modal
     this.authModal = document.getElementById("auth-modal")!;
     this.errorMessage = document.getElementById("error-message")!;
+    this.playerNameInput = document.getElementById(
+      "player-name"
+    ) as HTMLInputElement;
     this.galaxyNameInput = document.getElementById(
       "galaxy-name"
     ) as HTMLInputElement;
     this.galaxyTimeDisplay = document.getElementById("galaxy-time-display")!;
     this.exploreGalaxyButton = document.getElementById("explore-galaxy")!;
     this.resetGalaxyButton = document.getElementById("reset-galaxy")!;
+
+    // Load player name from localStorage
+    const savedName = localStorage.getItem("playerName");
+    if (savedName) {
+      this.playerNameInput.value = savedName;
+    }
+
+    // Save player name to localStorage when changed
+    this.playerNameInput.addEventListener("input", () => {
+      localStorage.setItem("playerName", this.playerNameInput.value.trim());
+    });
 
     // Navigation
     this.navSection = document.querySelector(".hud-top-left")!;
@@ -99,6 +128,7 @@ export class HUDManager {
     this.timeDisplay = document.getElementById("time-display")!;
     this.timeScaleDisplay = document.getElementById("time-scale")!;
     this.timeToggleButton = document.getElementById("time-toggle")!;
+    this.playersDisplay = document.getElementById("players-display")!;
 
     // System outline
     this.systemOutline = document.getElementById("system-outline")!;
@@ -111,6 +141,35 @@ export class HUDManager {
       "search-input"
     ) as HTMLInputElement;
     this.searchResults = document.getElementById("search-results")!;
+
+    // Discovery modal
+    this.discoveryModal = document.getElementById("discovery-modal")!;
+    this.discoveryMessage = document.getElementById("discovery-message")!;
+    this.discoveryOkButton = document.getElementById("discovery-ok-button")!;
+
+    // Discovery OK button handler
+    this.discoveryOkButton.addEventListener("click", () => {
+      this.discoveryModal.classList.add("hidden");
+      this.discoveryModal.style.display = "none";
+    });
+
+    // Player profile modal
+    this.playerProfileModal = document.getElementById("player-profile-modal")!;
+    this.playerProfileName = document.getElementById("player-profile-name")!;
+    this.playerProfileStars = document.getElementById("player-profile-stars")!;
+    this.playerProfileCloseButton = document.getElementById("player-profile-close-button")!;
+
+    // Player profile close button handler
+    this.playerProfileCloseButton.addEventListener("click", () => {
+      this.closePlayerProfileModal();
+    });
+
+    // Close player profile modal when clicking outside
+    this.playerProfileModal.addEventListener("click", (e) => {
+      if (e.target === this.playerProfileModal) {
+        this.closePlayerProfileModal();
+      }
+    });
 
     // Initialize detail views
     this.bodyDetailView = new BodyDetailView();
@@ -930,5 +989,131 @@ export class HUDManager {
         callback(body.id, seed);
       }
     });
+  }
+
+  showPlayerDiscovery(discoveryType: "discovered" | "wasDiscovered", playerNames: string[], systemName: string): void {
+    if (playerNames.length === 0) return;
+
+    let message = "";
+    
+    if (discoveryType === "discovered") {
+      // You discovered another player's civilization
+      if (playerNames.length === 1) {
+        message = `<div style="margin-bottom: 15px;">You discovered star-faring civilization <strong>${playerNames[0]}</strong></div>`;
+        message += `<div>They connected to you in <strong>${systemName}</strong></div>`;
+      } else if (playerNames.length === 2) {
+        message = `<div style="margin-bottom: 15px;">You discovered star-faring civilizations <strong>${playerNames[0]}</strong> and <strong>${playerNames[1]}</strong></div>`;
+        message += `<div>They connected to you in <strong>${systemName}</strong></div>`;
+      } else {
+        const lastPlayer = playerNames[playerNames.length - 1];
+        const otherPlayers = playerNames.slice(0, -1).join(", ");
+        message = `<div style="margin-bottom: 15px;">You discovered star-faring civilizations <strong>${otherPlayers}</strong>, and <strong>${lastPlayer}</strong></div>`;
+        message += `<div>They connected to you in <strong>${systemName}</strong></div>`;
+      }
+    } else {
+      // You were discovered by another player
+      if (playerNames.length === 1) {
+        message = `<div style="margin-bottom: 15px;">You were discovered by star-faring civilization <strong>${playerNames[0]}</strong></div>`;
+        message += `<div>They connected to you in <strong>${systemName}</strong></div>`;
+      } else {
+        // Multiple players discovered you at once (rare but possible)
+        const lastPlayer = playerNames[playerNames.length - 1];
+        const otherPlayers = playerNames.slice(0, -1).join(", ");
+        message = `<div style="margin-bottom: 15px;">You were discovered by star-faring civilizations <strong>${otherPlayers}</strong>, and <strong>${lastPlayer}</strong></div>`;
+        message += `<div>They connected to you in <strong>${systemName}</strong></div>`;
+      }
+    }
+
+    this.discoveryMessage.innerHTML = message;
+    this.discoveryModal.classList.remove("hidden");
+    this.discoveryModal.style.display = "flex";
+  }
+
+  updatePlayersDisplay(metPlayers: { id: string; name: string }[], totalPlayers: number): void {
+    this.metPlayers = metPlayers;
+    const unmetCount = totalPlayers - metPlayers.length - 1; // -1 for self
+    
+    // Clear existing content
+    this.playersDisplay.innerHTML = "";
+    
+    // Create a container for the players text
+    const playersText = document.createElement("span");
+    playersText.textContent = "Players: ";
+    this.playersDisplay.appendChild(playersText);
+    
+    if (metPlayers.length === 0) {
+      const statusText = document.createElement("span");
+      statusText.textContent = unmetCount > 0 ? `${unmetCount} unmet` : "you alone";
+      this.playersDisplay.appendChild(statusText);
+    } else {
+      // Add clickable player names
+      metPlayers.forEach((player, index) => {
+        const playerLink = document.createElement("span");
+        playerLink.textContent = player.name;
+        playerLink.style.cursor = "pointer";
+        playerLink.style.textDecoration = "underline";
+        playerLink.style.color = "var(--primary-color)";
+        playerLink.addEventListener("click", () => {
+          this.openPlayerProfileModal(player);
+        });
+        playerLink.addEventListener("mouseenter", () => {
+          playerLink.style.color = "var(--primary-color-dim)";
+        });
+        playerLink.addEventListener("mouseleave", () => {
+          playerLink.style.color = "var(--primary-color)";
+        });
+        this.playersDisplay.appendChild(playerLink);
+        
+        // Add separators
+        if (index < metPlayers.length - 1) {
+          const separator = document.createElement("span");
+          separator.textContent = ", ";
+          this.playersDisplay.appendChild(separator);
+        }
+      });
+      
+      // Add unmet count if any
+      if (unmetCount > 0) {
+        const andText = document.createElement("span");
+        andText.textContent = ` and ${unmetCount} unmet`;
+        this.playersDisplay.appendChild(andText);
+      }
+    }
+  }
+
+  private openPlayerProfileModal(player: { id: string; name: string }): void {
+    this.playerProfileName.textContent = player.name;
+    
+    // Show loading state
+    this.playerProfileStars.textContent = "Loading...";
+    
+    this.playerProfileModal.classList.remove("hidden");
+    this.playerProfileModal.style.display = "flex";
+    
+    // Request player stats from server
+    if (this.networkClient) {
+      this.networkClient.requestPlayerStats(player.id);
+    }
+  }
+
+  updatePlayerProfileStats(playerId: string, playerName: string, starsDiscovered: number): void {
+    // Update the modal if it's currently showing this player
+    if (!this.playerProfileModal.classList.contains("hidden") && 
+        this.playerProfileName.textContent === playerName) {
+      this.playerProfileStars.textContent = starsDiscovered.toString();
+    }
+  }
+
+  setNetworkClient(networkClient: any): void {
+    this.networkClient = networkClient;
+  }
+
+  private closePlayerProfileModal(): void {
+    this.playerProfileModal.classList.add("hidden");
+    this.playerProfileModal.style.display = "none";
+  }
+
+  getPlayerName(): string {
+    return this.playerNameInput.value.trim() || "Anonymous Explorer";
   }
 }

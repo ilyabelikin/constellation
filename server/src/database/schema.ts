@@ -68,12 +68,23 @@ export function initializeDatabase(dbPath: string): Database.Database {
       FOREIGN KEY (gate_id) REFERENCES star_gates(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS system_discoveries (
+      system_id TEXT NOT NULL,
+      player_id TEXT NOT NULL,
+      discovered_at INTEGER NOT NULL,
+      PRIMARY KEY (system_id, player_id),
+      FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+      FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_players_uuid ON players(uuid);
     CREATE INDEX IF NOT EXISTS idx_players_galaxy ON players(galaxy_id);
     CREATE INDEX IF NOT EXISTS idx_systems_galaxy ON star_systems(galaxy_id);
     CREATE INDEX IF NOT EXISTS idx_ships_player ON ships(player_id);
     CREATE INDEX IF NOT EXISTS idx_gates_system ON star_gates(system_id);
     CREATE INDEX IF NOT EXISTS idx_explored_gates_player ON explored_gates(player_id);
+    CREATE INDEX IF NOT EXISTS idx_system_discoveries_system ON system_discoveries(system_id);
+    CREATE INDEX IF NOT EXISTS idx_system_discoveries_player ON system_discoveries(player_id);
   `);
 
   // Migration: Add constellation_positions column if it doesn't exist

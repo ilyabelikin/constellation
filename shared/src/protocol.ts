@@ -13,9 +13,9 @@ export type ClientMessage =
   | { type: "authenticate"; uuid: string | null }
   | { type: "setName"; name: string }
   | { type: "queryGalaxy"; galaxyName: string }
-  | { type: "joinGalaxy"; galaxyName: string }
-  | { type: "createGalaxy"; galaxyName: string }
-  | { type: "resetGalaxy"; galaxyName: string }
+  | { type: "joinGalaxy"; galaxyName: string; playerName: string }
+  | { type: "createGalaxy"; galaxyName: string; playerName: string }
+  | { type: "resetGalaxy"; galaxyName: string; playerName: string }
   | { type: "requestSystemState"; systemId: string }
   | { type: "setTimeScale"; scale: number }
   | { type: "pauseTime" }
@@ -27,7 +27,8 @@ export type ClientMessage =
       type: "saveConstellationPositions";
       positions: Record<string, { x: number; y: number; z: number }>;
     }
-  | { type: "searchObjects"; query: string };
+  | { type: "searchObjects"; query: string }
+  | { type: "requestPlayerStats"; playerId: string };
 
 export interface ShipManeuverCommand {
   shipId: string;
@@ -75,6 +76,23 @@ export type ServerMessage =
   | {
       type: "searchResults";
       results: SearchResult[];
+    }
+  | {
+      type: "playerDiscovery";
+      discoveryType: "discovered" | "wasDiscovered";
+      playerNames: string[];
+      systemName: string;
+    }
+  | {
+      type: "galaxyPlayers";
+      metPlayers: { id: string; name: string }[];
+      totalPlayers: number;
+    }
+  | {
+      type: "playerStats";
+      playerId: string;
+      playerName: string;
+      starsDiscovered: number;
     };
 
 export interface SearchResult {

@@ -186,6 +186,52 @@ export class DatabaseQueries {
     stmt.run(systemId, playerId);
   }
 
+  updatePlayerName(playerId: string, name: string): void {
+    const stmt = this.db.prepare(
+      "UPDATE players SET name = ? WHERE id = ?"
+    );
+    stmt.run(name, playerId);
+  }
+
+  getPlayersByGalaxy(galaxyId: string): Player[] {
+    const stmt = this.db.prepare("SELECT * FROM players WHERE galaxy_id = ?");
+    const rows = stmt.all(galaxyId) as any[];
+    return rows.map((row) => {
+      const exploredGateIds = this.getExploredGates(row.id);
+      return {
+        id: row.id,
+        uuid: row.uuid,
+        name: row.name,
+        galaxyId: row.galaxy_id,
+        homeSystemId: row.home_system_id,
+        homePlanetId: row.home_planet_id,
+        currentSystemId: row.current_system_id,
+        shipId: "",
+        exploredGateIds,
+      };
+    });
+  }
+
+  getExploredSystemsByPlayer(playerId: string): Set<string> {
+    // Get all systems explored by a player
+    // A system is "explored" if the player has explored at least one gate in that system
+    const exploredGates = this.getExploredGates(playerId);
+    const systemIds = new Set<string>();
+    
+    for (const gateId of exploredGates) {
+      const gate = this.getGateById(gateId);
+      if (gate) {
+        systemIds.add(gate.systemId);
+        // Also add destination system if it's not a placeholder
+        if (!gate.destinationSystemId.startsWith("PLACEHOLDER_")) {
+          systemIds.add(gate.destinationSystemId);
+        }
+      }
+    }
+    
+    return systemIds;
+  }
+
   // Ship operations
   createShip(ship: Ship): void {
     const stmt = this.db.prepare(
@@ -294,6 +340,69 @@ export class DatabaseQueries {
       "INSERT OR IGNORE INTO explored_gates (player_id, gate_id) VALUES (?, ?)"
     );
     stmt.run(playerId, gateId);
+  }
+
+  // System discovery operations
+  recordSystemDiscovery(systemId: string, playerId: string): void {
+    const stmt = this.db.prepare(
+      "INSERT OR IGNORE INTO system_discoveries (system_id, player_id, discovered_at) VALUES (?, ?, ?)"
+    );
+    stmt.run(systemId, playerId, Date.now());
+  }
+
+  getSystemDiscoverers(systemId: string): Player[] {
+    const stmt = this.db.prepare(`
+      SELECT p.* FROM players p
+      INNER JOIN system_discoveries sd ON p.id = sd.player_id
+      WHERE sd.system_id = ?
+      ORDER BY sd.discovered_at ASC
+    `);
+    const rows = stmt.all(systemId) as any[];
+    return rows.map((row) => {
+      const exploredGateIds = this.getExploredGates(row.id);
+      return {
+        id: row.id,
+        uuid: row.uuid,
+        name: row.name,
+        galaxyId: row.galaxy_id,
+        homeSystemId: row.home_system_id,
+        homePlanetId: row.home_planet_id,
+        currentSystemId: row.current_system_id,
+        shipId: "",
+        exploredGateIds,
+      };
+    });
+  }
+
+  getMetPlayers(playerId: string): Player[] {
+    // Get all players that this player has "met" (visited each other's discovered systems)
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT p.* FROM players p
+      INNER JOIN system_discoveries sd1 ON p.id = sd1.player_id
+      INNER JOIN system_discoveries sd2 ON sd1.system_id = sd2.system_id
+      WHERE sd2.player_id = ? AND p.id != ?
+    `);
+    const rows = stmt.all(playerId, playerId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      uuid: row.uuid,
+      name: row.name,
+      galaxyId: row.galaxy_id,
+      homeSystemId: row.home_system_id,
+      homePlanetId: row.home_planet_id,
+      currentSystemId: row.current_system_id,
+      shipId: "",
+      exploredGateIds: [],
+    }));
+  }
+
+  getPlayerStarsDiscoveredCount(playerId: string): number {
+    const stmt = this.db.prepare(`
+      SELECT COUNT(*) as count FROM system_discoveries
+      WHERE player_id = ?
+    `);
+    const row = stmt.get(playerId) as any;
+    return row?.count || 0;
   }
 
   markGateExplored(playerId: string, gateId: string): void {
@@ -820,9 +929,11 @@ export class DatabaseQueries {
           gateId: isExplored ? gate.id : undefined,
         });
 
-        // Add destination system to constellation (for both explored and unexplored gates)
-        // This allows us to show unexplored tunnels with purple spheres at their destinations
-        systemIds.add(gate.destinationSystemId);
+        // Only add destination system if this gate is explored
+        // Unexplored gates will show mystery spheres at calculated positions, not the actual system
+        if (isExplored) {
+          systemIds.add(gate.destinationSystemId);
+        }
       }
     }
 

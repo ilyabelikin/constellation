@@ -54,6 +54,15 @@ export class NetworkClient {
       ) => void)
     | null = null;
   public onSearchResults: ((results: SearchResult[]) => void) | null = null;
+  public onPlayerDiscovery:
+    | ((discoveryType: "discovered" | "wasDiscovered", playerNames: string[], systemName: string) => void)
+    | null = null;
+  public onGalaxyPlayers:
+    | ((metPlayers: { id: string; name: string }[], totalPlayers: number) => void)
+    | null = null;
+  public onPlayerStats:
+    | ((playerId: string, playerName: string, starsDiscovered: number) => void)
+    | null = null;
 
   constructor() {
     // Load UUID from localStorage
@@ -208,6 +217,24 @@ export class NetworkClient {
             this.onSearchResults(message.results);
           }
           break;
+
+        case "playerDiscovery":
+          if (this.onPlayerDiscovery) {
+            this.onPlayerDiscovery(message.discoveryType, message.playerNames, message.systemName);
+          }
+          break;
+
+        case "galaxyPlayers":
+          if (this.onGalaxyPlayers) {
+            this.onGalaxyPlayers(message.metPlayers, message.totalPlayers);
+          }
+          break;
+
+        case "playerStats":
+          if (this.onPlayerStats) {
+            this.onPlayerStats(message.playerId, message.playerName, message.starsDiscovered);
+          }
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -228,16 +255,16 @@ export class NetworkClient {
     this.send({ type: "setName", name });
   }
 
-  joinGalaxy(galaxyName: string): void {
-    this.send({ type: "joinGalaxy", galaxyName });
+  joinGalaxy(galaxyName: string, playerName: string): void {
+    this.send({ type: "joinGalaxy", galaxyName, playerName });
   }
 
-  createGalaxy(galaxyName: string): void {
-    this.send({ type: "createGalaxy", galaxyName });
+  createGalaxy(galaxyName: string, playerName: string): void {
+    this.send({ type: "createGalaxy", galaxyName, playerName });
   }
 
-  resetGalaxy(galaxyName: string): void {
-    this.send({ type: "resetGalaxy", galaxyName });
+  resetGalaxy(galaxyName: string, playerName: string): void {
+    this.send({ type: "resetGalaxy", galaxyName, playerName });
   }
 
   queryGalaxy(galaxyName: string): void {
@@ -276,6 +303,10 @@ export class NetworkClient {
 
   searchObjects(query: string): void {
     this.send({ type: "searchObjects", query });
+  }
+
+  requestPlayerStats(playerId: string): void {
+    this.send({ type: "requestPlayerStats", playerId });
   }
 
   /**
