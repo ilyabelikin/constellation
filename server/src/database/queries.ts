@@ -7,6 +7,7 @@ import {
   StarGate,
   Vector3,
   OrbitalElements,
+  TIME_SCALE_DEFAULT,
 } from "@constellation/shared";
 
 export class DatabaseQueries {
@@ -19,9 +20,9 @@ export class DatabaseQueries {
   // Galaxy operations
   createGalaxy(galaxy: Galaxy): void {
     const stmt = this.db.prepare(
-      "INSERT INTO galaxies (id, name, seed, created_at) VALUES (?, ?, ?, ?)"
+      "INSERT INTO galaxies (id, name, seed, created_at, current_time, is_paused, time_scale) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
-    stmt.run(galaxy.id, galaxy.name, galaxy.seed, galaxy.createdAt);
+    stmt.run(galaxy.id, galaxy.name, galaxy.seed, galaxy.createdAt, 0, 1, TIME_SCALE_DEFAULT);
   }
 
   deleteGalaxy(galaxyId: string): void {
@@ -47,6 +48,9 @@ export class DatabaseQueries {
       name: row.name,
       seed: row.seed,
       createdAt: row.created_at,
+      currentTime: row.current_time || 0,
+      isPaused: row.is_paused === 1,
+      timeScale: row.time_scale || TIME_SCALE_DEFAULT,
     };
   }
 
@@ -59,7 +63,17 @@ export class DatabaseQueries {
       name: row.name,
       seed: row.seed,
       createdAt: row.created_at,
+      currentTime: row.current_time || 0,
+      isPaused: row.is_paused === 1,
+      timeScale: row.time_scale || TIME_SCALE_DEFAULT,
     };
+  }
+
+  updateGalaxyTimeState(galaxyId: string, currentTime: number, isPaused: boolean, timeScale: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE galaxies SET current_time = ?, is_paused = ?, time_scale = ? WHERE id = ?"
+    );
+    stmt.run(currentTime, isPaused ? 1 : 0, timeScale, galaxyId);
   }
 
   // Star system operations

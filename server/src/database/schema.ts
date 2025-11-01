@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { TIME_SCALE_DEFAULT } from "@constellation/shared";
 
 export function initializeDatabase(dbPath: string): Database.Database {
   const db = new Database(dbPath);
@@ -12,7 +13,10 @@ export function initializeDatabase(dbPath: string): Database.Database {
       id TEXT PRIMARY KEY,
       name TEXT UNIQUE NOT NULL,
       seed INTEGER NOT NULL,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      current_time REAL DEFAULT 0,
+      is_paused INTEGER DEFAULT 1,
+      time_scale REAL DEFAULT ${TIME_SCALE_DEFAULT}
     );
 
     CREATE TABLE IF NOT EXISTS star_systems (
@@ -105,6 +109,51 @@ export function initializeDatabase(dbPath: string): Database.Database {
     }
   } catch (error) {
     console.error("Error during migration:", error);
+  }
+
+  // Migration: Add time state columns to galaxies table if they don't exist
+  try {
+    const galaxyColumns = db.prepare("PRAGMA table_info(galaxies)").all() as Array<{
+      name: string;
+    }>;
+    
+    const hasCurrentTime = galaxyColumns.some((col) => col.name === "current_time");
+    const hasIsPaused = galaxyColumns.some((col) => col.name === "is_paused");
+    const hasTimeScale = galaxyColumns.some((col) => col.name === "time_scale");
+
+    if (!hasCurrentTime) {
+      console.log("Migrating database: Adding current_time column to galaxies");
+      db.exec("ALTER TABLE galaxies ADD COLUMN current_time REAL DEFAULT 0");
+    }
+    
+    if (!hasIsPaused) {
+      console.log("Migrating database: Adding is_paused column to galaxies");
+      db.exec("ALTER TABLE galaxies ADD COLUMN is_paused INTEGER DEFAULT 1");
+    }
+    
+    if (!hasTimeScale) {
+      console.log("Migrating database: Adding time_scale column to galaxies");
+      db.exec(`ALTER TABLE galaxies ADD COLUMN time_scale REAL DEFAULT ${TIME_SCALE_DEFAULT}`);
+    }
+    
+    if (!hasCurrentTime || !hasIsPaused || !hasTimeScale) {
+      console.log("Galaxy time state migration complete");
+    }
+
+    // Migration: Update existing galaxies that have time_scale = 1 to use TIME_SCALE_DEFAULT
+    // This fixes galaxies created before the default was changed
+    const galaxiesWithOldScale = db.prepare(
+      "SELECT id FROM galaxies WHERE time_scale = 1"
+    ).all() as Array<{ id: string }>;
+    
+    if (galaxiesWithOldScale.length > 0) {
+      console.log(`Migrating ${galaxiesWithOldScale.length} galaxies from time_scale=1 to time_scale=${TIME_SCALE_DEFAULT}`);
+      const updateStmt = db.prepare("UPDATE galaxies SET time_scale = ? WHERE time_scale = 1");
+      updateStmt.run(TIME_SCALE_DEFAULT);
+      console.log("Galaxy time scale migration complete");
+    }
+  } catch (error) {
+    console.error("Error during galaxy time state migration:", error);
   }
 
   return db;

@@ -583,7 +583,13 @@ class ConstellationClient {
 
   private async connect(): Promise<void> {
     try {
-      await this.network.connect();
+      // Determine WebSocket URL based on current location
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host; // includes hostname and port
+      const wsUrl = `${protocol}//${host}`;
+      
+      console.log(`Connecting to WebSocket at: ${wsUrl}`);
+      await this.network.connect(wsUrl);
       this.isConnected = true;
       console.log("Connected to server");
     } catch (error) {

@@ -17,10 +17,13 @@ import {
 export class GameStateManager {
   private systems: Map<string, StarSystem> = new Map();
   private ships: Map<string, Ship[]> = new Map(); // systemId -> ships
-  private currentTime: number = 0; // Game time in seconds
-  private isPaused: boolean = false;
-  private timeScale: number = TIME_SCALE_DEFAULT;
-  private lastUpdateTime: number = Date.now();
+  private currentGalaxyId: string | null = null;
+  private galaxyTimeState: Map<string, {
+    currentTime: number;
+    isPaused: boolean;
+    timeScale: number;
+    lastUpdateTime: number;
+  }> = new Map();
 
   constructor() {
     this.startSimulation();
@@ -33,17 +36,22 @@ export class GameStateManager {
   }
 
   private update(): void {
-    if (this.isPaused) {
-      this.lastUpdateTime = Date.now();
+    if (!this.currentGalaxyId) return;
+
+    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+    if (!timeState) return;
+
+    if (timeState.isPaused) {
+      timeState.lastUpdateTime = Date.now();
       return;
     }
 
     const now = Date.now();
-    const deltaRealTime = (now - this.lastUpdateTime) / 1000; // seconds
-    const deltaGameTime = deltaRealTime * this.timeScale;
+    const deltaRealTime = (now - timeState.lastUpdateTime) / 1000; // seconds
+    const deltaGameTime = deltaRealTime * timeState.timeScale;
 
-    this.currentTime += deltaGameTime;
-    this.lastUpdateTime = now;
+    timeState.currentTime += deltaGameTime;
+    timeState.lastUpdateTime = now;
   }
 
   loadSystem(system: StarSystem): void {
@@ -63,10 +71,23 @@ export class GameStateManager {
     this.ships.set(ship.systemId, ships);
   }
 
+  loadGalaxy(galaxyId: string, currentTime: number = 0, isPaused: boolean = true, timeScale: number = TIME_SCALE_DEFAULT): void {
+    this.currentGalaxyId = galaxyId;
+    if (!this.galaxyTimeState.has(galaxyId)) {
+      this.galaxyTimeState.set(galaxyId, {
+        currentTime,
+        isPaused,
+        timeScale,
+        lastUpdateTime: Date.now(),
+      });
+    }
+  }
+
   getSystemState(systemId: string): SystemState | null {
     const system = this.systems.get(systemId);
     if (!system) return null;
 
+    const currentTime = this.getCurrentTime();
     const bodies: CelestialBodyState[] = [];
 
     // Star is at the center
@@ -97,7 +118,7 @@ export class GameStateManager {
         if (companionStar.orbitalElements) {
           const state = calculateStateVectors(
             companionStar.orbitalElements,
-            this.currentTime,
+            currentTime,
             system.star.mass
           );
 
@@ -149,7 +170,7 @@ export class GameStateManager {
         // Calculate planet position relative to its parent
         const state = calculateStateVectors(
           planet.orbitalElements,
-          this.currentTime,
+          currentTime,
           parentMass
         );
 
@@ -190,7 +211,7 @@ export class GameStateManager {
           // Speed up moon orbits for visual effect (3x faster than realistic)
           // This compensates for visual scaling adjustments
           const moonTimeAcceleration = 40.0;
-          const acceleratedTime = this.currentTime * moonTimeAcceleration;
+          const acceleratedTime = currentTime * moonTimeAcceleration;
 
           // Calculate moon's position relative to its parent planet
           const state = calculateStateVectors(
@@ -233,7 +254,7 @@ export class GameStateManager {
 
       const state = calculateStateVectors(
         ship.orbitalElements,
-        this.currentTime,
+        currentTime,
         parentMass
       );
 
@@ -282,7 +303,7 @@ export class GameStateManager {
     for (const gate of system.gates) {
       const state = calculateStateVectors(
         gate.orbitalElements,
-        this.currentTime,
+        currentTime,
         system.star.mass
       );
 
@@ -300,7 +321,7 @@ export class GameStateManager {
         if (asteroid.orbitalElements) {
           const state = calculateStateVectors(
             asteroid.orbitalElements,
-            this.currentTime,
+            currentTime,
             system.star.mass
           );
 
@@ -315,7 +336,7 @@ export class GameStateManager {
 
     return {
       systemId,
-      currentTime: this.currentTime,
+      currentTime,
       bodies,
       ships: shipStates,
       gates: gateStates,
@@ -325,33 +346,69 @@ export class GameStateManager {
   }
 
   setTimeScale(scale: number): void {
-    this.timeScale = Math.max(0, scale);
+    if (!this.currentGalaxyId) return;
+    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+    if (timeState) {
+      timeState.timeScale = Math.max(0, scale);
+    }
   }
 
   pause(): void {
-    this.isPaused = true;
+    if (!this.currentGalaxyId) return;
+    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+    if (timeState) {
+      timeState.isPaused = true;
+    }
   }
 
   resume(): void {
-    this.isPaused = false;
-    this.lastUpdateTime = Date.now();
+    if (!this.currentGalaxyId) return;
+    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+    if (timeState) {
+      timeState.isPaused = false;
+      timeState.lastUpdateTime = Date.now();
+    }
   }
 
   isPausedState(): boolean {
-    return this.isPaused;
+    if (!this.currentGalaxyId) return true;
+    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+    return timeState ? timeState.isPaused : true;
   }
 
   getTimeScale(): number {
-    return this.timeScale;
+    if (!this.currentGalaxyId) return TIME_SCALE_DEFAULT;
+    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+    return timeState ? timeState.timeScale : TIME_SCALE_DEFAULT;
   }
 
   getCurrentTime(): number {
-    return this.currentTime;
+    if (!this.currentGalaxyId) return 0;
+    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+    return timeState ? timeState.currentTime : 0;
   }
 
   resetTime(): void {
-    this.currentTime = 0;
-    this.lastUpdateTime = Date.now();
+    if (!this.currentGalaxyId) return;
+    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+    if (timeState) {
+      timeState.currentTime = 0;
+      timeState.lastUpdateTime = Date.now();
+    }
+  }
+
+  getCurrentGalaxyId(): string | null {
+    return this.currentGalaxyId;
+  }
+
+  getGalaxyTimeState(galaxyId: string): { currentTime: number; isPaused: boolean; timeScale: number } | null {
+    const timeState = this.galaxyTimeState.get(galaxyId);
+    if (!timeState) return null;
+    return {
+      currentTime: timeState.currentTime,
+      isPaused: timeState.isPaused,
+      timeScale: timeState.timeScale,
+    };
   }
 
   updateShipOrbit(shipId: string, systemId: string, ship: Ship): void {

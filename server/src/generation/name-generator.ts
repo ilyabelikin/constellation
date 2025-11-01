@@ -925,8 +925,11 @@ export function generatePlanetName(
   return finalName;
 }
 
-// Star name components
+// Massively expanded star name components for variety
+
+// Greek letters and variations (including numbered variants)
 const STAR_PREFIXES = [
+  // Traditional Greek alphabet
   "Alpha",
   "Beta",
   "Gamma",
@@ -951,37 +954,151 @@ const STAR_PREFIXES = [
   "Chi",
   "Psi",
   "Omega",
+  // Latin letters (for catalog stars)
+  "A",
+  "B",
+  "C",
+  "D",
+  "E",
+  "F",
+  "G",
+  "H",
+  "I",
+  "J",
+  "K",
+  "L",
+  "M",
+  "N",
+  "O",
+  "P",
+  "Q",
+  "R",
+  "S",
+  "T",
+  "U",
+  "V",
+  "W",
+  "X",
+  "Y",
+  "Z",
+  // Directional prefixes
+  "North",
+  "South",
+  "East",
+  "West",
+  "Central",
+  "Upper",
+  "Lower",
+  "Inner",
+  "Outer",
+  "Prime",
+  "Major",
+  "Minor",
+  // Descriptive prefixes
+  "New",
+  "Old",
+  "Bright",
+  "Dim",
+  "Twin",
+  "Double",
+  "Triple",
+  "First",
+  "Second",
+  "Third",
+  "Fourth",
+  "Fifth",
 ];
 
 const STAR_CORES = [
-  "Centauri",
-  "Draconis",
-  "Orionis",
-  "Cygni",
-  "Lyrae",
-  "Aquilae",
-  "Scorpii",
-  "Sagittarii",
-  "Leonis",
-  "Ursae",
-  "Cassiopeiae",
+  // All 88 constellations in genitive form
   "Andromedae",
-  "Persei",
-  "Aurigae",
-  "Tauri",
-  "Geminorum",
-  "Cancri",
-  "Virginis",
-  "Librae",
-  "Ophiuchi",
+  "Antliae",
+  "Apodis",
   "Aquarii",
-  "Piscium",
+  "Aquilae",
+  "Arae",
   "Arietis",
+  "Aurigae",
+  "Bootis",
+  "Caeli",
+  "Camelopardalis",
+  "Cancri",
+  "Canum",
+  "Canis",
   "Capricorni",
+  "Carinae",
+  "Cassiopeiae",
+  "Centauri",
+  "Cephei",
+  "Ceti",
+  "Chamaeleontis",
+  "Circini",
+  "Columbae",
+  "Comae",
+  "Coronae",
+  "Corvi",
+  "Crateris",
+  "Crucis",
+  "Cygni",
+  "Delphini",
+  "Doradus",
+  "Draconis",
+  "Equulei",
+  "Eridani",
+  "Fornacis",
+  "Geminorum",
+  "Gruis",
+  "Herculis",
+  "Horologii",
+  "Hydrae",
+  "Hydri",
+  "Indi",
+  "Lacertae",
+  "Leonis",
+  "Leporis",
+  "Librae",
+  "Lupi",
+  "Lyncis",
+  "Lyrae",
+  "Mensae",
+  "Microscopii",
+  "Monocerotis",
+  "Muscae",
+  "Normae",
+  "Octantis",
+  "Ophiuchi",
+  "Orionis",
+  "Pavonis",
+  "Pegasi",
+  "Persei",
+  "Phoenicis",
+  "Pictoris",
+  "Piscium",
+  "Piscis",
+  "Puppis",
+  "Pyxidis",
+  "Reticuli",
+  "Sagittae",
+  "Sagittarii",
+  "Scorpii",
+  "Sculptoris",
+  "Scuti",
+  "Serpentis",
+  "Sextantis",
+  "Tauri",
+  "Telescopii",
+  "Trianguli",
+  "Tucana",
+  "Ursae",
+  "Velorum",
+  "Virginis",
+  "Volantis",
+  "Vulpeculae",
 ];
 
-// Standalone star names (famous stars)
+// Standalone star names (famous stars + many new ones)
 const STAR_STANDALONE_NAMES = [
+  // Real famous stars
   "Sirius",
   "Rigel",
   "Betelgeuse",
@@ -1019,22 +1136,300 @@ const STAR_STANDALONE_NAMES = [
   "Alnilam",
   "Mintaka",
   "Saiph",
+  "Alkaid",
+  "Eltanin",
+  "Scheat",
+  "Alderamin",
+  "Kochab",
+  "Rasalgethi",
+  "Zubenelgenubi",
+  "Zubeneschamali",
+  "Sabik",
+  "Menkar",
+  "Algol",
+  "Almach",
+  "Dubhe",
+  "Merak",
+  "Phecda",
+  "Megrez",
+  "Alioth",
+  "Mizar",
+  "Albireo",
+  "Thuban",
+  "Polaris",
+  "Izar",
+  "Enif",
+  "Markab",
+  "Algenib",
+  "Alpheratz",
+  "Sadalmelik",
+  "Sadalsuud",
+  "Skat",
+  "Denebola",
+  "Zosma",
+  "Chort",
+  "Algieba",
+  "Rasalas",
+  "Gacrux",
+  "Ginan",
+  "Miaplacidus",
+  "Muhlifain",
+  "Aspidiske",
+  "Regor",
+  "Suhail",
+  "Tureis",
+  "Naos",
+  "Alsephina",
+  "Nunki",
+  "Ascella",
+  "Rukbat",
+  "Arkab",
+  "Kaus",
+  "Lesath",
+  "Sargas",
+  "Alniyat",
+  "Dschubba",
+  "Acrab",
+  "Kornephoros",
+  "Rutilicus",
+  "Marsic",
+  "Maasym",
+  "Rasalgethi",
+  "Cheleb",
+  "Alphecca",
+  "Nusakan",
+  "Seginus",
+  "Nekkar",
+  "Muphrid",
+  "Zaniah",
+  "Vindemiatrix",
+  "Heze",
+  "Zavijava",
+  "Minelauva",
+  "Porrima",
+  "Auva",
+  "Alula",
+  "Tania",
+  "Talitha",
+  "Alkafzah",
+  "Alhena",
+  "Mebsuta",
+  "Tejat",
+  "Propus",
+  "Wasat",
+  "Alhena",
+  "Menkalinan",
+  "Hassaleh",
+  "Mahasim",
+  "Elnath",
+  "Alcyone",
+  "Atlas",
+  "Electra",
+  "Maia",
+  "Merope",
+  "Taygeta",
+  "Pleione",
+  "Celaeno",
+  "Asterope",
+  "Nihal",
+  "Arneb",
+  "Cursa",
+  "Zaurak",
+  "Rana",
+  "Beid",
+  "Keid",
+  "Angetenar",
+  "Zibal",
+  "Sheratan",
+  "Mesarthim",
+  "Hamal",
+  "Bharani",
+  // Fictional sci-fi inspired names
+  "Xerion",
+  "Valoris",
+  "Nexara",
+  "Kaelith",
+  "Zyphon",
+  "Thalorix",
+  "Vortan",
+  "Meridax",
+  "Synthara",
+  "Axylon",
+  "Celestor",
+  "Draven",
+  "Erebos",
+  "Flavion",
+  "Galadon",
+  "Helion",
+  "Ironyx",
+  "Jovaran",
+  "Kronos",
+  "Luminax",
+  "Maverick",
+  "Nebulon",
+  "Obsidian",
+  "Parallax",
+  "Quantum",
+  "Radiance",
+  "Solaris",
+  "Titanis",
+  "Umbra",
+  "Vortex",
+  "Xenith",
+  "Zephyrus",
 ];
 
-export function generateStarName(rng: SeededRandom, starClass: string): string {
-  const nameType = rng.next();
+// Additional numeric suffixes for numbered designations
+const STAR_NUMBERS = [
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "10",
+  "11",
+  "12",
+  "13",
+  "14",
+  "15",
+  "16",
+  "17",
+  "18",
+  "19",
+  "20",
+];
 
-  // 30% chance for standalone famous star name
-  if (nameType < 0.3) {
-    return STAR_STANDALONE_NAMES[
-      rng.nextInt(0, STAR_STANDALONE_NAMES.length - 1)
-    ];
+export function generateStarName(
+  rng: SeededRandom,
+  starClass: string,
+  galaxyId: string,
+  maxAttempts: number = 100
+): string {
+  // Get or create the set of used names for this galaxy
+  if (!usedNamesPerGalaxy.has(galaxyId)) {
+    usedNamesPerGalaxy.set(galaxyId, new Set<string>());
+  }
+  const usedNames = usedNamesPerGalaxy.get(galaxyId)!;
+
+  let attempts = 0;
+  let name = "";
+
+  while (attempts < maxAttempts) {
+    const nameType = rng.next();
+
+    if (nameType < 0.3) {
+      // 30% - Standalone famous/unique star name
+      name =
+        STAR_STANDALONE_NAMES[
+          rng.nextInt(0, STAR_STANDALONE_NAMES.length - 1)
+        ];
+    } else if (nameType < 0.7) {
+      // 40% - Greek letter + constellation (traditional Bayer designation)
+      const prefix = STAR_PREFIXES[rng.nextInt(0, STAR_PREFIXES.length - 1)];
+      const core = STAR_CORES[rng.nextInt(0, STAR_CORES.length - 1)];
+      name = `${prefix} ${core}`;
+    } else {
+      // 30% - Greek letter + number + constellation (for multiple stars)
+      const prefix = STAR_PREFIXES[rng.nextInt(0, STAR_PREFIXES.length - 1)];
+      const number = STAR_NUMBERS[rng.nextInt(0, STAR_NUMBERS.length - 1)];
+      const core = STAR_CORES[rng.nextInt(0, STAR_CORES.length - 1)];
+      name = `${prefix} ${number} ${core}`;
+    }
+
+    // Check if this name is already used
+    if (!usedNames.has(name)) {
+      usedNames.add(name);
+      return name;
+    }
+
+    attempts++;
   }
 
-  // 70% chance for Greek letter + constellation
+  // Fallback: if we couldn't generate a unique name after maxAttempts,
+  // use Greek letter + high number + constellation for guaranteed uniqueness
   const prefix = STAR_PREFIXES[rng.nextInt(0, STAR_PREFIXES.length - 1)];
   const core = STAR_CORES[rng.nextInt(0, STAR_CORES.length - 1)];
-  return `${prefix} ${core}`;
+  let counter = 21;
+  while (usedNames.has(`${prefix} ${counter} ${core}`) && counter < 10000) {
+    counter++;
+  }
+  const finalName = `${prefix} ${counter} ${core}`;
+  usedNames.add(finalName);
+  return finalName;
+}
+
+// Connectivity suffix words based on gate count
+const CONNECTIVITY_SUFFIXES = {
+  // 1 gate - edge of the network, frontier systems
+  frontier: [
+    "Outpost",
+    "Frontier",
+    "Borderlands",
+    "Terminus",
+    "Edge",
+    "Fringe",
+    "Perimeter",
+    "Boundary",
+  ],
+  // 2 gates - minor waypoints
+  waypoint: [
+    "Waypoint",
+    "Passage",
+    "Crossing",
+    "Transit",
+    "Bridge",
+    "Link",
+  ],
+  // 3-4 gates - standard connected systems
+  junction: [
+    "Junction",
+    "Crossroads",
+    "Interchange",
+    "Confluence",
+    "Convergence",
+    "Gateway",
+  ],
+  // 5+ gates - major hubs
+  hub: [
+    "Hub",
+    "Nexus",
+    "Node",
+    "Beacon",
+    "Citadel",
+    "Terminus",
+    "Concourse",
+    "Apex",
+  ],
+};
+
+/**
+ * Add a connectivity suffix to a star name based on gate count
+ * This makes the star name more meaningful by indicating its role in the network
+ */
+export function addConnectivitySuffix(
+  baseName: string,
+  gateCount: number,
+  rng: SeededRandom
+): string {
+  let suffixArray: string[];
+
+  if (gateCount === 1) {
+    suffixArray = CONNECTIVITY_SUFFIXES.frontier;
+  } else if (gateCount === 2) {
+    suffixArray = CONNECTIVITY_SUFFIXES.waypoint;
+  } else if (gateCount >= 3 && gateCount <= 4) {
+    suffixArray = CONNECTIVITY_SUFFIXES.junction;
+  } else {
+    // 5+ gates
+    suffixArray = CONNECTIVITY_SUFFIXES.hub;
+  }
+
+  const suffix = suffixArray[rng.nextInt(0, suffixArray.length - 1)];
+  return `${baseName} ${suffix}`;
 }
 
 // Moon name components (inspired by real solar system moons)

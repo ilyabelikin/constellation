@@ -14,6 +14,7 @@ import {
   generateGates,
   generateStarterGates,
 } from "./gate-generator.js";
+import { addConnectivitySuffix } from "./name-generator.js";
 
 export function generateGalaxy(name: string): Galaxy {
   return {
@@ -31,13 +32,15 @@ export function generateGalaxy(name: string): Galaxy {
  * @param connectedToSystemIds - Optional array of system IDs this system should have gates to
  * @param fixedPosition - Optional fixed position for the system (used for unexplored gates)
  * @param forceExit - If true, ensure at least one exit gate (prevents total lockout)
+ * @param isHomeWorld - If true, skip connectivity suffix for this special system
  */
 export function generateNewSystem(
   galaxyId: string,
   galaxySeed: number,
   connectedToSystemIds: string[] = [],
   fixedPosition?: Vector3,
-  forceExit: boolean = false
+  forceExit: boolean = false,
+  isHomeWorld: boolean = false
 ): StarSystem {
   const rng = new SeededRandom(galaxySeed);
 
@@ -88,6 +91,13 @@ export function generateNewSystem(
     planetOrbits
   );
 
+  // Add connectivity suffix to star name based on gate count
+  // Skip for home worlds - they deserve their distinguished name
+  if (!isHomeWorld) {
+    const nameRng = new SeededRandom(systemSeed + 777);
+    star.name = addConnectivitySuffix(star.name, gateCount, nameRng);
+  }
+
   return {
     id: systemId,
     galaxyId,
@@ -128,7 +138,14 @@ export function generateStarterSystem(
   // Try to generate a system with a habitable planet
   while (attempt < MAX_ATTEMPTS) {
     const systemSeed = galaxySeed + attempt;
-    const tempSystem = generateNewSystem(galaxyId, systemSeed, []);
+    const tempSystem = generateNewSystem(
+      galaxyId,
+      systemSeed,
+      [],
+      undefined,
+      false,
+      true
+    );
 
     // Find the most habitable planet in this system
     const habitablePlanets = tempSystem.planets
@@ -163,7 +180,14 @@ export function generateStarterSystem(
     console.warn(
       `Could not find ideal starter system after ${MAX_ATTEMPTS} attempts, using best available`
     );
-    starterSystem = generateNewSystem(galaxyId, galaxySeed, []);
+    starterSystem = generateNewSystem(
+      galaxyId,
+      galaxySeed,
+      [],
+      undefined,
+      false,
+      true
+    );
     // Find best planet even if below threshold
     const sortedPlanets = starterSystem.planets
       .filter((planet) => planet.habitability !== undefined)
@@ -330,6 +354,14 @@ export function generateSystemConnections(
       system.star.mass,
       connections,
       planetOrbits
+    );
+
+    // Add connectivity suffix to star name based on gate count
+    const nameRng = new SeededRandom(system.seed + 777);
+    system.star.name = addConnectivitySuffix(
+      system.star.name,
+      connections.length,
+      nameRng
     );
   }
 }

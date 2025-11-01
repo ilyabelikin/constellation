@@ -40,7 +40,10 @@ const starTypesConfig = JSON.parse(
   readFileSync(join(__dirname, "star-types.json"), "utf-8")
 );
 
-export function generateStar(rng: SeededRandom): CelestialBodyType {
+export function generateStar(
+  rng: SeededRandom,
+  galaxyId: string
+): CelestialBodyType {
   // Load star types from configuration
   const types = starTypesConfig.starTypes;
 
@@ -71,7 +74,7 @@ export function generateStar(rng: SeededRandom): CelestialBodyType {
 
   return {
     id: uuidv4(),
-    name: generateStarName(rng, starType.spectralClass),
+    name: generateStarName(rng, starType.spectralClass, galaxyId),
     type: "star",
     mass: massMultiplier * SOLAR_MASS,
     radius: radiusMultiplier * SOLAR_RADIUS,
@@ -911,7 +914,7 @@ export function generateStarSystem(
 } {
   const rng = new SeededRandom(seed);
 
-  const star = generateStar(rng);
+  const star = generateStar(rng, galaxyId);
 
   // Determine if this is a multi-star system
   // 20% chance for binary, 3% chance for trinary
@@ -927,8 +930,8 @@ export function generateStarSystem(
   if (multiStarRoll < 0.03) {
     // Trinary system (3 stars total)
     console.log(`✨ Generating TRINARY star system: ${star.name}`);
-    const companion1 = generateStar(rng);
-    const companion2 = generateStar(rng);
+    const companion1 = generateStar(rng, galaxyId);
+    const companion2 = generateStar(rng, galaxyId);
 
     // Calculate minimum safe distance based on visual size of stars
     // Stars are rendered 40x larger for visibility
@@ -1002,7 +1005,7 @@ export function generateStarSystem(
   } else if (multiStarRoll < 0.23) {
     // Binary system (2 stars total)
     console.log(`✨ Generating BINARY star system: ${star.name}`);
-    const companion = generateStar(rng);
+    const companion = generateStar(rng, galaxyId);
 
     // Calculate minimum safe distance based on visual size of both stars
     // Stars are rendered 40x larger for visibility

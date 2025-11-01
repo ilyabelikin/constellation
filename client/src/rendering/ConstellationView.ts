@@ -336,31 +336,68 @@ export class ConstellationView {
     const context = canvas.getContext("2d");
     if (!context) return;
 
-    // Set canvas size (taller to fit connection stats)
-    canvas.width = 512;
-    canvas.height = 192;
-
-    // Draw text
-    context.fillStyle = "rgba(0, 0, 0, 0)"; // Transparent background
-    context.fillRect(0, 0, canvas.width, canvas.height);
-
     // System is bright if it's selected (selection starts at current system)
     const isSelected = node.systemId === this.selectedSystemId;
     
-    // Draw star name
-    context.font = isSelected ? "bold 48px Arial" : "36px Arial";
+    // Determine font sizes
+    const nameFontSize = isSelected ? 48 : 36;
+    const statsFontSize = 28;
+    const maxWidth = 500; // Maximum width for text before wrapping
+    
+    // Set font for measurement
+    context.font = isSelected ? `bold ${nameFontSize}px Arial` : `${nameFontSize}px Arial`;
+    
+    // Wrap text if needed
+    const words = node.systemName.split(' ');
+    const lines: string[] = [];
+    let currentLine = words[0];
+    
+    for (let i = 1; i < words.length; i++) {
+      const testLine = currentLine + ' ' + words[i];
+      const metrics = context.measureText(testLine);
+      
+      if (metrics.width > maxWidth) {
+        lines.push(currentLine);
+        currentLine = words[i];
+      } else {
+        currentLine = testLine;
+      }
+    }
+    lines.push(currentLine);
+    
+    // Calculate canvas height based on number of lines
+    const lineHeight = nameFontSize * 1.2;
+    const statsHeight = statsFontSize * 1.2;
+    const padding = 20;
+    const canvasHeight = Math.ceil(lines.length * lineHeight + statsHeight + padding * 2);
+    
+    // Set canvas size
+    canvas.width = 512;
+    canvas.height = canvasHeight;
+
+    // Draw transparent background
+    context.fillStyle = "rgba(0, 0, 0, 0)";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Draw star name (possibly multi-line)
+    context.font = isSelected ? `bold ${nameFontSize}px Arial` : `${nameFontSize}px Arial`;
     context.fillStyle = isSelected ? "#ffffff" : "#aaaaaa";
     context.textAlign = "center";
     context.textBaseline = "middle";
-    context.fillText(node.systemName, canvas.width / 2, canvas.height / 2 - 20);
+    
+    const startY = padding + lineHeight / 2;
+    for (let i = 0; i < lines.length; i++) {
+      context.fillText(lines[i], canvas.width / 2, startY + i * lineHeight);
+    }
 
     // Draw connection stats below name
-    context.font = "28px Arial";
+    context.font = `${statsFontSize}px Arial`;
     context.fillStyle = isSelected ? "#cccccc" : "#888888";
+    const statsY = startY + lines.length * lineHeight + statsHeight / 2;
     context.fillText(
       `${exploredGates}/${totalGates}`,
       canvas.width / 2,
-      canvas.height / 2 + 30
+      statsY
     );
 
     // Create texture from canvas
@@ -373,7 +410,11 @@ export class ConstellationView {
 
     const sprite = new THREE.Sprite(material);
     sprite.position.y = offset + 10; // Position above star
-    sprite.scale.set(30, 11.25, 1); // Scale sprite appropriately (taller for two lines)
+    
+    // Scale sprite based on canvas dimensions
+    const spriteWidth = 30;
+    const spriteHeight = spriteWidth * (canvasHeight / canvas.width);
+    sprite.scale.set(spriteWidth, spriteHeight, 1);
 
     // Make label non-clickable so only the star sphere can be clicked
     sprite.raycast = () => {};

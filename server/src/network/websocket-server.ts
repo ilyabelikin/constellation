@@ -13,6 +13,7 @@ import {
   STATE_UPDATE_RATE,
   ASTRONOMICAL_UNIT,
   SearchResult,
+  TIME_SCALE_DEFAULT,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -44,9 +45,7 @@ export class ConstellationWebSocketServer {
 
     this.wss.on("connection", (ws) => this.handleConnection(ws));
     this.startStateUpdates();
-
-    // Start with game paused (no players yet)
-    this.gameState.pause();
+    this.startTimeSaveInterval();
 
     console.log(`WebSocket server started on port ${WEBSOCKET_PORT}`);
   }
@@ -221,6 +220,14 @@ export class ConstellationWebSocketServer {
       return;
     }
 
+    // Load galaxy time state into game state manager
+    this.gameState.loadGalaxy(
+      galaxy.id,
+      galaxy.currentTime || 0,
+      galaxy.isPaused !== false, // Default to paused if not specified
+      galaxy.timeScale || TIME_SCALE_DEFAULT
+    );
+
     // Check if player already exists
     const existingPlayer = this.db.getPlayerByUuid(client.uuid);
     if (existingPlayer) {
@@ -323,7 +330,8 @@ export class ConstellationWebSocketServer {
       this.db.createGate(gate);
     }
 
-    // Reset game time to 0 for new galaxy
+    // Load galaxy time state (new galaxy starts at 0, paused)
+    this.gameState.loadGalaxy(galaxy.id, 0, true, 1);
     this.gameState.resetTime();
 
     // Create player
@@ -381,7 +389,8 @@ export class ConstellationWebSocketServer {
       this.db.createGate(gate);
     }
 
-    // Reset game time to 0
+    // Load galaxy time state (reset galaxy starts at 0, paused)
+    this.gameState.loadGalaxy(galaxy.id, 0, true, TIME_SCALE_DEFAULT);
     this.gameState.resetTime();
 
     console.log(`Galaxy reset complete: ${galaxyName} (new ID: ${galaxy.id})`);
@@ -675,39 +684,40 @@ export class ConstellationWebSocketServer {
               `🌟 MULTIPLAYER CONNECTION! Connecting to another player's system: ${targetSystem.star.name}`
             );
             
-            // Update the gate to point to this existing system
-            this.db.updateGateDestination(gateId, targetSystem.id);
-            destinationSystem = targetSystem;
-            
-            // Create a return gate in the target system pointing back
-            // Find which player explored this system to determine gate placement
-            const returnGate: StarGate = {
-              id: uuidv4(),
-              systemId: targetSystem.id,
-              destinationSystemId: currentSystem.id,
-              name: `Gate to ${currentSystem.star.name}`,
-              orbitalElements: {
-                semiMajorAxis: targetSystem.star.radius * 100, // Place it far from star
-                eccentricity: 0.1,
-                inclination: 0.05,
-                longitudeOfAscendingNode: Math.random() * Math.PI * 2,
-                argumentOfPeriapsis: Math.random() * Math.PI * 2,
-                meanAnomalyAtEpoch: Math.random() * Math.PI * 2,
-                epoch: this.gameState.getCurrentTime(),
-              },
-            };
-            
-            this.db.createGate(returnGate);
-            
-            // Reload the system with the new gate
-            destinationSystem = this.db.getStarSystem(targetSystem.id);
-            
-            // Transfer mystery sphere position to the target system's position
-            this.db.transferMysteryPositionToSystem(
-              player.id,
-              gateId,
-              targetSystem.id
+            // Find an unexplored gate in the target system to use as the return gate
+            const targetSystemGates = this.db.getGatesBySystem(targetSystem.id);
+            const unexploredGate = targetSystemGates.find((g) => 
+              g.destinationSystemId.startsWith("PLACEHOLDER_")
             );
+            
+            if (unexploredGate) {
+              console.log(
+                `Using existing unexplored gate ${unexploredGate.id} in ${targetSystem.star.name} for return connection`
+              );
+              
+              // Update the gate in our current system to point to the target system
+              this.db.updateGateDestination(gateId, targetSystem.id);
+              destinationSystem = targetSystem;
+              
+              // Update the unexplored gate in the target system to point back to our current system
+              this.db.updateGateDestination(unexploredGate.id, currentSystem.id);
+              
+              // Reload the system with the updated gate
+              destinationSystem = this.db.getStarSystem(targetSystem.id);
+              
+              // Transfer mystery sphere position to the target system's position
+              this.db.transferMysteryPositionToSystem(
+                player.id,
+                gateId,
+                targetSystem.id
+              );
+            } else {
+              console.log(
+                `No unexplored gates available in ${targetSystem.star.name}, cannot connect`
+              );
+              // Don't connect to this system since there's no available gate
+              // Fall through to generate a new system instead
+            }
           } else {
             console.log("No suitable systems from other players found (all already explored)");
           }
@@ -1181,6 +1191,20 @@ export class ConstellationWebSocketServer {
     this.clients.delete(ws);
     console.log("Client disconnected");
     this.checkPlayerCountAndPause();
+    
+    // Save galaxy time state when player disconnects
+    const galaxyId = this.gameState.getCurrentGalaxyId();
+    if (galaxyId) {
+      const timeState = this.gameState.getGalaxyTimeState(galaxyId);
+      if (timeState) {
+        this.db.updateGalaxyTimeState(
+          galaxyId,
+          timeState.currentTime,
+          timeState.isPaused,
+          timeState.timeScale
+        );
+      }
+    }
   }
 
   private getActivePlayerCount(): number {
@@ -1208,6 +1232,24 @@ export class ConstellationWebSocketServer {
     setInterval(() => {
       this.broadcastStateUpdates();
     }, 1000 / STATE_UPDATE_RATE);
+  }
+
+  private startTimeSaveInterval(): void {
+    // Save galaxy time state to database every 10 seconds
+    setInterval(() => {
+      const galaxyId = this.gameState.getCurrentGalaxyId();
+      if (galaxyId) {
+        const timeState = this.gameState.getGalaxyTimeState(galaxyId);
+        if (timeState) {
+          this.db.updateGalaxyTimeState(
+            galaxyId,
+            timeState.currentTime,
+            timeState.isPaused,
+            timeState.timeScale
+          );
+        }
+      }
+    }, 10000); // Save every 10 seconds
   }
 
   private broadcastStateUpdates(): void {

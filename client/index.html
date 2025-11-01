@@ -567,6 +567,15 @@
         </div>
     </div>
 
+    <script>
+        // Check for debug mode and show/hide reset galaxy button
+        const urlParams = new URLSearchParams(window.location.search);
+        const debugMode = urlParams.has('debug_mode');
+        const resetButton = document.getElementById('reset-galaxy');
+        if (!debugMode) {
+            resetButton.style.display = 'none';
+        }
+    </script>
     <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

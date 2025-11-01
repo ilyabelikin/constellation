@@ -167,6 +167,9 @@ export interface Galaxy {
   name: string;
   seed: number;
   createdAt: number;
+  currentTime?: number;
+  isPaused?: boolean;
+  timeScale?: number;
 }
 
 // Runtime state (not persisted, calculated on the fly)
