@@ -44,6 +44,12 @@ echo "🔨 Building client..."
 cd /root/constellation/client
 npm run build
 
+echo "🔐 Fixing permissions for Caddy..."
+chmod -R 755 /root/constellation/client/dist
+chmod 755 /root/constellation/client
+chmod 755 /root/constellation
+chmod 755 /root
+
 echo "🔄 Restarting services with PM2..."
 pm2 restart constellation-server || pm2 start /root/constellation/server/dist/index.js --name constellation-server
 pm2 save

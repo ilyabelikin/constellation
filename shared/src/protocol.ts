@@ -6,7 +6,7 @@ import {
   ConstellationNode,
   ConstellationConnection,
   UnexploredGate,
-} from "./types";
+} from "./types.js";
 
 // Client -> Server messages
 export type ClientMessage =

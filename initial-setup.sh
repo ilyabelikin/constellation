@@ -36,6 +36,12 @@ cd ../client
 npm install
 npm run build
 
+echo "🔐 Fixing permissions for Caddy..."
+chmod -R 755 /root/constellation/client/dist
+chmod 755 /root/constellation/client
+chmod 755 /root/constellation
+chmod 755 /root
+
 echo "🚀 Starting server with PM2..."
 cd /root/constellation
 pm2 start ecosystem.config.js

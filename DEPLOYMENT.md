@@ -1,176 +1,178 @@
 # Deployment Guide
 
-This guide explains how to deploy your Constellation game to your server.
+## Quick Start - Deploy Your Changes
 
-## First Time Setup
-
-### 1. Update GitHub Repository URL
-
-Edit `deploy.sh` and replace this line with your actual GitHub repository:
-```bash
-GITHUB_REPO="git@github.com:yourusername/constellation-v2.git"
-```
-
-### 2. Make Sure Your Code is on GitHub
+Every time you want to deploy updates:
 
 ```bash
-# Add all your changes
+# 1. Commit your changes to git
 git add .
-
-# Commit your changes
-git commit -m "Ready for deployment"
-
-# Push to GitHub
+git commit -m "Description of your changes"
 git push origin main
+
+# 2. Deploy to server
+./deploy.sh
 ```
 
-### 3. Run Initial Setup
+**That's it!** Your game will be live at http://ilyabelikin.tplinkdns.com in 1-2 minutes.
 
-This only needs to be done **once**:
+---
+
+## What the Deploy Script Does
+
+The `deploy.sh` script automatically:
+
+- ✅ Pulls latest code from GitHub
+- ✅ Installs any new dependencies
+- ✅ Builds all packages (shared, server, client)
+- ✅ Restarts the game server
+- ✅ Fixes file permissions
+
+No manual steps needed!
+
+---
+
+## First Time Setup (Already Done!)
+
+The initial setup has been completed. You can skip this section unless you're setting up a new server.
+
+If needed, run once:
 
 ```bash
 ./initial-setup.sh
 ```
 
-This will:
-- Install PM2 for process management
-- Build all packages (shared, server, client)
-- Start the server with PM2
-- Configure PM2 to auto-start on server reboot
-- Reload Caddy to serve production files
+---
 
-## Regular Deployments
+## Useful Commands
 
-After you've made changes and want to deploy:
-
-### 1. Commit and Push Your Changes to GitHub
+### Check Server Status
 
 ```bash
-git add .
-git commit -m "Description of your changes"
-git push origin main
+ssh root@ilyabelikin.tplinkdns.com "pm2 status"
 ```
 
-### 2. Deploy to Server
-
-Simply run:
+### View Server Logs
 
 ```bash
-./deploy.sh
+ssh root@ilyabelikin.tplinkdns.com "pm2 logs constellation-server"
 ```
 
-That's it! The script will:
-- SSH into your server
-- Pull the latest code from GitHub
-- Install any new dependencies
-- Build everything
-- Restart the server
-- Your changes are live!
+### Restart Server Manually
 
-## What's Running on the Server
+```bash
+ssh root@ilyabelikin.tplinkdns.com "pm2 restart constellation-server"
+```
+
+### View Caddy Logs (Web Server)
+
+```bash
+ssh root@ilyabelikin.tplinkdns.com "journalctl -u caddy -f"
+```
+
+---
+
+## What's Running on Your Server
 
 ### Services
 
-1. **PM2** - Manages the Node.js game server
+1. **PM2** - Process Manager
+
+   - Keeps the game server running
    - Auto-restarts if it crashes
    - Starts automatically on server reboot
-   - Logs all server activity
+   - Logs all activity
 
-2. **Caddy** - Web server and reverse proxy
-   - Serves your game client files
+2. **Caddy** - Web Server
+   - Serves your game's website
    - Proxies WebSocket connections to the game server
-   - Could enable HTTPS automatically (currently using HTTP)
+   - Runs on port 80
 
-### Useful Commands
+### File Locations
 
-Connect to your server:
-```bash
-ssh root@ilyabelikin.tplinkdns.com
-```
+- **Project:** `/root/constellation/`
+- **Website Files:** `/root/constellation/client/dist/`
+- **Server Code:** `/root/constellation/server/dist/`
+- **Logs:** `/root/constellation/logs/`
+- **Database:** `/root/constellation/server/data/constellation.db`
+- **Caddy Config:** `/etc/caddy/Caddyfile`
 
-Once connected, you can:
-
-```bash
-# Check server status
-pm2 status
-
-# View server logs
-pm2 logs constellation-server
-
-# Restart server manually
-pm2 restart constellation-server
-
-# Stop server
-pm2 stop constellation-server
-
-# Check Caddy status
-systemctl status caddy
-
-# View Caddy logs
-journalctl -u caddy -f
-```
+---
 
 ## Troubleshooting
 
-### Server won't start after deployment
+### Problem: "Failed to connect to server"
+
+**Check if server is running:**
 
 ```bash
-ssh root@ilyabelikin.tplinkdns.com
-pm2 logs constellation-server
+ssh root@ilyabelikin.tplinkdns.com "pm2 status"
 ```
 
-Look for error messages in the logs.
+If status shows "errored" or "stopped":
 
-### Website not loading
+```bash
+ssh root@ilyabelikin.tplinkdns.com "pm2 logs constellation-server"
+```
 
-1. Check if Caddy is running:
-   ```bash
-   ssh root@ilyabelikin.tplinkdns.com
-   systemctl status caddy
-   ```
+Look for error messages and fix the code issue.
 
-2. Check if files were built:
-   ```bash
-   ssh root@ilyabelikin.tplinkdns.com
-   ls -la /root/constellation/client/dist/
-   ```
+**Restart the server:**
 
-### WebSocket connection failing
+```bash
+ssh root@ilyabelikin.tplinkdns.com "pm2 restart constellation-server"
+```
 
-1. Check if the server is running:
-   ```bash
-   ssh root@ilyabelikin.tplinkdns.com
-   pm2 status
-   ```
+### Problem: Website not loading
 
-2. Check server logs:
-   ```bash
-   ssh root@ilyabelikin.tplinkdns.com
-   pm2 logs constellation-server
-   ```
+**Check if Caddy is running:**
 
-## File Locations on Server
+```bash
+ssh root@ilyabelikin.tplinkdns.com "systemctl status caddy"
+```
 
-- **Project:** `/root/constellation/`
-- **Client build:** `/root/constellation/client/dist/`
-- **Server build:** `/root/constellation/server/dist/`
-- **Logs:** `/root/constellation/logs/`
-- **Caddy config:** `/etc/caddy/Caddyfile`
-- **Database:** `/root/constellation/server/data/constellation.db`
+**Check if files were built:**
+
+```bash
+ssh root@ilyabelikin.tplinkdns.com "ls -la /root/constellation/client/dist/"
+```
+
+### Problem: Deploy script fails
+
+1. Make sure your changes are pushed to GitHub
+2. Check that you have SSH access to the server
+3. Look at the error message - it will tell you what went wrong
+
+---
 
 ## Backup Your Database
 
-Before major updates, backup your game database:
+Before major updates, backup your game data:
 
 ```bash
-ssh root@ilyabelikin.tplinkdns.com
-cp /root/constellation/server/data/constellation.db /root/constellation/server/data/constellation.db.backup-$(date +%Y%m%d)
+ssh root@ilyabelikin.tplinkdns.com \
+  "cp /root/constellation/server/data/constellation.db \
+   /root/constellation/server/data/constellation.db.backup-\$(date +%Y%m%d-%H%M)"
 ```
+
+---
 
 ## Development vs Production
 
-- **Development (local):** Run `npm run dev` - hot reload, fast development
-- **Production (server):** Built files served by Caddy, PM2 manages the server
+- **Local Development:** Run `npm run dev` in separate terminals for client and server
+  - Hot reload for fast development
+  - Changes appear instantly
+- **Production (Server):** Optimized builds served by Caddy and PM2
+  - Faster, more stable
+  - No dev tools
+  - Must deploy to see changes
 
-When you run `./deploy.sh`, it automatically builds for production and deploys.
+---
 
+## Need Help?
+
+- Server logs: `ssh root@ilyabelikin.tplinkdns.com "pm2 logs"`
+- Web server logs: `ssh root@ilyabelikin.tplinkdns.com "journalctl -u caddy"`
+- Check if ports are open: `ssh root@ilyabelikin.tplinkdns.com "netstat -tuln | grep -E '80|8080'"`
+
+Your game URL: **http://ilyabelikin.tplinkdns.com**
