@@ -44,6 +44,16 @@ export class HUDManager {
   private timeToggleButton: HTMLButtonElement;
   private playersDisplay: HTMLElement;
 
+  // Resource displays
+  private resourcesWidget: HTMLElement;
+  private energyDisplay: HTMLElement;
+  private alloyDisplay: HTMLElement;
+
+  // Notification toast
+  private notificationToast: HTMLElement;
+  private notificationMessage: HTMLElement;
+  private notificationTimeout: number | null = null;
+
   private systemOutline: HTMLElement;
   private outlineList: HTMLElement;
 
@@ -63,6 +73,8 @@ export class HUDManager {
   private playerProfileName: HTMLElement;
   private playerProfileStars: HTMLElement;
   private playerProfileCloseButton: HTMLElement;
+  private stanceButtons: NodeListOf<HTMLButtonElement>;
+  private currentProfilePlayerId: string | null = null;
 
   private isPaused = false;
   private isTimeToggleLoading = false;
@@ -94,6 +106,14 @@ export class HUDManager {
   public onSearchResultClick:
     | ((systemId: string, objectId: string) => void)
     | null = null;
+  public onSetPlayerStance:
+    | ((
+        targetPlayerId: string,
+        stance: "neutral" | "friendly" | "aggressive"
+      ) => void)
+    | null = null;
+  public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
+  public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
 
   constructor() {
     // Auth modal
@@ -135,6 +155,15 @@ export class HUDManager {
     ) as HTMLButtonElement;
     this.playersDisplay = document.getElementById("players-display")!;
 
+    // Resource displays
+    this.resourcesWidget = document.getElementById("resources-widget")!;
+    this.energyDisplay = document.getElementById("energy-display")!;
+    this.alloyDisplay = document.getElementById("alloy-display")!;
+
+    // Notification toast
+    this.notificationToast = document.getElementById("notification-toast")!;
+    this.notificationMessage = document.getElementById("notification-message")!;
+
     // System outline
     this.systemOutline = document.getElementById("system-outline")!;
     this.outlineList = document.getElementById("outline-list")!;
@@ -165,6 +194,7 @@ export class HUDManager {
     this.playerProfileCloseButton = document.getElementById(
       "player-profile-close-button"
     )!;
+    this.stanceButtons = document.querySelectorAll(".stance-button")!;
 
     // Player profile close button handler
     this.playerProfileCloseButton.addEventListener("click", () => {
@@ -176,6 +206,20 @@ export class HUDManager {
       if (e.target === this.playerProfileModal) {
         this.closePlayerProfileModal();
       }
+    });
+
+    // Stance button handlers
+    this.stanceButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const stance = button.getAttribute("data-stance") as
+          | "neutral"
+          | "friendly"
+          | "aggressive";
+        if (stance && this.currentProfilePlayerId && this.onSetPlayerStance) {
+          this.onSetPlayerStance(this.currentProfilePlayerId, stance);
+          this.updateStanceButtonHighlight(stance);
+        }
+      });
     });
 
     // Initialize detail views
@@ -284,12 +328,14 @@ export class HUDManager {
     this.navSection.classList.add("visible");
     this.timeSection.classList.add("visible");
     this.searchButton.classList.add("visible");
+    this.resourcesWidget.classList.remove("hidden");
   }
 
   hideGameHUD(): void {
     this.navSection.classList.remove("visible");
     this.timeSection.classList.remove("visible");
     this.searchButton.classList.remove("visible");
+    this.resourcesWidget.classList.add("hidden");
   }
 
   updateGalaxyTime(
@@ -465,10 +511,25 @@ export class HUDManager {
     this.hideAuthModal();
     // Update body detail view with home planet reference
     this.bodyDetailView.setHomePlanet(this.player, this.system);
+    // Update resource displays
+    this.updateResourceDisplays();
+  }
+
+  private updateResourceDisplays(): void {
+    if (!this.player) return;
+    // Floor energy to 2 decimal places (round down, not up)
+    const energyFloored = Math.floor(this.player.energy * 100) / 100;
+    this.energyDisplay.textContent = energyFloored.toFixed(2);
+    // Floor alloy to 2 decimal places (round down, not up)
+    const alloyFloored = Math.floor(this.player.alloy * 100) / 100;
+    this.alloyDisplay.textContent = alloyFloored.toFixed(2);
   }
 
   setSystem(system: StarSystem): void {
     this.system = system;
+
+    // Set current system on body detail view for mining checks
+    this.bodyDetailView.setCurrentSystem(system);
 
     // CRITICAL: Hide all panels when changing systems
     // This prevents detail panels from the previous system from remaining visible
@@ -1032,6 +1093,19 @@ export class HUDManager {
         callback(body.id, seed);
       }
     });
+
+    // Set up mining callback
+    this.bodyDetailView.onEstablishMining = (celestialBodyId: string) => {
+      if (this.onEstablishMining) {
+        this.onEstablishMining(celestialBodyId);
+      }
+    };
+
+    this.bodyDetailView.onLaunchDysonSwarm = (starId: string) => {
+      if (this.onLaunchDysonSwarm) {
+        this.onLaunchDysonSwarm(starId);
+      }
+    };
   }
 
   showPlayerDiscovery(
@@ -1134,6 +1208,7 @@ export class HUDManager {
 
   private openPlayerProfileModal(player: { id: string; name: string }): void {
     this.playerProfileName.textContent = player.name;
+    this.currentProfilePlayerId = player.id;
 
     // Show loading state
     this.playerProfileStars.textContent = "Loading...";
@@ -1150,7 +1225,8 @@ export class HUDManager {
   updatePlayerProfileStats(
     playerId: string,
     playerName: string,
-    starsDiscovered: number
+    starsDiscovered: number,
+    currentStance?: "neutral" | "friendly" | "aggressive"
   ): void {
     // Update the modal if it's currently showing this player
     if (
@@ -1158,7 +1234,27 @@ export class HUDManager {
       this.playerProfileName.textContent === playerName
     ) {
       this.playerProfileStars.textContent = starsDiscovered.toString();
+
+      // Update stance button highlight
+      if (currentStance) {
+        this.updateStanceButtonHighlight(currentStance);
+      }
     }
+  }
+
+  private updateStanceButtonHighlight(
+    stance: "neutral" | "friendly" | "aggressive"
+  ): void {
+    this.stanceButtons.forEach((button) => {
+      const buttonStance = button.getAttribute("data-stance");
+      if (buttonStance === stance) {
+        button.style.border = "2px solid #fff";
+        button.style.fontWeight = "bold";
+      } else {
+        button.style.border = "1px solid rgba(255, 255, 255, 0.2)";
+        button.style.fontWeight = "normal";
+      }
+    });
   }
 
   setNetworkClient(networkClient: any): void {
@@ -1168,6 +1264,29 @@ export class HUDManager {
   private closePlayerProfileModal(): void {
     this.playerProfileModal.classList.add("hidden");
     this.playerProfileModal.style.display = "none";
+    this.currentProfilePlayerId = null;
+  }
+
+  /**
+   * Shows a temporary notification message under the resources widget
+   * @param message The message to display
+   * @param duration Duration in milliseconds (default 3000)
+   */
+  showNotification(message: string, duration: number = 3000): void {
+    // Clear any existing timeout
+    if (this.notificationTimeout !== null) {
+      clearTimeout(this.notificationTimeout);
+    }
+
+    // Set message and show toast
+    this.notificationMessage.textContent = message;
+    this.notificationToast.style.display = "block";
+
+    // Auto-hide after duration
+    this.notificationTimeout = window.setTimeout(() => {
+      this.notificationToast.style.display = "none";
+      this.notificationTimeout = null;
+    }, duration);
   }
 
   getPlayerName(): string {

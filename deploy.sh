@@ -88,7 +88,7 @@ echo "✅ Deployment complete!"
 if [[ "\$RESET_DB" == "true" ]]; then
   echo "🔄 Database was reset - new galaxy will be generated on first connect"
 fi
-echo "🌐 Your game is live at: http://ilyabelikin.tplinkdns.com"
+echo "🌐 Your game is live at: https://constell.space"
 
 ENDSSH
 
@@ -97,5 +97,5 @@ echo "✨ Deployment finished successfully!"
 if [[ "$RESET_DB" == "true" ]]; then
   echo "🔄 Database was reset - new galaxy will be generated"
 fi
-echo "🌐 Visit: http://ilyabelikin.tplinkdns.com"
+echo "🌐 Visit: https://constell.space"
 

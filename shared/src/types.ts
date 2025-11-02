@@ -115,7 +115,19 @@ export interface StarGate {
   systemId: string;
   destinationSystemId: string;
   orbitalElements: OrbitalElements;
+  ownerId?: string; // Player who first explored this gate
 }
+
+// Gate relationship status (for gates owned by other players)
+export const GateStatus = {
+  UNEXPLORED: "unexplored", // Not yet explored by anyone
+  OWNED_BY_SELF: "owned_by_self", // Explored by current player
+  NEUTRAL: "neutral", // Explored by other civilization, neutral stance
+  AGGRESSIVE: "aggressive", // Explored by aggressive civilization
+  FRIENDLY: "friendly", // Explored by friendly civilization
+} as const;
+
+export type GateStatusType = (typeof GateStatus)[keyof typeof GateStatus];
 
 export interface AsteroidBelt {
   id: string;
@@ -147,6 +159,38 @@ export interface Player {
   currentSystemId: string;
   shipId: string;
   exploredGateIds: string[];
+  energy: number; // Resource for gate exploration and maintenance
+  alloy: number; // Resource for construction
+}
+
+export interface MiningOperation {
+  id: string;
+  playerId: string;
+  systemId: string;
+  celestialBodyId: string; // asteroid or moon being mined
+  alloyPerDay: number; // resource generation rate
+  establishedAt: number; // timestamp when mining started
+  lastYieldAt: number; // timestamp of last resource generation
+}
+
+export const MegastructureType = {
+  DYSON_SWARM: "dyson_swarm",
+} as const;
+
+export type MegastructureTypeName =
+  (typeof MegastructureType)[keyof typeof MegastructureType];
+
+export interface Megastructure {
+  id: string;
+  playerId: string;
+  systemId: string;
+  type: MegastructureTypeName;
+  celestialBodyId?: string; // star, planet, or null for system-level
+  resourceType?: string; // "energy", "alloy", etc.
+  resourcePerDay?: number; // resource generation rate
+  establishedAt: number; // timestamp when built
+  lastYieldAt: number; // timestamp of last resource generation
+  metadata?: string; // JSON string for type-specific data
 }
 
 export interface StarSystem {
@@ -160,6 +204,8 @@ export interface StarSystem {
   asteroidBelts: AsteroidBelt[];
   gates: StarGate[];
   companionStars?: CelestialBodyType[]; // For binary/trinary systems
+  miningOperations?: MiningOperation[]; // Active mining operations in this system
+  megastructures?: Megastructure[]; // Megastructures in this system
 }
 
 export interface Galaxy {
@@ -224,6 +270,9 @@ export interface ConstellationConnection {
   toSystemId: string;
   isExplored: boolean; // Whether the gate has been discovered
   gateId?: string; // Optional gate ID for explored connections
+  ownerId?: string; // Player who owns this gate
+  ownerName?: string; // Name of the player who owns this gate
+  status?: GateStatusType; // Status relative to current player
 }
 
 export interface UnexploredGate {

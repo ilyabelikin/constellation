@@ -21,6 +21,17 @@ export class InteractionManager {
   }
 
   /**
+   * Updates mouse position from touch coordinates
+   */
+  updateTouchPosition(event: TouchEvent): void {
+    if (event.touches.length > 0) {
+      const touch = event.touches[0];
+      this.mouse.x = (touch.clientX / window.innerWidth) * 2 - 1;
+      this.mouse.y = -(touch.clientY / window.innerHeight) * 2 + 1;
+    }
+  }
+
+  /**
    * Checks for intersections with objects and returns the first intersected object's ID
    * @param camera - The camera to use for raycasting
    * @param objects - Array of THREE.Mesh or THREE.Group objects to check for intersections

@@ -32,6 +32,22 @@ export class BodyDetailView {
   private userModifiedSeed: boolean = false; // Track if user has changed the slider
   private onSeedChange: ((seed: number) => void) | null = null;
 
+  // Mining elements
+  private miningSection: HTMLElement | null;
+  private miningStatus: HTMLElement | null;
+  private miningRate: HTMLElement | null;
+  private mineButton: HTMLButtonElement | null;
+  private currentSystem: StarSystem | null = null;
+  public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
+
+  // Dyson Swarm elements
+  private dysonSection: HTMLElement | null;
+  private dysonStatus: HTMLElement | null;
+  private dysonCount: HTMLElement | null;
+  private dysonEnergy: HTMLElement | null;
+  private dysonButton: HTMLButtonElement | null;
+  public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
+
   // Home planet reference for relative mass display
   private homePlanetMass: number = EARTH_MASS;
   private homePlanetName: string = "Earth";
@@ -53,6 +69,41 @@ export class BodyDetailView {
     );
     this.shapeElement = document.getElementById("body-detail-shape");
 
+    // Mining elements
+    this.miningSection = document.getElementById("body-mining-section");
+    this.miningStatus = document.getElementById("body-mining-status");
+    this.miningRate = document.getElementById("body-mining-rate");
+    this.mineButton = document.getElementById(
+      "body-mine-button"
+    ) as HTMLButtonElement;
+
+    // Bind mine button click
+    if (this.mineButton) {
+      this.mineButton.addEventListener("click", () => {
+        if (this.currentBody && this.onEstablishMining) {
+          this.onEstablishMining(this.currentBody.id);
+        }
+      });
+    }
+
+    // Dyson Swarm elements
+    this.dysonSection = document.getElementById("body-dyson-section");
+    this.dysonStatus = document.getElementById("body-dyson-status");
+    this.dysonCount = document.getElementById("body-dyson-count");
+    this.dysonEnergy = document.getElementById("body-dyson-energy");
+    this.dysonButton = document.getElementById(
+      "body-dyson-button"
+    ) as HTMLButtonElement;
+
+    // Bind dyson button click
+    if (this.dysonButton) {
+      this.dysonButton.addEventListener("click", () => {
+        if (this.currentBody && this.onLaunchDysonSwarm) {
+          this.onLaunchDysonSwarm(this.currentBody.id);
+        }
+      });
+    }
+
     // Check for debug mode via URL parameter
     const urlParams = new URLSearchParams(window.location.search);
     this.isDebugMode = urlParams.has("debug_mode");
@@ -60,6 +111,13 @@ export class BodyDetailView {
     if (this.isDebugMode) {
       this.createDebugControls();
     }
+  }
+
+  /**
+   * Set the current system for mining operation checks
+   */
+  setCurrentSystem(system: StarSystem | null): void {
+    this.currentSystem = system;
   }
 
   /**
@@ -263,6 +321,93 @@ export class BodyDetailView {
     } else {
       if (this.habitabilityElement) {
         this.habitabilityElement.style.display = "none";
+      }
+    }
+
+    // Show/hide mining section for asteroids and moons
+    if (
+      (body.type === "asteroid" || body.type === "moon") &&
+      body.composition === "metal"
+    ) {
+      if (this.miningSection) {
+        this.miningSection.style.display = "block";
+
+        // Check if there's already a mining operation on this body
+        const existingOperation = this.currentSystem?.miningOperations?.find(
+          (op: any) => op.celestialBodyId === body.id
+        );
+
+        if (existingOperation) {
+          // Show mining status, hide button
+          if (this.miningStatus) {
+            this.miningStatus.style.display = "block";
+            if (this.miningRate) {
+              this.miningRate.textContent =
+                existingOperation.alloyPerDay.toFixed(1);
+            }
+          }
+          if (this.mineButton) {
+            this.mineButton.style.display = "none";
+          }
+        } else {
+          // Hide mining status, show button
+          if (this.miningStatus) {
+            this.miningStatus.style.display = "none";
+          }
+          if (this.mineButton) {
+            this.mineButton.style.display = "block";
+          }
+        }
+      }
+    } else {
+      // Hide mining section for non-mineable bodies
+      if (this.miningSection) {
+        this.miningSection.style.display = "none";
+      }
+    }
+
+    // Show/hide Dyson Swarm section for stars
+    if (body.type === "star") {
+      if (this.dysonSection) {
+        this.dysonSection.style.display = "block";
+
+        // Count existing Dyson Swarms on this star
+        const dysonSwarms =
+          this.currentSystem?.megastructures?.filter(
+            (ms: any) =>
+              ms.type === "dyson_swarm" && ms.celestialBodyId === body.id
+          ) || [];
+
+        const swarmCount = dysonSwarms.length;
+        const maxSwarms = 10;
+        const totalEnergy = swarmCount * 1; // 1 energy per swarm (permanent boost)
+
+        // Always show swarm status for stars
+        if (this.dysonStatus) {
+          this.dysonStatus.style.display = "block";
+          if (this.dysonCount) {
+            this.dysonCount.textContent = `${swarmCount}`;
+          }
+          if (this.dysonEnergy) {
+            this.dysonEnergy.textContent =
+              totalEnergy > 0 ? `+${totalEnergy}` : `${totalEnergy}`;
+          }
+        }
+
+        // Hide button if at max capacity
+        if (this.dysonButton) {
+          if (swarmCount >= maxSwarms) {
+            this.dysonButton.style.display = "none";
+          } else {
+            this.dysonButton.style.display = "block";
+            this.dysonButton.textContent = `☀ Launch Dyson Swarm (10 ⛏) [${swarmCount}/${maxSwarms}]`;
+          }
+        }
+      }
+    } else {
+      // Hide dyson section for non-stars
+      if (this.dysonSection) {
+        this.dysonSection.style.display = "none";
       }
     }
 

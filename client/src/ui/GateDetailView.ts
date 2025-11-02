@@ -15,6 +15,9 @@ export class GateDetailView {
   private destinationElement: HTMLElement;
   private distanceElement: HTMLElement;
   private periodElement: HTMLElement;
+  private ownerRow: HTMLElement;
+  private ownerElement: HTMLElement;
+  private costRow: HTMLElement;
 
   constructor() {
     this.panel = document.getElementById("gate-details-panel")!;
@@ -25,6 +28,9 @@ export class GateDetailView {
     )!;
     this.distanceElement = document.getElementById("gate-detail-distance")!;
     this.periodElement = document.getElementById("gate-detail-period")!;
+    this.ownerRow = document.getElementById("gate-detail-owner-row")!;
+    this.ownerElement = document.getElementById("gate-detail-owner")!;
+    this.costRow = document.getElementById("gate-detail-cost-row")!;
   }
 
   /**
@@ -44,11 +50,33 @@ export class GateDetailView {
     // Show "???" for unexplored gates, actual name for explored gates
     this.nameElement.textContent = isExplored ? gate.name : "???";
 
-    // Status
-    if (isExplored) {
-      this.statusElement.textContent = "Explored ⚡";
-    } else {
+    // Status (check userData for status from gate creation)
+    const gateStatus = gate.userData?.status;
+    if (!isExplored) {
       this.statusElement.textContent = "Unexplored ◈";
+      this.ownerRow.style.display = "none";
+      this.costRow.style.display = "block"; // Show cost for unexplored gates
+    } else {
+      // Show status based on ownership
+      if (gateStatus === "owned_by_self") {
+        this.statusElement.textContent = "Owned by You ⚡";
+        this.ownerRow.style.display = "block";
+        this.ownerElement.textContent = player?.name || "You";
+      } else if (gateStatus === "neutral") {
+        this.statusElement.textContent = "Neutral Gate ●";
+        this.ownerRow.style.display = "block";
+        // Owner info will be set below if available
+      } else if (gateStatus === "aggressive") {
+        this.statusElement.textContent = "Hostile Gate ⚠";
+        this.ownerRow.style.display = "block";
+      } else if (gateStatus === "friendly") {
+        this.statusElement.textContent = "Friendly Gate ✓";
+        this.ownerRow.style.display = "block";
+      } else {
+        this.statusElement.textContent = "Explored ⚡";
+        this.ownerRow.style.display = "none";
+      }
+      this.costRow.style.display = "none"; // Don't show cost for explored gates
     }
 
     // Destination

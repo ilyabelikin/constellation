@@ -427,6 +427,25 @@
         <button class="hud-button" id="nav-constellation">Constellation</button>
     </div>
 
+    <!-- Resources Widget (under navigation) -->
+    <div id="resources-widget" class="hud hidden" style="position: absolute; top: 68px; left: 10px; padding: 5px 10px;">
+        <div style="display: flex; gap: 15px; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: #60a5fa; font-size: 15px;">⚡</span>
+                <span id="energy-display" style="font-weight: bold; font-size: 14px; color: #60a5fa;">10</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: #94a3b8; font-size: 15px;">⛏</span>
+                <span id="alloy-display" style="font-weight: bold; font-size: 14px; color: #94a3b8;">10</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast (under resources widget) -->
+    <div id="notification-toast" style="position: absolute; top: 108px; left: 10px; padding: 8px 12px; background: rgba(239, 68, 68, 0.9); border: 1px solid rgba(220, 38, 38, 0.8); border-radius: 4px; color: #fff; font-size: 13px; display: none; max-width: 300px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); z-index: 10000;">
+        <span id="notification-message"></span>
+    </div>
+
     <!-- Top Right Time Controls -->
     <div class="hud hud-top-right">
         <div>Time: <span id="time-display">0d 0h</span></div>
@@ -470,6 +489,22 @@
         <div class="detail-value" id="body-detail-habitability" style="display: none;">-</div>
         <div class="detail-value" id="body-detail-composition" style="display: none;">-</div>
         <div class="detail-value" id="body-detail-shape" style="display: none;">-</div>
+        <div id="body-mining-section" style="display: none; margin-top: 1rem;">
+            <div id="body-mining-status" class="detail-value" style="display: none; color: #10b981; margin-bottom: 0.5rem;">
+                ⛏ Mining: <span id="body-mining-rate">-</span> alloy/day
+            </div>
+            <button class="hud-button" id="body-mine-button" style="width: 100%;">
+                ⛏ Establish Mining (1 ⚡)
+            </button>
+        </div>
+        <div id="body-dyson-section" style="display: none; margin-top: 1rem;">
+            <div id="body-dyson-status" class="detail-value" style="display: none; color: #60a5fa; margin-bottom: 0.5rem;">
+                ☀ Dyson Swarms: <span id="body-dyson-count">-</span>/10 (<span id="body-dyson-energy">-</span> ⚡)
+            </div>
+            <button class="hud-button" id="body-dyson-button" style="width: 100%;">
+                ☀ Launch Dyson Swarm (10 ⛏)
+            </button>
+        </div>
     </div>
 
     <!-- Bottom Left Details Panel - Star Gates -->
@@ -482,6 +517,14 @@
         <div class="detail-row">
             <span class="detail-label">Status:</span>
             <span class="detail-value" id="gate-detail-status">-</span>
+        </div>
+        <div class="detail-row" id="gate-detail-owner-row" style="display: none;">
+            <span class="detail-label">Owner:</span>
+            <span class="detail-value" id="gate-detail-owner">-</span>
+        </div>
+        <div class="detail-row" id="gate-detail-cost-row" style="display: none;">
+            <span class="detail-label">Explore Cost:</span>
+            <span class="detail-value" id="gate-detail-cost" style="color: #60a5fa;">⚡ 1 Energy</span>
         </div>
         <div class="detail-row">
             <span class="detail-label">Leads to:</span>
@@ -577,6 +620,20 @@
             <div class="detail-row">
                 <span class="detail-label">Stars Discovered:</span>
                 <span class="detail-value" id="player-profile-stars">0</span>
+            </div>
+            <div class="detail-row" style="margin-top: 20px;">
+                <span class="detail-label">Diplomatic Stance:</span>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button class="hud-button stance-button" id="stance-neutral" data-stance="neutral" style="flex: 1; padding: 10px; font-size: 12px; background: #9ca3af;">
+                    ● Neutral
+                </button>
+                <button class="hud-button stance-button" id="stance-friendly" data-stance="friendly" style="flex: 1; padding: 10px; font-size: 12px; background: #10b981;">
+                    ✓ Friendly
+                </button>
+                <button class="hud-button stance-button" id="stance-aggressive" data-stance="aggressive" style="flex: 1; padding: 10px; font-size: 12px; background: #ef4444;">
+                    ⚠ Aggressive
+                </button>
             </div>
             <button class="hud-button" id="player-profile-close-button" style="padding: 10px 30px; font-size: 14px; margin-top: 20px; width: 100%;">Close</button>
         </div>

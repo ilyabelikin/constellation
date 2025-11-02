@@ -6,6 +6,7 @@ import {
   ConstellationNode,
   ConstellationConnection,
   UnexploredGate,
+  MiningOperation,
 } from "./types.js";
 
 // Client -> Server messages
@@ -28,7 +29,20 @@ export type ClientMessage =
       positions: Record<string, { x: number; y: number; z: number }>;
     }
   | { type: "searchObjects"; query: string }
-  | { type: "requestPlayerStats"; playerId: string };
+  | { type: "requestPlayerStats"; playerId: string }
+  | {
+      type: "setPlayerStance";
+      targetPlayerId: string;
+      stance: "neutral" | "friendly" | "aggressive";
+    }
+  | {
+      type: "establishMining";
+      celestialBodyId: string;
+    }
+  | {
+      type: "launchDysonSwarm";
+      starId: string;
+    };
 
 export interface ShipManeuverCommand {
   shipId: string;
@@ -93,6 +107,25 @@ export type ServerMessage =
       playerId: string;
       playerName: string;
       starsDiscovered: number;
+      currentStance?: "neutral" | "friendly" | "aggressive";
+    }
+  | {
+      type: "stanceUpdated";
+      targetPlayerId: string;
+      stance: "neutral" | "friendly" | "aggressive";
+    }
+  | {
+      type: "miningEstablished";
+      miningOperationId: string;
+      celestialBodyId: string;
+      alloyPerDay: number;
+    }
+  | {
+      type: "dysonSwarmLaunched";
+      megastructureId: string;
+      starId: string;
+      energyPerDay: number;
+      count: number;
     };
 
 export interface SearchResult {

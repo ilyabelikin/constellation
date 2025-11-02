@@ -58,6 +58,11 @@ export class SceneManager {
 
   private system: StarSystem | null = null;
   private exploredGateIds: Set<string> = new Set();
+  private gateOwnership: Map<
+    string,
+    { ownerId: string; ownerName: string; status: string }
+  > = new Map();
+  private currentPlayerId: string | null = null;
   private isConstellationViewActive = false;
 
   // Scale factor for visualization (1 AU = 1000 units in Three.js)
@@ -97,6 +102,9 @@ export class SceneManager {
   private contextMenuHandler: (e: MouseEvent) => void;
   private keyDownHandler: (e: KeyboardEvent) => void;
   private keyUpHandler: (e: KeyboardEvent) => void;
+  private touchStartHandler: (e: TouchEvent) => void;
+  private touchMoveHandler: (e: TouchEvent) => void;
+  private touchEndHandler: (e: TouchEvent) => void;
 
   // Keyboard navigation state for constellation view
   private keyboardState: { [key: string]: boolean } = {};
@@ -180,6 +188,9 @@ export class SceneManager {
     this.contextMenuHandler = (e: MouseEvent) => this.onContextMenu(e);
     this.keyDownHandler = (e: KeyboardEvent) => this.onKeyDown(e);
     this.keyUpHandler = (e: KeyboardEvent) => this.onKeyUp(e);
+    this.touchStartHandler = (e: TouchEvent) => this.onTouchStart(e);
+    this.touchMoveHandler = (e: TouchEvent) => this.onTouchMove(e);
+    this.touchEndHandler = (e: TouchEvent) => this.onTouchEnd(e);
 
     // Add event listeners
     window.addEventListener("resize", this.resizeHandler);
@@ -198,6 +209,22 @@ export class SceneManager {
     this.renderer.domElement.addEventListener(
       "contextmenu",
       this.contextMenuHandler
+    );
+    // Touch event listeners
+    this.renderer.domElement.addEventListener(
+      "touchstart",
+      this.touchStartHandler,
+      { passive: false }
+    );
+    this.renderer.domElement.addEventListener(
+      "touchmove",
+      this.touchMoveHandler,
+      { passive: false }
+    );
+    this.renderer.domElement.addEventListener(
+      "touchend",
+      this.touchEndHandler,
+      { passive: false }
     );
   }
 
@@ -291,7 +318,21 @@ export class SceneManager {
     // Create gates
     for (const gate of system.gates) {
       const isExplored = this.exploredGateIds.has(gate.id);
-      const gateGroup = this.gateFactory.createGate(gate, isExplored);
+
+      // Determine gate status based on ownership
+      let gateStatus: string;
+      const ownership = this.gateOwnership.get(gate.id);
+
+      if (!isExplored) {
+        gateStatus = "unexplored";
+      } else if (ownership && ownership.status) {
+        gateStatus = ownership.status;
+      } else {
+        // Default to owned_by_self if explored but no ownership info
+        gateStatus = "owned_by_self";
+      }
+
+      const gateGroup = this.gateFactory.createGate(gate, gateStatus as any);
       this.scene.add(gateGroup);
       this.gates.set(gate.id, gateGroup);
 
@@ -338,6 +379,23 @@ export class SceneManager {
 
   setExploredGates(exploredGateIds: string[]): void {
     this.exploredGateIds = new Set(exploredGateIds);
+  }
+
+  setCurrentPlayerId(playerId: string): void {
+    this.currentPlayerId = playerId;
+  }
+
+  setGateOwnership(
+    gateId: string,
+    ownerId: string,
+    ownerName: string,
+    status: string
+  ): void {
+    this.gateOwnership.set(gateId, { ownerId, ownerName, status });
+  }
+
+  clearGateOwnership(): void {
+    this.gateOwnership.clear();
   }
 
   private clearScene(): void {
@@ -889,6 +947,110 @@ export class SceneManager {
     this.keyboardState[key] = false;
   }
 
+  private onTouchStart(event: TouchEvent): void {
+    // Prevent default to avoid triggering mouse events on mobile
+    event.preventDefault();
+
+    // Handle constellation view
+    if (this.isConstellationViewActive) {
+      // For now, only handle camera rotation in constellation view
+      // Touch dragging stars would need more complex gesture detection
+      if (event.touches.length === 1) {
+        this.cameraController.onTouchStart(event);
+        this.interactionManager.updateTouchPosition(event);
+
+        // Check for taps after delay (stars or unexplored gates)
+        setTimeout(() => {
+          if (!this.cameraController.getIsTouchDragging()) {
+            const raycaster = new THREE.Raycaster();
+
+            // Convert touch to mouse event for compatibility
+            const touch = event.touches[0] || event.changedTouches[0];
+            const mockMouseEvent = new MouseEvent("click", {
+              clientX: touch.clientX,
+              clientY: touch.clientY,
+            });
+
+            // First check for unexplored gate taps
+            const clickedGateId = this.constellationView.onUnexploredGateClick(
+              mockMouseEvent,
+              this.camera,
+              raycaster
+            );
+
+            if (clickedGateId) {
+              if (this.onConstellationGateSelected) {
+                this.onConstellationGateSelected(clickedGateId);
+                return;
+              }
+            }
+
+            // Then check for star taps
+            const clickResult = this.constellationView.onStarClick(
+              mockMouseEvent,
+              this.camera,
+              raycaster
+            );
+
+            if (clickResult && this.onConstellationSystemSelected) {
+              this.onConstellationSystemSelected(
+                clickResult.systemId,
+                clickResult.action
+              );
+            }
+          }
+        }, 150);
+      }
+      return;
+    }
+
+    // Normal system view
+    this.cameraController.onTouchStart(event);
+    this.interactionManager.updateTouchPosition(event);
+
+    // Small delay to differentiate between tap and drag
+    setTimeout(() => {
+      if (!this.cameraController.getIsTouchDragging()) {
+        this.handleObjectClick();
+      }
+    }, 150);
+  }
+
+  private onTouchMove(event: TouchEvent): void {
+    // Prevent default to avoid scrolling and zooming
+    event.preventDefault();
+
+    // Handle constellation view
+    if (this.isConstellationViewActive) {
+      // For now, only handle camera rotation
+      this.cameraController.onTouchMove(event);
+      return;
+    }
+
+    this.interactionManager.updateTouchPosition(event);
+
+    // Update hover state for cursor feedback
+    this.updateHoverState();
+
+    // Handle camera rotation and zoom
+    this.cameraController.onTouchMove(event);
+  }
+
+  private onTouchEnd(event: TouchEvent): void {
+    // Prevent default
+    event.preventDefault();
+
+    // Handle constellation view
+    if (this.isConstellationViewActive) {
+      // For constellation view, we don't have drag-to-reposition on touch yet
+      // Just end the camera touch interaction
+      this.cameraController.onTouchEnd();
+      return;
+    }
+
+    this.cameraController.onTouchEnd();
+  }
+
   private onWindowResize(): void {
     this.cameraController.onWindowResize();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -1096,14 +1258,17 @@ export class SceneManager {
 
     // Calculate delta time for smooth rotation updates (once per frame, not per planet)
     const currentRotationTime = performance.now() / 1000;
-    const rotationDeltaTime = this.lastRotationUpdateTime === 0 ? 0.016 : currentRotationTime - this.lastRotationUpdateTime;
+    const rotationDeltaTime =
+      this.lastRotationUpdateTime === 0
+        ? 0.016
+        : currentRotationTime - this.lastRotationUpdateTime;
 
     // Update planet positions and rotations
     for (const [bodyId, mesh] of this.bodies.entries()) {
       // Update positions for all bodies except the primary star (which stays at origin)
       // Companion stars still get updated since they orbit
       const isPrimaryStar = this.system && bodyId === this.system.star.id;
-      
+
       if (!isPrimaryStar) {
         // Smooth orbital motion interpolation
         const interpolatedPos = this.timeInterpolator.getInterpolatedPosition(
@@ -1127,22 +1292,26 @@ export class SceneManager {
         const baseRotationSpeed = (2 * Math.PI) / 86400; // One Earth day
         const speedMultiplier = 0.5 + (bodyId.charCodeAt(0) % 10) * 0.15;
         const rotationSpeed = baseRotationSpeed * speedMultiplier;
-        
+
         // Use incremental rotation to avoid discontinuities from time updates
         // Initialize rotation if not exists
         if (!this.planetRotations.has(bodyId)) {
           this.planetRotations.set(bodyId, 0);
         }
-        
+
         // Increment rotation based on real time elapsed (not game time)
         // This ensures smooth visual rotation even if game time has small jumps
         if (!this.timeInterpolator.getIsPaused() && rotationDeltaTime > 0) {
           // Increment rotation based on time scale
-          const rotationIncrement = rotationSpeed * rotationDeltaTime * this.timeInterpolator.getTimeScale();
-          const currentRotation = this.planetRotations.get(bodyId)! + rotationIncrement;
+          const rotationIncrement =
+            rotationSpeed *
+            rotationDeltaTime *
+            this.timeInterpolator.getTimeScale();
+          const currentRotation =
+            this.planetRotations.get(bodyId)! + rotationIncrement;
           this.planetRotations.set(bodyId, currentRotation);
         }
-        
+
         const rotation = this.planetRotations.get(bodyId)!;
 
         // Update shader uniform if using ShaderMaterial
@@ -1205,22 +1374,30 @@ export class SceneManager {
             const cloudMaterial = child.material as THREE.ShaderMaterial;
             if (cloudMaterial.uniforms && cloudMaterial.uniforms.rotation) {
               const cloudId = `${bodyId}_cloud_${child.userData.cloudLayer}`;
-              
+
               // Initialize cloud rotation if not exists
               if (!this.planetRotations.has(cloudId)) {
                 this.planetRotations.set(cloudId, 0);
               }
-              
+
               // Increment cloud rotation
-              if (!this.timeInterpolator.getIsPaused() && rotationDeltaTime > 0) {
+              if (
+                !this.timeInterpolator.getIsPaused() &&
+                rotationDeltaTime > 0
+              ) {
                 const cloudRotationSpeed =
                   baseRotationSpeed * child.userData.rotationSpeed;
-                const cloudRotationIncrement = cloudRotationSpeed * rotationDeltaTime * this.timeInterpolator.getTimeScale();
-                const currentCloudRotation = this.planetRotations.get(cloudId)! + cloudRotationIncrement;
+                const cloudRotationIncrement =
+                  cloudRotationSpeed *
+                  rotationDeltaTime *
+                  this.timeInterpolator.getTimeScale();
+                const currentCloudRotation =
+                  this.planetRotations.get(cloudId)! + cloudRotationIncrement;
                 this.planetRotations.set(cloudId, currentCloudRotation);
               }
-              
-              cloudMaterial.uniforms.rotation.value = this.planetRotations.get(cloudId)!;
+
+              cloudMaterial.uniforms.rotation.value =
+                this.planetRotations.get(cloudId)!;
 
               // Update time uniform for evolving cloud patterns (use game time for these effects)
               if (cloudMaterial.uniforms.time) {
@@ -1952,6 +2129,8 @@ export class SceneManager {
   dispose(): void {
     // Remove event listeners
     window.removeEventListener("resize", this.resizeHandler);
+    window.removeEventListener("keydown", this.keyDownHandler);
+    window.removeEventListener("keyup", this.keyUpHandler);
     this.renderer.domElement.removeEventListener(
       "mousedown",
       this.mouseDownHandler
@@ -1971,6 +2150,18 @@ export class SceneManager {
     this.renderer.domElement.removeEventListener(
       "contextmenu",
       this.contextMenuHandler
+    );
+    this.renderer.domElement.removeEventListener(
+      "touchstart",
+      this.touchStartHandler
+    );
+    this.renderer.domElement.removeEventListener(
+      "touchmove",
+      this.touchMoveHandler
+    );
+    this.renderer.domElement.removeEventListener(
+      "touchend",
+      this.touchEndHandler
     );
 
     // Clear scene

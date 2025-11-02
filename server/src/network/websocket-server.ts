@@ -87,10 +87,18 @@ export class ConstellationWebSocketServer {
           this.handleJoinGalaxy(client, message.galaxyName, message.playerName);
           break;
         case "createGalaxy":
-          this.handleCreateGalaxy(client, message.galaxyName, message.playerName);
+          this.handleCreateGalaxy(
+            client,
+            message.galaxyName,
+            message.playerName
+          );
           break;
         case "resetGalaxy":
-          this.handleResetGalaxy(client, message.galaxyName, message.playerName);
+          this.handleResetGalaxy(
+            client,
+            message.galaxyName,
+            message.playerName
+          );
           break;
         case "requestSystemState":
           this.handleRequestSystemState(client, message.systemId);
@@ -124,6 +132,19 @@ export class ConstellationWebSocketServer {
           break;
         case "requestPlayerStats":
           this.handleRequestPlayerStats(client, message.playerId);
+          break;
+        case "setPlayerStance":
+          this.handleSetPlayerStance(
+            client,
+            message.targetPlayerId,
+            message.stance
+          );
+          break;
+        case "establishMining":
+          this.handleEstablishMining(client, message.celestialBodyId);
+          break;
+        case "launchDysonSwarm":
+          this.handleLaunchDysonSwarm(client, message.starId);
           break;
       }
     } catch (error) {
@@ -208,7 +229,11 @@ export class ConstellationWebSocketServer {
     });
   }
 
-  private handleJoinGalaxy(client: ClientConnection, galaxyName: string, playerName?: string): void {
+  private handleJoinGalaxy(
+    client: ClientConnection,
+    galaxyName: string,
+    playerName?: string
+  ): void {
     if (!client.uuid) {
       this.sendError(client.ws, "Not authenticated");
       return;
@@ -237,7 +262,7 @@ export class ConstellationWebSocketServer {
         existingPlayer.name = playerName.trim(); // Update in memory
         console.log(`Updated player name to: ${playerName.trim()}`);
       }
-      
+
       // Load their data
       client.playerId = existingPlayer.id;
       client.currentSystemId = existingPlayer.currentSystemId;
@@ -259,7 +284,7 @@ export class ConstellationWebSocketServer {
       if (ship) {
         this.send(client.ws, { type: "shipData", ship });
       }
-      
+
       // Broadcast updated galaxy players info if name was changed
       if (playerName && playerName.trim()) {
         this.broadcastGalaxyPlayersInfo(galaxy.id);
@@ -267,16 +292,21 @@ export class ConstellationWebSocketServer {
     } else {
       // New player, create them
       // Generate a unique starting system for this player, separate from other players
-      console.log(`Generating unique starting system for new player in galaxy: ${galaxyName}`);
-      
-      const starterResult = generateStarterSystem(galaxy.id, galaxy.seed + Date.now());
+      console.log(
+        `Generating unique starting system for new player in galaxy: ${galaxyName}`
+      );
+
+      const starterResult = generateStarterSystem(
+        galaxy.id,
+        galaxy.seed + Date.now()
+      );
       this.db.createStarSystem(starterResult.system);
-      
+
       // Save gates for the starter system
       for (const gate of starterResult.system.gates) {
         this.db.createGate(gate);
       }
-      
+
       this.createPlayerInGalaxy(
         client,
         galaxy.id,
@@ -420,7 +450,9 @@ export class ConstellationWebSocketServer {
 
     // Fallback to first system if not found (shouldn't happen)
     if (!starterSystem) {
-      console.warn("Could not find system with home planet, using first system");
+      console.warn(
+        "Could not find system with home planet, using first system"
+      );
       starterSystem = systems[0];
     }
 
@@ -430,8 +462,11 @@ export class ConstellationWebSocketServer {
     const parentMass = homePlanet ? homePlanet.mass : starterSystem.star.mass;
 
     // Create player with the name they provided (from message or stored), or a default based on UUID
-    const finalPlayerName = playerName || client.playerName || `Player-${client.uuid.substring(0, 8)}`;
-    
+    const finalPlayerName =
+      playerName ||
+      client.playerName ||
+      `Player-${client.uuid.substring(0, 8)}`;
+
     const player: Player = {
       id: uuidv4(),
       uuid: client.uuid,
@@ -442,6 +477,8 @@ export class ConstellationWebSocketServer {
       currentSystemId: starterSystem.id,
       shipId: "",
       exploredGateIds: [], // New player has not explored any gates yet
+      energy: 10, // Initial energy
+      alloy: 10, // Initial alloy
     };
 
     this.db.createPlayer(player);
@@ -494,7 +531,7 @@ export class ConstellationWebSocketServer {
     this.send(client.ws, { type: "playerData", player });
     this.send(client.ws, { type: "systemData", system: starterSystem });
     this.send(client.ws, { type: "shipData", ship });
-    
+
     // Broadcast updated galaxy players info to ALL players in this galaxy
     this.broadcastGalaxyPlayersInfo(galaxyId);
   }
@@ -526,6 +563,10 @@ export class ConstellationWebSocketServer {
     // Load ships for this system
     const ships = this.db.getShipsBySystem(system.id);
     this.gameState.loadShips(system.id, ships);
+
+    // Add mining operations to the system
+    const miningOperations = this.db.getMiningOperationsBySystem(system.id);
+    system.miningOperations = miningOperations;
 
     // Send system data
     this.send(client.ws, { type: "systemData", system });
@@ -638,34 +679,38 @@ export class ConstellationWebSocketServer {
       // MULTIPLAYER FEATURE: Check if we should connect to another player's explored system
       const myExploredSystems = this.db.getExploredSystemsByPlayer(player.id);
       const constellationSize = myExploredSystems.size;
-      
+
       // Calculate probability: base 5% chance, increasing by 2% per explored system, capped at 50%
       const BASE_CHANCE = 0.05;
       const CHANCE_PER_SYSTEM = 0.02;
-      const MAX_CHANCE = 0.50;
+      const MAX_CHANCE = 0.5;
       const connectionProbability = Math.min(
-        BASE_CHANCE + (constellationSize * CHANCE_PER_SYSTEM),
+        BASE_CHANCE + constellationSize * CHANCE_PER_SYSTEM,
         MAX_CHANCE
       );
-      
+
       console.log(
         `Multiplayer connection check: ${constellationSize} systems explored, ` +
-        `${(connectionProbability * 100).toFixed(1)}% chance to connect to another player`
+          `${(connectionProbability * 100).toFixed(
+            1
+          )}% chance to connect to another player`
       );
-      
+
       // Check if we should attempt to connect to another player
       if (Math.random() < connectionProbability) {
         // Find other players in the same galaxy
         const allPlayers = this.db.getPlayersByGalaxy(galaxy.id);
         const otherPlayers = allPlayers.filter((p) => p.id !== player.id);
-        
+
         if (otherPlayers.length > 0) {
           console.log(`Found ${otherPlayers.length} other player(s) in galaxy`);
-          
+
           // Collect all systems explored by other players that we haven't explored yet
           const candidateSystems: StarSystem[] = [];
           for (const otherPlayer of otherPlayers) {
-            const otherExploredSystems = this.db.getExploredSystemsByPlayer(otherPlayer.id);
+            const otherExploredSystems = this.db.getExploredSystemsByPlayer(
+              otherPlayer.id
+            );
             for (const otherSystemId of otherExploredSystems) {
               // Only consider systems we haven't explored yet
               if (!myExploredSystems.has(otherSystemId)) {
@@ -676,35 +721,41 @@ export class ConstellationWebSocketServer {
               }
             }
           }
-          
+
           if (candidateSystems.length > 0) {
             // Pick a random system from the candidates
-            const targetSystem = candidateSystems[Math.floor(Math.random() * candidateSystems.length)];
+            const targetSystem =
+              candidateSystems[
+                Math.floor(Math.random() * candidateSystems.length)
+              ];
             console.log(
               `🌟 MULTIPLAYER CONNECTION! Connecting to another player's system: ${targetSystem.star.name}`
             );
-            
+
             // Find an unexplored gate in the target system to use as the return gate
             const targetSystemGates = this.db.getGatesBySystem(targetSystem.id);
-            const unexploredGate = targetSystemGates.find((g) => 
+            const unexploredGate = targetSystemGates.find((g) =>
               g.destinationSystemId.startsWith("PLACEHOLDER_")
             );
-            
+
             if (unexploredGate) {
               console.log(
                 `Using existing unexplored gate ${unexploredGate.id} in ${targetSystem.star.name} for return connection`
               );
-              
+
               // Update the gate in our current system to point to the target system
               this.db.updateGateDestination(gateId, targetSystem.id);
               destinationSystem = targetSystem;
-              
+
               // Update the unexplored gate in the target system to point back to our current system
-              this.db.updateGateDestination(unexploredGate.id, currentSystem.id);
-              
+              this.db.updateGateDestination(
+                unexploredGate.id,
+                currentSystem.id
+              );
+
               // Reload the system with the updated gate
               destinationSystem = this.db.getStarSystem(targetSystem.id);
-              
+
               // Transfer mystery sphere position to the target system's position
               this.db.transferMysteryPositionToSystem(
                 player.id,
@@ -719,7 +770,9 @@ export class ConstellationWebSocketServer {
               // Fall through to generate a new system instead
             }
           } else {
-            console.log("No suitable systems from other players found (all already explored)");
+            console.log(
+              "No suitable systems from other players found (all already explored)"
+            );
           }
         }
       }
@@ -796,7 +849,9 @@ export class ConstellationWebSocketServer {
         console.log(
           `Generated new system ${destinationSystem.id} with ${
             destinationSystem.gates.length
-          } gate(s) (1 return, ${destinationSystem.gates.length - 1} unexplored)`
+          } gate(s) (1 return, ${
+            destinationSystem.gates.length - 1
+          } unexplored)`
         );
       }
     } else if (!destinationSystem) {
@@ -816,18 +871,80 @@ export class ConstellationWebSocketServer {
       return;
     }
 
+    // Check if either gate is unexplored (first time exploration)
+    const exploredGates = this.db.getExploredGates(player.id);
+    const isGateUnexplored = !exploredGates.includes(gateId);
+    const isExitGateUnexplored = !exploredGates.includes(exitGate.id);
+    const isFirstTimeExploration = isGateUnexplored || isExitGateUnexplored;
+
+    // Check energy requirement for first-time exploration
+    if (isFirstTimeExploration) {
+      const ENERGY_COST = 1;
+      const resources = this.db.getPlayerResources(player.id);
+
+      if (!resources || resources.energy < ENERGY_COST) {
+        this.sendError(
+          client.ws,
+          `Not enough energy to open the gate (requires ${ENERGY_COST} energy)`
+        );
+        return;
+      }
+
+      // Deduct energy
+      const success = this.db.deductPlayerEnergy(player.id, ENERGY_COST);
+      if (!success) {
+        this.sendError(client.ws, "Failed to deduct energy");
+        return;
+      }
+
+      console.log(
+        `Player ${player.name} spent ${ENERGY_COST} energy to explore gate ${gateId}`
+      );
+    }
+
     // Mark BOTH gates as explored for this player
     this.db.markGateExploredSingle(player.id, gateId);
     this.db.markGateExploredSingle(player.id, exitGate.id);
 
+    // Assign ownership to the player who first explored these gates
+    if (isGateUnexplored) {
+      // Check if gate already has an owner (another player explored it first)
+      const existingOwner = this.db.getGateOwner(gateId);
+      if (!existingOwner) {
+        this.db.setGateOwnership(gateId, player.id);
+        console.log(
+          `Player ${player.name} claimed ownership of gate ${gateId}`
+        );
+      }
+    }
+
+    if (isExitGateUnexplored) {
+      const existingExitOwner = this.db.getGateOwner(exitGate.id);
+      if (!existingExitOwner) {
+        this.db.setGateOwnership(exitGate.id, player.id);
+        console.log(
+          `Player ${player.name} claimed ownership of exit gate ${exitGate.id}`
+        );
+      }
+    }
+
     // Record system discovery and check if we discovered other players
     // IMPORTANT: Check for previous discoverers BEFORE recording this player's discovery
-    const previousDiscoverers = this.db.getSystemDiscoverers(destinationSystem.id);
-    const discoveredPlayers = previousDiscoverers.filter((p) => p.id !== player.id);
-    
+    const previousDiscoverers = this.db.getSystemDiscoverers(
+      destinationSystem.id
+    );
+    const discoveredPlayers = previousDiscoverers.filter(
+      (p) => p.id !== player.id
+    );
+
+    // Filter to only players we haven't met before
+    const newlyMetPlayers = discoveredPlayers.filter(
+      (p) => !this.db.havePlayersMet(player.id, p.id)
+    );
+
     // Record that this player has now discovered this system
     this.db.recordSystemDiscovery(destinationSystem.id, player.id);
-    
+
     // Also record discovery of current system (in case it wasn't recorded before)
     this.db.recordSystemDiscovery(currentSystem.id, player.id);
 
@@ -866,27 +983,40 @@ export class ConstellationWebSocketServer {
       exitGateId: exitGate.id,
     });
 
-    // Update player data with new exploredGateIds and currentSystemId
+    // Update player data with new exploredGateIds, currentSystemId, and resources
     player.exploredGateIds = exploredGateIds;
     player.currentSystemId = destinationSystem.id;
+    // Fetch updated resources
+    const updatedResources = this.db.getPlayerResources(player.id);
+    if (updatedResources) {
+      player.energy = updatedResources.energy;
+      player.alloy = updatedResources.alloy;
+    }
     this.send(client.ws, { type: "playerData", player });
 
-    // Send discovery notification if we discovered other players' system
-    if (discoveredPlayers.length > 0) {
+    // Send discovery notification ONLY for newly met players
+    if (newlyMetPlayers.length > 0) {
       console.log(
-        `🌟 Player ${player.name} discovered system previously explored by: ${discoveredPlayers.map((p) => p.name).join(", ")}`
+        `🌟 Player ${player.name} discovered NEW players: ${newlyMetPlayers
+          .map((p) => p.name)
+          .join(", ")} in system ${destinationSystem.star.name}`
       );
-      
+
+      // Record meetings with all newly discovered players
+      for (const newPlayer of newlyMetPlayers) {
+        this.db.recordPlayerMeeting(player.id, newPlayer.id);
+      }
+
       // Notify the discovering player (they discovered others)
       this.send(client.ws, {
         type: "playerDiscovery",
         discoveryType: "discovered",
-        playerNames: discoveredPlayers.map((p) => p.name),
+        playerNames: newlyMetPlayers.map((p) => p.name),
         systemName: destinationSystem.star.name,
       });
 
       // Also notify the discovered players (they were discovered)
-      for (const discoveredPlayer of discoveredPlayers) {
+      for (const discoveredPlayer of newlyMetPlayers) {
         const discoveredClient = this.findClientByPlayerId(discoveredPlayer.id);
         if (discoveredClient) {
           this.send(discoveredClient.ws, {
@@ -895,7 +1025,9 @@ export class ConstellationWebSocketServer {
             playerNames: [player.name],
             systemName: destinationSystem.star.name,
           });
-          console.log(`Notified ${discoveredPlayer.name} that ${player.name} discovered their system`);
+          console.log(
+            `Notified ${discoveredPlayer.name} that ${player.name} discovered them for the first time`
+          );
         }
       }
     }
@@ -1052,7 +1184,10 @@ export class ConstellationWebSocketServer {
     console.log(`Saved constellation positions for player ${client.playerId}`);
   }
 
-  private handleRequestPlayerStats(client: ClientConnection, playerId: string): void {
+  private handleRequestPlayerStats(
+    client: ClientConnection,
+    playerId: string
+  ): void {
     if (!client.playerId) {
       this.sendError(client.ws, "Not authenticated");
       return;
@@ -1066,14 +1201,337 @@ export class ConstellationWebSocketServer {
 
     const starsDiscovered = this.db.getPlayerStarsDiscoveredCount(playerId);
 
+    // Get current player's stance towards this player
+    const currentStance = this.db.getPlayerStance(client.playerId, playerId);
+
     this.send(client.ws, {
       type: "playerStats",
       playerId: targetPlayer.id,
       playerName: targetPlayer.name,
       starsDiscovered,
+      currentStance,
     });
 
-    console.log(`Sent player stats for ${targetPlayer.name}: ${starsDiscovered} stars discovered`);
+    console.log(
+      `Sent player stats for ${targetPlayer.name}: ${starsDiscovered} stars discovered, stance: ${currentStance}`
+    );
+  }
+
+  private handleSetPlayerStance(
+    client: ClientConnection,
+    targetPlayerId: string,
+    stance: "neutral" | "friendly" | "aggressive"
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    const targetPlayer = this.db.getPlayerById(targetPlayerId);
+    if (!targetPlayer) {
+      this.sendError(client.ws, "Target player not found");
+      return;
+    }
+
+    // Don't allow setting stance towards yourself
+    if (client.playerId === targetPlayerId) {
+      this.sendError(client.ws, "Cannot set stance towards yourself");
+      return;
+    }
+
+    // Set the stance
+    this.db.setPlayerStance(client.playerId, targetPlayerId, stance);
+
+    console.log(
+      `Player ${player.name} set stance towards ${targetPlayer.name} to ${stance}`
+    );
+
+    // Send confirmation back to client
+    this.send(client.ws, {
+      type: "stanceUpdated",
+      targetPlayerId,
+      stance,
+    });
+
+    // Request constellation data to be refreshed (gates will show new colors)
+    this.handleRequestConstellation(client);
+  }
+
+  private handleEstablishMining(
+    client: ClientConnection,
+    celestialBodyId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Check if player has enough energy
+    const MINING_COST = 1;
+    if (player.energy < MINING_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to establish mining operation (requires ${MINING_COST} energy)`
+      );
+      return;
+    }
+
+    // Get the system the player is currently in
+    const system = this.db.getStarSystem(player.currentSystemId);
+    if (!system) {
+      this.sendError(client.ws, "Current system not found");
+      return;
+    }
+
+    // Find the celestial body in the system
+    let celestialBody = null;
+
+    // Check in moons
+    for (const moon of system.moons) {
+      if (moon.id === celestialBodyId) {
+        celestialBody = moon;
+        break;
+      }
+    }
+
+    // Check in asteroids
+    if (!celestialBody) {
+      for (const belt of system.asteroidBelts) {
+        for (const asteroid of belt.asteroids) {
+          if (asteroid.id === celestialBodyId) {
+            celestialBody = asteroid;
+            break;
+          }
+        }
+        if (celestialBody) break;
+      }
+    }
+
+    if (!celestialBody) {
+      this.sendError(client.ws, "Celestial body not found");
+      return;
+    }
+
+    // Check if it's mineable (metallic composition)
+    if (celestialBody.composition !== "metal") {
+      this.sendError(
+        client.ws,
+        "This celestial body cannot be mined (not metallic)"
+      );
+      return;
+    }
+
+    // Check if there's already a mining operation on this body
+    const existingOperation =
+      this.db.getMiningOperationByCelestialBody(celestialBodyId);
+    if (existingOperation) {
+      this.sendError(client.ws, "Mining operation already exists on this body");
+      return;
+    }
+
+    // Get current galaxy time for timestamp
+    const galaxy = this.db.getGalaxyById(player.galaxyId);
+    if (!galaxy) {
+      this.sendError(client.ws, "Galaxy not found");
+      return;
+    }
+    const currentTime = galaxy.currentTime || 0;
+
+    // Deduct energy
+    const success = this.db.deductPlayerEnergy(client.playerId, MINING_COST);
+    if (!success) {
+      this.sendError(client.ws, "Failed to deduct energy");
+      return;
+    }
+
+    // Create mining operation
+    const miningOperationId = uuidv4();
+    const ALLOY_PER_DAY = 0.1;
+
+    this.db.createMiningOperation(
+      miningOperationId,
+      client.playerId,
+      system.id,
+      celestialBodyId,
+      ALLOY_PER_DAY,
+      currentTime
+    );
+
+    console.log(
+      `Player ${player.name} established mining operation on ${celestialBody.name} in system ${system.id}`
+    );
+
+    // Send updated player data with new energy amount FIRST
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Send updated system data with mining operations
+    const updatedSystem = this.getSystemWithMiningOperations(system.id);
+    if (updatedSystem) {
+      this.send(client.ws, { type: "systemData", system: updatedSystem });
+    }
+
+    // Send success message LAST so client can re-select the body after updates
+    this.send(client.ws, {
+      type: "miningEstablished",
+      miningOperationId,
+      celestialBodyId,
+      alloyPerDay: ALLOY_PER_DAY,
+    });
+  }
+
+  private getSystemWithMiningOperations(systemId: string): StarSystem | null {
+    const system = this.db.getStarSystem(systemId);
+    if (!system) return null;
+
+    // Add mining operations to the system
+    const miningOperations = this.db.getMiningOperationsBySystem(systemId);
+    system.miningOperations = miningOperations;
+
+    // Add megastructures to the system
+    const megastructures = this.db.getMegastructuresBySystem(systemId);
+    system.megastructures = megastructures;
+
+    return system;
+  }
+
+  private handleLaunchDysonSwarm(
+    client: ClientConnection,
+    starId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Check if player has enough alloy
+    const DYSON_SWARM_COST = 10;
+    if (player.alloy < DYSON_SWARM_COST) {
+      this.sendError(
+        client.ws,
+        "Not enough alloy to launch Dyson Swarm (requires 10 alloy)"
+      );
+      return;
+    }
+
+    // Get the system the player is currently in
+    const system = this.db.getStarSystem(player.currentSystemId);
+    if (!system) {
+      this.sendError(client.ws, "Current system not found");
+      return;
+    }
+
+    // Check if the star is in this system
+    if (system.star.id !== starId) {
+      this.sendError(client.ws, "Star not found in current system");
+      return;
+    }
+
+    // Check if player controls this system (has explored at least one gate)
+    const systemGates = this.db.getGatesBySystem(system.id);
+    const hasExploredGate = systemGates.some((gate) =>
+      player.exploredGateIds.includes(gate.id)
+    );
+
+    if (!hasExploredGate && system.id !== player.homeSystemId) {
+      this.sendError(
+        client.ws,
+        "You must control this system to build megastructures (explore at least one gate)"
+      );
+      return;
+    }
+
+    // Check how many Dyson Swarms are already on this star
+    const existingSwarms = this.db.countDysonSwarmsByStar(starId);
+    const MAX_SWARMS = 10;
+
+    if (existingSwarms >= MAX_SWARMS) {
+      this.sendError(
+        client.ws,
+        `Maximum Dyson Swarms (${MAX_SWARMS}) already deployed on this star`
+      );
+      return;
+    }
+
+    // Get current galaxy time for timestamp
+    const galaxy = this.db.getGalaxyById(player.galaxyId);
+    if (!galaxy) {
+      this.sendError(client.ws, "Galaxy not found");
+      return;
+    }
+    const currentTime = galaxy.currentTime || 0;
+
+    // Deduct alloy (no cap needed for deduction)
+    const deductStmt = this.db
+      .rawDb()
+      .prepare("UPDATE players SET alloy = alloy - ? WHERE id = ?");
+    deductStmt.run(DYSON_SWARM_COST, client.playerId);
+
+    // Add energy immediately (Dyson Swarms provide instant permanent energy boost)
+    const ENERGY_PER_SWARM = 1;
+    this.db.addPlayerEnergy(client.playerId, ENERGY_PER_SWARM);
+
+    // Create Dyson Swarm megastructure
+    const megastructureId = uuidv4();
+
+    this.db.createMegastructure(
+      megastructureId,
+      client.playerId,
+      system.id,
+      "dyson_swarm",
+      starId,
+      "energy",
+      ENERGY_PER_SWARM,
+      currentTime,
+      null
+    );
+
+    console.log(
+      `Player ${player.name} launched Dyson Swarm #${existingSwarms + 1} on ${
+        system.star.name
+      } in system ${system.id} (+${ENERGY_PER_SWARM} energy)`
+    );
+
+    // Send updated player data with new alloy amount FIRST
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Send updated system data with megastructures
+    const updatedSystem = this.getSystemWithMiningOperations(system.id);
+    if (updatedSystem) {
+      this.send(client.ws, { type: "systemData", system: updatedSystem });
+    }
+
+    // Send success message LAST
+    this.send(client.ws, {
+      type: "dysonSwarmLaunched",
+      megastructureId,
+      starId,
+      energyPerDay: ENERGY_PER_SWARM,
+      count: existingSwarms + 1,
+    });
   }
 
   private handleSearchObjects(client: ClientConnection, query: string): void {
@@ -1178,6 +1636,69 @@ export class ConstellationWebSocketServer {
           }
         }
       }
+
+      // Search mining operations (search by keyword "mining" or body name)
+      const miningOperations = this.db.getMiningOperationsBySystem(system.id);
+      for (const operation of miningOperations) {
+        // Only show player's own mining operations
+        if (operation.playerId !== player.id) continue;
+
+        // Find the celestial body name
+        let bodyName = "Unknown";
+        const body = [
+          ...system.moons,
+          ...system.asteroidBelts.flatMap((b) => b.asteroids),
+        ].find((b) => b.id === operation.celestialBodyId);
+        if (body) {
+          bodyName = body.name;
+        }
+
+        const operationSearchText = `mining ${bodyName}`.toLowerCase();
+        if (
+          operationSearchText.includes(searchTerm) ||
+          searchTerm.includes("mining")
+        ) {
+          results.push({
+            objectId: operation.celestialBodyId,
+            objectName: `${bodyName} (Mining)`,
+            objectType: "Mining Operation",
+            systemId: system.id,
+            systemName: system.star.name,
+            starName: system.star.name,
+          });
+        }
+      }
+
+      // Search Dyson Swarms
+      const megastructures = this.db.getMegastructuresBySystem(system.id);
+      for (const megastructure of megastructures) {
+        // Only show player's own megastructures
+        if (megastructure.playerId !== player.id) continue;
+
+        if (
+          megastructure.type === "dyson_swarm" &&
+          megastructure.celestialBodyId
+        ) {
+          const swarmSearchText =
+            `dyson swarm ${system.star.name}`.toLowerCase();
+          if (
+            swarmSearchText.includes(searchTerm) ||
+            searchTerm.includes("dyson") ||
+            searchTerm.includes("swarm")
+          ) {
+            results.push({
+              objectId: megastructure.celestialBodyId,
+              objectName: `${system.star.name} (Dyson Swarm)`,
+              objectType: "Dyson Swarm",
+              systemId: system.id,
+              systemName: system.star.name,
+              starName: system.star.name,
+            });
+            // Only add one entry per star (even if multiple swarms)
+            break;
+          }
+        }
+      }
     }
 
     console.log(
@@ -1191,7 +1712,7 @@ export class ConstellationWebSocketServer {
     this.clients.delete(ws);
     console.log("Client disconnected");
     this.checkPlayerCountAndPause();
-    
+
     // Save galaxy time state when player disconnects
     const galaxyId = this.gameState.getCurrentGalaxyId();
     if (galaxyId) {
@@ -1247,6 +1768,22 @@ export class ConstellationWebSocketServer {
             timeState.isPaused,
             timeState.timeScale
           );
+
+          // Process mining yields based on current time
+          this.db.processMiningYields(timeState.currentTime);
+
+          // Process megastructure yields based on current time
+          this.db.processMegastructureYields(timeState.currentTime);
+
+          // Send updated player data to all connected clients (for resource updates)
+          for (const client of this.clients.values()) {
+            if (client.playerId) {
+              const player = this.db.getPlayerById(client.playerId);
+              if (player) {
+                this.send(client.ws, { type: "playerData", player });
+              }
+            }
+          }
         }
       }
     }, 10000); // Save every 10 seconds
@@ -1301,13 +1838,16 @@ export class ConstellationWebSocketServer {
     }
   }
 
-  private sendGalaxyPlayersInfo(client: ClientConnection, player: Player): void {
+  private sendGalaxyPlayersInfo(
+    client: ClientConnection,
+    player: Player
+  ): void {
     // Get all met players
     const metPlayers = this.db.getMetPlayers(player.id);
-    
+
     // Get total players in galaxy
     const allPlayers = this.db.getPlayersByGalaxy(player.galaxyId);
-    
+
     this.send(client.ws, {
       type: "galaxyPlayers",
       metPlayers: metPlayers.map((p) => ({ id: p.id, name: p.name })),

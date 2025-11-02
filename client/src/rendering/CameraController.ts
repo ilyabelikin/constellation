@@ -13,6 +13,11 @@ export class CameraController {
   private isDragging: boolean = false;
   private previousMousePosition = { x: 0, y: 0 };
 
+  // Touch handling
+  private touchStartDistance: number = 0;
+  private previousTouchPosition = { x: 0, y: 0 };
+  private isTouchDragging: boolean = false;
+
   private selectedObjectId: string | null = null;
   private isTrackingObject: boolean = false;
 
@@ -340,6 +345,93 @@ export class CameraController {
     const cameraLerpFactor = 0.1;
     this.camera.position.lerp(targetPosition, cameraLerpFactor);
     this.camera.lookAt(this.cameraTarget);
+  }
+
+  /**
+   * Handles touch start event
+   */
+  onTouchStart(event: TouchEvent): void {
+    if (event.touches.length === 1) {
+      // Single finger - prepare for rotation
+      this.isTouchDragging = false;
+      const touch = event.touches[0];
+      this.previousTouchPosition = { x: touch.clientX, y: touch.clientY };
+    } else if (event.touches.length === 2) {
+      // Two fingers - prepare for pinch zoom
+      const touch1 = event.touches[0];
+      const touch2 = event.touches[1];
+      const dx = touch2.clientX - touch1.clientX;
+      const dy = touch2.clientY - touch1.clientY;
+      this.touchStartDistance = Math.sqrt(dx * dx + dy * dy);
+      this.isTouchDragging = false; // Stop rotation when second finger touches
+    }
+  }
+
+  /**
+   * Handles touch move event for camera rotation and pinch zoom
+   * @returns true if dragging (for other handlers to know)
+   */
+  onTouchMove(event: TouchEvent): boolean {
+    if (event.touches.length === 1) {
+      // Single finger - rotate camera
+      const touch = event.touches[0];
+      const deltaX = touch.clientX - this.previousTouchPosition.x;
+      const deltaY = touch.clientY - this.previousTouchPosition.y;
+
+      // Mark as dragging if moved enough
+      if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
+        this.isTouchDragging = true;
+      }
+
+      if (this.isTouchDragging) {
+        // Rotate camera around target
+        const rotationSpeed = 0.005;
+        this.cameraTheta -= deltaX * rotationSpeed;
+        this.cameraPhi -= deltaY * rotationSpeed;
+
+        // Clamp phi to prevent flipping
+        this.cameraPhi = Math.max(0.1, Math.min(Math.PI - 0.1, this.cameraPhi));
+      }
+
+      this.previousTouchPosition = { x: touch.clientX, y: touch.clientY };
+      return this.isTouchDragging;
+    } else if (event.touches.length === 2) {
+      // Two fingers - pinch to zoom
+      const touch1 = event.touches[0];
+      const touch2 = event.touches[1];
+      const dx = touch2.clientX - touch1.clientX;
+      const dy = touch2.clientY - touch1.clientY;
+      const currentDistance = Math.sqrt(dx * dx + dy * dy);
+
+      if (this.touchStartDistance > 0) {
+        const delta = currentDistance / this.touchStartDistance;
+        
+        // Apply zoom
+        this.cameraDistance /= delta;
+        // Clamp distance
+        this.cameraDistance = Math.max(1, Math.min(50000, this.cameraDistance));
+      }
+
+      this.touchStartDistance = currentDistance;
+      this.isTouchDragging = true; // Mark as dragging to prevent tap detection
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Handles touch end event
+   */
+  onTouchEnd(): void {
+    this.isTouchDragging = false;
+    this.touchStartDistance = 0;
+  }
+
+  /**
+   * Gets whether touch is currently being dragged
+   */
+  getIsTouchDragging(): boolean {
+    return this.isTouchDragging;
   }
 
   /**

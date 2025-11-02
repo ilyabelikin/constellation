@@ -17,7 +17,7 @@ git push origin main
 ./deploy.sh --reset
 ```
 
-**That's it!** Your game will be live at http://ilyabelikin.tplinkdns.com in 1-2 minutes.
+**That's it!** Your game will be live at https://constell.space in 1-2 minutes.
 
 ---
 
@@ -213,4 +213,4 @@ ssh root@ilyabelikin.tplinkdns.com "ls -lh /root/constellation/server/data/*.bac
 - Web server logs: `ssh root@ilyabelikin.tplinkdns.com "journalctl -u caddy"`
 - Check if ports are open: `ssh root@ilyabelikin.tplinkdns.com "netstat -tuln | grep -E '80|8080'"`
 
-Your game URL: **http://ilyabelikin.tplinkdns.com**
+Your game URL: **https://constell.space**

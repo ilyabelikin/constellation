@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { GateStatus, GateStatusType } from "@constellation/shared";
 import {
   createEnergyBallMaterial,
   createBannerMaterial,
@@ -10,14 +11,40 @@ import {
  */
 export class GateFactory {
   /**
-   * Creates a star gate mesh as a pulsating energy ball with banner effects
+   * Gets the color for a gate based on its status
    */
-  createGate(gate: any, isExplored: boolean): THREE.Group {
-    const gateGroup = new THREE.Group();
-    gateGroup.userData = { id: gate.id, type: "gate", gate };
+  private getGateColor(status: GateStatusType): number {
+    switch (status) {
+      case GateStatus.UNEXPLORED:
+        return 0xa855f7; // Purple
+      case GateStatus.OWNED_BY_SELF:
+        return 0xfbbf24; // Yellow/Orange
+      case GateStatus.NEUTRAL:
+        return 0x9ca3af; // Gray
+      case GateStatus.AGGRESSIVE:
+        return 0xef4444; // Red
+      case GateStatus.FRIENDLY:
+        return 0x10b981; // Green
+      default:
+        return 0xa855f7; // Default to purple
+    }
+  }
 
-    // Gate color based on exploration status
-    const gateColor = isExplored ? 0xfbbf24 : 0xa855f7; // Yellow vs Purple
+  /**
+   * Creates a star gate mesh as a pulsating energy ball with banner effects
+   * @param gate - Gate data
+   * @param status - Gate status (unexplored, owned_by_self, neutral, aggressive, friendly)
+   */
+  createGate(
+    gate: any,
+    status: GateStatusType = GateStatus.UNEXPLORED
+  ): THREE.Group {
+    const gateGroup = new THREE.Group();
+    gateGroup.userData = { id: gate.id, type: "gate", gate, status };
+
+    // Gate color based on ownership status
+    const gateColor = this.getGateColor(status);
+    const isExplored = status !== GateStatus.UNEXPLORED;
 
     // Main energy ball
     const ballRadius = 4;
@@ -168,4 +195,3 @@ export class GateFactory {
     return gateGroup;
   }
 }
-

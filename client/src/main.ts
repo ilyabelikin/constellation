@@ -66,19 +66,41 @@ class ConstellationClient {
       if (player.exploredGateIds) {
         this.scene.setExploredGates(player.exploredGateIds);
       }
+      // Set current player ID for gate ownership checks
+      this.scene.setCurrentPlayerId(player.id);
     };
 
     this.network.onSystemData = (system) => {
       console.log("System data received:", system);
-      this.system = system;
-      this.scene.loadSystem(system);
+      const isSystemRefresh = this.system && this.system.id === system.id;
 
-      // Hide any detail panels from previous system before loading new system
-      this.hud.hideDetailPanels();
+      // Store current selection before updating
+      const previousSelection = isSystemRefresh
+        ? (this.hud as any).selectedObjectId
+        : null;
+
+      this.system = system;
+
+      // Only reload the scene when switching to a different system
+      // For same-system refreshes (like after mining), just update the data
+      if (!isSystemRefresh) {
+        this.scene.loadSystem(system);
+        this.hud.hideDetailPanels();
+        // Always show system view first to ensure scene is properly initialized
+        this.scene.showSystemView();
+      }
+
+      // Always update HUD with new system data (including mining operations)
       this.hud.setSystem(system);
 
-      // Always show system view first to ensure scene is properly initialized
-      this.scene.showSystemView();
+      // Restore selection after system refresh
+      if (isSystemRefresh && previousSelection && this.hud.onSelectObject) {
+        setTimeout(() => {
+          if (this.hud.onSelectObject) {
+            this.hud.onSelectObject(previousSelection);
+          }
+        }, 0);
+      }
 
       // If there's a pending focus object (e.g., home planet), focus on it after scene is ready
       if (this.pendingFocusObjectId) {
@@ -128,7 +150,16 @@ class ConstellationClient {
     };
 
     this.network.onError = (message) => {
-      console.error("Network error:", message);
+      // Show user-friendly notifications for resource errors
+      if (
+        message.includes("Not enough energy") ||
+        message.includes("Not enough alloy")
+      ) {
+        this.hud.showNotification(message, 3000);
+      } else {
+        // Log other errors to console
+        console.error("Network error:", message);
+      }
 
       // If galaxy not found, automatically create it
       if (message === "Galaxy not found" && this.lastGalaxyName) {
@@ -183,10 +214,19 @@ class ConstellationClient {
       const oldExploredGateIds = this.player?.exploredGateIds || [];
       const oldExploredGateIdsSet = new Set(oldExploredGateIds);
       const entryGateId = this.scene.getEntryGateId(); // Get entry gate ID before updating
-      const wasEntryGateExplored = entryGateId ? oldExploredGateIdsSet.has(entryGateId) : true;
-      
-      console.log("Entry gate exploration check - entryGateId:", entryGateId, "wasExplored:", wasEntryGateExplored, "oldExploredGates:", oldExploredGateIds);
-      
+      const wasEntryGateExplored = entryGateId
+        ? oldExploredGateIdsSet.has(entryGateId)
+        : true;
+
+      console.log(
+        "Entry gate exploration check - entryGateId:",
+        entryGateId,
+        "wasExplored:",
+        wasEntryGateExplored,
+        "oldExploredGates:",
+        oldExploredGateIds
+      );
+
       if (this.player) {
         this.player.currentSystemId = destinationSystem.id;
         this.player.exploredGateIds = exploredGateIds;
@@ -218,14 +258,19 @@ class ConstellationClient {
       // The new system will be loaded during the animation (in the flash phase)
       // The animation will end with the camera positioned at the exit gate
       // Pass wasEntryGateExplored so animation shows correct color (purple for unexplored)
-      this.scene.animateGateTravel(destinationSystem, exitGateId, () => {
-        // Animation complete - camera is now at the exit gate (zoomed in)
-        // Exit animation will automatically move outward from gate
-        this.hud.setSystem(destinationSystem);
+      this.scene.animateGateTravel(
+        destinationSystem,
+        exitGateId,
+        () => {
+          // Animation complete - camera is now at the exit gate (zoomed in)
+          // Exit animation will automatically move outward from gate
+          this.hud.setSystem(destinationSystem);
 
-        // Exit animation will smoothly transition to star automatically
-        // No need for separate transition - it's handled in the exit animation
-      }, wasEntryGateExplored);
+          // Exit animation will smoothly transition to star automatically
+          // No need for separate transition - it's handled in the exit animation
+        },
+        wasEntryGateExplored
+      );
     };
 
     this.network.onConstellationData = (
@@ -245,6 +290,19 @@ class ConstellationClient {
         "mystery gates"
       );
       this.constellationNodes = nodes; // Store for system details
+
+      // Update gate ownership from connections
+      this.scene.clearGateOwnership();
+      for (const conn of connections) {
+        if (conn.gateId && conn.ownerId && conn.ownerName && conn.status) {
+          this.scene.setGateOwnership(
+            conn.gateId,
+            conn.ownerId,
+            conn.ownerName,
+            conn.status
+          );
+        }
+      }
 
       // Preserve selection if we're reloading after gate exploration
       const preserveSelection = this.isExploringFromConstellation
@@ -282,8 +340,18 @@ class ConstellationClient {
       this.hud.displaySearchResults(results);
     };
 
-    this.network.onPlayerDiscovery = (discoveryType, playerNames, systemName) => {
-      console.log("Player discovery:", discoveryType, playerNames, "at", systemName);
+    this.network.onPlayerDiscovery = (
+      discoveryType,
+      playerNames,
+      systemName
+    ) => {
+      console.log(
+        "Player discovery:",
+        discoveryType,
+        playerNames,
+        "at",
+        systemName
+      );
       this.hud.showPlayerDiscovery(discoveryType, playerNames, systemName);
     };
 
@@ -292,9 +360,78 @@ class ConstellationClient {
       this.hud.updatePlayersDisplay(metPlayers, totalPlayers);
     };
 
-    this.network.onPlayerStats = (playerId, playerName, starsDiscovered) => {
-      console.log("Player stats:", playerName, "stars:", starsDiscovered);
-      this.hud.updatePlayerProfileStats(playerId, playerName, starsDiscovered);
+    this.network.onPlayerStats = (
+      playerId,
+      playerName,
+      starsDiscovered,
+      currentStance
+    ) => {
+      console.log(
+        "Player stats:",
+        playerName,
+        "stars:",
+        starsDiscovered,
+        "stance:",
+        currentStance
+      );
+      this.hud.updatePlayerProfileStats(
+        playerId,
+        playerName,
+        starsDiscovered,
+        currentStance
+      );
+    };
+
+    this.network.onStanceUpdated = (targetPlayerId, stance) => {
+      console.log("Stance updated for player", targetPlayerId, "to", stance);
+      // The server will automatically send updated constellation data
+    };
+
+    this.network.onMiningEstablished = (
+      miningOperationId,
+      celestialBodyId,
+      alloyPerDay
+    ) => {
+      console.log(
+        `Mining established on ${celestialBodyId}: ${alloyPerDay} alloy/day`
+      );
+      // Re-select the celestial body to show updated mining status
+      // Use setTimeout to ensure it happens after all other updates are processed
+      setTimeout(() => {
+        if (this.hud.onSelectObject) {
+          this.hud.onSelectObject(celestialBodyId);
+        }
+      }, 0);
+    };
+
+    this.network.onDysonSwarmLaunched = (
+      megastructureId,
+      starId,
+      energyPerDay,
+      count
+    ) => {
+      console.log(
+        `Dyson Swarm #${count} launched on ${starId}: ${energyPerDay} energy/day`
+      );
+      // Re-select the star to show updated swarm status
+      setTimeout(() => {
+        if (this.hud.onSelectObject) {
+          this.hud.onSelectObject(starId);
+        }
+      }, 0);
+    };
+
+    // HUD callbacks
+    this.hud.onSetPlayerStance = (targetPlayerId, stance) => {
+      this.network.setPlayerStance(targetPlayerId, stance);
+    };
+
+    this.hud.onEstablishMining = (celestialBodyId) => {
+      this.network.establishMining(celestialBodyId);
+    };
+
+    this.hud.onLaunchDysonSwarm = (starId) => {
+      this.network.launchDysonSwarm(starId);
     };
   }
 
@@ -334,7 +471,7 @@ class ConstellationClient {
       }
       // Get player name and join galaxy
       const playerName = this.hud.getPlayerName();
-      
+
       // Store the name and try to join first
       // If it doesn't exist, it will be created automatically
       this.lastGalaxyName = name;
@@ -401,24 +538,31 @@ class ConstellationClient {
       // If in constellation view, check if a different system is selected
       if (this.scene.isInConstellationView()) {
         const selectedSystemId = this.scene.getConstellationSelectedSystemId();
-        
+
         // If a different system is selected in constellation view, navigate to it
-        if (selectedSystemId && this.player && selectedSystemId !== this.player.currentSystemId) {
-          console.log("Navigating to selected constellation system:", selectedSystemId);
+        if (
+          selectedSystemId &&
+          this.player &&
+          selectedSystemId !== this.player.currentSystemId
+        ) {
+          console.log(
+            "Navigating to selected constellation system:",
+            selectedSystemId
+          );
           this.scene.hideConstellationView();
-          
+
           // Request the selected system's state
           this.network.requestSystemState(selectedSystemId);
           return;
         }
-        
+
         // Otherwise, just return to current system view
         this.scene.hideConstellationView();
         if (this.system) {
           this.hud.setSystem(this.system);
         }
       }
-      
+
       // Show nice system overview
       this.scene.showSystemView();
 
@@ -437,7 +581,7 @@ class ConstellationClient {
     this.hud.onTimeToggle = () => {
       // Show loading spinner
       this.hud.setTimeToggleLoading(true);
-      
+
       if (this.isPaused) {
         this.network.resumeTime();
         // Optimistically update local state (server will confirm)
@@ -571,10 +715,10 @@ class ConstellationClient {
       // Spacebar to toggle pause/play
       if (event.code === "Space" && !isInputField) {
         event.preventDefault(); // Prevent page scroll
-        
+
         // Show loading spinner
         this.hud.setTimeToggleLoading(true);
-        
+
         if (this.isPaused) {
           this.network.resumeTime();
           // Optimistically update local state (server will confirm)
@@ -599,17 +743,20 @@ class ConstellationClient {
   private async connect(): Promise<void> {
     try {
       // Determine WebSocket URL based on current location
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+
       // In development mode (localhost:3030), connect to server on port 8080
       // In production, use the same host (proxied by Caddy)
       let host = window.location.host;
-      if (window.location.hostname === 'localhost' && window.location.port === '3030') {
-        host = 'localhost:8080';
+      if (
+        window.location.hostname === "localhost" &&
+        window.location.port === "3030"
+      ) {
+        host = "localhost:8080";
       }
-      
+
       const wsUrl = `${protocol}//${host}`;
-      
+
       console.log(`Connecting to WebSocket at: ${wsUrl}`);
       await this.network.connect(wsUrl);
       this.isConnected = true;

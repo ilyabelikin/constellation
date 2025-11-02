@@ -55,13 +55,46 @@ export class NetworkClient {
     | null = null;
   public onSearchResults: ((results: SearchResult[]) => void) | null = null;
   public onPlayerDiscovery:
-    | ((discoveryType: "discovered" | "wasDiscovered", playerNames: string[], systemName: string) => void)
+    | ((
+        discoveryType: "discovered" | "wasDiscovered",
+        playerNames: string[],
+        systemName: string
+      ) => void)
     | null = null;
   public onGalaxyPlayers:
-    | ((metPlayers: { id: string; name: string }[], totalPlayers: number) => void)
+    | ((
+        metPlayers: { id: string; name: string }[],
+        totalPlayers: number
+      ) => void)
     | null = null;
   public onPlayerStats:
-    | ((playerId: string, playerName: string, starsDiscovered: number) => void)
+    | ((
+        playerId: string,
+        playerName: string,
+        starsDiscovered: number,
+        currentStance?: "neutral" | "friendly" | "aggressive"
+      ) => void)
+    | null = null;
+  public onStanceUpdated:
+    | ((
+        targetPlayerId: string,
+        stance: "neutral" | "friendly" | "aggressive"
+      ) => void)
+    | null = null;
+  public onMiningEstablished:
+    | ((
+        miningOperationId: string,
+        celestialBodyId: string,
+        alloyPerDay: number
+      ) => void)
+    | null = null;
+  public onDysonSwarmLaunched:
+    | ((
+        megastructureId: string,
+        starId: string,
+        energyPerDay: number,
+        count: number
+      ) => void)
     | null = null;
 
   constructor() {
@@ -220,7 +253,11 @@ export class NetworkClient {
 
         case "playerDiscovery":
           if (this.onPlayerDiscovery) {
-            this.onPlayerDiscovery(message.discoveryType, message.playerNames, message.systemName);
+            this.onPlayerDiscovery(
+              message.discoveryType,
+              message.playerNames,
+              message.systemName
+            );
           }
           break;
 
@@ -232,7 +269,36 @@ export class NetworkClient {
 
         case "playerStats":
           if (this.onPlayerStats) {
-            this.onPlayerStats(message.playerId, message.playerName, message.starsDiscovered);
+            this.onPlayerStats(
+              message.playerId,
+              message.playerName,
+              message.starsDiscovered,
+              message.currentStance
+            );
+          }
+          break;
+        case "stanceUpdated":
+          if (this.onStanceUpdated) {
+            this.onStanceUpdated(message.targetPlayerId, message.stance);
+          }
+          break;
+        case "miningEstablished":
+          if (this.onMiningEstablished) {
+            this.onMiningEstablished(
+              message.miningOperationId,
+              message.celestialBodyId,
+              message.alloyPerDay
+            );
+          }
+          break;
+        case "dysonSwarmLaunched":
+          if (this.onDysonSwarmLaunched) {
+            this.onDysonSwarmLaunched(
+              message.megastructureId,
+              message.starId,
+              message.energyPerDay,
+              message.count
+            );
           }
           break;
       }
@@ -307,6 +373,21 @@ export class NetworkClient {
 
   requestPlayerStats(playerId: string): void {
     this.send({ type: "requestPlayerStats", playerId });
+  }
+
+  setPlayerStance(
+    targetPlayerId: string,
+    stance: "neutral" | "friendly" | "aggressive"
+  ): void {
+    this.send({ type: "setPlayerStance", targetPlayerId, stance });
+  }
+
+  establishMining(celestialBodyId: string): void {
+    this.send({ type: "establishMining", celestialBodyId });
+  }
+
+  launchDysonSwarm(starId: string): void {
+    this.send({ type: "launchDysonSwarm", starId });
   }
 
   /**

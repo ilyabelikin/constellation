@@ -8,6 +8,9 @@ import {
   Vector3,
   OrbitalElements,
   TIME_SCALE_DEFAULT,
+  MiningOperation,
+  MAX_ALLOY_STOCKPILE,
+  Megastructure,
 } from "@constellation/shared";
 
 export class DatabaseQueries {
@@ -17,12 +20,25 @@ export class DatabaseQueries {
     this.db = db;
   }
 
+  // Expose raw database for custom queries
+  public rawDb(): Database.Database {
+    return this.db;
+  }
+
   // Galaxy operations
   createGalaxy(galaxy: Galaxy): void {
     const stmt = this.db.prepare(
       "INSERT INTO galaxies (id, name, seed, created_at, current_time, is_paused, time_scale) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
-    stmt.run(galaxy.id, galaxy.name, galaxy.seed, galaxy.createdAt, 0, 1, TIME_SCALE_DEFAULT);
+    stmt.run(
+      galaxy.id,
+      galaxy.name,
+      galaxy.seed,
+      galaxy.createdAt,
+      0,
+      1,
+      TIME_SCALE_DEFAULT
+    );
   }
 
   deleteGalaxy(galaxyId: string): void {
@@ -69,7 +85,12 @@ export class DatabaseQueries {
     };
   }
 
-  updateGalaxyTimeState(galaxyId: string, currentTime: number, isPaused: boolean, timeScale: number): void {
+  updateGalaxyTimeState(
+    galaxyId: string,
+    currentTime: number,
+    isPaused: boolean,
+    timeScale: number
+  ): void {
     const stmt = this.db.prepare(
       "UPDATE galaxies SET current_time = ?, is_paused = ?, time_scale = ? WHERE id = ?"
     );
@@ -144,7 +165,7 @@ export class DatabaseQueries {
   // Player operations
   createPlayer(player: Player): void {
     const stmt = this.db.prepare(
-      "INSERT INTO players (id, uuid, name, galaxy_id, home_system_id, home_planet_id, current_system_id) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO players (id, uuid, name, galaxy_id, home_system_id, home_planet_id, current_system_id, energy, alloy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       player.id,
@@ -153,7 +174,9 @@ export class DatabaseQueries {
       player.galaxyId,
       player.homeSystemId,
       player.homePlanetId,
-      player.currentSystemId
+      player.currentSystemId,
+      player.energy || 10,
+      player.alloy || 10
     );
   }
 
@@ -172,6 +195,8 @@ export class DatabaseQueries {
       currentSystemId: row.current_system_id,
       shipId: "", // Will be loaded separately
       exploredGateIds,
+      energy: row.energy ?? 10,
+      alloy: row.alloy ?? 10,
     };
   }
 
@@ -190,6 +215,8 @@ export class DatabaseQueries {
       currentSystemId: row.current_system_id,
       shipId: "",
       exploredGateIds,
+      energy: row.energy ?? 10,
+      alloy: row.alloy ?? 10,
     };
   }
 
@@ -201,10 +228,284 @@ export class DatabaseQueries {
   }
 
   updatePlayerName(playerId: string, name: string): void {
-    const stmt = this.db.prepare(
-      "UPDATE players SET name = ? WHERE id = ?"
-    );
+    const stmt = this.db.prepare("UPDATE players SET name = ? WHERE id = ?");
     stmt.run(name, playerId);
+  }
+
+  // Resource management
+  updatePlayerResources(playerId: string, energy: number, alloy: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE players SET energy = ?, alloy = ? WHERE id = ?"
+    );
+    stmt.run(energy, alloy, playerId);
+  }
+
+  getPlayerResources(
+    playerId: string
+  ): { energy: number; alloy: number } | null {
+    const stmt = this.db.prepare(
+      "SELECT energy, alloy FROM players WHERE id = ?"
+    );
+    const row = stmt.get(playerId) as any;
+    if (!row) return null;
+    return {
+      energy: row.energy ?? 10,
+      alloy: row.alloy ?? 10,
+    };
+  }
+
+  deductPlayerEnergy(playerId: string, amount: number): boolean {
+    const resources = this.getPlayerResources(playerId);
+    if (!resources || resources.energy < amount) {
+      return false; // Not enough energy
+    }
+    const stmt = this.db.prepare(
+      "UPDATE players SET energy = energy - ? WHERE id = ?"
+    );
+    stmt.run(amount, playerId);
+    return true;
+  }
+
+  addPlayerEnergy(playerId: string, amount: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE players SET energy = energy + ? WHERE id = ?"
+    );
+    stmt.run(amount, playerId);
+  }
+
+  addPlayerAlloy(playerId: string, amount: number): void {
+    // Cap alloy at maximum stockpile
+    const stmt = this.db.prepare(
+      `UPDATE players SET alloy = MIN(alloy + ?, ${MAX_ALLOY_STOCKPILE}) WHERE id = ?`
+    );
+    stmt.run(amount, playerId);
+  }
+
+  // Mining operations
+  createMiningOperation(
+    id: string,
+    playerId: string,
+    systemId: string,
+    celestialBodyId: string,
+    alloyPerDay: number,
+    establishedAt: number
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT INTO mining_operations (id, player_id, system_id, celestial_body_id, alloy_per_day, established_at, last_yield_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    stmt.run(
+      id,
+      playerId,
+      systemId,
+      celestialBodyId,
+      alloyPerDay,
+      establishedAt,
+      establishedAt
+    );
+  }
+
+  getMiningOperationsByPlayer(playerId: string): any[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM mining_operations WHERE player_id = ?"
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      alloyPerDay: row.alloy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    }));
+  }
+
+  getMiningOperationsBySystem(systemId: string): any[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM mining_operations WHERE system_id = ?"
+    );
+    const rows = stmt.all(systemId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      alloyPerDay: row.alloy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    }));
+  }
+
+  getMiningOperationByCelestialBody(celestialBodyId: string): any | null {
+    const stmt = this.db.prepare(
+      "SELECT * FROM mining_operations WHERE celestial_body_id = ?"
+    );
+    const row = stmt.get(celestialBodyId) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      alloyPerDay: row.alloy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    };
+  }
+
+  updateMiningOperationYield(
+    miningOperationId: string,
+    lastYieldAt: number
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE mining_operations SET last_yield_at = ? WHERE id = ?"
+    );
+    stmt.run(lastYieldAt, miningOperationId);
+  }
+
+  processMiningYields(currentTime: number): void {
+    // Get all mining operations
+    const stmt = this.db.prepare("SELECT * FROM mining_operations");
+    const rows = stmt.all() as any[];
+
+    for (const row of rows) {
+      const timeSinceLastYield = currentTime - row.last_yield_at;
+      const daysElapsed = timeSinceLastYield / (24 * 60 * 60);
+
+      if (daysElapsed >= 1) {
+        // Award resources for full days
+        const fullDays = Math.floor(daysElapsed);
+        const alloyToAdd = row.alloy_per_day * fullDays;
+
+        // Add alloy to player
+        this.addPlayerAlloy(row.player_id, alloyToAdd);
+
+        // Update last yield time
+        const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+        this.updateMiningOperationYield(row.id, newLastYieldAt);
+      }
+    }
+  }
+
+  // Megastructures
+  createMegastructure(
+    id: string,
+    playerId: string,
+    systemId: string,
+    type: string,
+    celestialBodyId: string | null,
+    resourceType: string | null,
+    resourcePerDay: number | null,
+    establishedAt: number,
+    metadata: string | null
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT INTO megastructures (id, player_id, system_id, type, celestial_body_id, resource_type, resource_per_day, established_at, last_yield_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    stmt.run(
+      id,
+      playerId,
+      systemId,
+      type,
+      celestialBodyId,
+      resourceType,
+      resourcePerDay,
+      establishedAt,
+      establishedAt,
+      metadata
+    );
+  }
+
+  getMegastructuresBySystem(systemId: string): Megastructure[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM megastructures WHERE system_id = ?"
+    );
+    const rows = stmt.all(systemId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      type: row.type,
+      celestialBodyId: row.celestial_body_id,
+      resourceType: row.resource_type,
+      resourcePerDay: row.resource_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+      metadata: row.metadata,
+    }));
+  }
+
+  getMegastructuresByPlayer(playerId: string): Megastructure[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM megastructures WHERE player_id = ?"
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      type: row.type,
+      celestialBodyId: row.celestial_body_id,
+      resourceType: row.resource_type,
+      resourcePerDay: row.resource_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+      metadata: row.metadata,
+    }));
+  }
+
+  countDysonSwarmsByStar(starId: string): number {
+    const stmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM megastructures WHERE type = 'dyson_swarm' AND celestial_body_id = ?"
+    );
+    const row = stmt.get(starId) as any;
+    return row.count;
+  }
+
+  updateMegastructureYield(megastructureId: string, lastYieldAt: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE megastructures SET last_yield_at = ? WHERE id = ?"
+    );
+    stmt.run(lastYieldAt, megastructureId);
+  }
+
+  processMegastructureYields(currentTime: number): void {
+    // Get all megastructures (excluding Dyson Swarms which provide instant energy)
+    const stmt = this.db.prepare(
+      "SELECT * FROM megastructures WHERE type != 'dyson_swarm'"
+    );
+    const rows = stmt.all() as any[];
+
+    for (const row of rows) {
+      const timeSinceLastYield = currentTime - row.last_yield_at;
+      const daysElapsed = timeSinceLastYield / (24 * 60 * 60);
+
+      if (daysElapsed >= 1) {
+        // Award resources for full days
+        const fullDays = Math.floor(daysElapsed);
+        const resourceToAdd = (row.resource_per_day || 0) * fullDays;
+
+        // Add resources based on type
+        if (row.resource_type === "energy" && resourceToAdd > 0) {
+          this.addPlayerEnergy(row.player_id, resourceToAdd);
+        } else if (row.resource_type === "alloy" && resourceToAdd > 0) {
+          this.addPlayerAlloy(row.player_id, resourceToAdd);
+        }
+
+        // Update last yield time
+        const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+        this.updateMegastructureYield(row.id, newLastYieldAt);
+      }
+    }
+  }
+
+  // Calculate total energy bonus from Dyson Swarms for a player
+  getTotalDysonSwarmEnergy(playerId: string): number {
+    const stmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM megastructures WHERE player_id = ? AND type = 'dyson_swarm'"
+    );
+    const row = stmt.get(playerId) as any;
+    return row.count || 0; // 1 energy per swarm
   }
 
   getPlayersByGalaxy(galaxyId: string): Player[] {
@@ -222,6 +523,8 @@ export class DatabaseQueries {
         currentSystemId: row.current_system_id,
         shipId: "",
         exploredGateIds,
+        energy: row.energy ?? 10,
+        alloy: row.alloy ?? 10,
       };
     });
   }
@@ -231,7 +534,7 @@ export class DatabaseQueries {
     // A system is "explored" if the player has explored at least one gate in that system
     const exploredGates = this.getExploredGates(playerId);
     const systemIds = new Set<string>();
-    
+
     for (const gateId of exploredGates) {
       const gate = this.getGateById(gateId);
       if (gate) {
@@ -242,7 +545,7 @@ export class DatabaseQueries {
         }
       }
     }
-    
+
     return systemIds;
   }
 
@@ -384,6 +687,8 @@ export class DatabaseQueries {
         currentSystemId: row.current_system_id,
         shipId: "",
         exploredGateIds,
+        energy: row.energy ?? 10,
+        alloy: row.alloy ?? 10,
       };
     });
   }
@@ -407,6 +712,8 @@ export class DatabaseQueries {
       currentSystemId: row.current_system_id,
       shipId: "",
       exploredGateIds: [],
+      energy: row.energy ?? 10,
+      alloy: row.alloy ?? 10,
     }));
   }
 
@@ -417,6 +724,36 @@ export class DatabaseQueries {
     `);
     const row = stmt.get(playerId) as any;
     return row?.count || 0;
+  }
+
+  // Player meeting operations
+  /**
+   * Check if two players have already met
+   */
+  havePlayersMet(playerId1: string, playerId2: string): boolean {
+    // Ensure consistent ordering (player1_id < player2_id)
+    const [p1, p2] =
+      playerId1 < playerId2 ? [playerId1, playerId2] : [playerId2, playerId1];
+
+    const stmt = this.db.prepare(
+      "SELECT 1 FROM player_meetings WHERE player1_id = ? AND player2_id = ?"
+    );
+    const row = stmt.get(p1, p2);
+    return row !== undefined;
+  }
+
+  /**
+   * Record that two players have met
+   */
+  recordPlayerMeeting(playerId1: string, playerId2: string): void {
+    // Ensure consistent ordering (player1_id < player2_id)
+    const [p1, p2] =
+      playerId1 < playerId2 ? [playerId1, playerId2] : [playerId2, playerId1];
+
+    const stmt = this.db.prepare(
+      "INSERT OR IGNORE INTO player_meetings (player1_id, player2_id, met_at) VALUES (?, ?, ?)"
+    );
+    stmt.run(p1, p2, Date.now());
   }
 
   markGateExplored(playerId: string, gateId: string): void {
@@ -447,6 +784,84 @@ export class DatabaseQueries {
   updateGateName(gateId: string, newName: string): void {
     const stmt = this.db.prepare("UPDATE star_gates SET name = ? WHERE id = ?");
     stmt.run(newName, gateId);
+  }
+
+  // Gate ownership operations
+  setGateOwnership(gateId: string, ownerId: string): void {
+    const stmt = this.db.prepare(
+      "INSERT OR REPLACE INTO gate_ownership (gate_id, owner_id, explored_at) VALUES (?, ?, ?)"
+    );
+    stmt.run(gateId, ownerId, Date.now());
+  }
+
+  getGateOwner(gateId: string): string | null {
+    const stmt = this.db.prepare(
+      "SELECT owner_id FROM gate_ownership WHERE gate_id = ?"
+    );
+    const row = stmt.get(gateId) as any;
+    return row ? row.owner_id : null;
+  }
+
+  getGateOwnerWithName(
+    gateId: string
+  ): { ownerId: string; ownerName: string } | null {
+    const stmt = this.db.prepare(`
+      SELECT go.owner_id, p.name as owner_name
+      FROM gate_ownership go
+      INNER JOIN players p ON go.owner_id = p.id
+      WHERE go.gate_id = ?
+    `);
+    const row = stmt.get(gateId) as any;
+    if (!row) return null;
+    return {
+      ownerId: row.owner_id,
+      ownerName: row.owner_name,
+    };
+  }
+
+  getGatesOwnedByPlayer(playerId: string): string[] {
+    const stmt = this.db.prepare(
+      "SELECT gate_id FROM gate_ownership WHERE owner_id = ?"
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => row.gate_id);
+  }
+
+  // Player stance operations
+  setPlayerStance(
+    fromPlayerId: string,
+    toPlayerId: string,
+    stance: "neutral" | "friendly" | "aggressive"
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT OR REPLACE INTO player_stances (from_player_id, to_player_id, stance, updated_at) VALUES (?, ?, ?, ?)"
+    );
+    stmt.run(fromPlayerId, toPlayerId, stance, Date.now());
+  }
+
+  getPlayerStance(
+    fromPlayerId: string,
+    toPlayerId: string
+  ): "neutral" | "friendly" | "aggressive" {
+    const stmt = this.db.prepare(
+      "SELECT stance FROM player_stances WHERE from_player_id = ? AND to_player_id = ?"
+    );
+    const row = stmt.get(fromPlayerId, toPlayerId) as any;
+    return row ? row.stance : "neutral"; // Default to neutral if no stance set
+  }
+
+  getAllPlayerStances(
+    playerId: string
+  ): Map<string, "neutral" | "friendly" | "aggressive"> {
+    const stmt = this.db.prepare(
+      "SELECT to_player_id, stance FROM player_stances WHERE from_player_id = ?"
+    );
+    const rows = stmt.all(playerId) as any[];
+    const stances = new Map<string, "neutral" | "friendly" | "aggressive">();
+    for (const row of rows) {
+      stances.set(row.to_player_id, row.stance);
+    }
+    return stances;
   }
 
   getConnectedSystems(playerId: string): string[] {
@@ -873,6 +1288,14 @@ export class DatabaseQueries {
       toSystemId: string;
       isExplored: boolean;
       gateId?: string;
+      ownerId?: string;
+      ownerName?: string;
+      status?:
+        | "unexplored"
+        | "owned_by_self"
+        | "neutral"
+        | "aggressive"
+        | "friendly";
     }>;
     unexploredGates: Array<{
       gateId: string;
@@ -898,6 +1321,14 @@ export class DatabaseQueries {
       toSystemId: string;
       isExplored: boolean;
       gateId?: string;
+      ownerId?: string;
+      ownerName?: string;
+      status?:
+        | "unexplored"
+        | "owned_by_self"
+        | "neutral"
+        | "aggressive"
+        | "friendly";
     }> = [];
 
     // Build full constellation from all explored gates
@@ -935,12 +1366,43 @@ export class DatabaseQueries {
           continue;
         }
 
+        // Get gate ownership information
+        let ownerId: string | undefined;
+        let ownerName: string | undefined;
+        let status:
+          | "unexplored"
+          | "owned_by_self"
+          | "neutral"
+          | "aggressive"
+          | "friendly"
+          | undefined;
+
+        if (isExplored) {
+          const ownerInfo = this.getGateOwnerWithName(gate.id);
+          if (ownerInfo) {
+            ownerId = ownerInfo.ownerId;
+            ownerName = ownerInfo.ownerName;
+
+            // Determine status relative to current player
+            if (ownerId === playerId) {
+              status = "owned_by_self";
+            } else {
+              // Get the player's stance towards the gate owner
+              const stance = this.getPlayerStance(playerId, ownerId);
+              status = stance; // neutral, friendly, or aggressive
+            }
+          }
+        }
+
         // Add connection
         connections.push({
           fromSystemId: gate.systemId,
           toSystemId: gate.destinationSystemId,
           isExplored,
           gateId: isExplored ? gate.id : undefined,
+          ownerId,
+          ownerName,
+          status,
         });
 
         // Only add destination system if this gate is explored
