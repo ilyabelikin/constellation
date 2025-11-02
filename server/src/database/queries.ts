@@ -125,6 +125,13 @@ export class DatabaseQueries {
     if (!row) return null;
     const data = JSON.parse(row.generated_data);
     const gates = this.getGatesBySystem(row.id);
+    
+    // Load mining operations for this system
+    const miningOperations = this.getMiningOperationsBySystem(row.id);
+    
+    // Load megastructures for this system
+    const megastructures = this.getMegastructuresBySystem(row.id);
+    
     return {
       id: row.id,
       galaxyId: row.galaxy_id,
@@ -136,6 +143,8 @@ export class DatabaseQueries {
       asteroidBelts: data.asteroidBelts || [],
       companionStars: data.companionStars, // Load companion stars
       gates,
+      miningOperations,
+      megastructures,
     };
   }
 
@@ -1278,6 +1287,52 @@ export class DatabaseQueries {
    * Get constellation data for a player
    * Returns all explored systems and their gate connections
    */
+  /**
+   * Get gate ownership information for gates in a system
+   */
+  getGateOwnershipForSystem(
+    playerId: string,
+    systemId: string
+  ): Array<{
+    gateId: string;
+    ownerId: string;
+    ownerName: string;
+    status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+  }> {
+    const gates = this.getGatesBySystem(systemId);
+    const result: Array<{
+      gateId: string;
+      ownerId: string;
+      ownerName: string;
+      status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+    }> = [];
+
+    for (const gate of gates) {
+      // Check if this gate has an owner (has been explored by ANYONE)
+      const ownerInfo = this.getGateOwnerWithName(gate.id);
+      if (ownerInfo) {
+        let status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+        
+        if (ownerInfo.ownerId === playerId) {
+          status = "owned_by_self";
+        } else {
+          // Get the player's stance towards the gate owner
+          const stance = this.getPlayerStance(playerId, ownerInfo.ownerId);
+          status = stance as "neutral" | "friendly" | "aggressive";
+        }
+
+        result.push({
+          gateId: gate.id,
+          ownerId: ownerInfo.ownerId,
+          ownerName: ownerInfo.ownerName,
+          status,
+        });
+      }
+    }
+
+    return result;
+  }
+
   getConstellationData(
     playerId: string,
     currentSystemId: string

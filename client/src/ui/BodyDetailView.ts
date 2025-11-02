@@ -379,7 +379,7 @@ export class BodyDetailView {
           ) || [];
 
         const swarmCount = dysonSwarms.length;
-        const maxSwarms = 10;
+        const maxSwarms = 30;
         const totalEnergy = swarmCount * 1; // 1 energy per swarm (permanent boost)
 
         // Always show swarm status for stars

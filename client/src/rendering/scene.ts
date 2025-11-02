@@ -18,6 +18,7 @@ import { TimeInterpolator } from "./TimeInterpolator.js";
 import { StarfieldGenerator } from "./StarfieldGenerator.js";
 import { GateTravelAnimator } from "./GateTravelAnimator.js";
 import { ConstellationView } from "./ConstellationView.js";
+import { DysonSwarmFactory } from "./DysonSwarmFactory.js";
 import {
   getOceanColorType,
   getAtmosphereColor,
@@ -41,6 +42,7 @@ export class SceneManager {
   private starfieldGenerator: StarfieldGenerator;
   private gateTravelAnimator: GateTravelAnimator;
   private constellationView: ConstellationView;
+  private dysonSwarmFactory: DysonSwarmFactory;
 
   // Scene objects
   private bodies: Map<string, THREE.Mesh | THREE.Group> = new Map();
@@ -51,8 +53,13 @@ export class SceneManager {
   private rings: Map<string, THREE.Group> = new Map(); // Planetary ring systems
   private orbitLines: Map<string, THREE.Line> = new Map();
   private moonOrbitLines: Map<string, THREE.Line> = new Map(); // Moon orbit lines (shown conditionally)
+  private satellites: Map<string, { meshes: THREE.Group[]; starId: string }> = new Map(); // Dyson swarm satellites keyed by megastructure ID with star ID
+  private launchingsatellites: Map<string, { mesh: THREE.Group; startTime: number; startPos: THREE.Vector3; targetPos: THREE.Vector3; controlPoint: THREE.Vector3; starId: string; userData: any }[]> = new Map(); // Satellites currently in launch animation
+  private transitioningSatellites: Map<string, { meshes: THREE.Group[]; starId: string; transitionStartTime: number; fromPositions: THREE.Vector3[]; fromQuaternions: THREE.Quaternion[] }> = new Map(); // Satellites transitioning from launch to orbit
   private starMaterials: THREE.ShaderMaterial[] = [];
   private gateMaterials: THREE.ShaderMaterial[] = [];
+  private starDimmingFactors: Map<string, number> = new Map(); // Dimming factor per star based on Dyson swarms (1.0 = full brightness, 0.5 = 50% dimmed)
+  private starLights: Map<string, THREE.PointLight> = new Map(); // Track star lights for dimming
   private starfield: THREE.Points | null = null;
   private lights: THREE.Light[] = []; // Track lights for cleanup
 
@@ -178,6 +185,9 @@ export class SceneManager {
 
     // Initialize constellation view
     this.constellationView = new ConstellationView(this.scene);
+
+    // Initialize Dyson swarm factory
+    this.dysonSwarmFactory = new DysonSwarmFactory();
 
     // Create event listeners and store references for cleanup
     this.resizeHandler = () => this.onWindowResize();
@@ -317,18 +327,21 @@ export class SceneManager {
 
     // Create gates
     for (const gate of system.gates) {
-      const isExplored = this.exploredGateIds.has(gate.id);
+      const isExploredBySelf = this.exploredGateIds.has(gate.id);
 
       // Determine gate status based on ownership
       let gateStatus: string;
       const ownership = this.gateOwnership.get(gate.id);
 
-      if (!isExplored) {
-        gateStatus = "unexplored";
-      } else if (ownership && ownership.status) {
+      // Check if gate has an owner (explored by someone, possibly not by us)
+      if (ownership && ownership.status) {
+        // Gate has an owner - use their diplomatic stance color
         gateStatus = ownership.status;
+      } else if (!isExploredBySelf) {
+        // No owner and we haven't explored it - truly unexplored
+        gateStatus = "unexplored";
       } else {
-        // Default to owned_by_self if explored but no ownership info
+        // We explored it but no ownership info (shouldn't happen, but safe default)
         gateStatus = "owned_by_self";
       }
 
@@ -375,6 +388,67 @@ export class SceneManager {
       this.scene.add(moonOrbitLine);
       this.moonOrbitLines.set(moon.id, moonOrbitLine);
     }
+
+    // Create Dyson Swarm satellites
+    if (system.megastructures) {
+      // Group swarms by star to get swarm index per star
+      const swarmsByStarId = new Map<string, any[]>();
+      
+      for (const megastructure of system.megastructures) {
+        if (megastructure.type === "dyson_swarm" && megastructure.celestialBodyId) {
+          const starId = megastructure.celestialBodyId;
+          if (!swarmsByStarId.has(starId)) {
+            swarmsByStarId.set(starId, []);
+          }
+          swarmsByStarId.get(starId)!.push(megastructure);
+        }
+      }
+
+      // Create satellites for each swarm
+      for (const [starId, swarms] of swarmsByStarId.entries()) {
+        // Get the star body to calculate proper radius
+        const starBody = this.bodies.get(starId);
+        if (!starBody) continue;
+
+        // Get the actual star data to get its real radius
+        let star = system.star.id === starId ? system.star : null;
+        if (!star && system.companionStars) {
+          star = system.companionStars.find(s => s.id === starId) || null;
+        }
+        if (!star) continue;
+
+        // Calculate scaled star radius (same scaling used in rendering)
+        const starRadius = star.radius * this.SCALE * this.BODY_SIZE_MULTIPLIER;
+
+        // Create satellites for each swarm (sorted by creation time for consistent indexing)
+        const sortedSwarms = swarms.sort((a, b) => a.establishedAt - b.establishedAt);
+        
+        for (let i = 0; i < sortedSwarms.length; i++) {
+          const megastructure = sortedSwarms[i];
+          const currentTime = this.timeInterpolator.getGameTime();
+          
+          // Create satellites for this swarm
+          const satelliteMeshes = this.dysonSwarmFactory.createSwarmSatellites(
+            i, // swarm index (0-9)
+            starRadius,
+            currentTime
+          );
+
+          // Add satellites to scene
+          // Note: Satellites are created in local space (relative to star at origin)
+          // The update loop will position them correctly relative to the star's actual position
+          for (const satellite of satelliteMeshes) {
+            this.scene.add(satellite);
+          }
+
+          // Store satellites for updates and cleanup with star ID
+          this.satellites.set(megastructure.id, { meshes: satelliteMeshes, starId: starId });
+        }
+      }
+    }
+    
+    // Update star dimming based on Dyson swarm coverage
+    this.updateStarDimming();
   }
 
   setExploredGates(exploredGateIds: string[]): void {
@@ -383,6 +457,57 @@ export class SceneManager {
 
   setCurrentPlayerId(playerId: string): void {
     this.currentPlayerId = playerId;
+  }
+
+  /**
+   * Calculate star dimming factor based on number of Dyson swarms
+   * @param starId - ID of the star
+   * @returns Dimming factor from 1.0 (no swarms) to 0.5 (max swarms)
+   */
+  private calculateStarDimming(starId: string): number {
+    if (!this.system || !this.system.megastructures) return 1.0;
+    
+    // Count Dyson swarms on this star
+    const swarmCount = this.system.megastructures.filter(
+      ms => ms.type === "dyson_swarm" && ms.celestialBodyId === starId
+    ).length;
+    
+    const MAX_SWARMS = 30;
+    const MIN_BRIGHTNESS = 0.5; // 50% brightness at maximum swarms
+    
+    // Linear interpolation from 1.0 (no swarms) to 0.5 (max swarms)
+    const dimmingFactor = 1.0 - (swarmCount / MAX_SWARMS) * (1.0 - MIN_BRIGHTNESS);
+    
+    return Math.max(MIN_BRIGHTNESS, Math.min(1.0, dimmingFactor));
+  }
+
+  /**
+   * Update the system data without rebuilding the entire scene
+   * Used when receiving updated system data for the current system
+   */
+  updateSystemData(system: StarSystem): void {
+    this.system = system;
+    this.updateStarDimming();
+  }
+
+  /**
+   * Update dimming for all stars in the system
+   * Can be called publicly when system data changes (e.g., new swarm launched)
+   */
+  updateStarDimming(): void {
+    if (!this.system) return;
+    
+    // Update primary star
+    const primaryDimming = this.calculateStarDimming(this.system.star.id);
+    this.starDimmingFactors.set(this.system.star.id, primaryDimming);
+    
+    // Update companion stars
+    if (this.system.companionStars) {
+      for (const star of this.system.companionStars) {
+        const dimming = this.calculateStarDimming(star.id);
+        this.starDimmingFactors.set(star.id, dimming);
+      }
+    }
   }
 
   setGateOwnership(
@@ -396,6 +521,175 @@ export class SceneManager {
 
   clearGateOwnership(): void {
     this.gateOwnership.clear();
+  }
+
+  getGateOwnership(gateId: string): { ownerId: string; ownerName: string; status: string } | undefined {
+    return this.gateOwnership.get(gateId);
+  }
+
+  /**
+   * Launch a new Dyson swarm with animation
+   * @param megastructureId - ID of the megastructure
+   * @param starId - ID of the star the swarm orbits
+   */
+  launchDysonSwarm(megastructureId: string, starId: string): void {
+    if (!this.system) {
+      return;
+    }
+
+    // Find the star to get its radius
+    let star = this.system.star.id === starId ? this.system.star : null;
+    if (!star && this.system.companionStars) {
+      star = this.system.companionStars.find(s => s.id === starId) || null;
+    }
+    if (!star) {
+      return;
+    }
+
+    // Calculate scaled star radius
+    const starRadius = star.radius * this.SCALE * this.BODY_SIZE_MULTIPLIER;
+
+    // Count how many swarms already exist or are launching for this star
+    const existingSwarms = Array.from(this.satellites.values()).filter(
+      satelliteData => satelliteData.starId === starId
+    );
+    const launchingSwarms = Array.from(this.launchingsatellites.values()).filter(
+      launchDataArray => launchDataArray.length > 0 && launchDataArray[0].starId === starId
+    );
+    const swarmIndex = existingSwarms.length + launchingSwarms.length;
+
+    // Create satellites for this swarm
+    const currentTime = this.timeInterpolator.getGameTime();
+    const satelliteMeshes = this.dysonSwarmFactory.createSwarmSatellites(
+      swarmIndex,
+      starRadius,
+      currentTime
+    );
+
+    // Get camera position for launch animation
+    const cameraPos = this.camera.position.clone();
+    
+    // Get star position
+    const starBody = this.bodies.get(starId);
+    const starPosition = new THREE.Vector3();
+    if (starId === this.system.star.id) {
+      starPosition.set(0, 0, 0);
+    } else if (starBody) {
+      starPosition.copy(starBody.position);
+    }
+
+    // Prepare launch animation data with curved paths
+    const launchData: { mesh: THREE.Group; startTime: number; startPos: THREE.Vector3; targetPos: THREE.Vector3; controlPoint: THREE.Vector3; starId: string; userData: any }[] = [];
+    
+    // Launch satellites one by one with delays
+    const currentRealTime = performance.now() / 1000;
+    const launchDuration = 3.0; // 3 seconds to reach orbit
+    
+    for (let i = 0; i < satelliteMeshes.length; i++) {
+      const satellite = satelliteMeshes[i];
+      const launchDelay = i * 0.5;
+      const totalFlightTime = launchDelay + launchDuration;
+      
+      // Calculate where the satellite SHOULD be when it arrives (accounting for orbital motion during flight)
+      // Get the current orbital position (this was calculated at creation time)
+      const initialLocalPos = new THREE.Vector3(
+        satellite.position.x,
+        satellite.position.y,
+        satellite.position.z
+      );
+      
+      // Calculate future game time when satellite will arrive
+      const currentGameTime = this.timeInterpolator.getGameTime();
+      const arrivalGameTime = currentGameTime + totalFlightTime;
+      
+      // Get orbital data to calculate future position
+      const userData = satellite.userData as any;
+      const orbitalPeriod = userData.orbitalPeriod;
+      const orbitRadius = userData.orbitRadius;
+      const fixedLongitude = userData.fixedLongitude;
+      const inclination = userData.inclination;
+      
+      // Calculate orbital position at arrival time using SAME formula as update loop
+      const timeAngle = (arrivalGameTime / orbitalPeriod) * Math.PI * 2;
+      const currentAngle = fixedLongitude + timeAngle;
+      
+      // Calculate position on sphere using spherical coordinates
+      // MUST match updateSatellitePositions exactly
+      const futureLocalX = Math.sin(inclination) * Math.cos(currentAngle) * orbitRadius;
+      const futureLocalY = Math.cos(inclination) * orbitRadius;
+      const futureLocalZ = Math.sin(inclination) * Math.sin(currentAngle) * orbitRadius;
+      
+      // Target position in world space
+      const targetPos = new THREE.Vector3(
+        futureLocalX + starPosition.x,
+        futureLocalY + starPosition.y,
+        futureLocalZ + starPosition.z
+      );
+      
+      // Start at camera position (offset slightly for each satellite)
+      const offset = new THREE.Vector3(
+        (Math.random() - 0.5) * 50,
+        (Math.random() - 0.5) * 50,
+        (Math.random() - 0.5) * 50
+      );
+      const startPos = cameraPos.clone().add(offset);
+      
+      // Calculate control point for quadratic Bezier curve that goes AROUND the sun
+      // Use the cross product to find a point perpendicular to the start-target line
+      const toTarget = new THREE.Vector3().subVectors(targetPos, startPos);
+      const midPoint = new THREE.Vector3().addVectors(startPos, targetPos).multiplyScalar(0.5);
+      
+      // Vector from sun to midpoint
+      const sunToMid = new THREE.Vector3().subVectors(midPoint, starPosition);
+      
+      // If the path would go through or near the sun, push control point outward
+      const distanceToSun = sunToMid.length();
+      const minSafeDistance = starRadius * 2.5; // Stay well away from sun
+      
+      if (distanceToSun < minSafeDistance) {
+        // Push control point outward from sun
+        sunToMid.normalize().multiplyScalar(minSafeDistance);
+        const controlPoint = starPosition.clone().add(sunToMid);
+        
+        // Add some perpendicular offset for variety
+        const perpendicular = new THREE.Vector3().crossVectors(toTarget, sunToMid).normalize();
+        controlPoint.add(perpendicular.multiplyScalar(starRadius * 1.5 * (Math.random() - 0.5)));
+        
+        launchData.push({
+          mesh: satellite,
+          startTime: currentRealTime + i * 0.5,
+          startPos: startPos,
+          targetPos: targetPos,
+          controlPoint: controlPoint,
+          starId: starId,
+          userData: satellite.userData
+        });
+      } else {
+        // Path doesn't go near sun, use simple arc
+        const controlPoint = midPoint.clone().add(
+          sunToMid.normalize().multiplyScalar(starRadius * 0.5)
+        );
+        
+        launchData.push({
+          mesh: satellite,
+          startTime: currentRealTime + i * 0.5,
+          startPos: startPos,
+          targetPos: targetPos,
+          controlPoint: controlPoint,
+          starId: starId,
+          userData: satellite.userData
+        });
+      }
+      
+      satellite.position.copy(startPos);
+      
+      // Make satellite visible and add to scene
+      satellite.visible = true;
+      this.scene.add(satellite);
+    }
+
+    // Store launching satellites
+    this.launchingsatellites.set(megastructureId, launchData);
   }
 
   private clearScene(): void {
@@ -478,6 +772,30 @@ export class SceneManager {
       this.scene.remove(line);
     }
 
+    // Dispose and remove all satellites
+    for (const satelliteData of this.satellites.values()) {
+      for (const satellite of satelliteData.meshes) {
+        this.disposeMesh(satellite);
+        this.scene.remove(satellite);
+      }
+    }
+
+    // Dispose and remove launching satellites
+    for (const launchDataArray of this.launchingsatellites.values()) {
+      for (const launchData of launchDataArray) {
+        this.disposeMesh(launchData.mesh);
+        this.scene.remove(launchData.mesh);
+      }
+    }
+
+    // Dispose and remove transitioning satellites
+    for (const transitionData of this.transitioningSatellites.values()) {
+      for (const satellite of transitionData.meshes) {
+        this.disposeMesh(satellite);
+        this.scene.remove(satellite);
+      }
+    }
+
     // Remove and clear lights (except ambient light which we keep)
     for (const light of this.lights) {
       if (!(light instanceof THREE.AmbientLight)) {
@@ -496,6 +814,9 @@ export class SceneManager {
     this.rings.clear();
     this.orbitLines.clear();
     this.moonOrbitLines.clear();
+    this.satellites.clear();
+    this.launchingsatellites.clear();
+    this.transitioningSatellites.clear();
     this.starMaterials = [];
     this.gateMaterials = [];
     this.timeInterpolator.clearPositions();
@@ -707,6 +1028,116 @@ export class SceneManager {
               );
             }
           }
+        }
+      }
+    }
+
+    // Update megastructures (Dyson swarms) - check if any new ones were added
+    if (this.system && state.megastructures) {
+      // Compare current megastructures with what we have rendered
+      const currentMegastructureIds = new Set(
+        (this.system.megastructures || []).map(m => m.id)
+      );
+      const newMegastructureIds = new Set(
+        state.megastructures.map(m => m.id)
+      );
+
+      // Check if there are new megastructures we need to render
+      const addedMegastructures = state.megastructures.filter(
+        m => !currentMegastructureIds.has(m.id)
+      );
+
+      // Check if any megastructures were removed
+      const removedMegastructureIds = Array.from(currentMegastructureIds).filter(
+        id => !newMegastructureIds.has(id)
+      );
+
+      // Update system data with new megastructures
+      this.system.megastructures = state.megastructures;
+
+      // Add new megastructures
+      if (addedMegastructures.length > 0) {
+        // Group swarms by star to get swarm index per star
+        const swarmsByStarId = new Map<string, any[]>();
+        
+        for (const megastructure of state.megastructures) {
+          if (megastructure.type === "dyson_swarm" && megastructure.celestialBodyId) {
+            const starId = megastructure.celestialBodyId;
+            if (!swarmsByStarId.has(starId)) {
+              swarmsByStarId.set(starId, []);
+            }
+            swarmsByStarId.get(starId)!.push(megastructure);
+          }
+        }
+
+        // Create satellites for new megastructures
+        for (const megastructure of addedMegastructures) {
+          if (megastructure.type === "dyson_swarm" && megastructure.celestialBodyId) {
+            const starId = megastructure.celestialBodyId;
+            const star = starId === this.system.star.id ? 
+              this.system.star : 
+              this.system.companionStars?.find(s => s.id === starId);
+            
+            if (star) {
+              const starSwarms = swarmsByStarId.get(starId) || [];
+              const swarmIndex = starSwarms.findIndex(s => s.id === megastructure.id);
+              
+              // Create satellites for this swarm (returns an array)
+              const currentTime = state.currentTime;
+              const starRadius = star.radius * this.SCALE * this.BODY_SIZE_MULTIPLIER;
+              const satelliteMeshes = this.dysonSwarmFactory.createSwarmSatellites(
+                swarmIndex,
+                starRadius,
+                currentTime
+              );
+              
+              // Add metadata to each satellite
+              for (const satellite of satelliteMeshes) {
+                satellite.userData = {
+                  id: megastructure.id,
+                  type: "dyson_swarm",
+                  megastructure: megastructure
+                };
+                
+                // Add to scene
+                this.scene.add(satellite);
+              }
+              
+              // Update satellites map
+              this.satellites.set(megastructure.id, {
+                meshes: satelliteMeshes,
+                starId: starId
+              });
+
+              // Update star dimming
+              this.updateStarDimming();
+            }
+          }
+        }
+      }
+
+      // Remove deleted megastructures
+      for (const removedId of removedMegastructureIds) {
+        const satelliteData = this.satellites.get(removedId);
+        if (satelliteData) {
+          // Remove satellites from scene
+          for (const mesh of satelliteData.meshes) {
+            this.scene.remove(mesh);
+            mesh.traverse((child) => {
+              if (child instanceof THREE.Mesh) {
+                child.geometry?.dispose();
+                if (Array.isArray(child.material)) {
+                  child.material.forEach(m => this.disposeMaterial(m));
+                } else if (child.material) {
+                  this.disposeMaterial(child.material);
+                }
+              }
+            });
+          }
+          this.satellites.delete(removedId);
+          
+          // Update star dimming
+          this.updateStarDimming();
         }
       }
     }
@@ -1184,6 +1615,21 @@ export class SceneManager {
         for (const ringGroup of this.rings.values()) {
           ringGroup.visible = true;
         }
+        for (const satelliteData of this.satellites.values()) {
+          for (const satellite of satelliteData.meshes) {
+            satellite.visible = true;
+          }
+        }
+        for (const launchDataArray of this.launchingsatellites.values()) {
+          for (const launchData of launchDataArray) {
+            launchData.mesh.visible = true;
+          }
+        }
+        for (const transitionData of this.transitioningSatellites.values()) {
+          for (const satellite of transitionData.meshes) {
+            satellite.visible = true;
+          }
+        }
         // Show planet orbit lines for planets orbiting the primary star only
         if (this.system) {
           for (const planet of this.system.planets) {
@@ -1219,7 +1665,22 @@ export class SceneManager {
     if (this.system) {
       // Primary star is always at origin
       starLightPositions.push(new THREE.Vector3(0, 0, 0));
-      starLightIntensities.push(1.0);
+      // Apply Dyson swarm dimming to primary star
+      const primaryDimming = this.starDimmingFactors.get(this.system.star.id) || 1.0;
+      starLightIntensities.push(primaryDimming);
+      
+      // Update primary star brightness and light
+      const primaryMesh = this.bodies.get(this.system.star.id);
+      if (primaryMesh && primaryMesh.userData.light) {
+        // Update star material brightness
+        const starMaterial = (primaryMesh as THREE.Mesh).material as THREE.ShaderMaterial;
+        if (starMaterial.uniforms && starMaterial.uniforms.brightness) {
+          starMaterial.uniforms.brightness.value = primaryDimming;
+        }
+        // Update star light intensity
+        const light = primaryMesh.userData.light as THREE.PointLight;
+        light.intensity = 30 * primaryDimming;
+      }
 
       // Add companion stars if they exist
       if (this.system.companionStars) {
@@ -1232,8 +1693,19 @@ export class SceneManager {
             );
             if (companionPos) {
               starLightPositions.push(companionPos.clone());
-              // Companion star intensity - could be adjusted based on star properties
-              starLightIntensities.push(1.0);
+              // Companion star intensity with Dyson swarm dimming
+              const companionDimming = this.starDimmingFactors.get(companionStar.id) || 1.0;
+              starLightIntensities.push(companionDimming);
+              
+              // Update companion star brightness and light
+              if (companionMesh.userData.light) {
+                const companionMaterial = (companionMesh as THREE.Mesh).material as THREE.ShaderMaterial;
+                if (companionMaterial.uniforms && companionMaterial.uniforms.brightness) {
+                  companionMaterial.uniforms.brightness.value = companionDimming;
+                }
+                const companionLight = companionMesh.userData.light as THREE.PointLight;
+                companionLight.intensity = 30 * companionDimming;
+              }
 
               // Update orbit line positions for planets orbiting this companion star
               for (const planet of this.system.planets) {
@@ -1514,6 +1986,340 @@ export class SceneManager {
         } else {
           // Stable rotation: single axis (most common)
           mesh.rotation.y = rotation;
+        }
+      }
+    }
+
+    // Update launching Dyson swarm satellites (animation)
+    const currentRealTime = performance.now() / 1000;
+    const completedLaunches: string[] = [];
+    
+    if (this.launchingsatellites.size > 0) {
+      // Only log when there are launching satellites to avoid spam
+      for (const [megastructureId, launchDataArray] of this.launchingsatellites.entries()) {
+        let allCompleted = true;
+        
+        for (const launchData of launchDataArray) {
+          const elapsed = currentRealTime - launchData.startTime;
+          
+          if (elapsed < 0) {
+            // Hasn't started yet
+            allCompleted = false;
+            continue;
+          }
+          
+          const launchDuration = 3.0; // 3 seconds to reach orbit
+          const t = Math.min(elapsed / launchDuration, 1.0);
+          
+          if (t < 1.0) {
+            // Still launching - use ease-out animation with Bezier curve
+            const eased = 1 - Math.pow(1 - t, 3); // Cubic ease-out
+            
+            // Quadratic Bezier curve: B(t) = (1-t)²P₀ + 2(1-t)tP₁ + t²P₂
+            const oneMinusT = 1 - eased;
+            const pos = new THREE.Vector3();
+            
+            // Calculate position on Bezier curve
+            pos.addScaledVector(launchData.startPos, oneMinusT * oneMinusT);
+            pos.addScaledVector(launchData.controlPoint, 2 * oneMinusT * eased);
+            pos.addScaledVector(launchData.targetPos, eased * eased);
+            
+            launchData.mesh.position.copy(pos);
+            
+            // Smoothly rotate from travel direction to sun-facing
+            // Calculate tangent for orientation (derivative of Bezier curve)
+            const tangent = new THREE.Vector3();
+            tangent.addScaledVector(
+              new THREE.Vector3().subVectors(launchData.controlPoint, launchData.startPos),
+              2 * oneMinusT
+            );
+            tangent.addScaledVector(
+              new THREE.Vector3().subVectors(launchData.targetPos, launchData.controlPoint),
+              2 * eased
+            );
+            
+            // Get star position for this satellite's star
+            const starId = launchData.starId;
+            const starPosition = new THREE.Vector3();
+            if (this.system && starId === this.system.star.id) {
+              starPosition.set(0, 0, 0);
+            } else {
+              const starBody = this.bodies.get(starId);
+              if (starBody) {
+                starPosition.copy(starBody.position);
+              }
+            }
+            
+            // Direction to travel along path
+            const travelDirection = tangent.clone().normalize();
+            
+            // Direction to sun
+            const toSunDirection = new THREE.Vector3().subVectors(starPosition, pos).normalize();
+            
+            // Interpolate between travel direction and sun direction
+            // Early in animation (t < 0.3): mostly travel direction
+            // Late in animation (t > 0.7): mostly sun direction
+            const rotationBlend = Math.max(0, (t - 0.3) / 0.7); // Smooth transition from 30% to 100%
+            const blendedDirection = new THREE.Vector3();
+            blendedDirection.lerpVectors(travelDirection, toSunDirection, rotationBlend);
+            
+            // Point in the blended direction
+            const lookAtPoint = pos.clone().add(blendedDirection);
+            launchData.mesh.lookAt(lookAtPoint);
+            
+            // Apply LOD during launch animation
+            const distanceToCamera = this.camera.position.distanceTo(pos);
+            const star = this.system?.star.id === starId ? this.system.star : 
+                        this.system?.companionStars?.find(s => s.id === starId);
+            if (star) {
+              const starRadius = star.radius * this.SCALE * this.BODY_SIZE_MULTIPLIER;
+              const lodDistance = starRadius * 10;
+              
+              if (distanceToCamera > lodDistance) {
+                // Far away: Hide detailed children
+                launchData.mesh.traverse((child) => {
+                  if (child instanceof THREE.Mesh) {
+                    const childName = child.name || '';
+                    if (childName.includes('frame') || childName.includes('strut')) {
+                      child.visible = false;
+                    }
+                  }
+                });
+              } else {
+                // Close up: Show all detail
+                launchData.mesh.traverse((child) => {
+                  if (child instanceof THREE.Mesh) {
+                    child.visible = true;
+                  }
+                });
+              }
+            }
+            
+            allCompleted = false;
+          } else if (t >= 1.0) {
+            // Just reached orbit - keep at final position but prepare for orbital transition
+            // The orbital update will handle positioning from now on
+            launchData.mesh.position.copy(launchData.targetPos);
+          }
+        }
+        
+        // If all satellites in this swarm have reached orbit, start transition phase
+        // This creates smooth interpolation from launch end to orbital position
+        if (allCompleted) {
+          const satelliteMeshes = launchDataArray.map(data => data.mesh);
+          const starId = launchDataArray[0].starId;
+          
+          // Store current positions and rotations as transition starting points
+          const fromPositions = satelliteMeshes.map(mesh => mesh.position.clone());
+          const fromQuaternions = satelliteMeshes.map(mesh => mesh.quaternion.clone());
+          
+          // Add to transitioning satellites for smooth blend to orbit
+          this.transitioningSatellites.set(megastructureId, {
+            meshes: satelliteMeshes,
+            starId: starId,
+            transitionStartTime: currentRealTime,
+            fromPositions: fromPositions,
+            fromQuaternions: fromQuaternions
+          });
+          
+          completedLaunches.push(megastructureId);
+        }
+      }
+    }
+    
+    // Remove completed launches
+    for (const id of completedLaunches) {
+      this.launchingsatellites.delete(id);
+    }
+
+    // Update transitioning satellites (smooth blend from launch to orbit)
+    const completedTransitions: string[] = [];
+    
+    if (this.system) {
+      const currentTime = this.timeInterpolator.getGameTime();
+      
+      for (const [megastructureId, transitionData] of this.transitioningSatellites.entries()) {
+        const elapsed = currentRealTime - transitionData.transitionStartTime;
+        const transitionDuration = 1.0; // 1 second smooth transition
+        const t = Math.min(elapsed / transitionDuration, 1.0);
+        
+        const starId = transitionData.starId;
+        const starBody = this.bodies.get(starId);
+        
+        if (starBody) {
+          // Get star position
+          const starPosition = new THREE.Vector3();
+          if (starId === this.system.star.id) {
+            starPosition.set(0, 0, 0);
+          } else {
+            starPosition.copy(starBody.position);
+          }
+          
+          // Calculate target orbital positions
+          this.dysonSwarmFactory.updateSatellitePositions(transitionData.meshes, currentTime);
+          
+          // Interpolate between launch end position and orbital position
+          for (let i = 0; i < transitionData.meshes.length; i++) {
+            const satellite = transitionData.meshes[i];
+            const fromPos = transitionData.fromPositions[i];
+            const fromQuat = transitionData.fromQuaternions[i];
+            
+            // Get the orbital position (already calculated by factory)
+            const orbitalLocalPos = new THREE.Vector3(
+              satellite.position.x,
+              satellite.position.y,
+              satellite.position.z
+            );
+            
+            // Apply star offset to orbital position
+            const orbitalWorldPos = new THREE.Vector3(
+              orbitalLocalPos.x + starPosition.x,
+              orbitalLocalPos.y + starPosition.y,
+              orbitalLocalPos.z + starPosition.z
+            );
+            
+            // Smooth interpolation with ease-out
+            const eased = 1 - Math.pow(1 - t, 3); // Cubic ease-out
+            satellite.position.lerpVectors(fromPos, orbitalWorldPos, eased);
+            
+            // Smoothly interpolate rotation to face the star
+            // Create a temporary object to calculate target rotation
+            const tempTarget = new THREE.Object3D();
+            tempTarget.position.copy(satellite.position);
+            tempTarget.lookAt(starPosition);
+            const targetQuat = tempTarget.quaternion.clone();
+            
+            // Interpolate between starting rotation and target rotation
+            satellite.quaternion.slerpQuaternions(fromQuat, targetQuat, eased);
+            
+            // Apply LOD during transition
+            const distanceToCamera = this.camera.position.distanceTo(satellite.position);
+            const star = starId === this.system!.star.id ? this.system!.star : 
+                        this.system!.companionStars?.find(s => s.id === starId);
+            if (star) {
+              const starRadius = star.radius * this.SCALE * this.BODY_SIZE_MULTIPLIER;
+              const lodDistance = starRadius * 10;
+              
+              if (distanceToCamera > lodDistance) {
+                // Far away: Hide detailed children
+                satellite.traverse((child) => {
+                  if (child instanceof THREE.Mesh) {
+                    const childName = child.name || '';
+                    if (childName.includes('frame') || childName.includes('strut')) {
+                      child.visible = false;
+                    }
+                  }
+                });
+              } else {
+                // Close up: Show all detail
+                satellite.traverse((child) => {
+                  if (child instanceof THREE.Mesh) {
+                    child.visible = true;
+                  }
+                });
+              }
+            }
+          }
+          
+          // If transition complete, move to regular satellites
+          if (t >= 1.0) {
+            this.satellites.set(megastructureId, {
+              meshes: transitionData.meshes,
+              starId: starId
+            });
+            completedTransitions.push(megastructureId);
+          }
+        }
+      }
+    }
+    
+    // Remove completed transitions
+    for (const id of completedTransitions) {
+      this.transitioningSatellites.delete(id);
+    }
+
+    // Update Dyson swarm satellite positions
+    if (this.system) {
+      const currentTime = this.timeInterpolator.getGameTime();
+      
+      for (const [megastructureId, satelliteData] of this.satellites.entries()) {
+        const starId = satelliteData.starId;
+        const satelliteArray = satelliteData.meshes;
+
+        // Get the star body to track its position
+        const starBody = this.bodies.get(starId);
+        if (!starBody) continue;
+
+        // Get star position (primary star is always at origin, companions move)
+        const starPosition = new THREE.Vector3();
+        if (starId === this.system.star.id) {
+          // Primary star is at origin
+          starPosition.set(0, 0, 0);
+        } else {
+          // Companion star - use interpolated position
+          const interpolatedPos = this.timeInterpolator.getInterpolatedPosition(
+            starId,
+            lerpFactor
+          );
+          if (interpolatedPos) {
+            starPosition.copy(interpolatedPos);
+          }
+        }
+
+        // Update satellite positions using the factory's update method
+        // This updates their local orbital positions and orients them toward (0,0,0)
+        this.dysonSwarmFactory.updateSatellitePositions(satelliteArray, currentTime);
+
+        // Apply star's position offset to all satellites
+        // Satellites orbit in local space, so we add the star's world position
+        for (const satellite of satelliteArray) {
+          // Get satellite's local orbital position (already in 3D from factory)
+          const localX = satellite.position.x;
+          const localY = satellite.position.y;
+          const localZ = satellite.position.z;
+          
+          // Apply star's world position offset
+          satellite.position.x = localX + starPosition.x;
+          satellite.position.y = localY + starPosition.y;
+          satellite.position.z = localZ + starPosition.z;
+          
+          // Make satellite point toward the actual star position
+          satellite.lookAt(starPosition);
+          
+          // Distance-based LOD to prevent aliasing/z-fighting at distance
+          // Calculate distance from camera to satellite
+          const distanceToCamera = this.camera.position.distanceTo(satellite.position);
+          
+          // Get star body to calculate relative distance threshold
+          const star = starId === this.system!.star.id ? this.system!.star : 
+                      this.system!.companionStars?.find(s => s.id === starId);
+          if (star) {
+            const starRadius = star.radius * this.SCALE * this.BODY_SIZE_MULTIPLIER;
+            // Switch to simplified LOD when camera is more than 10x star radius away
+            const lodDistance = starRadius * 10;
+            
+            if (distanceToCamera > lodDistance) {
+              // Far away: Hide detailed children (frames/struts)
+              satellite.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                  const childName = child.name || '';
+                  // Hide frame and struts (detail geometry)
+                  if (childName.includes('frame') || childName.includes('strut')) {
+                    child.visible = false;
+                  } else {
+                    child.visible = true;
+                  }
+                }
+              });
+            } else {
+              // Close up: Show all detail
+              satellite.traverse((child) => {
+                if (child instanceof THREE.Mesh) {
+                  child.visible = true;
+                }
+              });
+            }
+          }
         }
       }
     }
@@ -1850,6 +2656,21 @@ export class SceneManager {
     for (const ringGroup of this.rings.values()) {
       ringGroup.visible = false;
     }
+    for (const satelliteData of this.satellites.values()) {
+      for (const satellite of satelliteData.meshes) {
+        satellite.visible = false;
+      }
+    }
+    for (const launchDataArray of this.launchingsatellites.values()) {
+      for (const launchData of launchDataArray) {
+        launchData.mesh.visible = false;
+      }
+    }
+    for (const transitionData of this.transitioningSatellites.values()) {
+      for (const satellite of transitionData.meshes) {
+        satellite.visible = false;
+      }
+    }
     for (const line of this.orbitLines.values()) {
       line.visible = false;
     }
@@ -2079,6 +2900,21 @@ export class SceneManager {
     for (const ringGroup of this.rings.values()) {
       ringGroup.visible = false;
     }
+    for (const satelliteData of this.satellites.values()) {
+      for (const satellite of satelliteData.meshes) {
+        satellite.visible = false;
+      }
+    }
+    for (const launchDataArray of this.launchingsatellites.values()) {
+      for (const launchData of launchDataArray) {
+        launchData.mesh.visible = false;
+      }
+    }
+    for (const transitionData of this.transitioningSatellites.values()) {
+      for (const satellite of transitionData.meshes) {
+        satellite.visible = false;
+      }
+    }
     for (const line of this.orbitLines.values()) {
       line.visible = false;
     }
@@ -2108,6 +2944,21 @@ export class SceneManager {
     }
     for (const ringGroup of this.rings.values()) {
       ringGroup.visible = true;
+    }
+    for (const satelliteData of this.satellites.values()) {
+      for (const satellite of satelliteData.meshes) {
+        satellite.visible = true;
+      }
+    }
+    for (const launchDataArray of this.launchingsatellites.values()) {
+      for (const launchData of launchDataArray) {
+        launchData.mesh.visible = true;
+      }
+    }
+    for (const transitionData of this.transitioningSatellites.values()) {
+      for (const satellite of transitionData.meshes) {
+        satellite.visible = true;
+      }
     }
     // Show planet orbit lines for planets orbiting the primary star only
     if (this.system) {

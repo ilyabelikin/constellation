@@ -17,14 +17,21 @@ export class NetworkClient {
   private ws: WebSocket | null = null;
   private uuid: string | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
 
   // Callbacks
   public onAuthenticated:
     | ((uuid: string, playerId: string | null) => void)
     | null = null;
   public onPlayerData: ((player: Player) => void) | null = null;
-  public onSystemData: ((system: StarSystem) => void) | null = null;
+  public onSystemData: ((
+    system: StarSystem,
+    gateOwnership?: Array<{
+      gateId: string;
+      ownerId: string;
+      ownerName: string;
+      status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+    }>
+  ) => void) | null = null;
   public onStateUpdate: ((state: SystemState) => void) | null = null;
   public onTimeUpdate:
     | ((currentTime: number, isPaused: boolean, timeScale: number) => void)
@@ -130,15 +137,15 @@ export class NetworkClient {
   }
 
   private attemptReconnect(url: string): void {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      console.log(
-        `Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
-      );
-      setTimeout(() => {
-        this.connect(url).catch(console.error);
-      }, 2000 * this.reconnectAttempts);
-    }
+    this.reconnectAttempts++;
+    console.log(`Reconnecting... (attempt ${this.reconnectAttempts})`);
+    
+    // Cap the delay at 12 seconds (6 attempts * 2000ms)
+    const delay = Math.min(2000 * this.reconnectAttempts, 12000);
+    
+    setTimeout(() => {
+      this.connect(url).catch(console.error);
+    }, delay);
   }
 
   private handleMessage(data: string): void {
@@ -169,7 +176,7 @@ export class NetworkClient {
 
         case "systemData":
           if (this.onSystemData) {
-            this.onSystemData(message.system);
+            this.onSystemData(message.system, message.gateOwnership);
           }
           break;
 
@@ -388,6 +395,11 @@ export class NetworkClient {
 
   launchDysonSwarm(starId: string): void {
     this.send({ type: "launchDysonSwarm", starId });
+  }
+
+  debugAddResource(resourceType: "energy" | "alloy", amount: number): void {
+    console.log(`[NetworkClient] Sending debugAddResource: ${resourceType} +${amount}`);
+    this.send({ type: "debugAddResource", resourceType, amount });
   }
 
   /**

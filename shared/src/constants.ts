@@ -21,9 +21,9 @@ export const WEBSOCKET_PORT = 8080;
 export const STATE_UPDATE_RATE = 5; // Hz (send state updates to clients)
 
 // Resource constants
-export const MAX_ALLOY_STOCKPILE = 50; // Maximum alloy that can be stored
+export const MAX_ALLOY_STOCKPILE = 500; // Maximum alloy that can be stored
 
 // Megastructure constants
 export const DYSON_SWARM_COST = 10; // Alloy cost to build one swarm
 export const DYSON_SWARM_ENERGY_PER_DAY = 1; // Energy generated per day per swarm
-export const MAX_DYSON_SWARMS_PER_STAR = 10; // Maximum swarms per star
+export const MAX_DYSON_SWARMS_PER_STAR = 30; // Maximum swarms per star

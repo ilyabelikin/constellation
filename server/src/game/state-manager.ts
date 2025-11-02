@@ -342,6 +342,7 @@ export class GameStateManager {
       gates: gateStates,
       asteroids: asteroidStates,
       moons: moonStates,
+      megastructures: system.megastructures || [],
     };
   }
 

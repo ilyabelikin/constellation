@@ -42,6 +42,11 @@ export type ClientMessage =
   | {
       type: "launchDysonSwarm";
       starId: string;
+    }
+  | {
+      type: "debugAddResource";
+      resourceType: "energy" | "alloy";
+      amount: number;
     };
 
 export interface ShipManeuverCommand {
@@ -55,7 +60,16 @@ export type ServerMessage =
   | { type: "authenticated"; uuid: string; playerId: string | null }
   | { type: "error"; message: string }
   | { type: "playerData"; player: Player }
-  | { type: "systemData"; system: StarSystem }
+  | { 
+      type: "systemData"; 
+      system: StarSystem;
+      gateOwnership?: Array<{
+        gateId: string;
+        ownerId: string;
+        ownerName: string;
+        status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      }>;
+    }
   | { type: "stateUpdate"; state: SystemState }
   | {
       type: "timeUpdate";

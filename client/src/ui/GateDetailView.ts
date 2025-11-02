@@ -40,51 +40,96 @@ export class GateDetailView {
     gate: any,
     player: Player | null,
     system: StarSystem,
-    currentState: SystemState
+    currentState: SystemState,
+    ownerInfo?: { ownerId: string; ownerName: string; status: string }
   ): void {
     this.panel.classList.remove("hidden");
 
-    // Check if gate is explored
-    const isExplored = player?.exploredGateIds?.includes(gate.id) ?? false;
-
-    // Show "???" for unexplored gates, actual name for explored gates
-    this.nameElement.textContent = isExplored ? gate.name : "???";
+    // Check if gate is explored by current player
+    const isExploredBySelf = player?.exploredGateIds?.includes(gate.id) ?? false;
 
     // Status (check userData for status from gate creation)
     const gateStatus = gate.userData?.status;
-    if (!isExplored) {
+    const costElement = document.getElementById("gate-detail-cost")!;
+    
+    // Determine display based on ownership and exploration
+    if (ownerInfo && !isExploredBySelf) {
+      // Gate owned by someone else but not explored by us yet
+      this.nameElement.textContent = "???";
+      
+      // Show diplomatic stance status
+      if (ownerInfo.status === "neutral") {
+        this.statusElement.textContent = "Neutral Gate ● (Maintained by another civilization)";
+      } else if (ownerInfo.status === "friendly") {
+        this.statusElement.textContent = "Friendly Gate ✓ (Maintained by ally)";
+      } else if (ownerInfo.status === "aggressive") {
+        this.statusElement.textContent = "Hostile Gate ⚠ (Maintained by enemy)";
+      } else {
+        this.statusElement.textContent = "Occupied Gate (Maintained by another civilization)";
+      }
+      
+      this.ownerRow.style.display = "block";
+      this.ownerElement.textContent = ownerInfo.ownerName;
+      this.costRow.style.display = "block";
+      costElement.textContent = `Free - maintained by ${ownerInfo.ownerName}`;
+      costElement.style.color = "#10b981"; // Green
+    } else if (!isExploredBySelf) {
+      // Truly unexplored - no owner, not explored by us
+      this.nameElement.textContent = "???";
       this.statusElement.textContent = "Unexplored ◈";
       this.ownerRow.style.display = "none";
-      this.costRow.style.display = "block"; // Show cost for unexplored gates
+      this.costRow.style.display = "block";
+      costElement.textContent = "⚡ 1 Energy";
+      costElement.style.color = "#60a5fa"; // Blue
     } else {
+      // Explored by us
+      this.nameElement.textContent = gate.name;
       // Show status based on ownership
       if (gateStatus === "owned_by_self") {
         this.statusElement.textContent = "Owned by You ⚡";
         this.ownerRow.style.display = "block";
         this.ownerElement.textContent = player?.name || "You";
+        this.costRow.style.display = "block";
+        costElement.textContent = "Free - you maintain this gate";
+        costElement.style.color = "#10b981"; // Green
       } else if (gateStatus === "neutral") {
         this.statusElement.textContent = "Neutral Gate ●";
         this.ownerRow.style.display = "block";
-        // Owner info will be set below if available
+        this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
+        this.costRow.style.display = "block";
+        costElement.textContent = `Free - maintained by ${ownerInfo?.ownerName || "another civilization"}`;
+        costElement.style.color = "#10b981"; // Green
       } else if (gateStatus === "aggressive") {
         this.statusElement.textContent = "Hostile Gate ⚠";
         this.ownerRow.style.display = "block";
+        this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
+        this.costRow.style.display = "block";
+        costElement.textContent = `Free - maintained by ${ownerInfo?.ownerName || "hostile civilization"}`;
+        costElement.style.color = "#10b981"; // Green
       } else if (gateStatus === "friendly") {
         this.statusElement.textContent = "Friendly Gate ✓";
         this.ownerRow.style.display = "block";
+        this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
+        this.costRow.style.display = "block";
+        costElement.textContent = `Free - maintained by ${ownerInfo?.ownerName || "friendly civilization"}`;
+        costElement.style.color = "#10b981"; // Green
       } else {
         this.statusElement.textContent = "Explored ⚡";
         this.ownerRow.style.display = "none";
+        this.costRow.style.display = "none";
       }
-      this.costRow.style.display = "none"; // Don't show cost for explored gates
     }
 
     // Destination
-    if (isExplored) {
-      // Extract destination star name from gate name (format: "Gate to [Star Name]")
+    if (isExploredBySelf) {
+      // We explored it - show full destination name
       const destination = gate.name.replace("Gate to ", "");
       this.destinationElement.textContent = destination;
+    } else if (ownerInfo) {
+      // Someone else owns it - show it's known but we haven't been there
+      this.destinationElement.textContent = "Explored by another civilization";
     } else {
+      // Truly unexplored
       this.destinationElement.textContent = "Unknown";
     }
 

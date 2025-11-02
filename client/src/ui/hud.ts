@@ -17,6 +17,7 @@ export class HUDManager {
   private currentState: SystemState | null = null;
   private ship: Ship | null = null;
   private selectedObjectId: string | null = null;
+  private gateOwnership: Map<string, { ownerId: string; ownerName: string; status: string }> = new Map();
 
   // Detail views
   private bodyDetailView: BodyDetailView;
@@ -525,6 +526,14 @@ export class HUDManager {
     this.alloyDisplay.textContent = alloyFloored.toFixed(2);
   }
 
+  setGateOwnership(gateId: string, ownerId: string, ownerName: string, status: string): void {
+    this.gateOwnership.set(gateId, { ownerId, ownerName, status });
+  }
+
+  clearGateOwnership(): void {
+    this.gateOwnership.clear();
+  }
+
   setSystem(system: StarSystem): void {
     this.system = system;
 
@@ -578,6 +587,28 @@ export class HUDManager {
 
   private populateSystemOutline(): void {
     if (!this.system) return;
+
+    // Save current asteroid belt and moon indices before clearing
+    const savedAsteroidIndices = new Map<string, number>();
+    const savedMoonIndices = new Map<string, number>();
+    
+    const existingBelts = this.outlineList.querySelectorAll('.outline-item.asteroid-belt');
+    existingBelts.forEach((item) => {
+      const beltId = (item as HTMLElement).dataset.beltId;
+      const asteroidIndex = (item as HTMLElement).dataset.asteroidIndex;
+      if (beltId && asteroidIndex) {
+        savedAsteroidIndices.set(beltId, parseInt(asteroidIndex));
+      }
+    });
+    
+    const existingMoons = this.outlineList.querySelectorAll('.outline-item.moon');
+    existingMoons.forEach((item) => {
+      const planetId = (item as HTMLElement).dataset.planetId;
+      const moonIndex = (item as HTMLElement).dataset.moonIndex;
+      if (planetId && moonIndex) {
+        savedMoonIndices.set(planetId, parseInt(moonIndex));
+      }
+    });
 
     // Clear existing list
     this.outlineList.innerHTML = "";
@@ -677,9 +708,15 @@ export class HUDManager {
               moonItem.className = "outline-item moon";
               moonItem.textContent = `  └ Moons - ${planet.moons.length}`;
               moonItem.dataset.planetId = planet.id;
-              moonItem.dataset.moonIndex = "0"; // Track which moon to show next
+              // Restore saved moon index or default to 0
+              const savedIndex = savedMoonIndices.get(planet.id) || 0;
+              moonItem.dataset.moonIndex = savedIndex.toString();
+              // Update display if index is not 0
+              if (savedIndex > 0) {
+                moonItem.textContent = `  └ Moons - ${savedIndex + 1}/${planet.moons.length}`;
+              }
               moonItem.addEventListener("click", () => {
-                // Cycle through moons
+                // Cycle through moons (forward)
                 const currentIndex = parseInt(
                   moonItem.dataset.moonIndex || "0"
                 );
@@ -701,6 +738,36 @@ export class HUDManager {
                   }`;
                 }
               });
+              
+              // Right-click to cycle backwards
+              moonItem.addEventListener("contextmenu", (e) => {
+                e.preventDefault(); // Prevent default context menu
+                
+                // Cycle through moons (backward)
+                const currentIndex = parseInt(
+                  moonItem.dataset.moonIndex || "0"
+                );
+                const moons = planet.moons;
+
+                if (moons && moons.length > 0) {
+                  // Go back one (wrap around if at beginning)
+                  const prevIndex = (currentIndex - 1 + moons.length) % moons.length;
+                  const moon = moons[prevIndex];
+                  
+                  if (this.onSelectObject) {
+                    this.onSelectObject(moon.id);
+                  }
+
+                  // Update index
+                  moonItem.dataset.moonIndex = prevIndex.toString();
+
+                  // Update display to show current moon
+                  moonItem.textContent = `  └ Moons - ${prevIndex + 1}/${
+                    moons.length
+                  }`;
+                }
+              });
+              
               this.outlineList.appendChild(moonItem);
             }
           }
@@ -710,9 +777,15 @@ export class HUDManager {
           beltItem.className = "outline-item asteroid-belt";
           beltItem.textContent = `   ◦ ${belt.name} - ${belt.asteroidCount}`;
           beltItem.dataset.beltId = belt.id;
-          beltItem.dataset.asteroidIndex = "0"; // Track which asteroid to show next
+          // Restore saved asteroid index or default to 0
+          const savedIndex = savedAsteroidIndices.get(belt.id) || 0;
+          beltItem.dataset.asteroidIndex = savedIndex.toString();
+          // Update display if index is not 0
+          if (savedIndex > 0 && belt.asteroids && belt.asteroids.length > 0) {
+            beltItem.textContent = `   ◦ ${belt.name} - ${savedIndex + 1}/${belt.asteroids.length}`;
+          }
           beltItem.addEventListener("click", () => {
-            // Cycle through asteroids in the belt
+            // Cycle through asteroids in the belt (forward)
             const currentIndex = parseInt(
               beltItem.dataset.asteroidIndex || "0"
             );
@@ -734,6 +807,36 @@ export class HUDManager {
               }`;
             }
           });
+          
+          // Right-click to cycle backwards
+          beltItem.addEventListener("contextmenu", (e) => {
+            e.preventDefault(); // Prevent default context menu
+            
+            // Cycle through asteroids in the belt (backward)
+            const currentIndex = parseInt(
+              beltItem.dataset.asteroidIndex || "0"
+            );
+            const asteroids = belt.asteroids;
+
+            if (asteroids && asteroids.length > 0) {
+              // Go back one (wrap around if at beginning)
+              const prevIndex = (currentIndex - 1 + asteroids.length) % asteroids.length;
+              const asteroid = asteroids[prevIndex];
+              
+              if (this.onSelectObject) {
+                this.onSelectObject(asteroid.id);
+              }
+
+              // Update index
+              beltItem.dataset.asteroidIndex = prevIndex.toString();
+
+              // Update display to show current asteroid
+              beltItem.textContent = `   ◦ ${belt.name} - ${prevIndex + 1}/${
+                asteroids.length
+              }`;
+            }
+          });
+          
           this.outlineList.appendChild(beltItem);
         }
       });
@@ -783,12 +886,53 @@ export class HUDManager {
         const gateItem = document.createElement("div");
         gateItem.className = "outline-item gate";
 
-        // Check if gate is explored
-        const isExplored =
+        // Check if gate is explored by current player
+        const isExploredBySelf =
           this.player?.exploredGateIds?.includes(gate.id) ?? false;
-        const status = isExplored ? "⚡" : "◈";
-        const gateName = isExplored ? gate.name : "???";
+        
+        // Get gate ownership to determine color and display
+        const ownership = this.gateOwnership.get(gate.id);
+        let gateColor = "#a855f7"; // Purple for unexplored (default)
+        let status = "◈"; // Unexplored symbol
+        let gateName = "???";
+        
+        // If gate has an owner, show diplomatic stance color even if not explored by us
+        if (ownership) {
+          switch (ownership.status) {
+            case "owned_by_self":
+              gateColor = "#00ffff"; // Cyan for owned by self
+              status = "⚡";
+              break;
+            case "neutral":
+              gateColor = "#9ca3af"; // Gray for neutral
+              status = "●";
+              break;
+            case "friendly":
+              gateColor = "#10b981"; // Green for friendly
+              status = "✓";
+              break;
+            case "aggressive":
+              gateColor = "#ef4444"; // Red for aggressive
+              status = "⚠";
+              break;
+          }
+          
+          // Only show the name if we've explored it ourselves
+          if (isExploredBySelf) {
+            gateName = gate.name;
+          } else {
+            // Not explored by us - keep it as ???
+            gateName = "???";
+          }
+        } else if (isExploredBySelf) {
+          // Explored by us, no ownership info (shouldn't happen)
+          status = "⚡";
+          gateName = gate.name;
+          gateColor = "#00ffff";
+        }
+        // else: truly unexplored (no owner, not explored by us) - keep defaults
 
+        gateItem.style.color = gateColor;
         gateItem.textContent = `${status} ${gateName}`;
         gateItem.dataset.objectId = gate.id;
         gateItem.addEventListener("click", () => {
@@ -894,11 +1038,13 @@ export class HUDManager {
     // Check if it's a gate
     const gate = this.system.gates?.find((g) => g.id === objectId);
     if (gate) {
+      const ownerInfo = this.gateOwnership.get(gate.id);
       this.gateDetailView.show(
         gate,
         this.player,
         this.system,
-        this.currentState
+        this.currentState,
+        ownerInfo
       );
       return;
     }
@@ -1259,6 +1405,16 @@ export class HUDManager {
 
   setNetworkClient(networkClient: any): void {
     this.networkClient = networkClient;
+
+    // Check for debug mode and setup resource click handlers
+    // This must be called AFTER network client is set
+    const urlParams = new URLSearchParams(window.location.search);
+    const debugMode = urlParams.has("debug_mode");
+    console.log("Debug mode enabled:", debugMode);
+    if (debugMode) {
+      console.log("Setting up debug resource handlers...");
+      this.setupDebugResourceHandlers();
+    }
   }
 
   private closePlayerProfileModal(): void {
@@ -1291,5 +1447,43 @@ export class HUDManager {
 
   getPlayerName(): string {
     return this.playerNameInput.value.trim() || "Anonymous Explorer";
+  }
+
+  /**
+   * Set up click handlers for resources in debug mode
+   */
+  private setupDebugResourceHandlers(): void {
+    console.log("Setting up debug resource handlers");
+    console.log("Energy display:", this.energyDisplay);
+    console.log("Alloy display:", this.alloyDisplay);
+    console.log("Network client:", this.networkClient);
+
+    // Make energy display clickable
+    this.energyDisplay.style.cursor = "pointer";
+    this.energyDisplay.title = "Click to add +10 energy (debug mode)";
+    this.energyDisplay.addEventListener("click", () => {
+      console.log("Energy clicked! Network client:", this.networkClient);
+      if (this.networkClient) {
+        console.log("Sending debugAddResource message for energy");
+        this.networkClient.debugAddResource("energy", 10);
+      } else {
+        console.error("Network client not available!");
+      }
+    });
+
+    // Make alloy display clickable
+    this.alloyDisplay.style.cursor = "pointer";
+    this.alloyDisplay.title = "Click to add +10 alloy (debug mode)";
+    this.alloyDisplay.addEventListener("click", () => {
+      console.log("Alloy clicked! Network client:", this.networkClient);
+      if (this.networkClient) {
+        console.log("Sending debugAddResource message for alloy");
+        this.networkClient.debugAddResource("alloy", 10);
+      } else {
+        console.error("Network client not available!");
+      }
+    });
+
+    console.log("Debug resource handlers set up successfully");
   }
 }

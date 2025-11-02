@@ -233,6 +233,7 @@ export interface SystemState {
   gates: CelestialBodyState[];
   asteroids: CelestialBodyState[]; // asteroid positions
   moons: CelestialBodyState[]; // moon positions
+  megastructures: Megastructure[]; // megastructures in this system
 }
 
 export interface ShipState {

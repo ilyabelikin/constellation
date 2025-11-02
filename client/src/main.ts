@@ -70,7 +70,7 @@ class ConstellationClient {
       this.scene.setCurrentPlayerId(player.id);
     };
 
-    this.network.onSystemData = (system) => {
+    this.network.onSystemData = (system, gateOwnership) => {
       console.log("System data received:", system);
       const isSystemRefresh = this.system && this.system.id === system.id;
 
@@ -81,6 +81,26 @@ class ConstellationClient {
 
       this.system = system;
 
+      // Update gate ownership information if provided
+      if (gateOwnership && gateOwnership.length > 0) {
+        this.scene.clearGateOwnership();
+        this.hud.clearGateOwnership();
+        for (const ownership of gateOwnership) {
+          this.scene.setGateOwnership(
+            ownership.gateId,
+            ownership.ownerId,
+            ownership.ownerName,
+            ownership.status
+          );
+          this.hud.setGateOwnership(
+            ownership.gateId,
+            ownership.ownerId,
+            ownership.ownerName,
+            ownership.status
+          );
+        }
+      }
+
       // Only reload the scene when switching to a different system
       // For same-system refreshes (like after mining), just update the data
       if (!isSystemRefresh) {
@@ -88,6 +108,10 @@ class ConstellationClient {
         this.hud.hideDetailPanels();
         // Always show system view first to ensure scene is properly initialized
         this.scene.showSystemView();
+      } else {
+        // For same-system refreshes, update system data (megastructures, mining operations, etc.)
+        // This ensures the scene has the latest data for state updates to work correctly
+        this.scene.updateSystemData(system);
       }
 
       // Always update HUD with new system data (including mining operations)
@@ -102,27 +126,30 @@ class ConstellationClient {
         }, 0);
       }
 
-      // If there's a pending focus object (e.g., home planet), focus on it after scene is ready
-      if (this.pendingFocusObjectId) {
-        const objectId = this.pendingFocusObjectId;
-        this.pendingFocusObjectId = null;
-        console.log(`Focusing on pending object: ${objectId}`);
-        // Wait for the next animation frame to ensure scene is fully rendered
-        requestAnimationFrame(() => {
+      // Only auto-select for new systems (not refreshes)
+      if (!isSystemRefresh) {
+        // If there's a pending focus object (e.g., home planet), focus on it after scene is ready
+        if (this.pendingFocusObjectId) {
+          const objectId = this.pendingFocusObjectId;
+          this.pendingFocusObjectId = null;
+          console.log(`Focusing on pending object: ${objectId}`);
+          // Wait for the next animation frame to ensure scene is fully rendered
           requestAnimationFrame(() => {
-            this.scene.centerOnObject(objectId);
-            this.hud.updateObjectDetails(objectId);
+            requestAnimationFrame(() => {
+              this.scene.centerOnObject(objectId);
+              this.hud.updateObjectDetails(objectId);
+            });
           });
-        });
-      } else {
-        // No pending focus object, auto-select the main star
-        console.log(`Auto-selecting main star: ${system.star.id}`);
-        requestAnimationFrame(() => {
+        } else {
+          // No pending focus object, auto-select the main star
+          console.log(`Auto-selecting main star: ${system.star.id}`);
           requestAnimationFrame(() => {
-            this.scene.centerOnObject(system.star.id);
-            this.hud.updateObjectDetails(system.star.id);
+            requestAnimationFrame(() => {
+              this.scene.centerOnObject(system.star.id);
+              this.hud.updateObjectDetails(system.star.id);
+            });
           });
-        });
+        }
       }
     };
 
@@ -291,11 +318,18 @@ class ConstellationClient {
       );
       this.constellationNodes = nodes; // Store for system details
 
-      // Update gate ownership from connections
+      // Update gate ownership from connections (both scene and HUD)
       this.scene.clearGateOwnership();
+      this.hud.clearGateOwnership();
       for (const conn of connections) {
         if (conn.gateId && conn.ownerId && conn.ownerName && conn.status) {
           this.scene.setGateOwnership(
+            conn.gateId,
+            conn.ownerId,
+            conn.ownerName,
+            conn.status
+          );
+          this.hud.setGateOwnership(
             conn.gateId,
             conn.ownerId,
             conn.ownerName,
@@ -410,9 +444,9 @@ class ConstellationClient {
       energyPerDay,
       count
     ) => {
-      console.log(
-        `Dyson Swarm #${count} launched on ${starId}: ${energyPerDay} energy/day`
-      );
+      // Launch satellites with animation
+      this.scene.launchDysonSwarm(megastructureId, starId);
+      
       // Re-select the star to show updated swarm status
       setTimeout(() => {
         if (this.hud.onSelectObject) {

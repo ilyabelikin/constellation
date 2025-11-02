@@ -9,6 +9,7 @@ export function createStarMaterial(color: number): THREE.ShaderMaterial {
     uniforms: {
       baseColor: { value: new THREE.Color(color) },
       time: { value: 0 },
+      brightness: { value: 1.0 }, // Dimming factor from Dyson swarms (1.0 = full, 0.5 = 50% dimmed)
     },
     vertexShader: `
       varying vec2 vUv;
@@ -29,6 +30,7 @@ export function createStarMaterial(color: number): THREE.ShaderMaterial {
     fragmentShader: `
       uniform vec3 baseColor;
       uniform float time;
+      uniform float brightness; // Dimming factor from Dyson swarms
       varying vec2 vUv;
       varying vec3 vPosition;
       varying vec3 vNormal;
@@ -136,6 +138,9 @@ export function createStarMaterial(color: number): THREE.ShaderMaterial {
         
         // Blend the glow with the star surface
         vec3 finalColor = starColor + glowColor * glowIntensity;
+        
+        // Apply brightness dimming from Dyson swarms
+        finalColor *= brightness;
         
         // Output with transparency at edges
         gl_FragColor = vec4(finalColor, alpha);

@@ -70,8 +70,7 @@ export class CelestialBodyFactory {
       star.color || 0xffff00
     );
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.userData = { id: star.id, type: "star", body: star };
-
+    
     // Regular stars emit light
     const light = new THREE.PointLight(star.color || 0xffff00, 30, 0, 0.5);
     light.position.set(0, 0, 0);
@@ -86,6 +85,9 @@ export class CelestialBodyFactory {
     light.shadow.radius = 2;
 
     scene.add(light);
+    
+    // Store userData including light reference for dimming
+    mesh.userData = { id: star.id, type: "star", body: star, light: light };
 
     // For very large stars (like blue giants), skip glow layers entirely to prevent aliasing
     // The star surface shader itself provides enough visual interest

@@ -3,6 +3,7 @@ import {
   ConstellationNode,
   ConstellationConnection,
   UnexploredGate,
+  GateStatusType,
 } from "@constellation/shared";
 import { MaterialFactory } from "./MaterialFactory.js";
 
@@ -141,8 +142,8 @@ export class ConstellationView {
         const toPos = toGroup.position;
 
         if (connection.isExplored) {
-          // Explored connections: solid line
-          this.createConnectionLine(fromPos, toPos, true);
+          // Explored connections: solid line with color based on status
+          this.createConnectionLine(fromPos, toPos, true, undefined, connection.status);
           exploredCount++;
         } else {
           // Undiscovered connections: dashed line with purple sphere at end
@@ -429,7 +430,8 @@ export class ConstellationView {
     from: THREE.Vector3,
     to: THREE.Vector3,
     isExplored: boolean,
-    systemId?: string
+    systemId?: string,
+    status?: GateStatusType
   ): void {
     // Create a thick line using cylinder geometry (LineBasicMaterial linewidth doesn't work)
     const direction = new THREE.Vector3().subVectors(to, from);
@@ -447,8 +449,25 @@ export class ConstellationView {
       8
     );
 
+    // Determine color based on status (diplomatic stance)
+    let color: number;
+    if (!isExplored || status === "unexplored") {
+      color = 0x8800ff; // Purple for unexplored
+    } else if (status === "owned_by_self") {
+      color = 0x00ffff; // Cyan for owned by self
+    } else if (status === "neutral") {
+      color = 0x9ca3af; // Gray for neutral
+    } else if (status === "friendly") {
+      color = 0x10b981; // Green for friendly
+    } else if (status === "aggressive") {
+      color = 0xef4444; // Red for aggressive
+    } else {
+      // Default to cyan for explored but no status info
+      color = 0x00ffff;
+    }
+
     const material = new THREE.MeshBasicMaterial({
-      color: isExplored ? 0x00ffff : 0x8800ff, // Cyan for explored, purple for undiscovered
+      color: color,
       transparent: true,
       opacity: isExplored ? 0.7 : 0.5,
     });
@@ -832,8 +851,8 @@ export class ConstellationView {
           const toPos = toGroup.position;
 
           if (connection.isExplored) {
-            // Explored connections: solid line
-            this.createConnectionLine(fromPos, toPos, true);
+            // Explored connections: solid line with color based on status
+            this.createConnectionLine(fromPos, toPos, true, undefined, connection.status);
           } else {
             // Undiscovered connections: dashed line with purple sphere at end
             this.createConnectionLine(fromPos, toPos, false);
