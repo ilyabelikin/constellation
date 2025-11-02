@@ -176,8 +176,9 @@ export class ConstellationWebSocketServer {
     const player = this.db.getPlayerByUuid(uuid);
     if (player) {
       client.uuid = uuid;
-      client.playerId = player.id;
-      client.currentSystemId = player.currentSystemId;
+      // DON'T set client.playerId or client.currentSystemId here
+      // They will be set when the player explicitly joins their galaxy
+      // This prevents auto-join behavior from periodic update timers
 
       // Just authenticate, don't auto-load game state
       // Player needs to explicitly join/explore to load their game
