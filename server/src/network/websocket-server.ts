@@ -1207,9 +1207,27 @@ export class ConstellationWebSocketServer {
       ).length;
       const totalGates = systemGates.length;
 
+      // Count Dyson swarms per star
+      const dysonSwarmsByStarId = new Map<string, number>();
+      if (system.megastructures) {
+        for (const megastructure of system.megastructures) {
+          if (megastructure.type === "dyson_swarm") {
+            const currentCount = dysonSwarmsByStarId.get(megastructure.celestialBodyId) || 0;
+            dysonSwarmsByStarId.set(megastructure.celestialBodyId, currentCount + 1);
+          }
+        }
+      }
+
+      // Convert to array format for transmission
+      const dysonSwarms = Array.from(dysonSwarmsByStarId.entries()).map(([starId, count]) => ({
+        starId,
+        count
+      }));
+
       return {
         systemId: system.id,
         systemName: system.star.name,
+        starId: system.star.id, // Primary star ID
         starColor: system.star.color || "#ffffff",
         position: system.position,
         starType: system.star.starType || "Unknown",
@@ -1220,10 +1238,12 @@ export class ConstellationWebSocketServer {
         jumpsFromHome: jumpsFromHome.get(system.id) ?? -1, // -1 if unreachable
         companionStars: system.companionStars
           ? system.companionStars.map((cs) => ({
+              id: cs.id,
               color: cs.color || "#ffffff",
               type: cs.starType || "Unknown",
             }))
           : undefined,
+        dysonSwarms: dysonSwarms.length > 0 ? dysonSwarms : undefined,
       };
     });
 
@@ -1531,8 +1551,11 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    // Check if the star is in this system
-    if (system.star.id !== starId) {
+    // Check if the star is in this system (primary or companion)
+    const isValidStar = system.star.id === starId || 
+      (system.companionStars && system.companionStars.some(cs => cs.id === starId));
+    
+    if (!isValidStar) {
       this.sendError(client.ws, "Star not found in current system");
       return;
     }
@@ -1596,10 +1619,17 @@ export class ConstellationWebSocketServer {
       null
     );
 
+    // Get the star name (primary or companion)
+    let starName = system.star.name;
+    if (starId !== system.star.id && system.companionStars) {
+      const companionStar = system.companionStars.find(cs => cs.id === starId);
+      if (companionStar) {
+        starName = companionStar.name;
+      }
+    }
+    
     console.log(
-      `Player ${player.name} launched Dyson Swarm #${existingSwarms + 1} on ${
-        system.star.name
-      } in system ${system.id} (+${ENERGY_PER_SWARM} energy)`
+      `Player ${player.name} launched Dyson Swarm #${existingSwarms + 1} on ${starName} in system ${system.id} (+${ENERGY_PER_SWARM} energy)`
     );
 
     // Send updated player data with new alloy amount FIRST

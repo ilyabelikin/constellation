@@ -316,6 +316,8 @@ class ConstellationClient {
         unexploredGates.length,
         "mystery gates"
       );
+      
+      
       this.constellationNodes = nodes; // Store for system details
 
       // Update gate ownership from connections (both scene and HUD)

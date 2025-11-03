@@ -1497,7 +1497,8 @@ export class SceneManager {
     // Handle constellation view updates
     if (this.isConstellationViewActive) {
       const deltaTime = 0.016; // Approximate 60fps
-      this.constellationView.update(deltaTime);
+      const currentGameTime = this.timeInterpolator.getGameTime();
+      this.constellationView.update(deltaTime, currentGameTime);
 
       // Update star animations in constellation view using real time
       const realTime = performance.now();

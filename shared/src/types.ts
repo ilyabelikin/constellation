@@ -257,6 +257,7 @@ export interface LagrangePoint {
 export interface ConstellationNode {
   systemId: string;
   systemName: string;
+  starId: string; // Primary star ID
   starColor: string;
   position: Vector3; // Position in galaxy (light years)
   starType: string; // e.g., "G-type Main Sequence"
@@ -265,7 +266,8 @@ export interface ConstellationNode {
   exploredGates: number; // Number of explored gates
   totalGates: number; // Total number of gates
   jumpsFromHome: number; // Number of gate jumps from home system
-  companionStars?: Array<{ color: string; type: string }>; // For binary/trinary systems
+  companionStars?: Array<{ id: string; color: string; type: string }>; // For binary/trinary systems
+  dysonSwarms?: Array<{ starId: string; count: number }>; // Dyson swarms by star (primary + companions)
 }
 
 export interface ConstellationConnection {

@@ -6,6 +6,7 @@ import {
   GateStatusType,
 } from "@constellation/shared";
 import { MaterialFactory } from "./MaterialFactory.js";
+import { DysonSwarmFactory } from "./DysonSwarmFactory.js";
 
 /**
  * Renders a constellation view showing connected star systems
@@ -45,11 +46,16 @@ export class ConstellationView {
   // Material factory for star materials
   private materialFactory: MaterialFactory;
   private starMaterials: THREE.ShaderMaterial[] = []; // Track for animation updates
+  
+  // Dyson swarm satellites
+  private dysonSwarmFactory: DysonSwarmFactory;
+  private dysonSatellites: Map<string, { satellites: THREE.Group[]; starId: string; systemId: string; starOffset: THREE.Vector3 }> = new Map(); // Key is swarmKey (systemId-starId-swarmIndex)
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.connections.name = "constellationConnections";
     this.materialFactory = new MaterialFactory();
+    this.dysonSwarmFactory = new DysonSwarmFactory();
   }
 
   /**
@@ -218,6 +224,9 @@ export class ConstellationView {
       `Constellation view loaded: ${nodes.length} nodes, ${connectionsList.length} connections (${exploredCount} explored, ${unexploredCount} unexplored, ${skippedCount} skipped), ${unexploredGates.length} mystery paths`
     );
 
+    // Create Dyson swarm satellites for each system
+    this.createDysonSatellites(nodes);
+
     // Update visibility to only show mystery pathways for selected system
     this.updateUnexploredGatesVisibility();
   }
@@ -249,6 +258,11 @@ export class ConstellationView {
     // Use shader material for realistic star rendering
     const starMaterial = this.materialFactory.createStarMaterial(colorHex);
     const starMesh = new THREE.Mesh(starGeometry, starMaterial);
+    // Store primary star ID for Dyson swarm positioning
+    starMesh.userData = {
+      starId: node.starId,
+      starRadius: starSize
+    };
     group.add(starMesh);
 
     // Track material for animation updates
@@ -292,6 +306,11 @@ export class ConstellationView {
           companionMaterial
         );
         companionMesh.position.set(offsetX, 0, offsetZ);
+        // Store companion star ID and size for Dyson swarm positioning
+        companionMesh.userData = {
+          starId: companion.id,
+          starRadius: companionSize
+        };
         group.add(companionMesh);
 
         // Track material for animation updates
@@ -540,7 +559,7 @@ export class ConstellationView {
   /**
    * Update animation (called every frame)
    */
-  update(deltaTime: number): void {
+  update(deltaTime: number, currentTime: number = 0): void {
     // Animate undiscovered endpoints (pulsing effect)
     this.connections.traverse((child) => {
       if (child.userData.type === "undiscoveredEndpoint") {
@@ -574,6 +593,91 @@ export class ConstellationView {
         }
       });
     }
+
+    // Update Dyson satellite positions
+    for (const [swarmKey, swarmData] of this.dysonSatellites.entries()) {
+      const starGroup = this.nodes.get(swarmData.systemId);
+      if (!starGroup) continue;
+
+      // Update satellite orbital positions
+      this.dysonSwarmFactory.updateSatellitePositions(
+        swarmData.satellites,
+        currentTime
+      );
+
+      // Position satellites relative to star group's current position + star offset
+      for (const satellite of swarmData.satellites) {
+        // Get the local position from the factory update
+        const localPos = satellite.position.clone();
+        // Add both the star offset (for companion stars) and the star group's world position
+        satellite.position.copy(localPos).add(swarmData.starOffset).add(starGroup.position);
+      }
+    }
+  }
+
+  /**
+   * Create Dyson swarm satellites for systems that have them
+   */
+  private createDysonSatellites(nodes: ConstellationNode[]): void {
+    for (const node of nodes) {
+      if (!node.dysonSwarms || node.dysonSwarms.length === 0) continue;
+
+      const starGroup = this.nodes.get(node.systemId);
+      if (!starGroup) continue;
+
+      // For each star in the system that has Dyson swarms
+      for (const dysonSwarm of node.dysonSwarms) {
+        const { starId, count } = dysonSwarm;
+        
+        // Find the star mesh (primary or companion) and its position offset
+        let starRadius = this.STAR_SIZE;
+        let starOffset = new THREE.Vector3(0, 0, 0); // Offset from group center
+        
+        // Check all children of the star group to find the matching star
+        let foundStar = false;
+        for (const child of starGroup.children) {
+          if (child instanceof THREE.Mesh && child.geometry instanceof THREE.SphereGeometry && child.userData.starId) {
+            // Check if this star's ID matches the Dyson swarm's star ID
+            if (child.userData.starId === starId) {
+              starRadius = child.userData.starRadius || this.STAR_SIZE;
+              starOffset.copy(child.position);
+              foundStar = true;
+              break;
+            }
+          }
+        }
+        
+        if (!foundStar) continue;
+        
+        // Create satellites for each swarm (up to count)
+        for (let i = 0; i < count; i++) {
+          const satelliteMeshes = this.dysonSwarmFactory.createSwarmSatellites(
+            i,
+            starRadius,
+            0 // Start time - will be updated in update loop
+          );
+          
+          // Position satellites relative to star group position + star offset
+          for (const satellite of satelliteMeshes) {
+            // Satellites are created in local space relative to star center
+            // Add both the star group position and the star's offset within the group
+            satellite.position.add(starOffset).add(starGroup.position);
+            this.scene.add(satellite);
+          }
+          
+          // Store satellites for updates and cleanup with star offset
+          const swarmKey = `${node.systemId}-${starId}-${i}`;
+          this.dysonSatellites.set(swarmKey, {
+            satellites: satelliteMeshes,
+            starId: starId,
+            systemId: node.systemId,
+            starOffset: starOffset.clone(), // Store the offset for update loop
+          });
+        }
+      }
+    }
+    
+    console.log(`Created Dyson satellites for ${this.dysonSatellites.size} swarms in constellation view`);
   }
 
   /**
@@ -610,6 +714,22 @@ export class ConstellationView {
     });
     this.connections.clear();
     this.scene.remove(this.connections);
+
+    // Remove all Dyson satellites
+    for (const swarmData of this.dysonSatellites.values()) {
+      for (const satellite of swarmData.satellites) {
+        satellite.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry.dispose();
+            if (child.material instanceof THREE.Material) {
+              child.material.dispose();
+            }
+          }
+        });
+        this.scene.remove(satellite);
+      }
+    }
+    this.dysonSatellites.clear();
 
     this.currentSystemId = null;
     this.mysteryPositions.clear();
@@ -1306,6 +1426,11 @@ export class ConstellationView {
           companionMaterial
         );
         companionMesh.position.set(offsetX, 0, offsetZ);
+        // Store companion star ID and size for Dyson swarm positioning
+        companionMesh.userData = {
+          starId: companion.id,
+          starRadius: companionSize
+        };
         group.add(companionMesh);
 
         // Track material for animation updates
