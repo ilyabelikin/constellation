@@ -919,7 +919,7 @@ export class HUDManager {
         if (ownership) {
           switch (ownership.status) {
             case "owned_by_self":
-              gateColor = "#00ffff"; // Cyan for owned by self
+              gateColor = "#fbbf24"; // Orange for owned by self
               status = "⚡";
               break;
             case "neutral":
@@ -947,7 +947,7 @@ export class HUDManager {
           // Explored by us, no ownership info (shouldn't happen)
           status = "⚡";
           gateName = gate.name;
-          gateColor = "#00ffff";
+          gateColor = "#fbbf24";
         }
         // else: truly unexplored (no owner, not explored by us) - keep defaults
 

@@ -454,7 +454,7 @@ export class ConstellationView {
     if (!isExplored || status === "unexplored") {
       color = 0x8800ff; // Purple for unexplored
     } else if (status === "owned_by_self") {
-      color = 0x00ffff; // Cyan for owned by self
+      color = 0xfbbf24; // Orange for owned by self
     } else if (status === "neutral") {
       color = 0x9ca3af; // Gray for neutral
     } else if (status === "friendly") {
@@ -462,8 +462,8 @@ export class ConstellationView {
     } else if (status === "aggressive") {
       color = 0xef4444; // Red for aggressive
     } else {
-      // Default to cyan for explored but no status info
-      color = 0x00ffff;
+      // Default to orange for explored but no status info
+      color = 0xfbbf24;
     }
 
     const material = new THREE.MeshBasicMaterial({
