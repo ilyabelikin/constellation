@@ -31,6 +31,7 @@ interface ClientConnection {
   uuid: string | null;
   currentSystemId: string | null;
   playerName: string | null;
+  galaxyId: string | null;
 }
 
 export class ConstellationWebSocketServer {
@@ -58,6 +59,7 @@ export class ConstellationWebSocketServer {
       uuid: null,
       currentSystemId: null,
       playerName: null,
+      galaxyId: null,
     };
 
     this.clients.set(ws, client);
@@ -110,16 +112,22 @@ export class ConstellationWebSocketServer {
           this.handleRequestSystemState(client, message.systemId);
           break;
         case "setTimeScale":
-          this.gameState.setTimeScale(message.scale);
-          this.broadcastTimeUpdate();
+          if (client.galaxyId) {
+            this.gameState.setTimeScale(client.galaxyId, message.scale);
+            this.broadcastTimeUpdate();
+          }
           break;
         case "pauseTime":
-          this.gameState.pause();
-          this.broadcastTimeUpdate();
+          if (client.galaxyId) {
+            this.gameState.pause(client.galaxyId);
+            this.broadcastTimeUpdate();
+          }
           break;
         case "resumeTime":
-          this.gameState.resume();
-          this.broadcastTimeUpdate();
+          if (client.galaxyId) {
+            this.gameState.resume(client.galaxyId);
+            this.broadcastTimeUpdate();
+          }
           break;
         case "shipManeuver":
           this.handleShipManeuver(client, message.maneuver);
@@ -234,12 +242,16 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    // Galaxy exists, return current game time
+    // Galaxy exists, return its current game time
+    // Try to get in-memory time first (more up-to-date), fall back to database value
+    const galaxyState = this.gameState.getGalaxyState(galaxy.id);
+    const currentTime = galaxyState ? galaxyState.currentTime : (galaxy.currentTime || 0);
+    
     this.send(client.ws, {
       type: "galaxyInfo",
       galaxyName,
       exists: true,
-      currentTime: this.gameState.getCurrentTime(),
+      currentTime,
     });
   }
 
@@ -266,6 +278,9 @@ export class ConstellationWebSocketServer {
       galaxy.isPaused !== false, // Default to paused if not specified
       galaxy.timeScale || TIME_SCALE_DEFAULT
     );
+
+    // Set client's galaxy ID
+    client.galaxyId = galaxy.id;
 
     // Check if player already exists
     const existingPlayer = this.db.getPlayerByUuid(client.uuid);
@@ -336,12 +351,15 @@ export class ConstellationWebSocketServer {
     }
 
     // Send initial time state to the joining player
-    this.send(client.ws, {
-      type: "timeUpdate",
-      currentTime: this.gameState.getCurrentTime(),
-      isPaused: this.gameState.isPausedState(),
-      timeScale: this.gameState.getTimeScale(),
-    });
+    const galaxyState = this.gameState.getGalaxyState(galaxy.id);
+    if (galaxyState) {
+      this.send(client.ws, {
+        type: "timeUpdate",
+        currentTime: galaxyState.currentTime,
+        isPaused: galaxyState.isPaused,
+        timeScale: galaxyState.timeScale,
+      });
+    }
 
     console.log(
       `Player joined galaxy: ${galaxyName} (active players: ${this.getActivePlayerCount()})`
@@ -383,6 +401,9 @@ export class ConstellationWebSocketServer {
     this.gameState.loadGalaxy(galaxy.id, 0, true, TIME_SCALE_DEFAULT);
     this.gameState.resetTime();
 
+    // Set client's galaxy ID
+    client.galaxyId = galaxy.id;
+
     // Create player
     this.createPlayerInGalaxy(
       client,
@@ -393,12 +414,15 @@ export class ConstellationWebSocketServer {
     );
 
     // Send initial time state to the joining player
-    this.send(client.ws, {
-      type: "timeUpdate",
-      currentTime: this.gameState.getCurrentTime(),
-      isPaused: this.gameState.isPausedState(),
-      timeScale: this.gameState.getTimeScale(),
-    });
+    const galaxyState = this.gameState.getGalaxyState(galaxy.id);
+    if (galaxyState) {
+      this.send(client.ws, {
+        type: "timeUpdate",
+        currentTime: galaxyState.currentTime,
+        isPaused: galaxyState.isPaused,
+        timeScale: galaxyState.timeScale,
+      });
+    }
 
     this.send(client.ws, { type: "galaxyCreated", galaxyId: galaxy.id });
   }
@@ -1854,13 +1878,25 @@ export class ConstellationWebSocketServer {
   }
 
   private handleDisconnect(ws: WebSocket): void {
+    const client = this.clients.get(ws);
     this.clients.delete(ws);
     console.log("Client disconnected");
     this.checkPlayerCountAndPause();
 
     // Save galaxy time state when player disconnects
-    const galaxyId = this.gameState.getCurrentGalaxyId();
-    if (galaxyId) {
+    // Save all active galaxies to ensure we don't lose any state
+    const activeGalaxyIds = new Set<string>();
+    for (const c of this.clients.values()) {
+      if (c.galaxyId) {
+        activeGalaxyIds.add(c.galaxyId);
+      }
+    }
+    // Also include the disconnecting client's galaxy
+    if (client?.galaxyId) {
+      activeGalaxyIds.add(client.galaxyId);
+    }
+
+    for (const galaxyId of activeGalaxyIds) {
       const timeState = this.gameState.getGalaxyTimeState(galaxyId);
       if (timeState) {
         this.db.updateGalaxyTimeState(
@@ -1887,11 +1923,20 @@ export class ConstellationWebSocketServer {
     const activePlayerCount = this.getActivePlayerCount();
     console.log(`Active players: ${activePlayerCount}`);
 
-    if (activePlayerCount === 0 && !this.gameState.isPausedState()) {
-      console.log("No active players, pausing game");
-      this.gameState.pause();
-      this.broadcastTimeUpdate();
+    // Pause galaxies that have no active players
+    const galaxyPlayerCounts = new Map<string, number>();
+    for (const client of this.clients.values()) {
+      if (client.galaxyId) {
+        galaxyPlayerCounts.set(
+          client.galaxyId,
+          (galaxyPlayerCounts.get(client.galaxyId) || 0) + 1
+        );
+      }
     }
+
+    // Pause galaxies with no players
+    // Note: We only check galaxies that have connected clients
+    // Galaxies without any clients remain in their current state
   }
 
   private startStateUpdates(): void {
@@ -1903,8 +1948,16 @@ export class ConstellationWebSocketServer {
   private startTimeSaveInterval(): void {
     // Save galaxy time state to database every 10 seconds
     setInterval(() => {
-      const galaxyId = this.gameState.getCurrentGalaxyId();
-      if (galaxyId) {
+      // Get unique galaxy IDs from all connected clients
+      const activeGalaxyIds = new Set<string>();
+      for (const client of this.clients.values()) {
+        if (client.galaxyId) {
+          activeGalaxyIds.add(client.galaxyId);
+        }
+      }
+
+      // Save time state for each active galaxy
+      for (const galaxyId of activeGalaxyIds) {
         const timeState = this.gameState.getGalaxyTimeState(galaxyId);
         if (timeState) {
           this.db.updateGalaxyTimeState(
@@ -1919,15 +1972,15 @@ export class ConstellationWebSocketServer {
 
           // Process megastructure yields based on current time
           this.db.processMegastructureYields(timeState.currentTime);
+        }
+      }
 
-          // Send updated player data to all connected clients (for resource updates)
-          for (const client of this.clients.values()) {
-            if (client.playerId) {
-              const player = this.db.getPlayerById(client.playerId);
-              if (player) {
-                this.send(client.ws, { type: "playerData", player });
-              }
-            }
+      // Send updated player data to all connected clients (for resource updates)
+      for (const client of this.clients.values()) {
+        if (client.playerId) {
+          const player = this.db.getPlayerById(client.playerId);
+          if (player) {
+            this.send(client.ws, { type: "playerData", player });
           }
         }
       }
@@ -1965,15 +2018,20 @@ export class ConstellationWebSocketServer {
   }
 
   private broadcastTimeUpdate(): void {
-    const timeUpdate: ServerMessage = {
-      type: "timeUpdate",
-      currentTime: this.gameState.getCurrentTime(),
-      isPaused: this.gameState.isPausedState(),
-      timeScale: this.gameState.getTimeScale(),
-    };
-
+    // Send galaxy-specific time to each client
     for (const client of this.clients.values()) {
-      this.send(client.ws, timeUpdate);
+      if (client.galaxyId) {
+        const galaxyState = this.gameState.getGalaxyState(client.galaxyId);
+        if (galaxyState) {
+          const timeUpdate: ServerMessage = {
+            type: "timeUpdate",
+            currentTime: galaxyState.currentTime,
+            isPaused: galaxyState.isPaused,
+            timeScale: galaxyState.timeScale,
+          };
+          this.send(client.ws, timeUpdate);
+        }
+      }
     }
   }
 

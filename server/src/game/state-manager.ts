@@ -36,22 +36,21 @@ export class GameStateManager {
   }
 
   private update(): void {
-    if (!this.currentGalaxyId) return;
-
-    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
-    if (!timeState) return;
-
-    if (timeState.isPaused) {
-      timeState.lastUpdateTime = Date.now();
-      return;
-    }
-
     const now = Date.now();
-    const deltaRealTime = (now - timeState.lastUpdateTime) / 1000; // seconds
-    const deltaGameTime = deltaRealTime * timeState.timeScale;
+    
+    // Update time for all active galaxies, not just the "current" one
+    for (const [galaxyId, timeState] of this.galaxyTimeState.entries()) {
+      if (timeState.isPaused) {
+        timeState.lastUpdateTime = now;
+        continue;
+      }
 
-    timeState.currentTime += deltaGameTime;
-    timeState.lastUpdateTime = now;
+      const deltaRealTime = (now - timeState.lastUpdateTime) / 1000; // seconds
+      const deltaGameTime = deltaRealTime * timeState.timeScale;
+
+      timeState.currentTime += deltaGameTime;
+      timeState.lastUpdateTime = now;
+    }
   }
 
   loadSystem(system: StarSystem): void {
@@ -87,7 +86,9 @@ export class GameStateManager {
     const system = this.systems.get(systemId);
     if (!system) return null;
 
-    const currentTime = this.getCurrentTime();
+    // Get time for this system's specific galaxy, not just the "current" galaxy
+    const timeState = this.galaxyTimeState.get(system.galaxyId);
+    const currentTime = timeState ? timeState.currentTime : 0;
     const bodies: CelestialBodyState[] = [];
 
     // Star is at the center
@@ -346,40 +347,39 @@ export class GameStateManager {
     };
   }
 
-  setTimeScale(scale: number): void {
-    if (!this.currentGalaxyId) return;
-    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+  setTimeScale(galaxyId: string, scale: number): void {
+    const timeState = this.galaxyTimeState.get(galaxyId);
     if (timeState) {
       timeState.timeScale = Math.max(0, scale);
     }
   }
 
-  pause(): void {
-    if (!this.currentGalaxyId) return;
-    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+  pause(galaxyId: string): void {
+    const timeState = this.galaxyTimeState.get(galaxyId);
     if (timeState) {
       timeState.isPaused = true;
     }
   }
 
-  resume(): void {
-    if (!this.currentGalaxyId) return;
-    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+  resume(galaxyId: string): void {
+    const timeState = this.galaxyTimeState.get(galaxyId);
     if (timeState) {
       timeState.isPaused = false;
       timeState.lastUpdateTime = Date.now();
     }
   }
 
-  isPausedState(): boolean {
-    if (!this.currentGalaxyId) return true;
-    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+  isPausedState(galaxyId?: string): boolean {
+    const targetGalaxyId = galaxyId || this.currentGalaxyId;
+    if (!targetGalaxyId) return true;
+    const timeState = this.galaxyTimeState.get(targetGalaxyId);
     return timeState ? timeState.isPaused : true;
   }
 
-  getTimeScale(): number {
-    if (!this.currentGalaxyId) return TIME_SCALE_DEFAULT;
-    const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
+  getTimeScale(galaxyId?: string): number {
+    const targetGalaxyId = galaxyId || this.currentGalaxyId;
+    if (!targetGalaxyId) return TIME_SCALE_DEFAULT;
+    const timeState = this.galaxyTimeState.get(targetGalaxyId);
     return timeState ? timeState.timeScale : TIME_SCALE_DEFAULT;
   }
 
@@ -387,6 +387,21 @@ export class GameStateManager {
     if (!this.currentGalaxyId) return 0;
     const timeState = this.galaxyTimeState.get(this.currentGalaxyId);
     return timeState ? timeState.currentTime : 0;
+  }
+
+  getGalaxyTime(galaxyId: string): number {
+    const timeState = this.galaxyTimeState.get(galaxyId);
+    return timeState ? timeState.currentTime : 0;
+  }
+
+  getGalaxyState(galaxyId: string): { currentTime: number; isPaused: boolean; timeScale: number } | null {
+    const timeState = this.galaxyTimeState.get(galaxyId);
+    if (!timeState) return null;
+    return {
+      currentTime: timeState.currentTime,
+      isPaused: timeState.isPaused,
+      timeScale: timeState.timeScale,
+    };
   }
 
   resetTime(): void {
