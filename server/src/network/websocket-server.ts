@@ -197,17 +197,70 @@ export class ConstellationWebSocketServer {
     const player = this.db.getPlayerByUuid(uuid);
     if (player) {
       client.uuid = uuid;
-      // DON'T set client.playerId or client.currentSystemId here
-      // They will be set when the player explicitly joins their galaxy
-      // This prevents auto-join behavior from periodic update timers
+      // Restore full session state for reconnection
+      client.playerId = player.id;
+      client.currentSystemId = player.currentSystemId;
+      client.galaxyId = player.galaxyId;
 
-      // Just authenticate, don't auto-load game state
-      // Player needs to explicitly join/explore to load their game
+      // Load galaxy time state into game state manager
+      const galaxy = this.db.getGalaxyById(player.galaxyId);
+      if (galaxy) {
+        this.gameState.loadGalaxy(
+          galaxy.id,
+          galaxy.currentTime || 0,
+          galaxy.isPaused !== false,
+          galaxy.timeScale || TIME_SCALE_DEFAULT
+        );
+      }
+
+      // Load current system into game state
+      const system = this.db.getStarSystem(player.currentSystemId);
+      if (system) {
+        this.gameState.loadSystem(system);
+        const ships = this.db.getShipsBySystem(system.id);
+        this.gameState.loadShips(system.id, ships);
+      }
+
+      // Send authentication confirmation
       this.send(client.ws, {
         type: "authenticated",
         uuid,
         playerId: player.id,
       });
+
+      // Send player data to restore client state
+      this.send(client.ws, { type: "playerData", player });
+
+      // Send system data
+      if (system) {
+        const gateOwnership = this.db.getGateOwnershipForSystem(player.id, system.id);
+        this.send(client.ws, { 
+          type: "systemData", 
+          system,
+          gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined
+        });
+      }
+
+      // Send ship data
+      const ship = this.db.getShipByPlayerId(player.id);
+      if (ship) {
+        this.send(client.ws, { type: "shipData", ship });
+      }
+
+      // Send current time state
+      if (galaxy) {
+        const galaxyState = this.gameState.getGalaxyState(galaxy.id);
+        if (galaxyState) {
+          this.send(client.ws, {
+            type: "timeUpdate",
+            currentTime: galaxyState.currentTime,
+            isPaused: galaxyState.isPaused,
+            timeScale: galaxyState.timeScale,
+          });
+        }
+      }
+
+      console.log(`Player ${player.name} session restored after reconnection`);
     } else {
       this.send(client.ws, { type: "authenticated", uuid, playerId: null });
       client.uuid = uuid;
@@ -1211,7 +1264,7 @@ export class ConstellationWebSocketServer {
       const dysonSwarmsByStarId = new Map<string, number>();
       if (system.megastructures) {
         for (const megastructure of system.megastructures) {
-          if (megastructure.type === "dyson_swarm") {
+          if (megastructure.type === "dyson_swarm" && megastructure.celestialBodyId) {
             const currentCount = dysonSwarmsByStarId.get(megastructure.celestialBodyId) || 0;
             dysonSwarmsByStarId.set(megastructure.celestialBodyId, currentCount + 1);
           }

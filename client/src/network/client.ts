@@ -103,6 +103,8 @@ export class NetworkClient {
         count: number
       ) => void)
     | null = null;
+  public onDisconnected: (() => void) | null = null;
+  public onReconnected: (() => void) | null = null;
 
   constructor() {
     // Load UUID from localStorage
@@ -115,8 +117,15 @@ export class NetworkClient {
 
       this.ws.onopen = () => {
         console.log("Connected to server");
+        const wasReconnecting = this.reconnectAttempts > 0;
         this.reconnectAttempts = 0;
         this.authenticate();
+        
+        // Notify reconnection if this was a reconnect
+        if (wasReconnecting && this.onReconnected) {
+          this.onReconnected();
+        }
+        
         resolve();
       };
 
@@ -131,6 +140,12 @@ export class NetworkClient {
 
       this.ws.onclose = () => {
         console.log("Disconnected from server");
+        
+        // Notify disconnection
+        if (this.onDisconnected) {
+          this.onDisconnected();
+        }
+        
         this.attemptReconnect(url);
       };
     });

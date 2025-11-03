@@ -19,6 +19,7 @@ class ConstellationClient {
   private isPaused = false;
   private lastGalaxyName: string = "";
   private isConnected = false;
+  private connectingPromise: Promise<void> | null = null; // Track ongoing connection attempts
   private pendingFocusObjectId: string | null = null; // Object to focus on after system loads
   private animationFrameId: number | null = null;
   private keyboardHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -55,11 +56,16 @@ class ConstellationClient {
       if (!playerId) {
         // New player, show galaxy selection
         // Auth modal is already visible
+      } else {
+        // Existing player - session will be restored by server
+        // Hide auth modal if it's showing (in case of reconnection)
+        this.hud.hideAuthModal();
       }
     };
 
     this.network.onPlayerData = (player) => {
       console.log("Player data received:", player);
+      const isReconnection = this.player !== null && this.player.id === player.id;
       this.player = player;
       this.hud.setPlayer(player);
       // Update explored gates in the scene
@@ -68,11 +74,17 @@ class ConstellationClient {
       }
       // Set current player ID for gate ownership checks
       this.scene.setCurrentPlayerId(player.id);
+      
+      // On reconnection, make sure auth modal is hidden
+      if (isReconnection) {
+        this.hud.hideAuthModal();
+      }
     };
 
     this.network.onSystemData = (system, gateOwnership) => {
       console.log("System data received:", system);
       const isSystemRefresh = this.system && this.system.id === system.id;
+      const isReconnection = isSystemRefresh && this.player !== null;
 
       // Store current selection before updating
       const previousSelection = isSystemRefresh
@@ -80,6 +92,11 @@ class ConstellationClient {
         : null;
 
       this.system = system;
+      
+      // On reconnection, ensure auth modal is hidden
+      if (isReconnection) {
+        this.hud.hideAuthModal();
+      }
 
       // Update gate ownership information if provided
       if (gateOwnership && gateOwnership.length > 0) {
@@ -469,6 +486,17 @@ class ConstellationClient {
     this.hud.onLaunchDysonSwarm = (starId) => {
       this.network.launchDysonSwarm(starId);
     };
+
+    // Handle disconnection/reconnection events
+    this.network.onDisconnected = () => {
+      console.log("Connection lost, resetting connection state");
+      this.isConnected = false;
+    };
+
+    this.network.onReconnected = () => {
+      console.log("Reconnected to server");
+      this.isConnected = true;
+    };
   }
 
   private setupHUDHandlers(): void {
@@ -777,30 +805,47 @@ class ConstellationClient {
   }
 
   private async connect(): Promise<void> {
-    try {
-      // Determine WebSocket URL based on current location
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-
-      // In development mode (localhost:3030), connect to server on port 8080
-      // In production, use the same host (proxied by Caddy)
-      let host = window.location.host;
-      if (
-        window.location.hostname === "localhost" &&
-        window.location.port === "3030"
-      ) {
-        host = "localhost:8080";
-      }
-
-      const wsUrl = `${protocol}//${host}`;
-
-      console.log(`Connecting to WebSocket at: ${wsUrl}`);
-      await this.network.connect(wsUrl);
-      this.isConnected = true;
-      console.log("Connected to server");
-    } catch (error) {
-      console.error("Failed to connect to server:", error);
-      this.hud.showError("Failed to connect to server. Please try again.");
+    // If already connected, do nothing
+    if (this.isConnected) {
+      return;
     }
+
+    // If connection is in progress, wait for it
+    if (this.connectingPromise) {
+      return this.connectingPromise;
+    }
+
+    // Start new connection
+    this.connectingPromise = (async () => {
+      try {
+        // Determine WebSocket URL based on current location
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+
+        // In development mode (localhost:3030), connect to server on port 8080
+        // In production, use the same host (proxied by Caddy)
+        let host = window.location.host;
+        if (
+          window.location.hostname === "localhost" &&
+          window.location.port === "3030"
+        ) {
+          host = "localhost:8080";
+        }
+
+        const wsUrl = `${protocol}//${host}`;
+
+        console.log(`Connecting to WebSocket at: ${wsUrl}`);
+        await this.network.connect(wsUrl);
+        this.isConnected = true;
+        console.log("Connected to server");
+      } catch (error) {
+        console.error("Failed to connect to server:", error);
+        this.hud.showError("Failed to connect to server. Please try again.");
+      } finally {
+        this.connectingPromise = null;
+      }
+    })();
+
+    return this.connectingPromise;
   }
 
   private startRenderLoop(): void {
