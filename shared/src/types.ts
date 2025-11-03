@@ -161,6 +161,8 @@ export interface Player {
   exploredGateIds: string[];
   energy: number; // Resource for gate exploration and maintenance
   alloy: number; // Resource for construction
+  energyPerDay?: number; // Total energy income rate from all dyson swarms
+  alloyPerDay?: number; // Total alloy income rate from all mining operations
 }
 
 export interface MiningOperation {

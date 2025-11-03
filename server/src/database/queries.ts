@@ -214,6 +214,16 @@ export class DatabaseQueries {
     const row = stmt.get(id) as any;
     if (!row) return null;
     const exploredGateIds = this.getExploredGates(row.id);
+    
+    // Calculate total income rates
+    const miningOperations = this.getMiningOperationsByPlayer(row.id);
+    const alloyPerDay = miningOperations.reduce((sum, op) => sum + op.alloyPerDay, 0);
+    
+    const megastructures = this.getMegastructuresByPlayer(row.id);
+    const energyPerDay = megastructures
+      .filter(m => m.resourceType === 'energy')
+      .reduce((sum, m) => sum + (m.resourcePerDay || 0), 0);
+    
     return {
       id: row.id,
       uuid: row.uuid,
@@ -226,6 +236,8 @@ export class DatabaseQueries {
       exploredGateIds,
       energy: row.energy ?? 10,
       alloy: row.alloy ?? 10,
+      energyPerDay,
+      alloyPerDay,
     };
   }
 

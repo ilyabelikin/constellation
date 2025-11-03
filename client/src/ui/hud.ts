@@ -49,6 +49,7 @@ export class HUDManager {
   private resourcesWidget: HTMLElement;
   private energyDisplay: HTMLElement;
   private alloyDisplay: HTMLElement;
+  private alloyRateDisplay: HTMLElement;
 
   // Notification toast
   private notificationToast: HTMLElement;
@@ -160,6 +161,7 @@ export class HUDManager {
     this.resourcesWidget = document.getElementById("resources-widget")!;
     this.energyDisplay = document.getElementById("energy-display")!;
     this.alloyDisplay = document.getElementById("alloy-display")!;
+    this.alloyRateDisplay = document.getElementById("alloy-rate")!;
 
     // Notification toast
     this.notificationToast = document.getElementById("notification-toast")!;
@@ -518,12 +520,29 @@ export class HUDManager {
 
   private updateResourceDisplays(): void {
     if (!this.player) return;
+    
     // Floor energy to 2 decimal places (round down, not up)
     const energyFloored = Math.floor(this.player.energy * 100) / 100;
     this.energyDisplay.textContent = energyFloored.toFixed(2);
+    
     // Floor alloy to 2 decimal places (round down, not up)
     const alloyFloored = Math.floor(this.player.alloy * 100) / 100;
     this.alloyDisplay.textContent = alloyFloored.toFixed(2);
+    
+    // Display alloy income rate from mining operations
+    if (this.player.alloyPerDay !== undefined) {
+      const ratePerDay = this.player.alloyPerDay;
+      
+      // Format with + or - sign and 2 decimal places
+      const formattedRate = (ratePerDay >= 0 ? "+" : "") + ratePerDay.toFixed(2);
+      this.alloyRateDisplay.textContent = formattedRate + "/d";
+      
+      // Color based on positive/negative
+      this.alloyRateDisplay.style.color = ratePerDay >= 0 ? "#10b981" : "#ef4444";
+    } else {
+      // If no rate data yet, clear the display
+      this.alloyRateDisplay.textContent = "";
+    }
   }
 
   setGateOwnership(gateId: string, ownerId: string, ownerName: string, status: string): void {
