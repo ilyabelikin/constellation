@@ -56,6 +56,13 @@ export class HUDManager {
   private notificationMessage: HTMLElement;
   private notificationTimeout: number | null = null;
 
+  // Mineable objects widget
+  private mineableObjectsWidget: HTMLElement;
+  private mineableCounter: HTMLElement;
+  private mineableObjects: Array<{ id: string; name: string; type: string }> = [];
+  private currentMineableIndex: number = 0;
+  private isCyclingMineable: boolean = false;
+
   private systemOutline: HTMLElement;
   private outlineList: HTMLElement;
 
@@ -166,6 +173,10 @@ export class HUDManager {
     // Notification toast
     this.notificationToast = document.getElementById("notification-toast")!;
     this.notificationMessage = document.getElementById("notification-message")!;
+
+    // Mineable objects widget
+    this.mineableObjectsWidget = document.getElementById("mineable-objects-widget")!;
+    this.mineableCounter = document.getElementById("mineable-counter")!;
 
     // System outline
     this.systemOutline = document.getElementById("system-outline")!;
@@ -318,6 +329,16 @@ export class HUDManager {
       if (e.target === this.searchModal) {
         this.closeSearchModal();
       }
+    });
+
+    // Mineable objects widget click handlers
+    this.mineableObjectsWidget.addEventListener("click", () => {
+      this.cycleToNextMineableObject();
+    });
+
+    this.mineableObjectsWidget.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      this.cycleToPreviousMineableObject();
     });
   }
 
@@ -570,6 +591,9 @@ export class HUDManager {
     // Update body detail view with home planet reference
     this.bodyDetailView.setHomePlanet(this.player, this.system);
 
+    // Update mineable objects widget
+    this.updateMineableObjectsWidget();
+
     // Enable transitions after elements are rendered (next frame)
     // This prevents the green flash on initial load
     requestAnimationFrame(() => {
@@ -585,6 +609,11 @@ export class HUDManager {
     this.systemOutline.classList.add("hidden");
     // Also hide detail panels during transitions
     this.hideDetailPanels();
+    // Hide mineable objects widget
+    this.mineableObjectsWidget.classList.add("hidden");
+    this.mineableObjects = [];
+    this.currentMineableIndex = 0;
+    this.isCyclingMineable = false;
     // Reset theme to default green when leaving system view
     this.applyStarTheme("#0f0");
   }
@@ -1125,6 +1154,8 @@ export class HUDManager {
 
   updateState(state: SystemState): void {
     this.currentState = state;
+    // Update mineable objects widget when state changes (e.g., mining operations established)
+    this.updateMineableObjectsWidget();
   }
 
   /**
@@ -1504,5 +1535,185 @@ export class HUDManager {
     });
 
     console.log("Debug resource handlers set up successfully");
+  }
+
+  /**
+   * Get all mineable objects in the current system
+   * Reusable function that can be extended to change what counts as "mineable"
+   */
+  private getMineableObjectsInSystem(): Array<{ id: string; name: string; type: string }> {
+    if (!this.system) return [];
+
+    const mineable: Array<{ id: string; name: string; type: string }> = [];
+
+    // Check all asteroids in asteroid belts
+    if (this.system.asteroidBelts) {
+      for (const belt of this.system.asteroidBelts) {
+        for (const asteroid of belt.asteroids) {
+          // An object is mineable if it's metal composition
+          if (asteroid.composition === "metal") {
+            // Check if it's already being mined
+            const alreadyMining = this.system.miningOperations?.some(
+              (op) => op.celestialBodyId === asteroid.id
+            );
+            if (!alreadyMining) {
+              mineable.push({
+                id: asteroid.id,
+                name: asteroid.name,
+                type: "asteroid",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // Check all moons
+    if (this.system.moons) {
+      for (const moon of this.system.moons) {
+        // An object is mineable if it's metal composition
+        if (moon.composition === "metal") {
+          // Check if it's already being mined
+          const alreadyMining = this.system.miningOperations?.some(
+            (op) => op.celestialBodyId === moon.id
+          );
+          if (!alreadyMining) {
+            mineable.push({
+              id: moon.id,
+              name: moon.name,
+              type: "moon",
+            });
+          }
+        }
+      }
+    }
+
+    return mineable;
+  }
+
+  /**
+   * Update the mineable objects widget based on the current system
+   */
+  updateMineableObjectsWidget(): void {
+    const newMineableObjects = this.getMineableObjectsInSystem();
+    
+    // Check if the list of mineable objects has actually changed
+    const listChanged = 
+      newMineableObjects.length !== this.mineableObjects.length ||
+      !newMineableObjects.every((obj, i) => obj.id === this.mineableObjects[i]?.id);
+
+    // Only reset cycling state if the list has changed
+    if (listChanged) {
+      this.mineableObjects = newMineableObjects;
+      
+      // If we were cycling and the list changed, adjust the index
+      if (this.isCyclingMineable) {
+        // Clamp the index to the new list size
+        this.currentMineableIndex = Math.min(
+          this.currentMineableIndex,
+          Math.max(0, this.mineableObjects.length - 1)
+        );
+        
+        // If the list is now empty, reset cycling state
+        if (this.mineableObjects.length === 0) {
+          this.currentMineableIndex = 0;
+          this.isCyclingMineable = false;
+        }
+      } else {
+        this.currentMineableIndex = 0;
+      }
+    }
+
+    if (this.mineableObjects.length > 0) {
+      // Check if this is the first time showing (was hidden before)
+      const wasHidden = this.mineableObjectsWidget.classList.contains("hidden");
+      
+      this.mineableObjectsWidget.classList.remove("hidden");
+      this.updateMineableCounter();
+      
+      // Add animation class if badge was just revealed
+      if (wasHidden) {
+        this.mineableObjectsWidget.classList.add("animate-in");
+        // Remove animation class after it completes so it can be reused
+        setTimeout(() => {
+          this.mineableObjectsWidget.classList.remove("animate-in");
+        }, 800); // 300ms delay + 500ms animation
+      }
+    } else {
+      // Animate out before hiding
+      const isVisible = !this.mineableObjectsWidget.classList.contains("hidden");
+      if (isVisible) {
+        this.mineableObjectsWidget.classList.add("animate-out");
+        setTimeout(() => {
+          this.mineableObjectsWidget.classList.add("hidden");
+          this.mineableObjectsWidget.classList.remove("animate-out");
+        }, 300); // Duration of exit animation
+      } else {
+        this.mineableObjectsWidget.classList.add("hidden");
+      }
+    }
+  }
+
+  /**
+   * Update the counter display on the mineable objects widget
+   */
+  private updateMineableCounter(): void {
+    if (this.isCyclingMineable && this.mineableObjects.length > 0) {
+      // Show "X/Y" format when cycling
+      this.mineableCounter.textContent = `${this.currentMineableIndex + 1}/${this.mineableObjects.length}`;
+    } else {
+      // Show total count when not cycling
+      this.mineableCounter.textContent = this.mineableObjects.length.toString();
+    }
+  }
+
+  /**
+   * Cycle to the next mineable object
+   */
+  private cycleToNextMineableObject(): void {
+    if (this.mineableObjects.length === 0) return;
+
+    // Mark that we're cycling
+    if (!this.isCyclingMineable) {
+      this.isCyclingMineable = true;
+      this.currentMineableIndex = 0;
+    } else {
+      // Move to next object
+      this.currentMineableIndex = (this.currentMineableIndex + 1) % this.mineableObjects.length;
+    }
+
+    // Update the counter
+    this.updateMineableCounter();
+
+    // Select the object
+    const selectedObject = this.mineableObjects[this.currentMineableIndex];
+    if (this.onSelectObject) {
+      this.onSelectObject(selectedObject.id);
+    }
+  }
+
+  /**
+   * Cycle to the previous mineable object
+   */
+  private cycleToPreviousMineableObject(): void {
+    if (this.mineableObjects.length === 0) return;
+
+    // Mark that we're cycling
+    if (!this.isCyclingMineable) {
+      this.isCyclingMineable = true;
+      this.currentMineableIndex = 0;
+    } else {
+      // Move to previous object (wrap around)
+      this.currentMineableIndex = (this.currentMineableIndex - 1 + this.mineableObjects.length) % this.mineableObjects.length;
+    }
+
+    // Update the counter
+    this.updateMineableCounter();
+
+    // Select the object
+    const selectedObject = this.mineableObjects[this.currentMineableIndex];
+    if (this.onSelectObject) {
+      this.onSelectObject(selectedObject.id);
+    }
   }
 }

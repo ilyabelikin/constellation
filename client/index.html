@@ -402,6 +402,81 @@
         #search-button svg {
             display: block;
         }
+
+        /* Badges container and badge styles */
+        #badges-container {
+            pointer-events: none; /* Allow clicks to pass through empty space */
+        }
+
+        #badges-container > * {
+            pointer-events: auto; /* But enable clicks on badges themselves */
+        }
+
+        .badge {
+            padding: 8px 12px;
+            cursor: pointer;
+            user-select: none;
+            min-width: 60px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .badge:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .badge:active {
+            transform: translateY(0);
+        }
+
+        .badge-icon {
+            font-size: 20px;
+            line-height: 1;
+        }
+
+        .badge-counter {
+            font-weight: bold;
+            font-size: 13px;
+            color: var(--primary-color);
+            transition: color 0.8s ease;
+        }
+
+        /* Badge entrance animation */
+        @keyframes badgeSlideIn {
+            0% {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.8);
+            }
+            60% {
+                transform: translateY(5px) scale(1.05);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .badge.animate-in {
+            animation: badgeSlideIn 0.5s ease-out forwards;
+            animation-delay: 0.3s;
+            opacity: 0;
+        }
+
+        /* Badge exit animation */
+        @keyframes badgeSlideOut {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-15px) scale(0.9);
+            }
+        }
+
+        .badge.animate-out {
+            animation: badgeSlideOut 0.3s ease-in forwards;
+        }
     </style>
 </head>
 <body class="no-theme-transition">
@@ -445,6 +520,26 @@
     <!-- Notification Toast (under resources widget) -->
     <div id="notification-toast" style="position: absolute; top: 108px; left: 10px; padding: 8px 12px; background: rgba(239, 68, 68, 0.9); border: 1px solid rgba(220, 38, 38, 0.8); border-radius: 4px; color: #fff; font-size: 13px; display: none; max-width: 300px; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); z-index: 10000;">
         <span id="notification-message"></span>
+    </div>
+
+    <!-- Badges Area (top middle of screen) -->
+    <div id="badges-container" style="position: fixed; top: 38px; left: 50%; transform: translateX(-50%); z-index: 15; display: flex; gap: 10px; align-items: center;">
+        <!-- Mineable Objects Badge -->
+        <div id="mineable-objects-widget" class="hud badge hidden">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                <div class="badge-icon">⛏</div>
+                <div id="mineable-counter" class="badge-counter">0</div>
+            </div>
+        </div>
+        <!-- 
+        Example: Add more badges here following the same pattern:
+        <div id="your-badge-widget" class="hud badge hidden">
+            <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+                <div class="badge-icon">🚀</div>
+                <div class="badge-counter">0</div>
+            </div>
+        </div>
+        -->
     </div>
 
     <!-- Top Right Time Controls -->
