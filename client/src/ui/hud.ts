@@ -17,7 +17,10 @@ export class HUDManager {
   private currentState: SystemState | null = null;
   private ship: Ship | null = null;
   private selectedObjectId: string | null = null;
-  private gateOwnership: Map<string, { ownerId: string; ownerName: string; status: string }> = new Map();
+  private gateOwnership: Map<
+    string,
+    { ownerId: string; ownerName: string; status: string }
+  > = new Map();
 
   // Detail views
   private bodyDetailView: BodyDetailView;
@@ -59,7 +62,8 @@ export class HUDManager {
   // Mineable objects widget
   private mineableObjectsWidget: HTMLElement;
   private mineableCounter: HTMLElement;
-  private mineableObjects: Array<{ id: string; name: string; type: string }> = [];
+  private mineableObjects: Array<{ id: string; name: string; type: string }> =
+    [];
   private currentMineableIndex: number = 0;
   private isCyclingMineable: boolean = false;
 
@@ -115,6 +119,7 @@ export class HUDManager {
   public onSearchResultClick:
     | ((systemId: string, objectId: string) => void)
     | null = null;
+  public onGateTravel: ((gateId: string) => void) | null = null;
   public onSetPlayerStance:
     | ((
         targetPlayerId: string,
@@ -175,7 +180,9 @@ export class HUDManager {
     this.notificationMessage = document.getElementById("notification-message")!;
 
     // Mineable objects widget
-    this.mineableObjectsWidget = document.getElementById("mineable-objects-widget")!;
+    this.mineableObjectsWidget = document.getElementById(
+      "mineable-objects-widget"
+    )!;
     this.mineableCounter = document.getElementById("mineable-counter")!;
 
     // System outline
@@ -241,6 +248,13 @@ export class HUDManager {
     this.gateDetailView = new GateDetailView();
     this.shipDetailView = new ShipDetailView();
     this.constellationSystemDetailView = new ConstellationSystemDetailView();
+
+    // Setup gate detail view callback
+    this.gateDetailView.onTravelClick = (gateId: string) => {
+      if (this.onGateTravel) {
+        this.onGateTravel(gateId);
+      }
+    };
 
     // Create event handler references
     this.exploreGalaxyHandler = () => {
@@ -541,32 +555,39 @@ export class HUDManager {
 
   private updateResourceDisplays(): void {
     if (!this.player) return;
-    
+
     // Floor energy to 2 decimal places (round down, not up)
     const energyFloored = Math.floor(this.player.energy * 100) / 100;
     this.energyDisplay.textContent = energyFloored.toFixed(2);
-    
+
     // Floor alloy to 2 decimal places (round down, not up)
     const alloyFloored = Math.floor(this.player.alloy * 100) / 100;
     this.alloyDisplay.textContent = alloyFloored.toFixed(2);
-    
+
     // Display alloy income rate from mining operations
     if (this.player.alloyPerDay !== undefined) {
       const ratePerDay = this.player.alloyPerDay;
-      
+
       // Format with + or - sign and 2 decimal places
-      const formattedRate = (ratePerDay >= 0 ? "+" : "") + ratePerDay.toFixed(2);
+      const formattedRate =
+        (ratePerDay >= 0 ? "+" : "") + ratePerDay.toFixed(2);
       this.alloyRateDisplay.textContent = formattedRate + "/d";
-      
+
       // Color based on positive/negative
-      this.alloyRateDisplay.style.color = ratePerDay >= 0 ? "#10b981" : "#ef4444";
+      this.alloyRateDisplay.style.color =
+        ratePerDay >= 0 ? "#10b981" : "#ef4444";
     } else {
       // If no rate data yet, clear the display
       this.alloyRateDisplay.textContent = "";
     }
   }
 
-  setGateOwnership(gateId: string, ownerId: string, ownerName: string, status: string): void {
+  setGateOwnership(
+    gateId: string,
+    ownerId: string,
+    ownerName: string,
+    status: string
+  ): void {
     this.gateOwnership.set(gateId, { ownerId, ownerName, status });
   }
 
@@ -639,8 +660,10 @@ export class HUDManager {
     // Save current asteroid belt and moon indices before clearing
     const savedAsteroidIndices = new Map<string, number>();
     const savedMoonIndices = new Map<string, number>();
-    
-    const existingBelts = this.outlineList.querySelectorAll('.outline-item.asteroid-belt');
+
+    const existingBelts = this.outlineList.querySelectorAll(
+      ".outline-item.asteroid-belt"
+    );
     existingBelts.forEach((item) => {
       const beltId = (item as HTMLElement).dataset.beltId;
       const asteroidIndex = (item as HTMLElement).dataset.asteroidIndex;
@@ -648,8 +671,9 @@ export class HUDManager {
         savedAsteroidIndices.set(beltId, parseInt(asteroidIndex));
       }
     });
-    
-    const existingMoons = this.outlineList.querySelectorAll('.outline-item.moon');
+
+    const existingMoons =
+      this.outlineList.querySelectorAll(".outline-item.moon");
     existingMoons.forEach((item) => {
       const planetId = (item as HTMLElement).dataset.planetId;
       const moonIndex = (item as HTMLElement).dataset.moonIndex;
@@ -761,7 +785,9 @@ export class HUDManager {
               moonItem.dataset.moonIndex = savedIndex.toString();
               // Update display if index is not 0
               if (savedIndex > 0) {
-                moonItem.textContent = `  └ Moons - ${savedIndex + 1}/${planet.moons.length}`;
+                moonItem.textContent = `  └ Moons - ${savedIndex + 1}/${
+                  planet.moons.length
+                }`;
               }
               moonItem.addEventListener("click", () => {
                 // Cycle through moons (forward)
@@ -786,11 +812,11 @@ export class HUDManager {
                   }`;
                 }
               });
-              
+
               // Right-click to cycle backwards
               moonItem.addEventListener("contextmenu", (e) => {
                 e.preventDefault(); // Prevent default context menu
-                
+
                 // Cycle through moons (backward)
                 const currentIndex = parseInt(
                   moonItem.dataset.moonIndex || "0"
@@ -799,9 +825,10 @@ export class HUDManager {
 
                 if (moons && moons.length > 0) {
                   // Go back one (wrap around if at beginning)
-                  const prevIndex = (currentIndex - 1 + moons.length) % moons.length;
+                  const prevIndex =
+                    (currentIndex - 1 + moons.length) % moons.length;
                   const moon = moons[prevIndex];
-                  
+
                   if (this.onSelectObject) {
                     this.onSelectObject(moon.id);
                   }
@@ -815,7 +842,7 @@ export class HUDManager {
                   }`;
                 }
               });
-              
+
               this.outlineList.appendChild(moonItem);
             }
           }
@@ -830,7 +857,9 @@ export class HUDManager {
           beltItem.dataset.asteroidIndex = savedIndex.toString();
           // Update display if index is not 0
           if (savedIndex > 0 && belt.asteroids && belt.asteroids.length > 0) {
-            beltItem.textContent = `   ◦ ${belt.name} - ${savedIndex + 1}/${belt.asteroids.length}`;
+            beltItem.textContent = `   ◦ ${belt.name} - ${savedIndex + 1}/${
+              belt.asteroids.length
+            }`;
           }
           beltItem.addEventListener("click", () => {
             // Cycle through asteroids in the belt (forward)
@@ -855,11 +884,11 @@ export class HUDManager {
               }`;
             }
           });
-          
+
           // Right-click to cycle backwards
           beltItem.addEventListener("contextmenu", (e) => {
             e.preventDefault(); // Prevent default context menu
-            
+
             // Cycle through asteroids in the belt (backward)
             const currentIndex = parseInt(
               beltItem.dataset.asteroidIndex || "0"
@@ -868,9 +897,10 @@ export class HUDManager {
 
             if (asteroids && asteroids.length > 0) {
               // Go back one (wrap around if at beginning)
-              const prevIndex = (currentIndex - 1 + asteroids.length) % asteroids.length;
+              const prevIndex =
+                (currentIndex - 1 + asteroids.length) % asteroids.length;
               const asteroid = asteroids[prevIndex];
-              
+
               if (this.onSelectObject) {
                 this.onSelectObject(asteroid.id);
               }
@@ -884,7 +914,7 @@ export class HUDManager {
               }`;
             }
           });
-          
+
           this.outlineList.appendChild(beltItem);
         }
       });
@@ -937,13 +967,13 @@ export class HUDManager {
         // Check if gate is explored by current player
         const isExploredBySelf =
           this.player?.exploredGateIds?.includes(gate.id) ?? false;
-        
+
         // Get gate ownership to determine color and display
         const ownership = this.gateOwnership.get(gate.id);
         let gateColor = "#a855f7"; // Purple for unexplored (default)
         let status = "◈"; // Unexplored symbol
         let gateName = "???";
-        
+
         // If gate has an owner, show diplomatic stance color even if not explored by us
         if (ownership) {
           switch (ownership.status) {
@@ -964,7 +994,7 @@ export class HUDManager {
               status = "⚠";
               break;
           }
-          
+
           // Only show the name if we've explored it ourselves
           if (isExploredBySelf) {
             gateName = gate.name;
@@ -1541,7 +1571,11 @@ export class HUDManager {
    * Get all mineable objects in the current system
    * Reusable function that can be extended to change what counts as "mineable"
    */
-  private getMineableObjectsInSystem(): Array<{ id: string; name: string; type: string }> {
+  private getMineableObjectsInSystem(): Array<{
+    id: string;
+    name: string;
+    type: string;
+  }> {
     if (!this.system) return [];
 
     const mineable: Array<{ id: string; name: string; type: string }> = [];
@@ -1596,16 +1630,18 @@ export class HUDManager {
    */
   updateMineableObjectsWidget(): void {
     const newMineableObjects = this.getMineableObjectsInSystem();
-    
+
     // Check if the list of mineable objects has actually changed
-    const listChanged = 
+    const listChanged =
       newMineableObjects.length !== this.mineableObjects.length ||
-      !newMineableObjects.every((obj, i) => obj.id === this.mineableObjects[i]?.id);
+      !newMineableObjects.every(
+        (obj, i) => obj.id === this.mineableObjects[i]?.id
+      );
 
     // Only reset cycling state if the list has changed
     if (listChanged) {
       this.mineableObjects = newMineableObjects;
-      
+
       // If we were cycling and the list changed, adjust the index
       if (this.isCyclingMineable) {
         // Clamp the index to the new list size
@@ -1613,7 +1649,7 @@ export class HUDManager {
           this.currentMineableIndex,
           Math.max(0, this.mineableObjects.length - 1)
         );
-        
+
         // If the list is now empty, reset cycling state
         if (this.mineableObjects.length === 0) {
           this.currentMineableIndex = 0;
@@ -1627,21 +1663,22 @@ export class HUDManager {
     if (this.mineableObjects.length > 0) {
       // Check if this is the first time showing (was hidden before)
       const wasHidden = this.mineableObjectsWidget.classList.contains("hidden");
-      
+
       this.mineableObjectsWidget.classList.remove("hidden");
       this.updateMineableCounter();
-      
+
       // Add animation class if badge was just revealed
       if (wasHidden) {
         this.mineableObjectsWidget.classList.add("animate-in");
         // Remove animation class after it completes so it can be reused
         setTimeout(() => {
           this.mineableObjectsWidget.classList.remove("animate-in");
-        }, 800); // 300ms delay + 500ms animation
+        }, 1400); // 900ms delay + 500ms animation
       }
     } else {
       // Animate out before hiding
-      const isVisible = !this.mineableObjectsWidget.classList.contains("hidden");
+      const isVisible =
+        !this.mineableObjectsWidget.classList.contains("hidden");
       if (isVisible) {
         this.mineableObjectsWidget.classList.add("animate-out");
         setTimeout(() => {
@@ -1660,7 +1697,9 @@ export class HUDManager {
   private updateMineableCounter(): void {
     if (this.isCyclingMineable && this.mineableObjects.length > 0) {
       // Show "X/Y" format when cycling
-      this.mineableCounter.textContent = `${this.currentMineableIndex + 1}/${this.mineableObjects.length}`;
+      this.mineableCounter.textContent = `${this.currentMineableIndex + 1}/${
+        this.mineableObjects.length
+      }`;
     } else {
       // Show total count when not cycling
       this.mineableCounter.textContent = this.mineableObjects.length.toString();
@@ -1679,7 +1718,8 @@ export class HUDManager {
       this.currentMineableIndex = 0;
     } else {
       // Move to next object
-      this.currentMineableIndex = (this.currentMineableIndex + 1) % this.mineableObjects.length;
+      this.currentMineableIndex =
+        (this.currentMineableIndex + 1) % this.mineableObjects.length;
     }
 
     // Update the counter
@@ -1704,7 +1744,9 @@ export class HUDManager {
       this.currentMineableIndex = 0;
     } else {
       // Move to previous object (wrap around)
-      this.currentMineableIndex = (this.currentMineableIndex - 1 + this.mineableObjects.length) % this.mineableObjects.length;
+      this.currentMineableIndex =
+        (this.currentMineableIndex - 1 + this.mineableObjects.length) %
+        this.mineableObjects.length;
     }
 
     // Update the counter

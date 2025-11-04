@@ -3,18 +3,21 @@ import { MaterialFactory } from "./MaterialFactory.js";
 import { BlackHoleRenderer, BlackHoleData } from "./BlackHoleRenderer.js";
 import { PlanetaryRing } from "@constellation/shared";
 import { seededRandom } from "./materials/planetColorUtils.js";
+import { ShipFactory } from "./ShipFactory.js";
 
 /**
  * Factory for creating Three.js meshes for celestial bodies and ships
  */
 export class CelestialBodyFactory {
   private materialFactory: MaterialFactory;
+  private shipFactory: ShipFactory;
   private scale: number;
   private bodySizeMultiplier: number;
   private blackHoleRenderers: Map<string, BlackHoleRenderer> = new Map();
 
   constructor(scale: number, bodySizeMultiplier: number) {
     this.materialFactory = new MaterialFactory();
+    this.shipFactory = new ShipFactory(bodySizeMultiplier);
     this.scale = scale;
     this.bodySizeMultiplier = bodySizeMultiplier;
   }
@@ -340,288 +343,11 @@ export class CelestialBodyFactory {
   }
 
   /**
-   * Creates a ship mesh - a space-built vessel with modular design
+   * Creates a ship mesh using the ShipFactory
+   * Defaults to the basic design with turret
    */
   createShipMesh(): THREE.Group {
-    const shipGroup = new THREE.Group();
-
-    // Base scale for the ship
-    const shipScale = this.bodySizeMultiplier * 0.0135;
-
-    // Materials for different ship components - all metallic with good visibility
-    const hullMaterial = new THREE.MeshStandardMaterial({
-      color: 0xbbd0e0,
-      metalness: 0.85,
-      roughness: 0.35,
-      emissive: 0x3a5a6a,
-      emissiveIntensity: 0.35,
-    });
-
-    const windowMaterial = new THREE.MeshStandardMaterial({
-      color: 0x5577aa,
-      metalness: 0.8,
-      roughness: 0.25,
-      emissive: 0x4466aa,
-      emissiveIntensity: 0.6,
-    });
-
-    const engineMaterial = new THREE.MeshStandardMaterial({
-      color: 0x6688aa,
-      metalness: 0.85,
-      roughness: 0.3,
-      emissive: 0x223355,
-      emissiveIntensity: 0.4,
-    });
-
-    const engineGlowMaterial = new THREE.MeshStandardMaterial({
-      color: 0x3a5a6a,
-      metalness: 0.7,
-      roughness: 0.2,
-      emissive: 0x00ffff,
-      emissiveIntensity: 1.5,
-    });
-
-    // Main hull - elongated octagonal prism (command section)
-    const hullGeometry = new THREE.CylinderGeometry(
-      shipScale * 0.4,
-      shipScale * 0.5,
-      shipScale * 2.0,
-      8,
-      1
-    );
-    const hull = new THREE.Mesh(hullGeometry, hullMaterial);
-    hull.rotation.x = Math.PI / 2; // Orient along Z-axis
-    hull.castShadow = true;
-    hull.receiveShadow = true;
-    shipGroup.add(hull);
-
-    // Bridge/cockpit section (front)
-    const bridgeGeometry = new THREE.ConeGeometry(
-      shipScale * 0.4,
-      shipScale * 0.8,
-      8
-    );
-    const bridge = new THREE.Mesh(bridgeGeometry, hullMaterial);
-    bridge.rotation.x = Math.PI / 2;
-    bridge.position.z = shipScale * 1.4;
-    bridge.castShadow = true;
-    bridge.receiveShadow = true;
-    shipGroup.add(bridge);
-
-    // Cockpit windows
-    const windowGeometry = new THREE.BoxGeometry(
-      shipScale * 0.3,
-      shipScale * 0.15,
-      shipScale * 0.05
-    );
-    const window1 = new THREE.Mesh(windowGeometry, windowMaterial);
-    window1.position.set(0, shipScale * 0.25, shipScale * 1.3);
-    shipGroup.add(window1);
-
-    // Cargo/engineering section (middle-rear)
-    const cargoGeometry = new THREE.BoxGeometry(
-      shipScale * 0.9,
-      shipScale * 0.7,
-      shipScale * 1.2
-    );
-    const cargo = new THREE.Mesh(cargoGeometry, hullMaterial);
-    cargo.position.z = -shipScale * 0.4;
-    cargo.castShadow = true;
-    cargo.receiveShadow = true;
-    shipGroup.add(cargo);
-
-    // Engine nacelles (2x side engines)
-    const nacelleGeometry = new THREE.CylinderGeometry(
-      shipScale * 0.2,
-      shipScale * 0.25,
-      shipScale * 1.5,
-      6
-    );
-    
-    const nacelle1 = new THREE.Mesh(nacelleGeometry, engineMaterial);
-    nacelle1.rotation.x = Math.PI / 2;
-    nacelle1.position.set(shipScale * 0.6, 0, -shipScale * 0.5);
-    nacelle1.castShadow = true;
-    shipGroup.add(nacelle1);
-
-    const nacelle2 = new THREE.Mesh(nacelleGeometry, engineMaterial);
-    nacelle2.rotation.x = Math.PI / 2;
-    nacelle2.position.set(-shipScale * 0.6, 0, -shipScale * 0.5);
-    nacelle2.castShadow = true;
-    shipGroup.add(nacelle2);
-
-    // Engine glow (exhaust ports)
-    const glowGeometry = new THREE.CylinderGeometry(
-      shipScale * 0.18,
-      shipScale * 0.15,
-      shipScale * 0.2,
-      6
-    );
-    
-    const engineGlow1 = new THREE.Mesh(glowGeometry, engineGlowMaterial);
-    engineGlow1.rotation.x = Math.PI / 2;
-    engineGlow1.position.set(shipScale * 0.6, 0, -shipScale * 1.3);
-    engineGlow1.userData.isPulsing = true;
-    shipGroup.add(engineGlow1);
-
-    const engineGlow2 = new THREE.Mesh(glowGeometry, engineGlowMaterial);
-    engineGlow2.rotation.x = Math.PI / 2;
-    engineGlow2.position.set(-shipScale * 0.6, 0, -shipScale * 1.3);
-    engineGlow2.userData.isPulsing = true;
-    shipGroup.add(engineGlow2);
-
-    // Connecting struts between nacelles and hull
-    const strutGeometry = new THREE.BoxGeometry(
-      shipScale * 0.1,
-      shipScale * 0.05,
-      shipScale * 0.8
-    );
-    
-    const strut1 = new THREE.Mesh(strutGeometry, hullMaterial);
-    strut1.position.set(shipScale * 0.45, 0, -shipScale * 0.3);
-    shipGroup.add(strut1);
-
-    const strut2 = new THREE.Mesh(strutGeometry, hullMaterial);
-    strut2.position.set(-shipScale * 0.45, 0, -shipScale * 0.3);
-    shipGroup.add(strut2);
-
-    // Turret mount (top of hull)
-    const turretBaseGeometry = new THREE.CylinderGeometry(
-      shipScale * 0.2,
-      shipScale * 0.25,
-      shipScale * 0.15,
-      8
-    );
-    const turretBase = new THREE.Mesh(turretBaseGeometry, hullMaterial);
-    turretBase.position.set(0, shipScale * 0.4, shipScale * 0.2);
-    turretBase.castShadow = true;
-    shipGroup.add(turretBase);
-
-    // Turret rotating section
-    const turretBodyGeometry = new THREE.SphereGeometry(
-      shipScale * 0.18,
-      16,
-      16,
-      0,
-      Math.PI * 2,
-      0,
-      Math.PI * 0.6
-    );
-    const turretBody = new THREE.Mesh(turretBodyGeometry, engineMaterial);
-    turretBody.position.set(0, shipScale * 0.48, shipScale * 0.2);
-    turretBody.castShadow = true;
-    shipGroup.add(turretBody);
-
-    // Turret barrel (dual barrels)
-    const barrelGeometry = new THREE.CylinderGeometry(
-      shipScale * 0.04,
-      shipScale * 0.04,
-      shipScale * 0.5,
-      8
-    );
-    
-    const barrel1 = new THREE.Mesh(barrelGeometry, engineMaterial);
-    barrel1.rotation.x = Math.PI / 2;
-    barrel1.position.set(shipScale * 0.06, shipScale * 0.55, shipScale * 0.45);
-    barrel1.castShadow = true;
-    shipGroup.add(barrel1);
-
-    const barrel2 = new THREE.Mesh(barrelGeometry, engineMaterial);
-    barrel2.rotation.x = Math.PI / 2;
-    barrel2.position.set(-shipScale * 0.06, shipScale * 0.55, shipScale * 0.45);
-    barrel2.castShadow = true;
-    shipGroup.add(barrel2);
-
-    // Turret barrel tips (glowing when ready)
-    const barrelTipGeometry = new THREE.CylinderGeometry(
-      shipScale * 0.035,
-      shipScale * 0.035,
-      shipScale * 0.05,
-      6
-    );
-    const barrelTipMaterial = new THREE.MeshStandardMaterial({
-      color: 0x334455,
-      metalness: 0.8,
-      roughness: 0.3,
-      emissive: 0xff4400,
-      emissiveIntensity: 0.3,
-    });
-    
-    const barrelTip1 = new THREE.Mesh(barrelTipGeometry, barrelTipMaterial);
-    barrelTip1.rotation.x = Math.PI / 2;
-    barrelTip1.position.set(shipScale * 0.06, shipScale * 0.55, shipScale * 0.7);
-    shipGroup.add(barrelTip1);
-
-    const barrelTip2 = new THREE.Mesh(barrelTipGeometry, barrelTipMaterial);
-    barrelTip2.rotation.x = Math.PI / 2;
-    barrelTip2.position.set(-shipScale * 0.06, shipScale * 0.55, shipScale * 0.7);
-    shipGroup.add(barrelTip2);
-
-    // Communication array / sensor tower (rear top)
-    const antennaGeometry = new THREE.CylinderGeometry(
-      shipScale * 0.03,
-      shipScale * 0.03,
-      shipScale * 0.4,
-      4
-    );
-    const antenna = new THREE.Mesh(antennaGeometry, hullMaterial);
-    antenna.position.set(0, shipScale * 0.4, -shipScale * 0.4);
-    shipGroup.add(antenna);
-
-    // Antenna dish
-    const dishGeometry = new THREE.CylinderGeometry(
-      shipScale * 0.12,
-      shipScale * 0.08,
-      shipScale * 0.05,
-      8
-    );
-    const dish = new THREE.Mesh(dishGeometry, hullMaterial);
-    dish.position.set(0, shipScale * 0.6, -shipScale * 0.4);
-    shipGroup.add(dish);
-
-    // Small accent lights along the hull (metallic housing with glow)
-    const accentLightGeometry = new THREE.SphereGeometry(shipScale * 0.05, 8, 8);
-    const accentMaterial = new THREE.MeshStandardMaterial({
-      color: 0x442200,
-      metalness: 0.8,
-      roughness: 0.3,
-      emissive: 0xff6600,
-      emissiveIntensity: 1.2,
-    });
-    
-    // Port and starboard lights
-    const portLight = new THREE.Mesh(accentLightGeometry, accentMaterial);
-    portLight.position.set(shipScale * 0.5, 0, shipScale * 0.5);
-    shipGroup.add(portLight);
-
-    const starboardMaterial = new THREE.MeshStandardMaterial({
-      color: 0x003300,
-      metalness: 0.8,
-      roughness: 0.3,
-      emissive: 0x00ff00,
-      emissiveIntensity: 1.2,
-    });
-    const starboardLight = new THREE.Mesh(accentLightGeometry, starboardMaterial);
-    starboardLight.position.set(-shipScale * 0.5, 0, shipScale * 0.5);
-    shipGroup.add(starboardLight);
-
-    // Point lights for engine glow
-    const engineLight1 = new THREE.PointLight(0x00ffff, 2, shipScale * 3);
-    engineLight1.position.set(shipScale * 0.6, 0, -shipScale * 1.3);
-    engineLight1.userData.isPulsing = true;
-    shipGroup.add(engineLight1);
-
-    const engineLight2 = new THREE.PointLight(0x00ffff, 2, shipScale * 3);
-    engineLight2.position.set(-shipScale * 0.6, 0, -shipScale * 1.3);
-    engineLight2.userData.isPulsing = true;
-    shipGroup.add(engineLight2);
-
-    // Ambient light for the ship so it's always visible
-    const shipAmbientLight = new THREE.PointLight(0xffffff, 8, shipScale * 5);
-    shipAmbientLight.position.set(0, 0, 0); // At ship center
-    shipGroup.add(shipAmbientLight);
-
-    return shipGroup;
+    return this.shipFactory.createShip("basic");
   }
 
   /**

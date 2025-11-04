@@ -458,7 +458,7 @@
 
         .badge.animate-in {
             animation: badgeSlideIn 0.5s ease-out forwards;
-            animation-delay: 0.3s;
+            animation-delay: 0.9s;
             opacity: 0;
         }
 
@@ -618,10 +618,6 @@
             <span class="detail-label">Owner:</span>
             <span class="detail-value" id="gate-detail-owner">-</span>
         </div>
-        <div class="detail-row" id="gate-detail-cost-row" style="display: none;">
-            <span class="detail-label">Explore Cost:</span>
-            <span class="detail-value" id="gate-detail-cost" style="color: #60a5fa;">⚡ 1 Energy</span>
-        </div>
         <div class="detail-row">
             <span class="detail-label">Leads to:</span>
             <span class="detail-value" id="gate-detail-destination">-</span>
@@ -634,6 +630,9 @@
             <span class="detail-label">Orbital Period:</span>
             <span class="detail-value" id="gate-detail-period">-</span>
         </div>
+        <button class="hud-button" id="gate-travel-button" style="width: 100%; margin-top: 10px;">
+            Travel
+        </button>
     </div>
 
     <!-- Bottom Left Details Panel - Ships -->

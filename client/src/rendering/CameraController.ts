@@ -106,6 +106,7 @@ export class CameraController {
 
     // Camera behavior for different object types:
     // - Stars: don't track (they don't move)
+    // - Ships: zoom proportionally, track movement (no second-click behavior)
     // - Gates: two-click system (first zooms + tracks, second triggers travel)
     // - All other objects (planets, moons, asteroids): track on first click
     if (mesh.userData.type === "star") {
@@ -116,6 +117,17 @@ export class CameraController {
           : 10;
       this.cameraDistance = objectRadius * 5;
       this.isTrackingObject = false; // Don't track stars (they don't move)
+    } else if (mesh.userData.type === "ship") {
+      // Ships: zoom in close to see details, always track
+      // Ships are Groups so we compute a size estimate
+      const box = new THREE.Box3().setFromObject(mesh);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDimension = Math.max(size.x, size.y, size.z);
+      const shipRadius = maxDimension / 2;
+      
+      // Zoom close enough to see ship details but not too close
+      this.cameraDistance = shipRadius * 8;
+      this.isTrackingObject = true; // Always track ships as they move
     } else if (mesh.userData.type === "gate") {
       // Gates: two-click system
       // First click: zoom in close and track (builds anticipation)

@@ -17,7 +17,9 @@ export class GateDetailView {
   private periodElement: HTMLElement;
   private ownerRow: HTMLElement;
   private ownerElement: HTMLElement;
-  private costRow: HTMLElement;
+  private travelButton: HTMLButtonElement;
+  private currentGateId: string | null = null;
+  public onTravelClick?: (gateId: string) => void;
 
   constructor() {
     this.panel = document.getElementById("gate-details-panel")!;
@@ -30,7 +32,16 @@ export class GateDetailView {
     this.periodElement = document.getElementById("gate-detail-period")!;
     this.ownerRow = document.getElementById("gate-detail-owner-row")!;
     this.ownerElement = document.getElementById("gate-detail-owner")!;
-    this.costRow = document.getElementById("gate-detail-cost-row")!;
+    this.travelButton = document.getElementById(
+      "gate-travel-button"
+    )! as HTMLButtonElement;
+
+    // Setup button click handler
+    this.travelButton.addEventListener("click", () => {
+      if (this.currentGateId && this.onTravelClick) {
+        this.onTravelClick(this.currentGateId);
+      }
+    });
   }
 
   /**
@@ -44,80 +55,94 @@ export class GateDetailView {
     ownerInfo?: { ownerId: string; ownerName: string; status: string }
   ): void {
     this.panel.classList.remove("hidden");
+    this.currentGateId = gate.id;
 
     // Check if gate is explored by current player
-    const isExploredBySelf = player?.exploredGateIds?.includes(gate.id) ?? false;
+    const isExploredBySelf =
+      player?.exploredGateIds?.includes(gate.id) ?? false;
 
     // Status (check userData for status from gate creation)
     const gateStatus = gate.userData?.status;
-    const costElement = document.getElementById("gate-detail-cost")!;
-    
+
     // Determine display based on ownership and exploration
+    let travelCost = 0; // Cost in energy
+
     if (ownerInfo && !isExploredBySelf) {
       // Gate owned by someone else but not explored by us yet
       this.nameElement.textContent = "???";
-      
+
       // Show diplomatic stance status
       if (ownerInfo.status === "neutral") {
-        this.statusElement.textContent = "Neutral Gate ● (Maintained by another civilization)";
+        this.statusElement.textContent =
+          "Neutral Gate ● (Maintained by another civilization)";
       } else if (ownerInfo.status === "friendly") {
         this.statusElement.textContent = "Friendly Gate ✓ (Maintained by ally)";
       } else if (ownerInfo.status === "aggressive") {
         this.statusElement.textContent = "Hostile Gate ⚠ (Maintained by enemy)";
       } else {
-        this.statusElement.textContent = "Occupied Gate (Maintained by another civilization)";
+        this.statusElement.textContent =
+          "Occupied Gate (Maintained by another civilization)";
       }
-      
+
       this.ownerRow.style.display = "block";
       this.ownerElement.textContent = ownerInfo.ownerName;
-      this.costRow.style.display = "block";
-      costElement.textContent = `Free - maintained by ${ownerInfo.ownerName}`;
-      costElement.style.color = "#10b981"; // Green
+      travelCost = 0;
     } else if (!isExploredBySelf) {
       // Truly unexplored - no owner, not explored by us
       this.nameElement.textContent = "???";
       this.statusElement.textContent = "Unexplored ◈";
       this.ownerRow.style.display = "none";
-      this.costRow.style.display = "block";
-      costElement.textContent = "⚡ 1 Energy";
-      costElement.style.color = "#60a5fa"; // Blue
+      travelCost = 1;
     } else {
       // Explored by us
       this.nameElement.textContent = gate.name;
       // Show status based on ownership
       if (gateStatus === "owned_by_self") {
-        this.statusElement.textContent = "Owned by You ⚡";
-        this.ownerRow.style.display = "block";
-        this.ownerElement.textContent = player?.name || "You";
-        this.costRow.style.display = "block";
-        costElement.textContent = "Free - you maintain this gate";
-        costElement.style.color = "#10b981"; // Green
+        this.statusElement.textContent = "Powered by You ⚡";
+        this.ownerRow.style.display = "none"; // No need to show owner row when it's in the status
+        travelCost = 0;
       } else if (gateStatus === "neutral") {
         this.statusElement.textContent = "Neutral Gate ●";
         this.ownerRow.style.display = "block";
         this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
-        this.costRow.style.display = "block";
-        costElement.textContent = `Free - maintained by ${ownerInfo?.ownerName || "another civilization"}`;
-        costElement.style.color = "#10b981"; // Green
+        travelCost = 0;
       } else if (gateStatus === "aggressive") {
         this.statusElement.textContent = "Hostile Gate ⚠";
         this.ownerRow.style.display = "block";
         this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
-        this.costRow.style.display = "block";
-        costElement.textContent = `Free - maintained by ${ownerInfo?.ownerName || "hostile civilization"}`;
-        costElement.style.color = "#10b981"; // Green
+        travelCost = 0;
       } else if (gateStatus === "friendly") {
         this.statusElement.textContent = "Friendly Gate ✓";
         this.ownerRow.style.display = "block";
         this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
-        this.costRow.style.display = "block";
-        costElement.textContent = `Free - maintained by ${ownerInfo?.ownerName || "friendly civilization"}`;
-        costElement.style.color = "#10b981"; // Green
+        travelCost = 0;
       } else {
-        this.statusElement.textContent = "Explored ⚡";
+        // No specific status - show as powered by player if they discovered it
+        this.statusElement.textContent = `Powered by ${
+          player?.name || "You"
+        } ⚡`;
         this.ownerRow.style.display = "none";
-        this.costRow.style.display = "none";
+        travelCost = 0;
       }
+    }
+
+    // Update travel button text with cost
+    if (travelCost > 0) {
+      this.travelButton.textContent = `⚡ Travel (${travelCost} Energy)`;
+    } else {
+      this.travelButton.textContent = "Travel (Free)";
+    }
+
+    // Check if player has enough energy
+    const hasEnoughEnergy = (player?.energy ?? 0) >= travelCost;
+    this.travelButton.disabled = !hasEnoughEnergy;
+
+    if (!hasEnoughEnergy && travelCost > 0) {
+      this.travelButton.title = `Requires ${travelCost} Energy (you have ${
+        player?.energy ?? 0
+      })`;
+    } else {
+      this.travelButton.title = "";
     }
 
     // Destination

@@ -487,6 +487,13 @@ class ConstellationClient {
       this.network.launchDysonSwarm(starId);
     };
 
+    this.hud.onGateTravel = (gateId) => {
+      console.log("Travel button clicked for gate:", gateId);
+      // Store entry gate ID for animation (same as double-clicking gate)
+      this.scene.setEntryGate(gateId);
+      this.network.useGate(gateId);
+    };
+
     // Handle disconnection/reconnection events
     this.network.onDisconnected = () => {
       console.log("Connection lost, resetting connection state");
