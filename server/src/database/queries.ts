@@ -128,19 +128,19 @@ export class DatabaseQueries {
     if (!row) return null;
     const data = JSON.parse(row.generated_data);
     const gates = this.getGatesBySystem(row.id);
-    
+
     // Load mining operations for this system
     const miningOperations = this.getMiningOperationsBySystem(row.id);
-    
+
     // Load megastructures for this system
     const megastructures = this.getMegastructuresBySystem(row.id);
-    
+
     // Load colonies for this system
     const colonies = this.getColoniesBySystemId(row.id);
-    
+
     // Load native civilizations for this system
     const nativeCivilizations = this.getNativeCivilizationsBySystemId(row.id);
-    
+
     return {
       id: row.id,
       galaxyId: row.galaxy_id,
@@ -229,19 +229,25 @@ export class DatabaseQueries {
     const row = stmt.get(id) as any;
     if (!row) return null;
     const exploredGateIds = this.getExploredGates(row.id);
-    
+
     // Calculate total income rates
     const miningOperations = this.getMiningOperationsByPlayer(row.id);
-    const alloyPerDay = miningOperations.reduce((sum, op) => sum + op.alloyPerDay, 0);
-    
+    const alloyPerDay = miningOperations.reduce(
+      (sum, op) => sum + op.alloyPerDay,
+      0
+    );
+
     const megastructures = this.getMegastructuresByPlayer(row.id);
     const energyPerDay = megastructures
-      .filter(m => m.resourceType === 'energy')
+      .filter((m) => m.resourceType === "energy")
       .reduce((sum, m) => sum + (m.resourcePerDay || 0), 0);
-    
+
     const colonies = this.getColoniesByPlayerId(row.id);
-    const sciencePerDay = colonies.reduce((sum, col) => sum + col.sciencePerDay, 0);
-    
+    const sciencePerDay = colonies.reduce(
+      (sum, col) => sum + col.sciencePerDay,
+      0
+    );
+
     return {
       id: row.id,
       uuid: row.uuid,
@@ -275,7 +281,12 @@ export class DatabaseQueries {
   }
 
   // Resource management
-  updatePlayerResources(playerId: string, energy: number, alloy: number, science: number): void {
+  updatePlayerResources(
+    playerId: string,
+    energy: number,
+    alloy: number,
+    science: number
+  ): void {
     const stmt = this.db.prepare(
       "UPDATE players SET energy = ?, alloy = ?, science = ? WHERE id = ?"
     );
@@ -550,7 +561,7 @@ export class DatabaseQueries {
   }
 
   /**
-   * Process colony resource yields based on current game time
+   * Process colony resource yields and population growth based on current game time
    */
   processColonyYields(currentTime: number): void {
     // Get all colonies
@@ -564,7 +575,7 @@ export class DatabaseQueries {
       if (daysElapsed >= 1) {
         // Award resources for full days
         const fullDays = Math.floor(daysElapsed);
-        
+
         const scienceToAdd = row.science_per_day * fullDays;
         const alloyToAdd = row.alloy_per_day * fullDays;
 
@@ -576,9 +587,122 @@ export class DatabaseQueries {
           this.addPlayerAlloy(row.player_id, alloyToAdd);
         }
 
-        // Update last yield time
-        const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
-        this.updateColonyYield(row.id, newLastYieldAt);
+        // Process population growth
+        let newPopulation = row.population;
+        let currentStage = row.stage;
+        let sciencePerDay = row.science_per_day;
+        let alloyPerDay = row.alloy_per_day;
+        let stageChanged = false;
+
+        // Get planet data for habitability
+        const system = this.getStarSystem(row.system_id);
+        if (system) {
+          const planet = system.planets.find(
+            (p: any) => p.id === row.planet_id
+          );
+          if (planet && planet.habitability) {
+            // Calculate population growth for each day
+            for (let day = 0; day < fullDays; day++) {
+              // Base growth rate depends on population size (logarithmic decay)
+              // Small colonies grow faster (percentage-wise), large ones slower
+              let baseGrowthRate = 0;
+
+              if (newPopulation < 10000) {
+                baseGrowthRate = 0.015; // 1.5% per day for small colonies
+              } else if (newPopulation < 100000) {
+                baseGrowthRate = 0.01; // 1% per day for medium colonies
+              } else if (newPopulation < 1000000) {
+                baseGrowthRate = 0.005; // 0.5% per day for large colonies
+              } else if (newPopulation < 100000000) {
+                baseGrowthRate = 0.002; // 0.2% per day for developed worlds
+              } else {
+                baseGrowthRate = 0.0005; // 0.05% per day for massive populations
+              }
+
+              // Habitability modifier (0.3 to 1.0 habitability affects growth)
+              const habitabilityModifier = 0.5 + planet.habitability * 0.5;
+
+              // Specialization modifier (balanced gets a small growth bonus)
+              const specializationModifier =
+                row.specialization === "balanced" ? 1.2 : 1.0;
+
+              // Calculate growth
+              const growthRate =
+                baseGrowthRate * habitabilityModifier * specializationModifier;
+              newPopulation = Math.floor(newPopulation * (1 + growthRate));
+            }
+
+            // Check if colony should advance to next stage
+            const oldStage = currentStage;
+            if (currentStage === "outpost" && newPopulation >= 1000) {
+              currentStage = "settlement";
+              stageChanged = true;
+            } else if (
+              currentStage === "settlement" &&
+              newPopulation >= 10000
+            ) {
+              currentStage = "colony";
+              stageChanged = true;
+            } else if (currentStage === "colony" && newPopulation >= 100000) {
+              currentStage = "developed";
+              stageChanged = true;
+            } else if (
+              currentStage === "developed" &&
+              newPopulation >= 1000000
+            ) {
+              currentStage = "metropolis";
+              stageChanged = true;
+            } else if (
+              currentStage === "metropolis" &&
+              newPopulation >= 10000000000
+            ) {
+              currentStage = "ecumenopolis";
+              stageChanged = true;
+            }
+
+            // If stage changed, recalculate resource yields
+            if (stageChanged) {
+              const stageMultipliers: Record<string, number> = {
+                outpost: 1.0,
+                settlement: 2.0,
+                colony: 4.0,
+                developed: 8.0,
+                metropolis: 16.0,
+                ecumenopolis: 32.0,
+              };
+
+              const oldMultiplier = stageMultipliers[oldStage] || 1.0;
+              const newMultiplier = stageMultipliers[currentStage] || 1.0;
+
+              // Scale the yields by the ratio of multipliers
+              sciencePerDay = (sciencePerDay / oldMultiplier) * newMultiplier;
+              alloyPerDay = (alloyPerDay / oldMultiplier) * newMultiplier;
+
+              console.log(
+                `Colony ${row.planet_name} advanced from ${oldStage} to ${currentStage} (pop: ${newPopulation})`
+              );
+            }
+          }
+        }
+
+        // Update colony with new population, stage, and yields
+        if (newPopulation !== row.population || stageChanged) {
+          const updateStmt = this.db.prepare(
+            `UPDATE colonies SET population = ?, stage = ?, science_per_day = ?, alloy_per_day = ?, last_yield_at = ? WHERE id = ?`
+          );
+          updateStmt.run(
+            newPopulation,
+            currentStage,
+            sciencePerDay,
+            alloyPerDay,
+            row.last_yield_at + fullDays * 24 * 60 * 60,
+            row.id
+          );
+        } else {
+          // Just update last yield time
+          const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+          this.updateColonyYield(row.id, newLastYieldAt);
+        }
       }
     }
   }
@@ -1393,7 +1517,7 @@ export class DatabaseQueries {
       const ownerInfo = this.getGateOwnerWithName(gate.id);
       if (ownerInfo) {
         let status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
-        
+
         if (ownerInfo.ownerId === playerId) {
           status = "owned_by_self";
         } else {
@@ -1766,7 +1890,9 @@ export class DatabaseQueries {
    * Get species by homeworld ID
    */
   getSpeciesByHomeworldId(homeworldId: string): Species | null {
-    const stmt = this.db.prepare("SELECT * FROM species WHERE homeworld_id = ?");
+    const stmt = this.db.prepare(
+      "SELECT * FROM species WHERE homeworld_id = ?"
+    );
     const row = stmt.get(homeworldId) as any;
     if (!row) return null;
 
@@ -1970,7 +2096,9 @@ export class DatabaseQueries {
    * Get native civilization by ID
    */
   getNativeCivilizationById(civId: string): NativeCivilization | null {
-    const stmt = this.db.prepare("SELECT * FROM native_civilizations WHERE id = ?");
+    const stmt = this.db.prepare(
+      "SELECT * FROM native_civilizations WHERE id = ?"
+    );
     const row = stmt.get(civId) as any;
     if (!row) return null;
 
