@@ -41,6 +41,8 @@ export function initializeDatabase(dbPath: string): Database.Database {
       constellation_positions TEXT DEFAULT '{}',
       energy INTEGER DEFAULT 10,
       alloy INTEGER DEFAULT 10,
+      science INTEGER DEFAULT 0,
+      species_id TEXT,
       FOREIGN KEY (galaxy_id) REFERENCES galaxies(id) ON DELETE CASCADE,
       FOREIGN KEY (home_system_id) REFERENCES star_systems(id),
       FOREIGN KEY (current_system_id) REFERENCES star_systems(id)
@@ -138,6 +140,54 @@ export function initializeDatabase(dbPath: string): Database.Database {
       FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS species (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      homeworld TEXT NOT NULL,
+      homeworld_id TEXT NOT NULL,
+      appearance TEXT NOT NULL,
+      traits TEXT NOT NULL,
+      description TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      player_id TEXT,
+      FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS colonies (
+      id TEXT PRIMARY KEY,
+      player_id TEXT NOT NULL,
+      species_id TEXT NOT NULL,
+      system_id TEXT NOT NULL,
+      planet_id TEXT NOT NULL,
+      planet_name TEXT NOT NULL,
+      stage TEXT NOT NULL CHECK (stage IN ('outpost', 'settlement', 'colony', 'developed', 'metropolis', 'ecumenopolis')),
+      specialization TEXT NOT NULL CHECK (specialization IN ('balanced', 'research', 'industrial')),
+      population INTEGER NOT NULL,
+      science_per_day REAL NOT NULL,
+      energy_per_day REAL NOT NULL,
+      alloy_per_day REAL NOT NULL,
+      established_at INTEGER NOT NULL,
+      last_yield_at INTEGER NOT NULL,
+      FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+      FOREIGN KEY (species_id) REFERENCES species(id) ON DELETE CASCADE,
+      FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS native_civilizations (
+      id TEXT PRIMARY KEY,
+      species_id TEXT NOT NULL,
+      planet_id TEXT NOT NULL,
+      system_id TEXT NOT NULL,
+      civilization_level TEXT NOT NULL,
+      population INTEGER NOT NULL,
+      attitude TEXT NOT NULL CHECK (attitude IN ('friendly', 'neutral', 'hostile', 'unknown')),
+      discovered_at INTEGER,
+      discovered_by TEXT,
+      FOREIGN KEY (species_id) REFERENCES species(id) ON DELETE CASCADE,
+      FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+      FOREIGN KEY (discovered_by) REFERENCES players(id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_players_uuid ON players(uuid);
     CREATE INDEX IF NOT EXISTS idx_players_galaxy ON players(galaxy_id);
     CREATE INDEX IF NOT EXISTS idx_systems_galaxy ON star_systems(galaxy_id);
@@ -154,6 +204,15 @@ export function initializeDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_megastructures_player ON megastructures(player_id);
     CREATE INDEX IF NOT EXISTS idx_megastructures_system ON megastructures(system_id);
     CREATE INDEX IF NOT EXISTS idx_megastructures_type ON megastructures(type);
+    CREATE INDEX IF NOT EXISTS idx_species_player ON species(player_id);
+    CREATE INDEX IF NOT EXISTS idx_species_homeworld ON species(homeworld_id);
+    CREATE INDEX IF NOT EXISTS idx_colonies_player ON colonies(player_id);
+    CREATE INDEX IF NOT EXISTS idx_colonies_system ON colonies(system_id);
+    CREATE INDEX IF NOT EXISTS idx_colonies_planet ON colonies(planet_id);
+    CREATE INDEX IF NOT EXISTS idx_colonies_species ON colonies(species_id);
+    CREATE INDEX IF NOT EXISTS idx_native_civilizations_system ON native_civilizations(system_id);
+    CREATE INDEX IF NOT EXISTS idx_native_civilizations_planet ON native_civilizations(planet_id);
+    CREATE INDEX IF NOT EXISTS idx_native_civilizations_species ON native_civilizations(species_id);
   `);
 
   // Migration: Add constellation_positions column if it doesn't exist
@@ -405,6 +464,140 @@ export function initializeDatabase(dbPath: string): Database.Database {
     }
   } catch (error) {
     console.error("Error during megastructures table migration:", error);
+  }
+
+  // Migration: Add science and species_id columns to players table if they don't exist
+  try {
+    const playerColumns = db
+      .prepare("PRAGMA table_info(players)")
+      .all() as Array<{ name: string }>;
+
+    const hasScience = playerColumns.some((col) => col.name === "science");
+    const hasSpeciesId = playerColumns.some((col) => col.name === "species_id");
+
+    if (!hasScience) {
+      console.log("Migrating database: Adding science column to players");
+      db.exec("ALTER TABLE players ADD COLUMN science INTEGER DEFAULT 0");
+    }
+
+    if (!hasSpeciesId) {
+      console.log("Migrating database: Adding species_id column to players");
+      db.exec("ALTER TABLE players ADD COLUMN species_id TEXT");
+    }
+
+    if (!hasScience || !hasSpeciesId) {
+      console.log("Player species migration complete");
+    }
+  } catch (error) {
+    console.error("Error during player species migration:", error);
+  }
+
+  // Migration: Create species table if it doesn't exist
+  try {
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='species'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (tables.length === 0) {
+      console.log("Migrating database: Creating species table");
+      db.exec(`
+        CREATE TABLE species (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          homeworld TEXT NOT NULL,
+          homeworld_id TEXT NOT NULL,
+          appearance TEXT NOT NULL,
+          traits TEXT NOT NULL,
+          description TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          player_id TEXT,
+          FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE SET NULL
+        );
+        CREATE INDEX idx_species_player ON species(player_id);
+        CREATE INDEX idx_species_homeworld ON species(homeworld_id);
+      `);
+      console.log("Species table migration complete");
+    }
+  } catch (error) {
+    console.error("Error during species table migration:", error);
+  }
+
+  // Migration: Create colonies table if it doesn't exist
+  try {
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='colonies'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (tables.length === 0) {
+      console.log("Migrating database: Creating colonies table");
+      db.exec(`
+        CREATE TABLE colonies (
+          id TEXT PRIMARY KEY,
+          player_id TEXT NOT NULL,
+          species_id TEXT NOT NULL,
+          system_id TEXT NOT NULL,
+          planet_id TEXT NOT NULL,
+          planet_name TEXT NOT NULL,
+          stage TEXT NOT NULL CHECK (stage IN ('outpost', 'settlement', 'colony', 'developed', 'metropolis', 'ecumenopolis')),
+          specialization TEXT NOT NULL CHECK (specialization IN ('balanced', 'research', 'industrial')),
+          population INTEGER NOT NULL,
+          science_per_day REAL NOT NULL,
+          energy_per_day REAL NOT NULL,
+          alloy_per_day REAL NOT NULL,
+          established_at INTEGER NOT NULL,
+          last_yield_at INTEGER NOT NULL,
+          FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+          FOREIGN KEY (species_id) REFERENCES species(id) ON DELETE CASCADE,
+          FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_colonies_player ON colonies(player_id);
+        CREATE INDEX idx_colonies_system ON colonies(system_id);
+        CREATE INDEX idx_colonies_planet ON colonies(planet_id);
+        CREATE INDEX idx_colonies_species ON colonies(species_id);
+      `);
+      console.log("Colonies table migration complete");
+    }
+  } catch (error) {
+    console.error("Error during colonies table migration:", error);
+  }
+
+  // Migration: Create native_civilizations table if it doesn't exist
+  try {
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='native_civilizations'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (tables.length === 0) {
+      console.log("Migrating database: Creating native_civilizations table");
+      db.exec(`
+        CREATE TABLE native_civilizations (
+          id TEXT PRIMARY KEY,
+          species_id TEXT NOT NULL,
+          planet_id TEXT NOT NULL,
+          system_id TEXT NOT NULL,
+          civilization_level TEXT NOT NULL,
+          population INTEGER NOT NULL,
+          attitude TEXT NOT NULL CHECK (attitude IN ('friendly', 'neutral', 'hostile', 'unknown')),
+          discovered_at INTEGER,
+          discovered_by TEXT,
+          FOREIGN KEY (species_id) REFERENCES species(id) ON DELETE CASCADE,
+          FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+          FOREIGN KEY (discovered_by) REFERENCES players(id) ON DELETE SET NULL
+        );
+        CREATE INDEX idx_native_civilizations_system ON native_civilizations(system_id);
+        CREATE INDEX idx_native_civilizations_planet ON native_civilizations(planet_id);
+        CREATE INDEX idx_native_civilizations_species ON native_civilizations(species_id);
+      `);
+      console.log("Native civilizations table migration complete");
+    }
+  } catch (error) {
+    console.error("Error during native civilizations table migration:", error);
   }
 
   return db;

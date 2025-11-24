@@ -48,6 +48,19 @@ export class BodyDetailView {
   private dysonButton: HTMLButtonElement | null;
   public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
 
+  // Colony elements
+  private colonySection: HTMLElement | null;
+  private colonyStatus: HTMLElement | null;
+  private colonyStage: HTMLElement | null;
+  private colonyPopulation: HTMLElement | null;
+  private colonySpecialization: HTMLElement | null;
+  private colonyScience: HTMLElement | null;
+  private colonyAlloy: HTMLElement | null;
+  private colonizeButton: HTMLButtonElement | null;
+  private specializationButtons: NodeListOf<HTMLButtonElement> | null;
+  public onEstablishColony: ((planetId: string, specialization: string) => void) | null = null;
+  public onUpdateColonySpecialization: ((colonyId: string, specialization: string) => void) | null = null;
+
   // Home planet reference for relative mass display
   private homePlanetMass: number = EARTH_MASS;
   private homePlanetName: string = "Earth";
@@ -101,6 +114,45 @@ export class BodyDetailView {
         if (this.currentBody && this.onLaunchDysonSwarm) {
           this.onLaunchDysonSwarm(this.currentBody.id);
         }
+      });
+    }
+
+    // Colony elements
+    this.colonySection = document.getElementById("body-colony-section");
+    this.colonyStatus = document.getElementById("body-colony-status");
+    this.colonyStage = document.getElementById("body-colony-stage");
+    this.colonyPopulation = document.getElementById("body-colony-population");
+    this.colonySpecialization = document.getElementById("body-colony-specialization");
+    this.colonyScience = document.getElementById("body-colony-science");
+    this.colonyAlloy = document.getElementById("body-colony-alloy");
+    this.colonizeButton = document.getElementById("body-colonize-button") as HTMLButtonElement;
+    this.specializationButtons = document.querySelectorAll("#body-colony-specialization-buttons button");
+
+    // Bind colonize button click
+    if (this.colonizeButton) {
+      this.colonizeButton.addEventListener("click", () => {
+        if (this.currentBody && this.onEstablishColony) {
+          // Default to balanced specialization
+          this.onEstablishColony(this.currentBody.id, "balanced");
+        }
+      });
+    }
+
+    // Bind specialization button clicks
+    if (this.specializationButtons) {
+      this.specializationButtons.forEach((button) => {
+        button.addEventListener("click", () => {
+          const specialization = button.getAttribute("data-specialization");
+          if (specialization && this.currentBody && this.onUpdateColonySpecialization) {
+            // Find the colony ID for this planet
+            const colony = this.currentSystem?.colonies?.find(
+              (c) => c.planetId === this.currentBody.id
+            );
+            if (colony) {
+              this.onUpdateColonySpecialization(colony.id, specialization);
+            }
+          }
+        });
       });
     }
 
@@ -408,6 +460,74 @@ export class BodyDetailView {
       // Hide dyson section for non-stars
       if (this.dysonSection) {
         this.dysonSection.style.display = "none";
+      }
+    }
+
+    // Show/hide Colony section for habitable planets
+    if (body.type === "planet" && body.habitability !== undefined && body.habitability >= 0.3) {
+      if (this.colonySection) {
+        this.colonySection.style.display = "block";
+
+        // Check if there's already a colony on this planet
+        const existingColony = this.currentSystem?.colonies?.find(
+          (col: any) => col.planetId === body.id
+        );
+
+        if (existingColony) {
+          // Show colony status, hide colonize button
+          if (this.colonyStatus) {
+            this.colonyStatus.style.display = "block";
+            if (this.colonyStage) {
+              this.colonyStage.textContent = existingColony.stage.charAt(0).toUpperCase() + existingColony.stage.slice(1);
+            }
+            if (this.colonyPopulation) {
+              const popFormatted = existingColony.population >= 1000000 
+                ? `${(existingColony.population / 1000000).toFixed(1)}M`
+                : existingColony.population >= 1000
+                ? `${(existingColony.population / 1000).toFixed(1)}K`
+                : existingColony.population.toString();
+              this.colonyPopulation.textContent = popFormatted;
+            }
+            if (this.colonySpecialization) {
+              this.colonySpecialization.textContent = existingColony.specialization.charAt(0).toUpperCase() + existingColony.specialization.slice(1);
+            }
+            if (this.colonyScience) {
+              this.colonyScience.textContent = existingColony.sciencePerDay.toFixed(2);
+            }
+            if (this.colonyAlloy) {
+              this.colonyAlloy.textContent = existingColony.alloyPerDay.toFixed(2);
+            }
+
+            // Highlight current specialization button
+            if (this.specializationButtons) {
+              this.specializationButtons.forEach((btn) => {
+                if (btn.getAttribute("data-specialization") === existingColony.specialization) {
+                  btn.style.background = "#8b5cf6";
+                  btn.style.fontWeight = "bold";
+                } else {
+                  btn.style.background = "";
+                  btn.style.fontWeight = "";
+                }
+              });
+            }
+          }
+          if (this.colonizeButton) {
+            this.colonizeButton.style.display = "none";
+          }
+        } else {
+          // Hide colony status, show colonize button
+          if (this.colonyStatus) {
+            this.colonyStatus.style.display = "none";
+          }
+          if (this.colonizeButton) {
+            this.colonizeButton.style.display = "block";
+          }
+        }
+      }
+    } else {
+      // Hide colony section for non-habitable planets
+      if (this.colonySection) {
+        this.colonySection.style.display = "none";
       }
     }
 

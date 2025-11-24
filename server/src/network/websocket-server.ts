@@ -24,6 +24,7 @@ import {
   generateNewSystem,
   StarterSystemResult,
 } from "../generation/galaxy-generator.js";
+import { generatePlayerSpecies } from "../generation/species-generator.js";
 
 interface ClientConnection {
   ws: WebSocket;
@@ -166,6 +167,15 @@ export class ConstellationWebSocketServer {
             message.resourceType,
             message.amount
           );
+          break;
+        case "establishColony":
+          this.handleEstablishColony(client, message.planetId, message.specialization);
+          break;
+        case "updateColonySpecialization":
+          this.handleUpdateColonySpecialization(client, message.colonyId, message.specialization);
+          break;
+        case "requestSpeciesInfo":
+          this.handleRequestSpeciesInfo(client, message.speciesId);
           break;
       }
     } catch (error) {
@@ -563,8 +573,12 @@ export class ConstellationWebSocketServer {
       client.playerName ||
       `Player-${client.uuid.substring(0, 8)}`;
 
+    const playerId = uuidv4();
+    const speciesId = `species_player_${playerId}`;
+
+    // Create player first (required for foreign key in species table)
     const player: Player = {
-      id: uuidv4(),
+      id: playerId,
       uuid: client.uuid,
       name: finalPlayerName,
       galaxyId,
@@ -575,9 +589,23 @@ export class ConstellationWebSocketServer {
       exploredGateIds: [], // New player has not explored any gates yet
       energy: 10, // Initial energy
       alloy: 10, // Initial alloy
+      science: 0, // Initial science
+      speciesId: speciesId,
     };
 
     this.db.createPlayer(player);
+
+    // Now generate and create player species (after player exists for foreign key)
+    const species = generatePlayerSpecies(
+      playerId,
+      finalPlayerName,
+      homePlanet?.name || "Homeworld",
+      homePlanetId,
+      homePlanet?.surfaceType
+    );
+    this.db.createSpecies(species);
+
+    console.log(`Generated species for player: ${species.name} (${species.appearance.bodyType})`);
 
     // Create ship orbiting the home planet (or star if no planet found)
     // Calculate a reasonable orbital distance based on parent body
@@ -612,6 +640,31 @@ export class ConstellationWebSocketServer {
 
     // Record initial system discovery (player's home system)
     this.db.recordSystemDiscovery(starterSystem.id, player.id);
+
+    // Create initial colony on home world
+    if (homePlanet) {
+      const habitabilityBonus = homePlanet.habitability || 0.7;
+      const initialPopulation = 1000000; // Start with 1 million population (established world)
+      
+      const colony: import("@constellation/shared").Colony = {
+        id: uuidv4(),
+        playerId: player.id,
+        speciesId: species.id,
+        systemId: starterSystem.id,
+        planetId: homePlanet.id,
+        planetName: homePlanet.name,
+        stage: "settlement", // Start as settlement, not just outpost
+        specialization: "balanced",
+        population: initialPopulation,
+        sciencePerDay: 0.015 * habitabilityBonus * 2, // 2x multiplier for settlement stage
+        alloyPerDay: 0.008 * habitabilityBonus * 2,
+        establishedAt: this.gameState.getCurrentTime(),
+        lastYieldAt: this.gameState.getCurrentTime(),
+      };
+
+      this.db.createColony(colony);
+      console.log(`Initial colony established on ${homePlanet.name}: ${colony.stage} (pop: ${colony.population})`);
+    }
 
     // Load into game state
     this.gameState.loadSystem(starterSystem);
@@ -1731,7 +1784,7 @@ export class ConstellationWebSocketServer {
 
   private handleDebugAddResource(
     client: ClientConnection,
-    resourceType: "energy" | "alloy",
+    resourceType: "energy" | "alloy" | "science",
     amount: number
   ): void {
     console.log(
@@ -1752,7 +1805,7 @@ export class ConstellationWebSocketServer {
     }
 
     console.log(
-      `[DEBUG] Current player resources - energy: ${player.energy}, alloy: ${player.alloy}`
+      `[DEBUG] Current player resources - energy: ${player.energy}, alloy: ${player.alloy}, science: ${player.science}`
     );
 
     // Update the resource based on type
@@ -1772,6 +1825,13 @@ export class ConstellationWebSocketServer {
       console.log(
         `[DEBUG] Added ${amount} alloy to player ${player.name} (new total: ${
           player.alloy + amount
+        })`
+      );
+    } else if (resourceType === "science") {
+      this.db.addPlayerScience(client.playerId, amount);
+      console.log(
+        `[DEBUG] Added ${amount} science to player ${player.name} (new total: ${
+          player.science + amount
         })`
       );
     }
@@ -2055,6 +2115,9 @@ export class ConstellationWebSocketServer {
 
           // Process megastructure yields based on current time
           this.db.processMegastructureYields(timeState.currentTime);
+
+          // Process colony yields based on current time
+          this.db.processColonyYields(timeState.currentTime);
         }
       }
 
@@ -2164,5 +2227,283 @@ export class ConstellationWebSocketServer {
 
   private sendError(ws: WebSocket, message: string): void {
     this.send(ws, { type: "error", message });
+  }
+
+  private handleEstablishColony(
+    client: ClientConnection,
+    planetId: string,
+    specialization: "balanced" | "research" | "industrial"
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Check if player has a species
+    if (!player.speciesId) {
+      this.sendError(client.ws, "No species found for player");
+      return;
+    }
+
+    // Get the system the player is currently in
+    const system = this.db.getStarSystem(player.currentSystemId);
+    if (!system) {
+      this.sendError(client.ws, "Current system not found");
+      return;
+    }
+
+    // Find the planet in the system
+    const planet = system.planets.find((p) => p.id === planetId);
+    if (!planet) {
+      this.sendError(client.ws, "Planet not found in current system");
+      return;
+    }
+
+    // Check if planet is already colonized
+    const existingColony = this.db.getColonyByPlanetId(planetId);
+    if (existingColony) {
+      this.sendError(client.ws, "Planet is already colonized");
+      return;
+    }
+
+    // Check if planet has native civilization
+    const nativeCiv = this.db.getNativeCivilizationByPlanetId(planetId);
+    if (nativeCiv) {
+      this.sendError(client.ws, "Cannot colonize planet with native civilization");
+      return;
+    }
+
+    // Check habitability - require at least 0.3 habitability
+    if (!planet.habitability || planet.habitability < 0.3) {
+      this.sendError(
+        client.ws,
+        "Planet is not habitable enough for colonization (requires at least 30% habitability)"
+      );
+      return;
+    }
+
+    // Check if player has enough resources to establish colony
+    const COLONY_ENERGY_COST = 5;
+    const COLONY_ALLOY_COST = 5;
+    const COLONY_SCIENCE_COST = 5;
+    
+    if (player.energy < COLONY_ENERGY_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to establish colony (requires ${COLONY_ENERGY_COST} energy, have ${Math.floor(player.energy * 100) / 100})`
+      );
+      return;
+    }
+    
+    if (player.alloy < COLONY_ALLOY_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough alloy to establish colony (requires ${COLONY_ALLOY_COST} alloy, have ${Math.floor(player.alloy * 100) / 100})`
+      );
+      return;
+    }
+    
+    if (player.science < COLONY_SCIENCE_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough science to establish colony (requires ${COLONY_SCIENCE_COST} science, have ${Math.floor(player.science * 100) / 100})`
+      );
+      return;
+    }
+
+    // Deduct resources
+    this.db.updatePlayerResources(
+      player.id,
+      player.energy - COLONY_ENERGY_COST,
+      player.alloy - COLONY_ALLOY_COST,
+      player.science - COLONY_SCIENCE_COST
+    );
+
+    // Calculate initial population based on habitability
+    const basePopulation = 1000;
+    const populationMultiplier = 0.5 + (planet.habitability * 0.5); // 0.5x to 1.0x based on habitability
+    const initialPopulation = Math.floor(basePopulation * populationMultiplier);
+
+    // Calculate resource yields based on specialization and habitability
+    // Note: Colonies do not produce energy - only Dyson Swarms do that
+    // Base yields are kept very low - colonies are supplementary to mining operations
+    const habitabilityBonus = planet.habitability || 0.5;
+    let sciencePerDay = 0.01;
+    let alloyPerDay = 0.005;
+
+    switch (specialization) {
+      case "research":
+        sciencePerDay = 0.03 * habitabilityBonus; // Focus on science
+        alloyPerDay = 0.002 * habitabilityBonus; // Minimal minerals
+        break;
+      case "industrial":
+        sciencePerDay = 0.005 * habitabilityBonus; // Minimal science
+        alloyPerDay = 0.02 * habitabilityBonus; // Focus on minerals (but still low)
+        break;
+      default: // balanced
+        sciencePerDay = 0.015 * habitabilityBonus; // Moderate science
+        alloyPerDay = 0.008 * habitabilityBonus; // Moderate minerals
+        break;
+    }
+
+    // Get current game time
+    const timeState = this.gameState.getGalaxyState(player.galaxyId);
+    const currentTime = timeState ? timeState.currentTime : 0;
+
+    // Create colony
+    const colonyId = uuidv4();
+    const colony: import("@constellation/shared").Colony = {
+      id: colonyId,
+      playerId: player.id,
+      speciesId: player.speciesId,
+      systemId: system.id,
+      planetId: planet.id,
+      planetName: planet.name,
+      stage: "outpost",
+      specialization,
+      population: initialPopulation,
+      sciencePerDay,
+      alloyPerDay,
+      establishedAt: currentTime,
+      lastYieldAt: currentTime,
+    };
+
+    this.db.createColony(colony);
+
+    // Send success message
+    this.send(client.ws, {
+      type: "colonyEstablished",
+      colony,
+    });
+
+    // Reload system to include the new colony
+    const updatedSystem = this.db.getStarSystem(system.id);
+    if (updatedSystem) {
+      updatedSystem.colonies = this.db.getColoniesBySystemId(system.id);
+      this.send(client.ws, {
+        type: "systemData",
+        system: updatedSystem,
+      });
+    }
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(player.id);
+    if (updatedPlayer) {
+      this.send(client.ws, {
+        type: "playerData",
+        player: updatedPlayer,
+      });
+    }
+  }
+
+  private handleUpdateColonySpecialization(
+    client: ClientConnection,
+    colonyId: string,
+    specialization: "balanced" | "research" | "industrial"
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const colony = this.db.getColonyById(colonyId);
+    if (!colony) {
+      this.sendError(client.ws, "Colony not found");
+      return;
+    }
+
+    if (colony.playerId !== client.playerId) {
+      this.sendError(client.ws, "You do not own this colony");
+      return;
+    }
+
+    // Get planet for habitability bonus
+    const system = this.db.getStarSystem(colony.systemId);
+    if (!system) {
+      this.sendError(client.ws, "System not found");
+      return;
+    }
+
+    const planet = system.planets.find((p) => p.id === colony.planetId);
+    if (!planet) {
+      this.sendError(client.ws, "Planet not found");
+      return;
+    }
+
+    const habitabilityBonus = planet.habitability || 0.5;
+
+    // Update yields based on new specialization
+    // Note: Colonies do not produce energy - only Dyson Swarms do that
+    // Base yields are kept very low - colonies are supplementary to mining operations
+    let sciencePerDay = 0.01;
+    let alloyPerDay = 0.005;
+
+    switch (specialization) {
+      case "research":
+        sciencePerDay = 0.03 * habitabilityBonus; // Focus on science
+        alloyPerDay = 0.002 * habitabilityBonus; // Minimal minerals
+        break;
+      case "industrial":
+        sciencePerDay = 0.005 * habitabilityBonus; // Minimal science
+        alloyPerDay = 0.02 * habitabilityBonus; // Focus on minerals (but still low)
+        break;
+      default: // balanced
+        sciencePerDay = 0.015 * habitabilityBonus; // Moderate science
+        alloyPerDay = 0.008 * habitabilityBonus; // Moderate minerals
+        break;
+    }
+
+    // Scale yields based on colony stage
+    const stageMultipliers: Record<string, number> = {
+      outpost: 1.0,
+      settlement: 2.0,
+      colony: 4.0,
+      developed: 8.0,
+      metropolis: 16.0,
+      ecumenopolis: 32.0,
+    };
+    const multiplier = stageMultipliers[colony.stage] || 1.0;
+
+    colony.specialization = specialization;
+    colony.sciencePerDay = sciencePerDay * multiplier;
+    colony.alloyPerDay = alloyPerDay * multiplier;
+
+    this.db.updateColony(colony);
+
+    this.send(client.ws, {
+      type: "colonyUpdated",
+      colony,
+    });
+
+    // Send updated player data with new income rates
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, {
+        type: "playerData",
+        player: updatedPlayer,
+      });
+    }
+  }
+
+  private handleRequestSpeciesInfo(
+    client: ClientConnection,
+    speciesId: string
+  ): void {
+    const species = this.db.getSpeciesById(speciesId);
+    if (!species) {
+      this.sendError(client.ws, "Species not found");
+      return;
+    }
+
+    this.send(client.ws, {
+      type: "speciesInfo",
+      species,
+    });
   }
 }

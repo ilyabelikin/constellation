@@ -7,6 +7,9 @@ import {
   ConstellationConnection,
   UnexploredGate,
   MiningOperation,
+  Species,
+  Colony,
+  NativeCivilization,
 } from "./types.js";
 
 // Client -> Server messages
@@ -45,8 +48,22 @@ export type ClientMessage =
     }
   | {
       type: "debugAddResource";
-      resourceType: "energy" | "alloy";
+      resourceType: "energy" | "alloy" | "science";
       amount: number;
+    }
+  | {
+      type: "establishColony";
+      planetId: string;
+      specialization: "balanced" | "research" | "industrial";
+    }
+  | {
+      type: "updateColonySpecialization";
+      colonyId: string;
+      specialization: "balanced" | "research" | "industrial";
+    }
+  | {
+      type: "requestSpeciesInfo";
+      speciesId: string;
     };
 
 export interface ShipManeuverCommand {
@@ -140,6 +157,23 @@ export type ServerMessage =
       starId: string;
       energyPerDay: number;
       count: number;
+    }
+  | {
+      type: "colonyEstablished";
+      colony: Colony;
+    }
+  | {
+      type: "colonyUpdated";
+      colony: Colony;
+    }
+  | {
+      type: "speciesInfo";
+      species: Species;
+    }
+  | {
+      type: "nativeCivilizationDiscovered";
+      civilization: NativeCivilization;
+      species: Species;
     };
 
 export interface SearchResult {

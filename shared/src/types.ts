@@ -89,6 +89,7 @@ export interface CelestialBodyType {
   lifeLevel?: LifeLevelType; // Current level of life on planet
   habitability?: number; // 0-1, suitability for life (for terraforming/seeding)
   civilizationLevel?: CivilizationLevelType; // Development level of intelligent civilizations
+  speciesId?: string; // Species ID if planet has native intelligent life or is colonized
   // Asteroid-specific properties
   asteroidBeltId?: string; // if this is an asteroid, the belt it belongs to
   composition?: "water" | "metal" | "silica"; // asteroid/moon composition
@@ -161,8 +162,11 @@ export interface Player {
   exploredGateIds: string[];
   energy: number; // Resource for gate exploration and maintenance
   alloy: number; // Resource for construction
+  science: number; // Resource for research and advancement
   energyPerDay?: number; // Total energy income rate from all dyson swarms
   alloyPerDay?: number; // Total alloy income rate from all mining operations
+  sciencePerDay?: number; // Total science income rate from all colonies
+  speciesId?: string; // Player's species ID
 }
 
 export interface MiningOperation {
@@ -173,6 +177,115 @@ export interface MiningOperation {
   alloyPerDay: number; // resource generation rate
   establishedAt: number; // timestamp when mining started
   lastYieldAt: number; // timestamp of last resource generation
+}
+
+// Species trait types
+export const SpeciesTrait = {
+  // Biological traits
+  PHOTOSYNTHETIC: "photosynthetic", // Can produce energy from stars
+  AQUATIC: "aquatic", // Prefers oceanic worlds
+  SILICON_BASED: "silicon_based", // Silicon-based lifeform
+  EXTREMOPHILE: "extremophile", // Can live in harsh conditions
+  LONG_LIVED: "long_lived", // Extended lifespan
+  RAPID_REPRODUCTION: "rapid_reproduction", // Fast population growth
+
+  // Mental traits
+  SCIENTIFIC: "scientific", // Bonus to science production
+  INDUSTRIOUS: "industrious", // Bonus to alloy production
+  EFFICIENT: "efficient", // Bonus to energy production
+  ADAPTIVE: "adaptive", // Can colonize more planet types
+  CURIOUS: "curious", // Faster exploration
+
+  // Social traits
+  COOPERATIVE: "cooperative", // Better diplomacy
+  AGGRESSIVE: "aggressive", // Military advantages
+  PACIFIST: "pacifist", // Cannot attack but gets bonuses
+  XENOPHOBIC: "xenophobic", // Dislikes other species
+  XENOPHILIC: "xenophilic", // Likes other species
+} as const;
+
+export type SpeciesTraitType = (typeof SpeciesTrait)[keyof typeof SpeciesTrait];
+
+// Species appearance features
+export interface SpeciesAppearance {
+  bodyType:
+    | "humanoid"
+    | "insectoid"
+    | "reptilian"
+    | "avian"
+    | "aquatic"
+    | "crystalline"
+    | "gaseous"
+    | "mechanical";
+  skinColor: string; // hex color
+  eyeColor: string; // hex color
+  height: "short" | "medium" | "tall" | "variable";
+  build: "slender" | "average" | "stocky" | "massive";
+}
+
+// Alien species definition
+export interface Species {
+  id: string;
+  name: string;
+  homeworld: string; // Name of homeworld
+  homeworldId: string; // Planet ID
+  appearance: SpeciesAppearance;
+  traits: SpeciesTraitType[];
+  description: string;
+  createdAt: number;
+  playerId?: string; // If this is a player-controlled species
+}
+
+// Colony development stages
+export const ColonyStage = {
+  OUTPOST: "outpost", // Initial settlement (100-1000 population)
+  SETTLEMENT: "settlement", // Growing colony (1,000-10,000)
+  COLONY: "colony", // Established colony (10,000-100,000)
+  DEVELOPED: "developed", // Developed world (100,000-1M)
+  METROPOLIS: "metropolis", // Major population center (1M+)
+  ECUMENOPOLIS: "ecumenopolis", // Planet-wide city (10B+)
+} as const;
+
+export type ColonyStageType = (typeof ColonyStage)[keyof typeof ColonyStage];
+
+// Colony specialization types
+export const ColonySpecialization = {
+  BALANCED: "balanced", // Balanced production
+  RESEARCH: "research", // Science focus
+  INDUSTRIAL: "industrial", // Alloy focus
+} as const;
+
+export type ColonySpecializationType =
+  (typeof ColonySpecialization)[keyof typeof ColonySpecialization];
+
+// Colony on a planet
+export interface Colony {
+  id: string;
+  playerId: string;
+  speciesId: string;
+  systemId: string;
+  planetId: string;
+  planetName: string;
+  stage: ColonyStageType;
+  specialization: ColonySpecializationType;
+  population: number;
+  sciencePerDay: number;
+  alloyPerDay: number;
+  establishedAt: number;
+  lastYieldAt: number;
+}
+
+// Native civilization (for intelligent life planets)
+export interface NativeCivilization {
+  id: string;
+  speciesId: string;
+  planetId: string;
+  systemId: string;
+  civilizationLevel: CivilizationLevelType;
+  population: number;
+  attitude: "friendly" | "neutral" | "hostile" | "unknown";
+  discoveredAt?: number; // When player discovered them
+  discoveredBy?: string; // Player ID who discovered them
 }
 
 export const MegastructureType = {
@@ -208,6 +321,8 @@ export interface StarSystem {
   companionStars?: CelestialBodyType[]; // For binary/trinary systems
   miningOperations?: MiningOperation[]; // Active mining operations in this system
   megastructures?: Megastructure[]; // Megastructures in this system
+  colonies?: Colony[]; // Player colonies in this system
+  nativeCivilizations?: NativeCivilization[]; // Native alien civilizations
 }
 
 export interface Galaxy {

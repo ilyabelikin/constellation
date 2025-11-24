@@ -103,6 +103,9 @@ export class NetworkClient {
         count: number
       ) => void)
     | null = null;
+  public onColonyEstablished: ((colony: any) => void) | null = null;
+  public onColonyUpdated: ((colony: any) => void) | null = null;
+  public onSpeciesInfo: ((species: any) => void) | null = null;
   public onDisconnected: (() => void) | null = null;
   public onReconnected: (() => void) | null = null;
 
@@ -323,6 +326,21 @@ export class NetworkClient {
             );
           }
           break;
+        case "colonyEstablished":
+          if (this.onColonyEstablished) {
+            this.onColonyEstablished(message.colony);
+          }
+          break;
+        case "colonyUpdated":
+          if (this.onColonyUpdated) {
+            this.onColonyUpdated(message.colony);
+          }
+          break;
+        case "speciesInfo":
+          if (this.onSpeciesInfo) {
+            this.onSpeciesInfo(message.species);
+          }
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -412,7 +430,19 @@ export class NetworkClient {
     this.send({ type: "launchDysonSwarm", starId });
   }
 
-  debugAddResource(resourceType: "energy" | "alloy", amount: number): void {
+  establishColony(planetId: string, specialization: "balanced" | "research" | "industrial"): void {
+    this.send({ type: "establishColony", planetId, specialization });
+  }
+
+  updateColonySpecialization(colonyId: string, specialization: "balanced" | "research" | "industrial"): void {
+    this.send({ type: "updateColonySpecialization", colonyId, specialization });
+  }
+
+  requestSpeciesInfo(speciesId: string): void {
+    this.send({ type: "requestSpeciesInfo", speciesId });
+  }
+
+  debugAddResource(resourceType: "energy" | "alloy" | "science", amount: number): void {
     console.log(`[NetworkClient] Sending debugAddResource: ${resourceType} +${amount}`);
     this.send({ type: "debugAddResource", resourceType, amount });
   }

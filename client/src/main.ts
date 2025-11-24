@@ -26,6 +26,7 @@ class ConstellationClient {
   private isExploringFromConstellation = false; // Flag to stay in constellation view after gate travel
   private constellationNodes: ConstellationNode[] = []; // Store constellation data for system details
   private constellationSelectedSystemId: string | null = null; // Remember selected system when exploring
+  private isInitialConnection = true; // Track if this is the first connection or a reconnection
 
   constructor() {
     const container = document.getElementById("canvas-container")!;
@@ -53,14 +54,15 @@ class ConstellationClient {
   private setupNetworkHandlers(): void {
     this.network.onAuthenticated = (uuid, playerId) => {
       console.log("Authenticated:", uuid, playerId);
-      if (!playerId) {
-        // New player, show galaxy selection
-        // Auth modal is already visible
-      } else {
-        // Existing player - session will be restored by server
-        // Hide auth modal if it's showing (in case of reconnection)
+      // On initial page load, always keep the auth modal open
+      // even if we have an existing player. This allows the user
+      // to choose to reset the galaxy if desired.
+      // Only hide the modal on actual reconnections during gameplay.
+      if (!this.isInitialConnection && playerId) {
+        // This is a reconnection during gameplay, hide modal
         this.hud.hideAuthModal();
       }
+      // If this is initial connection, leave auth modal visible
     };
 
     this.network.onPlayerData = (player) => {
@@ -75,8 +77,8 @@ class ConstellationClient {
       // Set current player ID for gate ownership checks
       this.scene.setCurrentPlayerId(player.id);
       
-      // On reconnection, make sure auth modal is hidden
-      if (isReconnection) {
+      // Only hide auth modal on actual reconnection, not on initial load
+      if (isReconnection && !this.isInitialConnection) {
         this.hud.hideAuthModal();
       }
     };
@@ -224,6 +226,8 @@ class ConstellationClient {
       console.log("Galaxy joined:", galaxyId);
       this.hud.clearError();
       this.hud.hideAuthModal();
+      // Mark that we've successfully joined, so future reconnections work normally
+      this.isInitialConnection = false;
     };
 
     this.network.onGalaxyReset = (galaxyId) => {
@@ -474,6 +478,30 @@ class ConstellationClient {
       }, 0);
     };
 
+    this.network.onColonyEstablished = (colony) => {
+      console.log(`Colony established on ${colony.planetName}: ${colony.stage}`);
+      // Re-select the planet to show updated colony status
+      setTimeout(() => {
+        if (this.hud.onSelectObject) {
+          this.hud.onSelectObject(colony.planetId);
+        }
+      }, 0);
+    };
+
+    this.network.onColonyUpdated = (colony) => {
+      console.log(`Colony updated on ${colony.planetName}: ${colony.specialization}`);
+      // Re-select the planet to show updated colony status
+      setTimeout(() => {
+        if (this.hud.onSelectObject) {
+          this.hud.onSelectObject(colony.planetId);
+        }
+      }, 0);
+    };
+
+    this.network.onSpeciesInfo = (species) => {
+      this.hud.displaySpeciesInfo(species);
+    };
+
     // HUD callbacks
     this.hud.onSetPlayerStance = (targetPlayerId, stance) => {
       this.network.setPlayerStance(targetPlayerId, stance);
@@ -485,6 +513,14 @@ class ConstellationClient {
 
     this.hud.onLaunchDysonSwarm = (starId) => {
       this.network.launchDysonSwarm(starId);
+    };
+
+    this.hud.onEstablishColony = (planetId, specialization) => {
+      this.network.establishColony(planetId, specialization);
+    };
+
+    this.hud.onUpdateColonySpecialization = (colonyId, specialization) => {
+      this.network.updateColonySpecialization(colonyId, specialization);
     };
 
     this.hud.onGateTravel = (gateId) => {
@@ -526,20 +562,25 @@ class ConstellationClient {
       }, 500);
     });
 
-    // Also query on initial load
-    (async () => {
-      const name = galaxyNameInput.value.trim() || "the Milky Way";
-      if (!this.isConnected) {
-        await this.connect();
-      }
-      this.network.queryGalaxy(name);
-    })();
+    // Don't auto-query on initial load - let the user click "Explore" manually
+    // This allows them to use the "Reset Galaxy" button if needed
+    // (async () => {
+    //   const name = galaxyNameInput.value.trim() || "the Milky Way";
+    //   if (!this.isConnected) {
+    //     await this.connect();
+    //   }
+    //   this.network.queryGalaxy(name);
+    // })();
 
     this.hud.onExploreGalaxy = async (name) => {
       // Connect if not already connected
       if (!this.isConnected) {
         await this.connect();
       }
+      
+      // Query galaxy info first to show user if it exists
+      this.network.queryGalaxy(name);
+      
       // Get player name and join galaxy
       const playerName = this.hud.getPlayerName();
 
@@ -550,10 +591,27 @@ class ConstellationClient {
     };
 
     this.hud.onResetGalaxy = async (name) => {
-      // Connect if not already connected
+      // Clear the UUID to force a fresh start with a new player
+      localStorage.removeItem("constellation-uuid");
+      
+      // Clear existing player state
+      this.player = null;
+      this.system = null;
+      this.ship = null;
+      
+      // Reset to initial connection state since we're starting fresh
+      this.isInitialConnection = true;
+      
+      // Disconnect and reconnect to get a new UUID
+      if (this.network) {
+        this.isConnected = false;
+      }
+      
+      // Connect with new UUID
       if (!this.isConnected) {
         await this.connect();
       }
+      
       // Get player name and reset (delete and recreate) the galaxy
       const playerName = this.hud.getPlayerName();
       this.lastGalaxyName = name;

@@ -53,6 +53,8 @@ export class HUDManager {
   private energyDisplay: HTMLElement;
   private alloyDisplay: HTMLElement;
   private alloyRateDisplay: HTMLElement;
+  private scienceDisplay: HTMLElement;
+  private scienceRateDisplay: HTMLElement;
 
   // Notification toast
   private notificationToast: HTMLElement;
@@ -88,6 +90,21 @@ export class HUDManager {
   private playerProfileCloseButton: HTMLElement;
   private stanceButtons: NodeListOf<HTMLButtonElement>;
   private currentProfilePlayerId: string | null = null;
+
+  // Species info modal elements
+  private speciesInfoModal: HTMLElement;
+  private speciesButton: HTMLElement;
+  private speciesNameDisplay: HTMLElement;
+  private speciesInfoName: HTMLElement;
+  private speciesInfoHomeworld: HTMLElement;
+  private speciesInfoBodyType: HTMLElement;
+  private speciesInfoSkinColor: HTMLElement;
+  private speciesInfoEyeColor: HTMLElement;
+  private speciesInfoHeight: HTMLElement;
+  private speciesInfoBuild: HTMLElement;
+  private speciesInfoTraits: HTMLElement;
+  private speciesInfoDescription: HTMLElement;
+  private speciesInfoCloseButton: HTMLElement;
 
   private isPaused = false;
   private isTimeToggleLoading = false;
@@ -128,6 +145,18 @@ export class HUDManager {
     | null = null;
   public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
   public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
+  public onEstablishColony:
+    | ((
+        planetId: string,
+        specialization: "balanced" | "research" | "industrial"
+      ) => void)
+    | null = null;
+  public onUpdateColonySpecialization:
+    | ((
+        colonyId: string,
+        specialization: "balanced" | "research" | "industrial"
+      ) => void)
+    | null = null;
 
   constructor() {
     // Auth modal
@@ -174,6 +203,8 @@ export class HUDManager {
     this.energyDisplay = document.getElementById("energy-display")!;
     this.alloyDisplay = document.getElementById("alloy-display")!;
     this.alloyRateDisplay = document.getElementById("alloy-rate")!;
+    this.scienceDisplay = document.getElementById("science-display")!;
+    this.scienceRateDisplay = document.getElementById("science-rate")!;
 
     // Notification toast
     this.notificationToast = document.getElementById("notification-toast")!;
@@ -215,6 +246,33 @@ export class HUDManager {
     this.playerProfileCloseButton = document.getElementById(
       "player-profile-close-button"
     )!;
+
+    // Species info modal elements
+    this.speciesInfoModal = document.getElementById("species-info-modal")!;
+    this.speciesButton = document.getElementById("species-button")!;
+    this.speciesNameDisplay = document.getElementById("species-name-display")!;
+    this.speciesInfoName = document.getElementById("species-info-name")!;
+    this.speciesInfoHomeworld = document.getElementById(
+      "species-info-homeworld"
+    )!;
+    this.speciesInfoBodyType = document.getElementById(
+      "species-info-body-type"
+    )!;
+    this.speciesInfoSkinColor = document.getElementById(
+      "species-info-skin-color"
+    )!;
+    this.speciesInfoEyeColor = document.getElementById(
+      "species-info-eye-color"
+    )!;
+    this.speciesInfoHeight = document.getElementById("species-info-height")!;
+    this.speciesInfoBuild = document.getElementById("species-info-build")!;
+    this.speciesInfoTraits = document.getElementById("species-info-traits")!;
+    this.speciesInfoDescription = document.getElementById(
+      "species-info-description"
+    )!;
+    this.speciesInfoCloseButton = document.getElementById(
+      "species-info-close-button"
+    )!;
     this.stanceButtons = document.querySelectorAll(".stance-button")!;
 
     // Player profile close button handler
@@ -241,6 +299,23 @@ export class HUDManager {
           this.updateStanceButtonHighlight(stance);
         }
       });
+    });
+
+    // Species button handler
+    this.speciesButton.addEventListener("click", () => {
+      this.showSpeciesInfo();
+    });
+
+    // Species info close button handler
+    this.speciesInfoCloseButton.addEventListener("click", () => {
+      this.closeSpeciesInfoModal();
+    });
+
+    // Close species info modal when clicking outside
+    this.speciesInfoModal.addEventListener("click", (e) => {
+      if (e.target === this.speciesInfoModal) {
+        this.closeSpeciesInfoModal();
+      }
     });
 
     // Initialize detail views
@@ -562,7 +637,13 @@ export class HUDManager {
 
     // Floor alloy to 2 decimal places (round down, not up)
     const alloyFloored = Math.floor(this.player.alloy * 100) / 100;
+
+    // Floor science to 2 decimal places
+    const scienceFloored = Math.floor(this.player.science * 100) / 100;
     this.alloyDisplay.textContent = alloyFloored.toFixed(2);
+
+    // Display science
+    this.scienceDisplay.textContent = scienceFloored.toFixed(2);
 
     // Display alloy income rate from mining operations
     if (this.player.alloyPerDay !== undefined) {
@@ -579,6 +660,23 @@ export class HUDManager {
     } else {
       // If no rate data yet, clear the display
       this.alloyRateDisplay.textContent = "";
+    }
+
+    // Display science income rate from colonies
+    if (this.player.sciencePerDay !== undefined) {
+      const scienceRate = this.player.sciencePerDay;
+
+      // Format with + or - sign and 2 decimal places
+      const formattedRate =
+        (scienceRate >= 0 ? "+" : "") + scienceRate.toFixed(2);
+      this.scienceRateDisplay.textContent = formattedRate + "/d";
+
+      // Color based on positive/negative
+      this.scienceRateDisplay.style.color =
+        scienceRate >= 0 ? "#10b981" : "#ef4444";
+    } else {
+      // If no rate data yet, clear the display
+      this.scienceRateDisplay.textContent = "";
     }
   }
 
@@ -1332,6 +1430,30 @@ export class HUDManager {
         this.onLaunchDysonSwarm(starId);
       }
     };
+
+    this.bodyDetailView.onEstablishColony = (
+      planetId: string,
+      specialization: string
+    ) => {
+      if (this.onEstablishColony) {
+        this.onEstablishColony(
+          planetId,
+          specialization as "balanced" | "research" | "industrial"
+        );
+      }
+    };
+
+    this.bodyDetailView.onUpdateColonySpecialization = (
+      colonyId: string,
+      specialization: string
+    ) => {
+      if (this.onUpdateColonySpecialization) {
+        this.onUpdateColonySpecialization(
+          colonyId,
+          specialization as "balanced" | "research" | "industrial"
+        );
+      }
+    };
   }
 
   showPlayerDiscovery(
@@ -1501,6 +1623,69 @@ export class HUDManager {
     this.playerProfileModal.classList.add("hidden");
     this.playerProfileModal.style.display = "none";
     this.currentProfilePlayerId = null;
+  }
+
+  showSpeciesInfo(): void {
+    if (!this.player || !this.player.speciesId) {
+      this.showNotification("No species information available", 2000);
+      return;
+    }
+
+    // Request species info from server
+    if (this.networkClient) {
+      this.networkClient.requestSpeciesInfo(this.player.speciesId);
+    }
+  }
+
+  displaySpeciesInfo(species: any): void {
+    // Update button with species name
+    this.speciesNameDisplay.textContent = species.name;
+
+    // Set species data
+    this.speciesInfoName.textContent = species.name;
+    this.speciesInfoHomeworld.textContent = species.homeworld;
+    this.speciesInfoBodyType.textContent =
+      species.appearance.bodyType.charAt(0).toUpperCase() +
+      species.appearance.bodyType.slice(1);
+
+    // Set appearance colors
+    this.speciesInfoSkinColor.style.backgroundColor =
+      species.appearance.skinColor;
+    this.speciesInfoEyeColor.style.backgroundColor =
+      species.appearance.eyeColor;
+
+    // Set height and build
+    this.speciesInfoHeight.textContent =
+      species.appearance.height.charAt(0).toUpperCase() +
+      species.appearance.height.slice(1);
+    this.speciesInfoBuild.textContent =
+      species.appearance.build.charAt(0).toUpperCase() +
+      species.appearance.build.slice(1);
+
+    // Set traits as badges
+    this.speciesInfoTraits.innerHTML = "";
+    species.traits.forEach((trait: string) => {
+      const badge = document.createElement("span");
+      badge.style.cssText =
+        "display: inline-block; padding: 4px 10px; background: rgba(139, 92, 246, 0.2); border: 1px solid #8b5cf6; border-radius: 12px; font-size: 12px; color: #c4b5fd;";
+      badge.textContent = trait
+        .split("_")
+        .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+      this.speciesInfoTraits.appendChild(badge);
+    });
+
+    // Set description
+    this.speciesInfoDescription.textContent = species.description;
+
+    // Show modal
+    this.speciesInfoModal.classList.remove("hidden");
+    this.speciesInfoModal.style.display = "flex";
+  }
+
+  private closeSpeciesInfoModal(): void {
+    this.speciesInfoModal.classList.add("hidden");
+    this.speciesInfoModal.style.display = "none";
   }
 
   /**

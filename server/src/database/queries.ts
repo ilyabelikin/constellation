@@ -11,6 +11,9 @@ import {
   MiningOperation,
   MAX_ALLOY_STOCKPILE,
   Megastructure,
+  Species,
+  Colony,
+  NativeCivilization,
 } from "@constellation/shared";
 
 export class DatabaseQueries {
@@ -132,6 +135,12 @@ export class DatabaseQueries {
     // Load megastructures for this system
     const megastructures = this.getMegastructuresBySystem(row.id);
     
+    // Load colonies for this system
+    const colonies = this.getColoniesBySystemId(row.id);
+    
+    // Load native civilizations for this system
+    const nativeCivilizations = this.getNativeCivilizationsBySystemId(row.id);
+    
     return {
       id: row.id,
       galaxyId: row.galaxy_id,
@@ -145,6 +154,8 @@ export class DatabaseQueries {
       gates,
       miningOperations,
       megastructures,
+      colonies,
+      nativeCivilizations,
     };
   }
 
@@ -174,7 +185,7 @@ export class DatabaseQueries {
   // Player operations
   createPlayer(player: Player): void {
     const stmt = this.db.prepare(
-      "INSERT INTO players (id, uuid, name, galaxy_id, home_system_id, home_planet_id, current_system_id, energy, alloy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO players (id, uuid, name, galaxy_id, home_system_id, home_planet_id, current_system_id, energy, alloy, science, species_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       player.id,
@@ -185,7 +196,9 @@ export class DatabaseQueries {
       player.homePlanetId,
       player.currentSystemId,
       player.energy || 10,
-      player.alloy || 10
+      player.alloy || 10,
+      player.science || 0,
+      player.speciesId || null
     );
   }
 
@@ -206,6 +219,8 @@ export class DatabaseQueries {
       exploredGateIds,
       energy: row.energy ?? 10,
       alloy: row.alloy ?? 10,
+      science: row.science ?? 0,
+      speciesId: row.species_id || undefined,
     };
   }
 
@@ -224,6 +239,9 @@ export class DatabaseQueries {
       .filter(m => m.resourceType === 'energy')
       .reduce((sum, m) => sum + (m.resourcePerDay || 0), 0);
     
+    const colonies = this.getColoniesByPlayerId(row.id);
+    const sciencePerDay = colonies.reduce((sum, col) => sum + col.sciencePerDay, 0);
+    
     return {
       id: row.id,
       uuid: row.uuid,
@@ -236,8 +254,11 @@ export class DatabaseQueries {
       exploredGateIds,
       energy: row.energy ?? 10,
       alloy: row.alloy ?? 10,
+      science: row.science ?? 0,
       energyPerDay,
       alloyPerDay,
+      sciencePerDay,
+      speciesId: row.species_id || undefined,
     };
   }
 
@@ -254,24 +275,25 @@ export class DatabaseQueries {
   }
 
   // Resource management
-  updatePlayerResources(playerId: string, energy: number, alloy: number): void {
+  updatePlayerResources(playerId: string, energy: number, alloy: number, science: number): void {
     const stmt = this.db.prepare(
-      "UPDATE players SET energy = ?, alloy = ? WHERE id = ?"
+      "UPDATE players SET energy = ?, alloy = ?, science = ? WHERE id = ?"
     );
-    stmt.run(energy, alloy, playerId);
+    stmt.run(energy, alloy, science, playerId);
   }
 
   getPlayerResources(
     playerId: string
-  ): { energy: number; alloy: number } | null {
+  ): { energy: number; alloy: number; science: number } | null {
     const stmt = this.db.prepare(
-      "SELECT energy, alloy FROM players WHERE id = ?"
+      "SELECT energy, alloy, science FROM players WHERE id = ?"
     );
     const row = stmt.get(playerId) as any;
     if (!row) return null;
     return {
       energy: row.energy ?? 10,
       alloy: row.alloy ?? 10,
+      science: row.science ?? 0,
     };
   }
 
@@ -298,6 +320,13 @@ export class DatabaseQueries {
     // Cap alloy at maximum stockpile
     const stmt = this.db.prepare(
       `UPDATE players SET alloy = MIN(alloy + ?, ${MAX_ALLOY_STOCKPILE}) WHERE id = ?`
+    );
+    stmt.run(amount, playerId);
+  }
+
+  addPlayerScience(playerId: string, amount: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE players SET science = science + ? WHERE id = ?"
     );
     stmt.run(amount, playerId);
   }
@@ -520,6 +549,40 @@ export class DatabaseQueries {
     }
   }
 
+  /**
+   * Process colony resource yields based on current game time
+   */
+  processColonyYields(currentTime: number): void {
+    // Get all colonies
+    const stmt = this.db.prepare("SELECT * FROM colonies");
+    const rows = stmt.all() as any[];
+
+    for (const row of rows) {
+      const timeSinceLastYield = currentTime - row.last_yield_at;
+      const daysElapsed = timeSinceLastYield / (24 * 60 * 60);
+
+      if (daysElapsed >= 1) {
+        // Award resources for full days
+        const fullDays = Math.floor(daysElapsed);
+        
+        const scienceToAdd = row.science_per_day * fullDays;
+        const alloyToAdd = row.alloy_per_day * fullDays;
+
+        // Add resources to player (no energy from colonies)
+        if (scienceToAdd > 0) {
+          this.addPlayerScience(row.player_id, scienceToAdd);
+        }
+        if (alloyToAdd > 0) {
+          this.addPlayerAlloy(row.player_id, alloyToAdd);
+        }
+
+        // Update last yield time
+        const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+        this.updateColonyYield(row.id, newLastYieldAt);
+      }
+    }
+  }
+
   // Calculate total energy bonus from Dyson Swarms for a player
   getTotalDysonSwarmEnergy(playerId: string): number {
     const stmt = this.db.prepare(
@@ -546,6 +609,8 @@ export class DatabaseQueries {
         exploredGateIds,
         energy: row.energy ?? 10,
         alloy: row.alloy ?? 10,
+        science: row.science ?? 0,
+        speciesId: row.species_id || undefined,
       };
     });
   }
@@ -710,6 +775,8 @@ export class DatabaseQueries {
         exploredGateIds,
         energy: row.energy ?? 10,
         alloy: row.alloy ?? 10,
+        science: row.science ?? 0,
+        speciesId: row.species_id || undefined,
       };
     });
   }
@@ -735,6 +802,8 @@ export class DatabaseQueries {
       exploredGateIds: [],
       energy: row.energy ?? 10,
       alloy: row.alloy ?? 10,
+      science: row.science ?? 0,
+      speciesId: row.species_id || undefined,
     }));
   }
 
@@ -1627,5 +1696,366 @@ export class DatabaseQueries {
         `Transferred mystery position for gate ${gateId} to system ${newSystemId}`
       );
     }
+  }
+
+  // ==================== Species Operations ====================
+
+  /**
+   * Create a new species
+   */
+  createSpecies(species: Species): void {
+    const stmt = this.db.prepare(
+      "INSERT INTO species (id, name, homeworld, homeworld_id, appearance, traits, description, created_at, player_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    stmt.run(
+      species.id,
+      species.name,
+      species.homeworld,
+      species.homeworldId,
+      JSON.stringify(species.appearance),
+      JSON.stringify(species.traits),
+      species.description,
+      species.createdAt,
+      species.playerId || null
+    );
+  }
+
+  /**
+   * Get a species by ID
+   */
+  getSpeciesById(speciesId: string): Species | null {
+    const stmt = this.db.prepare("SELECT * FROM species WHERE id = ?");
+    const row = stmt.get(speciesId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      name: row.name,
+      homeworld: row.homeworld,
+      homeworldId: row.homeworld_id,
+      appearance: JSON.parse(row.appearance),
+      traits: JSON.parse(row.traits),
+      description: row.description,
+      createdAt: row.created_at,
+      playerId: row.player_id || undefined,
+    };
+  }
+
+  /**
+   * Get all species for a player
+   */
+  getSpeciesByPlayerId(playerId: string): Species | null {
+    const stmt = this.db.prepare("SELECT * FROM species WHERE player_id = ?");
+    const row = stmt.get(playerId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      name: row.name,
+      homeworld: row.homeworld,
+      homeworldId: row.homeworld_id,
+      appearance: JSON.parse(row.appearance),
+      traits: JSON.parse(row.traits),
+      description: row.description,
+      createdAt: row.created_at,
+      playerId: row.player_id || undefined,
+    };
+  }
+
+  /**
+   * Get species by homeworld ID
+   */
+  getSpeciesByHomeworldId(homeworldId: string): Species | null {
+    const stmt = this.db.prepare("SELECT * FROM species WHERE homeworld_id = ?");
+    const row = stmt.get(homeworldId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      name: row.name,
+      homeworld: row.homeworld,
+      homeworldId: row.homeworld_id,
+      appearance: JSON.parse(row.appearance),
+      traits: JSON.parse(row.traits),
+      description: row.description,
+      createdAt: row.created_at,
+      playerId: row.player_id || undefined,
+    };
+  }
+
+  // ==================== Colony Operations ====================
+
+  /**
+   * Create a new colony
+   */
+  createColony(colony: Colony): void {
+    const stmt = this.db.prepare(
+      `INSERT INTO colonies (id, player_id, species_id, system_id, planet_id, planet_name, 
+       stage, specialization, population, science_per_day, energy_per_day, alloy_per_day, 
+       established_at, last_yield_at) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    stmt.run(
+      colony.id,
+      colony.playerId,
+      colony.speciesId,
+      colony.systemId,
+      colony.planetId,
+      colony.planetName,
+      colony.stage,
+      colony.specialization,
+      colony.population,
+      colony.sciencePerDay,
+      0, // energy_per_day is deprecated (colonies don't produce energy)
+      colony.alloyPerDay,
+      colony.establishedAt,
+      colony.lastYieldAt
+    );
+  }
+
+  /**
+   * Get colony by ID
+   */
+  getColonyById(colonyId: string): Colony | null {
+    const stmt = this.db.prepare("SELECT * FROM colonies WHERE id = ?");
+    const row = stmt.get(colonyId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      playerId: row.player_id,
+      speciesId: row.species_id,
+      systemId: row.system_id,
+      planetId: row.planet_id,
+      planetName: row.planet_name,
+      stage: row.stage,
+      specialization: row.specialization,
+      population: row.population,
+      sciencePerDay: row.science_per_day,
+      alloyPerDay: row.alloy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    };
+  }
+
+  /**
+   * Get all colonies for a player
+   */
+  getColoniesByPlayerId(playerId: string): Colony[] {
+    const stmt = this.db.prepare("SELECT * FROM colonies WHERE player_id = ?");
+    const rows = stmt.all(playerId) as any[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      speciesId: row.species_id,
+      systemId: row.system_id,
+      planetId: row.planet_id,
+      planetName: row.planet_name,
+      stage: row.stage,
+      specialization: row.specialization,
+      population: row.population,
+      sciencePerDay: row.science_per_day,
+      alloyPerDay: row.alloy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    }));
+  }
+
+  /**
+   * Get all colonies in a system
+   */
+  getColoniesBySystemId(systemId: string): Colony[] {
+    const stmt = this.db.prepare("SELECT * FROM colonies WHERE system_id = ?");
+    const rows = stmt.all(systemId) as any[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      speciesId: row.species_id,
+      systemId: row.system_id,
+      planetId: row.planet_id,
+      planetName: row.planet_name,
+      stage: row.stage,
+      specialization: row.specialization,
+      population: row.population,
+      sciencePerDay: row.science_per_day,
+      alloyPerDay: row.alloy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    }));
+  }
+
+  /**
+   * Get colony on a specific planet
+   */
+  getColonyByPlanetId(planetId: string): Colony | null {
+    const stmt = this.db.prepare("SELECT * FROM colonies WHERE planet_id = ?");
+    const row = stmt.get(planetId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      playerId: row.player_id,
+      speciesId: row.species_id,
+      systemId: row.system_id,
+      planetId: row.planet_id,
+      planetName: row.planet_name,
+      stage: row.stage,
+      specialization: row.specialization,
+      population: row.population,
+      sciencePerDay: row.science_per_day,
+      alloyPerDay: row.alloy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    };
+  }
+
+  /**
+   * Update colony resource yields
+   */
+  updateColonyYield(colonyId: string, lastYieldAt: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE colonies SET last_yield_at = ? WHERE id = ?"
+    );
+    stmt.run(lastYieldAt, colonyId);
+  }
+
+  /**
+   * Update colony development (stage, population, yields)
+   */
+  updateColony(colony: Colony): void {
+    const stmt = this.db.prepare(
+      `UPDATE colonies SET stage = ?, specialization = ?, population = ?, 
+       science_per_day = ?, energy_per_day = ?, alloy_per_day = ?, 
+       last_yield_at = ? WHERE id = ?`
+    );
+    stmt.run(
+      colony.stage,
+      colony.specialization,
+      colony.population,
+      colony.sciencePerDay,
+      0, // energy_per_day is deprecated (colonies don't produce energy)
+      colony.alloyPerDay,
+      colony.lastYieldAt,
+      colony.id
+    );
+  }
+
+  // ==================== Native Civilization Operations ====================
+
+  /**
+   * Create a native civilization
+   */
+  createNativeCivilization(civilization: NativeCivilization): void {
+    const stmt = this.db.prepare(
+      `INSERT INTO native_civilizations (id, species_id, planet_id, system_id, 
+       civilization_level, population, attitude, discovered_at, discovered_by) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    stmt.run(
+      civilization.id,
+      civilization.speciesId,
+      civilization.planetId,
+      civilization.systemId,
+      civilization.civilizationLevel,
+      civilization.population,
+      civilization.attitude,
+      civilization.discoveredAt || null,
+      civilization.discoveredBy || null
+    );
+  }
+
+  /**
+   * Get native civilization by ID
+   */
+  getNativeCivilizationById(civId: string): NativeCivilization | null {
+    const stmt = this.db.prepare("SELECT * FROM native_civilizations WHERE id = ?");
+    const row = stmt.get(civId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      speciesId: row.species_id,
+      planetId: row.planet_id,
+      systemId: row.system_id,
+      civilizationLevel: row.civilization_level,
+      population: row.population,
+      attitude: row.attitude,
+      discoveredAt: row.discovered_at || undefined,
+      discoveredBy: row.discovered_by || undefined,
+    };
+  }
+
+  /**
+   * Get native civilizations in a system
+   */
+  getNativeCivilizationsBySystemId(systemId: string): NativeCivilization[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM native_civilizations WHERE system_id = ?"
+    );
+    const rows = stmt.all(systemId) as any[];
+
+    return rows.map((row) => ({
+      id: row.id,
+      speciesId: row.species_id,
+      planetId: row.planet_id,
+      systemId: row.system_id,
+      civilizationLevel: row.civilization_level,
+      population: row.population,
+      attitude: row.attitude,
+      discoveredAt: row.discovered_at || undefined,
+      discoveredBy: row.discovered_by || undefined,
+    }));
+  }
+
+  /**
+   * Get native civilization on a specific planet
+   */
+  getNativeCivilizationByPlanetId(planetId: string): NativeCivilization | null {
+    const stmt = this.db.prepare(
+      "SELECT * FROM native_civilizations WHERE planet_id = ?"
+    );
+    const row = stmt.get(planetId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      speciesId: row.species_id,
+      planetId: row.planet_id,
+      systemId: row.system_id,
+      civilizationLevel: row.civilization_level,
+      population: row.population,
+      attitude: row.attitude,
+      discoveredAt: row.discovered_at || undefined,
+      discoveredBy: row.discovered_by || undefined,
+    };
+  }
+
+  /**
+   * Update native civilization discovery info
+   */
+  updateNativeCivilizationDiscovery(
+    civId: string,
+    discoveredAt: number,
+    discoveredBy: string
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE native_civilizations SET discovered_at = ?, discovered_by = ? WHERE id = ?"
+    );
+    stmt.run(discoveredAt, discoveredBy, civId);
+  }
+
+  /**
+   * Update native civilization attitude
+   */
+  updateNativeCivilizationAttitude(
+    civId: string,
+    attitude: "friendly" | "neutral" | "hostile" | "unknown"
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE native_civilizations SET attitude = ? WHERE id = ?"
+    );
+    stmt.run(attitude, civId);
   }
 }

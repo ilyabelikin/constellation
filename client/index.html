@@ -497,6 +497,9 @@
 
     <!-- Top Left Navigation -->
     <div class="hud hud-top-left">
+        <button class="hud-button" id="species-button" title="Species Info (S)" style="padding: 5px;">
+            <span id="species-name-display">Species</span>
+        </button>
         <button class="hud-button" id="nav-home">Home</button>
         <button class="hud-button active" id="nav-system">System</button>
         <button class="hud-button" id="nav-constellation">Constellation</button>
@@ -513,6 +516,11 @@
                 <span style="color: #94a3b8; font-size: 15px;">⛏</span>
                 <span id="alloy-display" style="font-weight: bold; font-size: 14px; color: #94a3b8;">10</span>
                 <span id="alloy-rate" style="font-size: 10px; margin-left: 4px;"></span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+                <span style="color: #a78bfa; font-size: 15px;">🔬</span>
+                <span id="science-display" style="font-weight: bold; font-size: 14px; color: #a78bfa;">0</span>
+                <span id="science-rate" style="font-size: 10px; margin-left: 4px;"></span>
             </div>
         </div>
     </div>
@@ -599,6 +607,27 @@
             </div>
             <button class="hud-button" id="body-dyson-button" style="width: 100%;">
                 ☀ Launch Dyson Swarm (10 ⛏)
+            </button>
+        </div>
+        <div id="body-colony-section" style="display: none; margin-top: 1rem;">
+            <div id="body-colony-status" class="detail-value" style="display: none; margin-bottom: 0.5rem;">
+                <div style="color: #a78bfa; margin-bottom: 0.5rem;">
+                    🏙 Colony: <span id="body-colony-stage">-</span> (<span id="body-colony-population">-</span>)
+                </div>
+                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 0.5rem;">
+                    Specialization: <span id="body-colony-specialization">-</span>
+                </div>
+                <div style="font-size: 11px; color: #64748b;">
+                    <span id="body-colony-science">-</span> 🔬/d | <span id="body-colony-alloy">-</span> ⛏/d
+                </div>
+                <div id="body-colony-specialization-buttons" style="margin-top: 0.75rem; display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px;">
+                    <button class="hud-button" data-specialization="balanced" style="font-size: 10px; padding: 4px;">⚖️ Balanced</button>
+                    <button class="hud-button" data-specialization="research" style="font-size: 10px; padding: 4px;">🔬 Research</button>
+                    <button class="hud-button" data-specialization="industrial" style="font-size: 10px; padding: 4px;">⛏ Industrial</button>
+                </div>
+            </div>
+            <button class="hud-button" id="body-colonize-button" style="width: 100%;">
+                🏙 Establish Colony (5 ⚡ 5 ⛏ 5 🔬)
             </button>
         </div>
     </div>
@@ -731,6 +760,60 @@
                 </button>
             </div>
             <button class="hud-button" id="player-profile-close-button" style="padding: 10px 30px; font-size: 14px; margin-top: 20px; width: 100%;">Close</button>
+        </div>
+    </div>
+
+    <!-- Species Info Modal -->
+    <div id="species-info-modal" class="hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 250; display: none; align-items: center; justify-content: center;">
+        <div style="background: var(--primary-color-dark); border: 2px solid var(--primary-color); border-radius: 12px; padding: 30px; min-width: 450px; max-width: 600px;">
+            <h2 id="species-info-name" style="color: var(--primary-color); margin-bottom: 15px; font-size: 22px;">Species Name</h2>
+            
+            <div style="margin-bottom: 20px;">
+                <div class="detail-row">
+                    <span class="detail-label">Homeworld:</span>
+                    <span class="detail-value" id="species-info-homeworld">-</span>
+                </div>
+                <div class="detail-row">
+                    <span class="detail-label">Body Type:</span>
+                    <span class="detail-value" id="species-info-body-type">-</span>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: #94a3b8; font-size: 14px; margin-bottom: 10px; font-weight: 600;">Appearance</h3>
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; font-size: 13px;">
+                    <div>
+                        <span style="color: #64748b;">Skin:</span> 
+                        <span id="species-info-skin-color" style="display: inline-block; width: 16px; height: 16px; border-radius: 3px; vertical-align: middle; border: 1px solid #475569;"></span>
+                    </div>
+                    <div>
+                        <span style="color: #64748b;">Eyes:</span> 
+                        <span id="species-info-eye-color" style="display: inline-block; width: 16px; height: 16px; border-radius: 50%; vertical-align: middle; border: 1px solid #475569;"></span>
+                    </div>
+                    <div>
+                        <span style="color: #64748b;">Height:</span> 
+                        <span id="species-info-height" style="color: #cbd5e1;">-</span>
+                    </div>
+                    <div>
+                        <span style="color: #64748b;">Build:</span> 
+                        <span id="species-info-build" style="color: #cbd5e1;">-</span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: #94a3b8; font-size: 14px; margin-bottom: 10px; font-weight: 600;">Traits</h3>
+                <div id="species-info-traits" style="display: flex; flex-wrap: wrap; gap: 6px;">
+                    <!-- Trait badges will be inserted here -->
+                </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+                <h3 style="color: #94a3b8; font-size: 14px; margin-bottom: 8px; font-weight: 600;">Description</h3>
+                <p id="species-info-description" style="color: #cbd5e1; font-size: 13px; line-height: 1.6;">-</p>
+            </div>
+
+            <button class="hud-button" id="species-info-close-button" style="padding: 10px 30px; font-size: 14px; width: 100%;">Close</button>
         </div>
     </div>
 
