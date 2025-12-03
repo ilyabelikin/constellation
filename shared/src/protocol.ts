@@ -77,8 +77,8 @@ export type ServerMessage =
   | { type: "authenticated"; uuid: string; playerId: string | null }
   | { type: "error"; message: string }
   | { type: "playerData"; player: Player }
-  | { 
-      type: "systemData"; 
+  | {
+      type: "systemData";
       system: StarSystem;
       gateOwnership?: Array<{
         gateId: string;

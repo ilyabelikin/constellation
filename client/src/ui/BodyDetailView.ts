@@ -6,6 +6,7 @@ import {
   CivilizationLevel,
   Player,
   StarSystem,
+  formatLargeNumber,
 } from "@constellation/shared";
 
 /**
@@ -58,8 +59,12 @@ export class BodyDetailView {
   private colonyAlloy: HTMLElement | null;
   private colonizeButton: HTMLButtonElement | null;
   private specializationButtons: NodeListOf<HTMLButtonElement> | null;
-  public onEstablishColony: ((planetId: string, specialization: string) => void) | null = null;
-  public onUpdateColonySpecialization: ((colonyId: string, specialization: string) => void) | null = null;
+  public onEstablishColony:
+    | ((planetId: string, specialization: string) => void)
+    | null = null;
+  public onUpdateColonySpecialization:
+    | ((colonyId: string, specialization: string) => void)
+    | null = null;
 
   // Home planet reference for relative mass display
   private homePlanetMass: number = EARTH_MASS;
@@ -122,11 +127,17 @@ export class BodyDetailView {
     this.colonyStatus = document.getElementById("body-colony-status");
     this.colonyStage = document.getElementById("body-colony-stage");
     this.colonyPopulation = document.getElementById("body-colony-population");
-    this.colonySpecialization = document.getElementById("body-colony-specialization");
+    this.colonySpecialization = document.getElementById(
+      "body-colony-specialization"
+    );
     this.colonyScience = document.getElementById("body-colony-science");
     this.colonyAlloy = document.getElementById("body-colony-alloy");
-    this.colonizeButton = document.getElementById("body-colonize-button") as HTMLButtonElement;
-    this.specializationButtons = document.querySelectorAll("#body-colony-specialization-buttons button");
+    this.colonizeButton = document.getElementById(
+      "body-colonize-button"
+    ) as HTMLButtonElement;
+    this.specializationButtons = document.querySelectorAll(
+      "#body-colony-specialization-buttons button"
+    );
 
     // Bind colonize button click
     if (this.colonizeButton) {
@@ -143,7 +154,11 @@ export class BodyDetailView {
       this.specializationButtons.forEach((button) => {
         button.addEventListener("click", () => {
           const specialization = button.getAttribute("data-specialization");
-          if (specialization && this.currentBody && this.onUpdateColonySpecialization) {
+          if (
+            specialization &&
+            this.currentBody &&
+            this.onUpdateColonySpecialization
+          ) {
             // Find the colony ID for this planet
             const colony = this.currentSystem?.colonies?.find(
               (c) => c.planetId === this.currentBody.id
@@ -464,7 +479,11 @@ export class BodyDetailView {
     }
 
     // Show/hide Colony section for habitable planets
-    if (body.type === "planet" && body.habitability !== undefined && body.habitability >= 0.3) {
+    if (
+      body.type === "planet" &&
+      body.habitability !== undefined &&
+      body.habitability >= 0.3
+    ) {
       if (this.colonySection) {
         this.colonySection.style.display = "block";
 
@@ -478,30 +497,36 @@ export class BodyDetailView {
           if (this.colonyStatus) {
             this.colonyStatus.style.display = "block";
             if (this.colonyStage) {
-              this.colonyStage.textContent = existingColony.stage.charAt(0).toUpperCase() + existingColony.stage.slice(1);
+              this.colonyStage.textContent =
+                existingColony.stage.charAt(0).toUpperCase() +
+                existingColony.stage.slice(1);
             }
             if (this.colonyPopulation) {
-              const popFormatted = existingColony.population >= 1000000 
-                ? `${(existingColony.population / 1000000).toFixed(1)}M`
-                : existingColony.population >= 1000
-                ? `${(existingColony.population / 1000).toFixed(1)}K`
-                : existingColony.population.toString();
-              this.colonyPopulation.textContent = popFormatted;
+              this.colonyPopulation.textContent = formatLargeNumber(
+                existingColony.population
+              );
             }
             if (this.colonySpecialization) {
-              this.colonySpecialization.textContent = existingColony.specialization.charAt(0).toUpperCase() + existingColony.specialization.slice(1);
+              this.colonySpecialization.textContent =
+                existingColony.specialization.charAt(0).toUpperCase() +
+                existingColony.specialization.slice(1);
             }
             if (this.colonyScience) {
-              this.colonyScience.textContent = existingColony.sciencePerDay.toFixed(2);
+              this.colonyScience.textContent =
+                existingColony.sciencePerDay.toFixed(2);
             }
             if (this.colonyAlloy) {
-              this.colonyAlloy.textContent = existingColony.alloyPerDay.toFixed(2);
+              this.colonyAlloy.textContent =
+                existingColony.alloyPerDay.toFixed(2);
             }
 
             // Highlight current specialization button
             if (this.specializationButtons) {
               this.specializationButtons.forEach((btn) => {
-                if (btn.getAttribute("data-specialization") === existingColony.specialization) {
+                if (
+                  btn.getAttribute("data-specialization") ===
+                  existingColony.specialization
+                ) {
                   btn.style.background = "#8b5cf6";
                   btn.style.fontWeight = "bold";
                 } else {

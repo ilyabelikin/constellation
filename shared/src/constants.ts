@@ -22,8 +22,32 @@ export const STATE_UPDATE_RATE = 5; // Hz (send state updates to clients)
 
 // Resource constants
 export const MAX_ALLOY_STOCKPILE = 500; // Maximum alloy that can be stored
+export const MAX_SCIENCE_STOCKPILE = 500; // Maximum science that can be stored
 
 // Megastructure constants
 export const DYSON_SWARM_COST = 10; // Alloy cost to build one swarm
 export const DYSON_SWARM_ENERGY_PER_DAY = 1; // Energy generated per day per swarm
 export const MAX_DYSON_SWARMS_PER_STAR = 30; // Maximum swarms per star
+
+// Population constants
+// Maximum population is based on planet radius (surface area scales with radius²)
+// Earth-like planet (6.4M km radius) can support ~10 billion at ecumenopolis stage
+// Population scales with surface area: pop = BASE_POP_PER_RADIUS² * (radius/EARTH_RADIUS)²
+export const BASE_POPULATION_DENSITY = 2.44e-7; // Population per m² at max capacity (10B / 4πr² for Earth)
+
+/**
+ * Format a large number with appropriate suffix (K, M, B, T)
+ */
+export function formatLargeNumber(value: number, decimals: number = 1): string {
+  if (value >= 1e12) {
+    return `${(value / 1e12).toFixed(decimals)}T`;
+  } else if (value >= 1e9) {
+    return `${(value / 1e9).toFixed(decimals)}B`;
+  } else if (value >= 1e6) {
+    return `${(value / 1e6).toFixed(decimals)}M`;
+  } else if (value >= 1e3) {
+    return `${(value / 1e3).toFixed(decimals)}K`;
+  } else {
+    return value.toString();
+  }
+}

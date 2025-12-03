@@ -112,6 +112,7 @@ export class HUDManager {
     null;
   private metPlayers: { id: string; name: string }[] = [];
   private networkClient: any = null; // Reference to network client for requesting stats
+  private shouldShowSpeciesModal = false; // Track whether to show species modal on next response
 
   // Event handler references for cleanup
   private exploreGalaxyHandler: () => void;
@@ -621,11 +622,16 @@ export class HUDManager {
 
   setPlayer(player: Player): void {
     this.player = player;
-    this.hideAuthModal();
+    // Don't auto-hide auth modal here - let main.ts control when to hide it
+    // This allows the lobby screen to stay visible on page reload
     // Update body detail view with home planet reference
     this.bodyDetailView.setHomePlanet(this.player, this.system);
     // Update resource displays
     this.updateResourceDisplays();
+    // Request species info to update the species button name
+    if (this.player.speciesId && this.networkClient) {
+      this.networkClient.requestSpeciesInfo(this.player.speciesId);
+    }
   }
 
   private updateResourceDisplays(): void {
@@ -1631,6 +1637,9 @@ export class HUDManager {
       return;
     }
 
+    // Set flag to show modal when response arrives
+    this.shouldShowSpeciesModal = true;
+
     // Request species info from server
     if (this.networkClient) {
       this.networkClient.requestSpeciesInfo(this.player.speciesId);
@@ -1678,9 +1687,12 @@ export class HUDManager {
     // Set description
     this.speciesInfoDescription.textContent = species.description;
 
-    // Show modal
-    this.speciesInfoModal.classList.remove("hidden");
-    this.speciesInfoModal.style.display = "flex";
+    // Show modal only if flag is set (i.e., user clicked the button)
+    if (this.shouldShowSpeciesModal) {
+      this.speciesInfoModal.classList.remove("hidden");
+      this.speciesInfoModal.style.display = "flex";
+      this.shouldShowSpeciesModal = false; // Reset flag
+    }
   }
 
   private closeSpeciesInfoModal(): void {

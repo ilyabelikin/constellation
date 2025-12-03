@@ -169,10 +169,18 @@ export class ConstellationWebSocketServer {
           );
           break;
         case "establishColony":
-          this.handleEstablishColony(client, message.planetId, message.specialization);
+          this.handleEstablishColony(
+            client,
+            message.planetId,
+            message.specialization
+          );
           break;
         case "updateColonySpecialization":
-          this.handleUpdateColonySpecialization(client, message.colonyId, message.specialization);
+          this.handleUpdateColonySpecialization(
+            client,
+            message.colonyId,
+            message.specialization
+          );
           break;
         case "requestSpeciesInfo":
           this.handleRequestSpeciesInfo(client, message.speciesId);
@@ -243,11 +251,14 @@ export class ConstellationWebSocketServer {
 
       // Send system data
       if (system) {
-        const gateOwnership = this.db.getGateOwnershipForSystem(player.id, system.id);
-        this.send(client.ws, { 
-          type: "systemData", 
+        const gateOwnership = this.db.getGateOwnershipForSystem(
+          player.id,
+          system.id
+        );
+        this.send(client.ws, {
+          type: "systemData",
           system,
-          gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined
+          gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
         });
       }
 
@@ -308,8 +319,10 @@ export class ConstellationWebSocketServer {
     // Galaxy exists, return its current game time
     // Try to get in-memory time first (more up-to-date), fall back to database value
     const galaxyState = this.gameState.getGalaxyState(galaxy.id);
-    const currentTime = galaxyState ? galaxyState.currentTime : (galaxy.currentTime || 0);
-    
+    const currentTime = galaxyState
+      ? galaxyState.currentTime
+      : galaxy.currentTime || 0;
+
     this.send(client.ws, {
       type: "galaxyInfo",
       galaxyName,
@@ -370,11 +383,14 @@ export class ConstellationWebSocketServer {
       // Send data to client
       this.send(client.ws, { type: "playerData", player: existingPlayer });
       if (system) {
-        const gateOwnership = this.db.getGateOwnershipForSystem(existingPlayer.id, system.id);
-        this.send(client.ws, { 
-          type: "systemData", 
+        const gateOwnership = this.db.getGateOwnershipForSystem(
+          existingPlayer.id,
+          system.id
+        );
+        this.send(client.ws, {
+          type: "systemData",
           system,
-          gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined
+          gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
         });
       }
       const ship = this.db.getShipByPlayerId(existingPlayer.id);
@@ -605,7 +621,9 @@ export class ConstellationWebSocketServer {
     );
     this.db.createSpecies(species);
 
-    console.log(`Generated species for player: ${species.name} (${species.appearance.bodyType})`);
+    console.log(
+      `Generated species for player: ${species.name} (${species.appearance.bodyType})`
+    );
 
     // Create ship orbiting the home planet (or star if no planet found)
     // Calculate a reasonable orbital distance based on parent body
@@ -645,7 +663,7 @@ export class ConstellationWebSocketServer {
     if (homePlanet) {
       const habitabilityBonus = homePlanet.habitability || 0.7;
       const initialPopulation = 1000000; // Start with 1 million population (established world)
-      
+
       const colony: import("@constellation/shared").Colony = {
         id: uuidv4(),
         playerId: player.id,
@@ -663,7 +681,9 @@ export class ConstellationWebSocketServer {
       };
 
       this.db.createColony(colony);
-      console.log(`Initial colony established on ${homePlanet.name}: ${colony.stage} (pop: ${colony.population})`);
+      console.log(
+        `Initial colony established on ${homePlanet.name}: ${colony.stage} (pop: ${colony.population})`
+      );
     }
 
     // Load into game state
@@ -680,11 +700,14 @@ export class ConstellationWebSocketServer {
     const systemWithOperations = this.db.getStarSystem(starterSystem.id);
     this.send(client.ws, { type: "playerData", player });
     if (systemWithOperations) {
-      const gateOwnership = this.db.getGateOwnershipForSystem(player.id, systemWithOperations.id);
-      this.send(client.ws, { 
-        type: "systemData", 
+      const gateOwnership = this.db.getGateOwnershipForSystem(
+        player.id,
+        systemWithOperations.id
+      );
+      this.send(client.ws, {
+        type: "systemData",
         system: systemWithOperations,
-        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined
+        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
       });
     }
     this.send(client.ws, { type: "shipData", ship });
@@ -722,13 +745,16 @@ export class ConstellationWebSocketServer {
     this.gameState.loadShips(system.id, ships);
 
     // Get gate ownership information for this system
-    const gateOwnership = this.db.getGateOwnershipForSystem(client.playerId, systemId);
+    const gateOwnership = this.db.getGateOwnershipForSystem(
+      client.playerId,
+      systemId
+    );
 
     // Send system data with gate ownership information
-    this.send(client.ws, { 
-      type: "systemData", 
+    this.send(client.ws, {
+      type: "systemData",
       system,
-      gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined
+      gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
     });
 
     // Send ship data if player has one in this system
@@ -1095,9 +1121,7 @@ export class ConstellationWebSocketServer {
     const existingGateOwner = this.db.getGateOwner(gateId);
     if (!existingGateOwner) {
       this.db.setGateOwnership(gateId, player.id);
-      console.log(
-        `Player ${player.name} claimed ownership of gate ${gateId}`
-      );
+      console.log(`Player ${player.name} claimed ownership of gate ${gateId}`);
     } else if (existingGateOwner !== player.id) {
       console.log(
         `Gate ${gateId} already owned by player ${existingGateOwner}`
@@ -1317,18 +1341,27 @@ export class ConstellationWebSocketServer {
       const dysonSwarmsByStarId = new Map<string, number>();
       if (system.megastructures) {
         for (const megastructure of system.megastructures) {
-          if (megastructure.type === "dyson_swarm" && megastructure.celestialBodyId) {
-            const currentCount = dysonSwarmsByStarId.get(megastructure.celestialBodyId) || 0;
-            dysonSwarmsByStarId.set(megastructure.celestialBodyId, currentCount + 1);
+          if (
+            megastructure.type === "dyson_swarm" &&
+            megastructure.celestialBodyId
+          ) {
+            const currentCount =
+              dysonSwarmsByStarId.get(megastructure.celestialBodyId) || 0;
+            dysonSwarmsByStarId.set(
+              megastructure.celestialBodyId,
+              currentCount + 1
+            );
           }
         }
       }
 
       // Convert to array format for transmission
-      const dysonSwarms = Array.from(dysonSwarmsByStarId.entries()).map(([starId, count]) => ({
-        starId,
-        count
-      }));
+      const dysonSwarms = Array.from(dysonSwarmsByStarId.entries()).map(
+        ([starId, count]) => ({
+          starId,
+          count,
+        })
+      );
 
       return {
         systemId: system.id,
@@ -1592,24 +1625,35 @@ export class ConstellationWebSocketServer {
     if (updatedSystem) {
       // Update the system in the game state manager so future state updates include the new mining operation
       this.gameState.loadSystem(updatedSystem);
-      
+
       // Send updated system data to the client who established mining
-      const gateOwnership = this.db.getGateOwnershipForSystem(client.playerId, updatedSystem.id);
-      this.send(client.ws, { 
-        type: "systemData", 
+      const gateOwnership = this.db.getGateOwnershipForSystem(
+        client.playerId,
+        updatedSystem.id
+      );
+      this.send(client.ws, {
+        type: "systemData",
         system: updatedSystem,
-        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined
+        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
       });
 
       // Also broadcast updated system data to all other clients viewing this system
       for (const otherClient of this.clients.values()) {
-        if (otherClient.currentSystemId === system.id && otherClient.playerId !== client.playerId) {
-          const otherGateOwnership = otherClient.playerId ? 
-            this.db.getGateOwnershipForSystem(otherClient.playerId, updatedSystem.id) : [];
-          this.send(otherClient.ws, { 
-            type: "systemData", 
+        if (
+          otherClient.currentSystemId === system.id &&
+          otherClient.playerId !== client.playerId
+        ) {
+          const otherGateOwnership = otherClient.playerId
+            ? this.db.getGateOwnershipForSystem(
+                otherClient.playerId,
+                updatedSystem.id
+              )
+            : [];
+          this.send(otherClient.ws, {
+            type: "systemData",
             system: updatedSystem,
-            gateOwnership: otherGateOwnership.length > 0 ? otherGateOwnership : undefined
+            gateOwnership:
+              otherGateOwnership.length > 0 ? otherGateOwnership : undefined,
           });
         }
       }
@@ -1623,7 +1667,6 @@ export class ConstellationWebSocketServer {
       alloyPerDay: ALLOY_PER_DAY,
     });
   }
-
 
   private handleLaunchDysonSwarm(
     client: ClientConnection,
@@ -1658,9 +1701,11 @@ export class ConstellationWebSocketServer {
     }
 
     // Check if the star is in this system (primary or companion)
-    const isValidStar = system.star.id === starId || 
-      (system.companionStars && system.companionStars.some(cs => cs.id === starId));
-    
+    const isValidStar =
+      system.star.id === starId ||
+      (system.companionStars &&
+        system.companionStars.some((cs) => cs.id === starId));
+
     if (!isValidStar) {
       this.sendError(client.ws, "Star not found in current system");
       return;
@@ -1728,14 +1773,18 @@ export class ConstellationWebSocketServer {
     // Get the star name (primary or companion)
     let starName = system.star.name;
     if (starId !== system.star.id && system.companionStars) {
-      const companionStar = system.companionStars.find(cs => cs.id === starId);
+      const companionStar = system.companionStars.find(
+        (cs) => cs.id === starId
+      );
       if (companionStar) {
         starName = companionStar.name;
       }
     }
-    
+
     console.log(
-      `Player ${player.name} launched Dyson Swarm #${existingSwarms + 1} on ${starName} in system ${system.id} (+${ENERGY_PER_SWARM} energy)`
+      `Player ${player.name} launched Dyson Swarm #${
+        existingSwarms + 1
+      } on ${starName} in system ${system.id} (+${ENERGY_PER_SWARM} energy)`
     );
 
     // Send updated player data with new alloy amount FIRST
@@ -1749,24 +1798,35 @@ export class ConstellationWebSocketServer {
     if (updatedSystem) {
       // Update the system in the game state manager so future state updates include the new megastructure
       this.gameState.loadSystem(updatedSystem);
-      
+
       // Send updated system data to the client who built it
-      const gateOwnership = this.db.getGateOwnershipForSystem(client.playerId, updatedSystem.id);
-      this.send(client.ws, { 
-        type: "systemData", 
+      const gateOwnership = this.db.getGateOwnershipForSystem(
+        client.playerId,
+        updatedSystem.id
+      );
+      this.send(client.ws, {
+        type: "systemData",
         system: updatedSystem,
-        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined
+        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
       });
 
       // Also broadcast updated system data to all other clients viewing this system
       for (const otherClient of this.clients.values()) {
-        if (otherClient.currentSystemId === system.id && otherClient.playerId !== client.playerId) {
-          const otherGateOwnership = otherClient.playerId ? 
-            this.db.getGateOwnershipForSystem(otherClient.playerId, updatedSystem.id) : [];
-          this.send(otherClient.ws, { 
-            type: "systemData", 
+        if (
+          otherClient.currentSystemId === system.id &&
+          otherClient.playerId !== client.playerId
+        ) {
+          const otherGateOwnership = otherClient.playerId
+            ? this.db.getGateOwnershipForSystem(
+                otherClient.playerId,
+                updatedSystem.id
+              )
+            : [];
+          this.send(otherClient.ws, {
+            type: "systemData",
             system: updatedSystem,
-            gateOwnership: otherGateOwnership.length > 0 ? otherGateOwnership : undefined
+            gateOwnership:
+              otherGateOwnership.length > 0 ? otherGateOwnership : undefined,
           });
         }
       }
@@ -2275,7 +2335,10 @@ export class ConstellationWebSocketServer {
     // Check if planet has native civilization
     const nativeCiv = this.db.getNativeCivilizationByPlanetId(planetId);
     if (nativeCiv) {
-      this.sendError(client.ws, "Cannot colonize planet with native civilization");
+      this.sendError(
+        client.ws,
+        "Cannot colonize planet with native civilization"
+      );
       return;
     }
 
@@ -2292,27 +2355,33 @@ export class ConstellationWebSocketServer {
     const COLONY_ENERGY_COST = 5;
     const COLONY_ALLOY_COST = 5;
     const COLONY_SCIENCE_COST = 5;
-    
+
     if (player.energy < COLONY_ENERGY_COST) {
       this.sendError(
         client.ws,
-        `Not enough energy to establish colony (requires ${COLONY_ENERGY_COST} energy, have ${Math.floor(player.energy * 100) / 100})`
+        `Not enough energy to establish colony (requires ${COLONY_ENERGY_COST} energy, have ${
+          Math.floor(player.energy * 100) / 100
+        })`
       );
       return;
     }
-    
+
     if (player.alloy < COLONY_ALLOY_COST) {
       this.sendError(
         client.ws,
-        `Not enough alloy to establish colony (requires ${COLONY_ALLOY_COST} alloy, have ${Math.floor(player.alloy * 100) / 100})`
+        `Not enough alloy to establish colony (requires ${COLONY_ALLOY_COST} alloy, have ${
+          Math.floor(player.alloy * 100) / 100
+        })`
       );
       return;
     }
-    
+
     if (player.science < COLONY_SCIENCE_COST) {
       this.sendError(
         client.ws,
-        `Not enough science to establish colony (requires ${COLONY_SCIENCE_COST} science, have ${Math.floor(player.science * 100) / 100})`
+        `Not enough science to establish colony (requires ${COLONY_SCIENCE_COST} science, have ${
+          Math.floor(player.science * 100) / 100
+        })`
       );
       return;
     }
@@ -2327,28 +2396,30 @@ export class ConstellationWebSocketServer {
 
     // Calculate initial population based on habitability
     const basePopulation = 1000;
-    const populationMultiplier = 0.5 + (planet.habitability * 0.5); // 0.5x to 1.0x based on habitability
+    const populationMultiplier = 0.5 + planet.habitability * 0.5; // 0.5x to 1.0x based on habitability
     const initialPopulation = Math.floor(basePopulation * populationMultiplier);
 
     // Calculate resource yields based on specialization and habitability
     // Note: Colonies do not produce energy - only Dyson Swarms do that
-    // Base yields are kept very low - colonies are supplementary to mining operations
+    // Colonies consume resources until they reach 1M population, then produce at smaller rates
     const habitabilityBonus = planet.habitability || 0.5;
     let sciencePerDay = 0.01;
     let alloyPerDay = 0.005;
 
+    // Colonies start by consuming resources (negative rates)
+    // Once they reach 1M population, they switch to producing at smaller rates
     switch (specialization) {
       case "research":
-        sciencePerDay = 0.03 * habitabilityBonus; // Focus on science
-        alloyPerDay = 0.002 * habitabilityBonus; // Minimal minerals
+        sciencePerDay = -0.03 * habitabilityBonus; // Consume science
+        alloyPerDay = -0.002 * habitabilityBonus; // Consume minerals
         break;
       case "industrial":
-        sciencePerDay = 0.005 * habitabilityBonus; // Minimal science
-        alloyPerDay = 0.02 * habitabilityBonus; // Focus on minerals (but still low)
+        sciencePerDay = -0.005 * habitabilityBonus; // Consume science
+        alloyPerDay = -0.02 * habitabilityBonus; // Consume minerals
         break;
       default: // balanced
-        sciencePerDay = 0.015 * habitabilityBonus; // Moderate science
-        alloyPerDay = 0.008 * habitabilityBonus; // Moderate minerals
+        sciencePerDay = -0.015 * habitabilityBonus; // Consume science
+        alloyPerDay = -0.008 * habitabilityBonus; // Consume minerals
         break;
     }
 
@@ -2440,23 +2511,45 @@ export class ConstellationWebSocketServer {
 
     // Update yields based on new specialization
     // Note: Colonies do not produce energy - only Dyson Swarms do that
-    // Base yields are kept very low - colonies are supplementary to mining operations
+    // Colonies consume resources until they reach 1M population, then produce at smaller rates
     let sciencePerDay = 0.01;
     let alloyPerDay = 0.005;
 
-    switch (specialization) {
-      case "research":
-        sciencePerDay = 0.03 * habitabilityBonus; // Focus on science
-        alloyPerDay = 0.002 * habitabilityBonus; // Minimal minerals
-        break;
-      case "industrial":
-        sciencePerDay = 0.005 * habitabilityBonus; // Minimal science
-        alloyPerDay = 0.02 * habitabilityBonus; // Focus on minerals (but still low)
-        break;
-      default: // balanced
-        sciencePerDay = 0.015 * habitabilityBonus; // Moderate science
-        alloyPerDay = 0.008 * habitabilityBonus; // Moderate minerals
-        break;
+    // Check if colony has reached 1M population
+    const isProducing = colony.population >= 1000000;
+
+    if (isProducing) {
+      // Colony produces at smaller rates after reaching 1M population
+      switch (specialization) {
+        case "research":
+          sciencePerDay = 0.01 * habitabilityBonus; // Reduced from 0.03
+          alloyPerDay = 0.001 * habitabilityBonus; // Reduced from 0.002
+          break;
+        case "industrial":
+          sciencePerDay = 0.002 * habitabilityBonus; // Reduced from 0.005
+          alloyPerDay = 0.008 * habitabilityBonus; // Reduced from 0.02
+          break;
+        default: // balanced
+          sciencePerDay = 0.006 * habitabilityBonus; // Reduced from 0.015
+          alloyPerDay = 0.003 * habitabilityBonus; // Reduced from 0.008
+          break;
+      }
+    } else {
+      // Colony consumes resources (negative rates)
+      switch (specialization) {
+        case "research":
+          sciencePerDay = -0.03 * habitabilityBonus;
+          alloyPerDay = -0.002 * habitabilityBonus;
+          break;
+        case "industrial":
+          sciencePerDay = -0.005 * habitabilityBonus;
+          alloyPerDay = -0.02 * habitabilityBonus;
+          break;
+        default: // balanced
+          sciencePerDay = -0.015 * habitabilityBonus;
+          alloyPerDay = -0.008 * habitabilityBonus;
+          break;
+      }
     }
 
     // Scale yields based on colony stage

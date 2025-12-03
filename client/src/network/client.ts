@@ -23,15 +23,17 @@ export class NetworkClient {
     | ((uuid: string, playerId: string | null) => void)
     | null = null;
   public onPlayerData: ((player: Player) => void) | null = null;
-  public onSystemData: ((
-    system: StarSystem,
-    gateOwnership?: Array<{
-      gateId: string;
-      ownerId: string;
-      ownerName: string;
-      status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
-    }>
-  ) => void) | null = null;
+  public onSystemData:
+    | ((
+        system: StarSystem,
+        gateOwnership?: Array<{
+          gateId: string;
+          ownerId: string;
+          ownerName: string;
+          status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+        }>
+      ) => void)
+    | null = null;
   public onStateUpdate: ((state: SystemState) => void) | null = null;
   public onTimeUpdate:
     | ((currentTime: number, isPaused: boolean, timeScale: number) => void)
@@ -123,12 +125,12 @@ export class NetworkClient {
         const wasReconnecting = this.reconnectAttempts > 0;
         this.reconnectAttempts = 0;
         this.authenticate();
-        
+
         // Notify reconnection if this was a reconnect
         if (wasReconnecting && this.onReconnected) {
           this.onReconnected();
         }
-        
+
         resolve();
       };
 
@@ -143,12 +145,12 @@ export class NetworkClient {
 
       this.ws.onclose = () => {
         console.log("Disconnected from server");
-        
+
         // Notify disconnection
         if (this.onDisconnected) {
           this.onDisconnected();
         }
-        
+
         this.attemptReconnect(url);
       };
     });
@@ -157,10 +159,10 @@ export class NetworkClient {
   private attemptReconnect(url: string): void {
     this.reconnectAttempts++;
     console.log(`Reconnecting... (attempt ${this.reconnectAttempts})`);
-    
+
     // Cap the delay at 12 seconds (6 attempts * 2000ms)
     const delay = Math.min(2000 * this.reconnectAttempts, 12000);
-    
+
     setTimeout(() => {
       this.connect(url).catch(console.error);
     }, delay);
@@ -430,11 +432,17 @@ export class NetworkClient {
     this.send({ type: "launchDysonSwarm", starId });
   }
 
-  establishColony(planetId: string, specialization: "balanced" | "research" | "industrial"): void {
+  establishColony(
+    planetId: string,
+    specialization: "balanced" | "research" | "industrial"
+  ): void {
     this.send({ type: "establishColony", planetId, specialization });
   }
 
-  updateColonySpecialization(colonyId: string, specialization: "balanced" | "research" | "industrial"): void {
+  updateColonySpecialization(
+    colonyId: string,
+    specialization: "balanced" | "research" | "industrial"
+  ): void {
     this.send({ type: "updateColonySpecialization", colonyId, specialization });
   }
 
@@ -442,8 +450,13 @@ export class NetworkClient {
     this.send({ type: "requestSpeciesInfo", speciesId });
   }
 
-  debugAddResource(resourceType: "energy" | "alloy" | "science", amount: number): void {
-    console.log(`[NetworkClient] Sending debugAddResource: ${resourceType} +${amount}`);
+  debugAddResource(
+    resourceType: "energy" | "alloy" | "science",
+    amount: number
+  ): void {
+    console.log(
+      `[NetworkClient] Sending debugAddResource: ${resourceType} +${amount}`
+    );
     this.send({ type: "debugAddResource", resourceType, amount });
   }
 

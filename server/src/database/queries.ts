@@ -10,10 +10,12 @@ import {
   TIME_SCALE_DEFAULT,
   MiningOperation,
   MAX_ALLOY_STOCKPILE,
+  MAX_SCIENCE_STOCKPILE,
   Megastructure,
   Species,
   Colony,
   NativeCivilization,
+  BASE_POPULATION_DENSITY,
 } from "@constellation/shared";
 
 export class DatabaseQueries {
@@ -336,8 +338,9 @@ export class DatabaseQueries {
   }
 
   addPlayerScience(playerId: string, amount: number): void {
+    // Cap science at maximum stockpile
     const stmt = this.db.prepare(
-      "UPDATE players SET science = science + ? WHERE id = ?"
+      `UPDATE players SET science = MIN(science + ?, ${MAX_SCIENCE_STOCKPILE}) WHERE id = ?`
     );
     stmt.run(amount, playerId);
   }
@@ -573,18 +576,33 @@ export class DatabaseQueries {
       const daysElapsed = timeSinceLastYield / (24 * 60 * 60);
 
       if (daysElapsed >= 1) {
-        // Award resources for full days
+        // Award or consume resources for full days
         const fullDays = Math.floor(daysElapsed);
 
         const scienceToAdd = row.science_per_day * fullDays;
         const alloyToAdd = row.alloy_per_day * fullDays;
 
-        // Add resources to player (no energy from colonies)
-        if (scienceToAdd > 0) {
-          this.addPlayerScience(row.player_id, scienceToAdd);
-        }
-        if (alloyToAdd > 0) {
-          this.addPlayerAlloy(row.player_id, alloyToAdd);
+        // Add or subtract resources from player (no energy from colonies)
+        // Get current player resources to prevent going negative
+        const player = this.getPlayerById(row.player_id);
+        if (player) {
+          if (scienceToAdd > 0) {
+            this.addPlayerScience(row.player_id, scienceToAdd);
+          } else if (scienceToAdd < 0) {
+            // Consuming science - don't let it go below 0
+            const scienceToConsume = Math.min(
+              Math.abs(scienceToAdd),
+              player.science
+            );
+            this.addPlayerScience(row.player_id, -scienceToConsume);
+          }
+          if (alloyToAdd > 0) {
+            this.addPlayerAlloy(row.player_id, alloyToAdd);
+          } else if (alloyToAdd < 0) {
+            // Consuming alloy - don't let it go below 0
+            const alloyToConsume = Math.min(Math.abs(alloyToAdd), player.alloy);
+            this.addPlayerAlloy(row.player_id, -alloyToConsume);
+          }
         }
 
         // Process population growth
@@ -593,6 +611,7 @@ export class DatabaseQueries {
         let sciencePerDay = row.science_per_day;
         let alloyPerDay = row.alloy_per_day;
         let stageChanged = false;
+        let crossedThreshold = false;
 
         // Get planet data for habitability
         const system = this.getStarSystem(row.system_id);
@@ -601,8 +620,20 @@ export class DatabaseQueries {
             (p: any) => p.id === row.planet_id
           );
           if (planet && planet.habitability) {
+            // Calculate maximum population based on planet surface area
+            // Surface area = 4π * radius²
+            const surfaceArea = 4 * Math.PI * planet.radius * planet.radius;
+            const maxPopulation = Math.floor(
+              surfaceArea * BASE_POPULATION_DENSITY * planet.habitability
+            );
+
             // Calculate population growth for each day
             for (let day = 0; day < fullDays; day++) {
+              // Stop growing if we've reached the planet's maximum capacity
+              if (newPopulation >= maxPopulation) {
+                break;
+              }
+
               // Base growth rate depends on population size (logarithmic decay)
               // Small colonies grow faster (percentage-wise), large ones slower
               let baseGrowthRate = 0;
@@ -626,10 +657,23 @@ export class DatabaseQueries {
               const specializationModifier =
                 row.specialization === "balanced" ? 1.2 : 1.0;
 
+              // Carrying capacity modifier - slow down growth as we approach max population
+              const populationRatio = newPopulation / maxPopulation;
+              const carryingCapacityModifier = Math.max(
+                0,
+                1 - populationRatio * populationRatio
+              ); // Logistic growth
+
               // Calculate growth
               const growthRate =
-                baseGrowthRate * habitabilityModifier * specializationModifier;
+                baseGrowthRate *
+                habitabilityModifier *
+                specializationModifier *
+                carryingCapacityModifier;
               newPopulation = Math.floor(newPopulation * (1 + growthRate));
+
+              // Ensure we don't exceed maximum population
+              newPopulation = Math.min(newPopulation, maxPopulation);
             }
 
             // Check if colony should advance to next stage
@@ -660,8 +704,13 @@ export class DatabaseQueries {
               stageChanged = true;
             }
 
+            // Check if colony crossed the 1M threshold (from consuming to producing)
+            const wasConsuming = row.population < 1000000;
+            const isProducing = newPopulation >= 1000000;
+            crossedThreshold = wasConsuming && isProducing;
+
             // If stage changed, recalculate resource yields
-            if (stageChanged) {
+            if (stageChanged || crossedThreshold) {
               const stageMultipliers: Record<string, number> = {
                 outpost: 1.0,
                 settlement: 2.0,
@@ -671,22 +720,47 @@ export class DatabaseQueries {
                 ecumenopolis: 32.0,
               };
 
-              const oldMultiplier = stageMultipliers[oldStage] || 1.0;
-              const newMultiplier = stageMultipliers[currentStage] || 1.0;
+              if (crossedThreshold) {
+                // Switch from consumption to production at reduced rates
+                const habitabilityBonus = planet.habitability || 0.5;
+                const multiplier = stageMultipliers[currentStage] || 1.0;
 
-              // Scale the yields by the ratio of multipliers
-              sciencePerDay = (sciencePerDay / oldMultiplier) * newMultiplier;
-              alloyPerDay = (alloyPerDay / oldMultiplier) * newMultiplier;
+                switch (row.specialization) {
+                  case "research":
+                    sciencePerDay = 0.01 * habitabilityBonus * multiplier; // Reduced from 0.03
+                    alloyPerDay = 0.001 * habitabilityBonus * multiplier; // Reduced from 0.002
+                    break;
+                  case "industrial":
+                    sciencePerDay = 0.002 * habitabilityBonus * multiplier; // Reduced from 0.005
+                    alloyPerDay = 0.008 * habitabilityBonus * multiplier; // Reduced from 0.02
+                    break;
+                  default: // balanced
+                    sciencePerDay = 0.006 * habitabilityBonus * multiplier; // Reduced from 0.015
+                    alloyPerDay = 0.003 * habitabilityBonus * multiplier; // Reduced from 0.008
+                    break;
+                }
 
-              console.log(
-                `Colony ${row.planet_name} advanced from ${oldStage} to ${currentStage} (pop: ${newPopulation})`
-              );
+                console.log(
+                  `Colony ${row.planet_name} reached 1M population - switched from consumption to production (pop: ${newPopulation})`
+                );
+              } else if (stageChanged) {
+                const oldMultiplier = stageMultipliers[oldStage] || 1.0;
+                const newMultiplier = stageMultipliers[currentStage] || 1.0;
+
+                // Scale the yields by the ratio of multipliers
+                sciencePerDay = (sciencePerDay / oldMultiplier) * newMultiplier;
+                alloyPerDay = (alloyPerDay / oldMultiplier) * newMultiplier;
+
+                console.log(
+                  `Colony ${row.planet_name} advanced from ${oldStage} to ${currentStage} (pop: ${newPopulation})`
+                );
+              }
             }
           }
         }
 
         // Update colony with new population, stage, and yields
-        if (newPopulation !== row.population || stageChanged) {
+        if (newPopulation !== row.population || stageChanged || crossedThreshold) {
           const updateStmt = this.db.prepare(
             `UPDATE colonies SET population = ?, stage = ?, science_per_day = ?, alloy_per_day = ?, last_yield_at = ? WHERE id = ?`
           );
