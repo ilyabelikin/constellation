@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { copyFileSync } from "fs";
 
 export default defineConfig({
   server: {
@@ -12,4 +13,12 @@ export default defineConfig({
   build: {
     target: "es2022",
   },
+  plugins: [
+    {
+      name: "copy-changelog",
+      closeBundle() {
+        copyFileSync("CHANGELOG.md", "dist/CHANGELOG.md");
+      },
+    },
+  ],
 });
