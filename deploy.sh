@@ -36,26 +36,16 @@ cd /root/constellation
 echo "⬇️  Pulling latest code from GitHub..."
 git pull origin main
 
-echo "📦 Installing dependencies..."
-cd /root/constellation/shared
+echo "🧹 Cleaning old node_modules and lock files..."
+cd /root/constellation
+rm -rf node_modules shared/node_modules server/node_modules client/node_modules
+rm -f package-lock.json shared/package-lock.json server/package-lock.json client/package-lock.json
+
+echo "📦 Installing dependencies (monorepo)..."
 npm install
 
-cd /root/constellation/server
-npm install
-
-cd /root/constellation/client
-npm install
-
-echo "🔨 Building shared package..."
-cd /root/constellation/shared
-npm run build
-
-echo "🔨 Building server..."
-cd /root/constellation/server
-npm run build
-
-echo "🔨 Building client..."
-cd /root/constellation/client
+echo "🔨 Building all packages..."
+cd /root/constellation
 npm run build
 
 echo "🔐 Fixing permissions for Caddy..."

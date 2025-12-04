@@ -85,3 +85,4 @@ console.log(`2. Commit changes: git add -A && git commit -m "Bump version to ${n
 console.log(`3. Tag release: git tag v${newVersion}`);
 console.log(`4. Build and deploy: npm run build`);
 
+

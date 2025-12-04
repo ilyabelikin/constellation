@@ -121,3 +121,4 @@ When releasing a new version:
 - **0.2.0** - (Previous features)
 - **0.1.0** - Initial release
 
+
