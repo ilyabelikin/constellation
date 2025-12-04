@@ -36,8 +36,12 @@ cd /root/constellation
 echo "⬇️  Pulling latest code from GitHub..."
 git pull origin main
 
-echo "📦 Installing dependencies..."
+echo "🧹 Cleaning up old dependencies..."
 cd /root/constellation
+rm -rf node_modules shared/node_modules server/node_modules client/node_modules
+rm -f package-lock.json shared/package-lock.json server/package-lock.json client/package-lock.json
+
+echo "📦 Installing dependencies..."
 npm install
 
 echo "🔨 Building all packages..."
