@@ -11,22 +11,14 @@
 - **Species Generation**: Each player gets a unique alien species with distinct traits and appearance
 - **Colony System**: Found colonies on habitable worlds
 
-### Diplomacy
-
-- **Player Discovery**: Meet other civilizations as you explore
-- **Diplomatic Stances**: Set your stance toward other players (Neutral, Friendly, Aggressive)
-- **Territory Colors**: Gates show diplomatic colors based on ownership
-
 ---
 
 ## Coming Soon
 
-- **Technology Tree**: Research new capabilities
-- **Ship Combat**: Defend your territory
-- **Trade Routes**: Economic connections between systems
-- **Alliance System**: Form coalitions with other players
-- **Custom Galaxy Settings**: Configure galaxy size, density, and more
+- **Space Lift** - first planetary megastructure
+- **Asteroid Alert** - first disaster when asteroid might whipe out life on a planet and you may prevent that
+- **Species selection** - option to choose your staring species instead of getting one at random
 
 ---
 
-_Join us in exploring the cosmos and building your interstellar empire!_
+_Join us in exploring the cosmos and building your interstellar civilization!_
