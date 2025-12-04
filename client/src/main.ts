@@ -37,7 +37,13 @@ class ConstellationApp {
     this.lobby = new LobbyManager();
 
     // Setup lobby handlers
-    this.lobby.onExplore = (galaxyName, playerName) => {
+    this.lobby.onContinue = (galaxyName, playerName) => {
+      // Continue existing game
+      this.startGame(galaxyName, playerName, false);
+    };
+
+    this.lobby.onNewGame = (galaxyName, playerName) => {
+      // Start new game (will create galaxy if it doesn't exist)
       this.startGame(galaxyName, playerName, false);
     };
 

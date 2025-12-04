@@ -1,6 +1,6 @@
 {
   "name": "constellation-v2",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "description": "Multiplayer space exploration game with realistic orbital mechanics",
   "private": true,
   "workspaces": [
@@ -12,7 +12,8 @@
     "build": "npm run build --workspaces",
     "dev:server": "npm run dev -w server",
     "dev:client": "npm run dev -w client",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\""
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "version:update": "node update-version.js"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

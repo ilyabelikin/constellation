@@ -29,14 +29,6 @@ export class HUDManager {
   private constellationSystemDetailView: ConstellationSystemDetailView;
 
   // HUD elements
-  private authModal: HTMLElement;
-  private errorMessage: HTMLElement;
-  private playerNameInput: HTMLInputElement;
-  private galaxyNameInput: HTMLInputElement;
-  private galaxyTimeDisplay: HTMLElement;
-  private exploreGalaxyButton: HTMLElement;
-  private resetGalaxyButton: HTMLElement;
-
   private navSection: HTMLElement;
   private navHomeButton: HTMLElement;
   private navSystemButton: HTMLElement;
@@ -115,8 +107,6 @@ export class HUDManager {
   private shouldShowSpeciesModal = false; // Track whether to show species modal on next response
 
   // Event handler references for cleanup
-  private exploreGalaxyHandler: () => void;
-  private resetGalaxyHandler: () => void;
   private navHomeHandler: () => void;
   private navSystemHandler: () => void;
   private navConstellationHandler: () => void;
@@ -126,8 +116,6 @@ export class HUDManager {
   private searchKeydownHandler: (e: KeyboardEvent) => void;
 
   // Callbacks
-  public onExploreGalaxy: ((name: string) => void) | null = null;
-  public onResetGalaxy: ((name: string) => void) | null = null;
   public onNavigateHome: (() => void) | null = null;
   public onNavigateSystem: (() => void) | null = null;
   public onNavigateConstellation: (() => void) | null = null;
@@ -160,30 +148,6 @@ export class HUDManager {
     | null = null;
 
   constructor() {
-    // Auth modal
-    this.authModal = document.getElementById("auth-modal")!;
-    this.errorMessage = document.getElementById("error-message")!;
-    this.playerNameInput = document.getElementById(
-      "player-name"
-    ) as HTMLInputElement;
-    this.galaxyNameInput = document.getElementById(
-      "galaxy-name"
-    ) as HTMLInputElement;
-    this.galaxyTimeDisplay = document.getElementById("galaxy-time-display")!;
-    this.exploreGalaxyButton = document.getElementById("explore-galaxy")!;
-    this.resetGalaxyButton = document.getElementById("reset-galaxy")!;
-
-    // Load player name from localStorage
-    const savedName = localStorage.getItem("playerName");
-    if (savedName) {
-      this.playerNameInput.value = savedName;
-    }
-
-    // Save player name to localStorage when changed
-    this.playerNameInput.addEventListener("input", () => {
-      localStorage.setItem("playerName", this.playerNameInput.value.trim());
-    });
-
     // Navigation
     this.navSection = document.querySelector(".hud-top-left")!;
     this.navHomeButton = document.getElementById("nav-home")!;
@@ -333,20 +297,6 @@ export class HUDManager {
     };
 
     // Create event handler references
-    this.exploreGalaxyHandler = () => {
-      const name = this.galaxyNameInput.value.trim() || "the Milky Way";
-      if (this.onExploreGalaxy) {
-        this.onExploreGalaxy(name);
-      }
-    };
-
-    this.resetGalaxyHandler = () => {
-      const name = this.galaxyNameInput.value.trim() || "the Milky Way";
-      if (this.onResetGalaxy) {
-        this.onResetGalaxy(name);
-      }
-    };
-
     this.navHomeHandler = () => {
       if (this.onNavigateHome) {
         this.onNavigateHome();
@@ -398,11 +348,6 @@ export class HUDManager {
   }
 
   private setupEventListeners(): void {
-    this.exploreGalaxyButton.addEventListener(
-      "click",
-      this.exploreGalaxyHandler
-    );
-    this.resetGalaxyButton.addEventListener("click", this.resetGalaxyHandler);
     this.navHomeButton.addEventListener("click", this.navHomeHandler);
     this.navSystemButton.addEventListener("click", this.navSystemHandler);
     this.navConstellationButton.addEventListener(
@@ -432,12 +377,6 @@ export class HUDManager {
     });
   }
 
-  hideAuthModal(): void {
-    this.authModal.classList.add("hidden");
-    // Show game HUD elements when player joins
-    this.showGameHUD();
-  }
-
   showGameHUD(): void {
     this.navSection.classList.add("visible");
     this.timeSection.classList.add("visible");
@@ -450,25 +389,6 @@ export class HUDManager {
     this.timeSection.classList.remove("visible");
     this.searchButton.classList.remove("visible");
     this.resourcesWidget.classList.add("hidden");
-  }
-
-  updateGalaxyTime(
-    galaxyName: string,
-    exists: boolean,
-    currentTime: number
-  ): void {
-    if (!exists) {
-      this.galaxyTimeDisplay.textContent = `New galaxy will be created`;
-    } else {
-      // Convert time to days and hours
-      const days = Math.floor(currentTime / 86400);
-      const hours = Math.floor((currentTime % 86400) / 3600);
-      this.galaxyTimeDisplay.textContent = `Local time: ${days}d ${hours}h`;
-    }
-  }
-
-  clearGalaxyTime(): void {
-    this.galaxyTimeDisplay.textContent = "";
   }
 
   /**
@@ -612,12 +532,12 @@ export class HUDManager {
   }
 
   showError(message: string): void {
-    this.errorMessage.textContent = message;
-    this.errorMessage.classList.remove("hidden");
+    // Use notification system instead of old lobby error message
+    this.showNotification(message, 5000);
   }
 
   clearError(): void {
-    this.errorMessage.classList.add("hidden");
+    // No-op: notifications auto-dismiss
   }
 
   setPlayer(player: Player): void {
@@ -1376,14 +1296,6 @@ export class HUDManager {
    */
   dispose(): void {
     // Remove event listeners
-    this.exploreGalaxyButton.removeEventListener(
-      "click",
-      this.exploreGalaxyHandler
-    );
-    this.resetGalaxyButton.removeEventListener(
-      "click",
-      this.resetGalaxyHandler
-    );
     this.navHomeButton.removeEventListener("click", this.navHomeHandler);
     this.navSystemButton.removeEventListener("click", this.navSystemHandler);
     this.navConstellationButton.removeEventListener(
@@ -1393,8 +1305,6 @@ export class HUDManager {
     this.timeToggleButton.removeEventListener("click", this.timeToggleHandler);
 
     // Clear callbacks
-    this.onExploreGalaxy = null;
-    this.onResetGalaxy = null;
     this.onNavigateHome = null;
     this.onNavigateSystem = null;
     this.onNavigateConstellation = null;
@@ -1723,7 +1633,8 @@ export class HUDManager {
   }
 
   getPlayerName(): string {
-    return this.playerNameInput.value.trim() || "Anonymous Explorer";
+    // Player name is now managed by lobby
+    return localStorage.getItem("playerName") || "Anonymous Explorer";
   }
 
   /**

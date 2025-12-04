@@ -1,3 +1,7 @@
+// Version
+export const GAME_VERSION = "0.3.0";
+export const VERSION_NAME = "Species and Colonies";
+
 // Physical constants (SI units: meters, kilograms, seconds)
 export const GRAVITATIONAL_CONSTANT = 6.6743e-11; // m³/(kg·s²)
 export const ASTRONOMICAL_UNIT = 1.496e11; // meters
