@@ -15,6 +15,7 @@ import {
   SearchResult,
   TIME_SCALE_DEFAULT,
   MAX_DYSON_SWARMS_PER_STAR,
+  BASE_POPULATION_DENSITY,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -662,7 +663,16 @@ export class ConstellationWebSocketServer {
     // Create initial colony on home world
     if (homePlanet) {
       const habitabilityBonus = homePlanet.habitability || 0.7;
-      const initialPopulation = 1000000; // Start with 1 million population (established world)
+      
+      // Calculate maximum population based on planet surface area and habitability
+      // Surface area = 4π * radius²
+      const surfaceArea = 4 * Math.PI * homePlanet.radius * homePlanet.radius;
+      const maxPopulation = Math.floor(
+        surfaceArea * BASE_POPULATION_DENSITY * habitabilityBonus
+      );
+      
+      // Start with 80% of maximum population (established world)
+      const initialPopulation = Math.floor(maxPopulation * 0.8);
 
       const colony: import("@constellation/shared").Colony = {
         id: uuidv4(),
