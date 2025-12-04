@@ -10,7 +10,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@constellation/shared": "^1.0.0",
+    "@constellation/shared": "file:../shared",
     "ws": "^8.16.0",
     "better-sqlite3": "^9.2.2",
     "uuid": "^9.0.1"

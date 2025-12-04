@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@constellation/shared": "^1.0.0",
+    "@constellation/shared": "file:../shared",
     "three": "^0.160.0"
   },
   "devDependencies": {
