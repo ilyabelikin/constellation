@@ -105,6 +105,7 @@ export class HUDManager {
   private metPlayers: { id: string; name: string }[] = [];
   private networkClient: any = null; // Reference to network client for requesting stats
   private shouldShowSpeciesModal = false; // Track whether to show species modal on next response
+  private isInConstellationView = false; // Track if we're in constellation view (to hide mineable widget)
 
   // Event handler references for cleanup
   private navHomeHandler: () => void;
@@ -661,6 +662,21 @@ export class HUDManager {
     this.isCyclingMineable = false;
     // Reset theme to default green when leaving system view
     this.applyStarTheme("#0f0");
+  }
+
+  /**
+   * Set constellation view state (used to hide mineable widget)
+   */
+  setConstellationViewState(isInConstellation: boolean): void {
+    this.isInConstellationView = isInConstellation;
+    // If entering constellation view, hide mineable widget
+    if (isInConstellation) {
+      this.mineableObjectsWidget.classList.add("hidden");
+    }
+    // If exiting constellation view, update mineable widget based on current system
+    else {
+      this.updateMineableObjectsWidget();
+    }
   }
 
   showOutline(): void {
@@ -1737,6 +1753,12 @@ export class HUDManager {
    * Update the mineable objects widget based on the current system
    */
   updateMineableObjectsWidget(): void {
+    // Don't show mineable widget in constellation view
+    if (this.isInConstellationView) {
+      this.mineableObjectsWidget.classList.add("hidden");
+      return;
+    }
+
     const newMineableObjects = this.getMineableObjectsInSystem();
 
     // Check if the list of mineable objects has actually changed

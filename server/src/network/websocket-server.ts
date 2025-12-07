@@ -1609,7 +1609,10 @@ export class ConstellationWebSocketServer {
 
     // Create mining operation
     const miningOperationId = uuidv4();
-    const ALLOY_PER_DAY = 0.1;
+    // Randomize alloy per day between 0.05 and 0.1
+    const ALLOY_PER_DAY = 0.05 + Math.random() * 0.05;
+    // Randomize total alloy limit between 15 and 100
+    const TOTAL_ALLOY_LIMIT = 15 + Math.random() * 85;
 
     this.db.createMiningOperation(
       miningOperationId,
@@ -1617,7 +1620,9 @@ export class ConstellationWebSocketServer {
       system.id,
       celestialBodyId,
       ALLOY_PER_DAY,
-      currentTime
+      currentTime,
+      TOTAL_ALLOY_LIMIT,
+      0 // initial alloy mined
     );
 
     console.log(

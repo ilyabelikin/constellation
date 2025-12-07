@@ -37,6 +37,7 @@ export class BodyDetailView {
   private miningSection: HTMLElement | null;
   private miningStatus: HTMLElement | null;
   private miningRate: HTMLElement | null;
+  private miningRemaining: HTMLElement | null;
   private mineButton: HTMLButtonElement | null;
   private currentSystem: StarSystem | null = null;
   public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
@@ -91,6 +92,7 @@ export class BodyDetailView {
     this.miningSection = document.getElementById("body-mining-section");
     this.miningStatus = document.getElementById("body-mining-status");
     this.miningRate = document.getElementById("body-mining-rate");
+    this.miningRemaining = document.getElementById("body-mining-remaining");
     this.mineButton = document.getElementById(
       "body-mine-button"
     ) as HTMLButtonElement;
@@ -410,7 +412,11 @@ export class BodyDetailView {
             this.miningStatus.style.display = "block";
             if (this.miningRate) {
               this.miningRate.textContent =
-                existingOperation.alloyPerDay.toFixed(1);
+                existingOperation.alloyPerDay.toFixed(2);
+            }
+            if (this.miningRemaining) {
+              const remaining = existingOperation.totalAlloyLimit - existingOperation.alloyMined;
+              this.miningRemaining.textContent = remaining.toFixed(1);
             }
           }
           if (this.mineButton) {

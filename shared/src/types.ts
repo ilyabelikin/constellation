@@ -177,6 +177,8 @@ export interface MiningOperation {
   alloyPerDay: number; // resource generation rate
   establishedAt: number; // timestamp when mining started
   lastYieldAt: number; // timestamp of last resource generation
+  totalAlloyLimit: number; // total amount of alloy that can be mined (15-100)
+  alloyMined: number; // amount of alloy already mined
 }
 
 // Species trait types

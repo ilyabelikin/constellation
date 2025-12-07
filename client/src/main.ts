@@ -394,6 +394,8 @@ class ConstellationGame {
         preserveSelection
       );
       this.hud.hideOutline();
+      // Notify HUD that we're in constellation view (to hide mineable widget)
+      this.hud.setConstellationViewState(true);
 
       if (selectedSystemId) {
         const selectedNode = nodes.find((n) => n.systemId === selectedSystemId);
@@ -532,6 +534,7 @@ class ConstellationGame {
 
         if (this.scene.isInConstellationView()) {
           this.scene.hideConstellationView();
+          this.hud.setConstellationViewState(false);
           if (this.system) {
             this.hud.setSystem(this.system);
           }
@@ -560,11 +563,13 @@ class ConstellationGame {
           selectedSystemId !== this.player.currentSystemId
         ) {
           this.scene.hideConstellationView();
+          this.hud.setConstellationViewState(false);
           this.network.requestSystemState(selectedSystemId);
           return;
         }
 
         this.scene.hideConstellationView();
+        this.hud.setConstellationViewState(false);
         if (this.system) {
           this.hud.setSystem(this.system);
         }
@@ -609,6 +614,7 @@ class ConstellationGame {
 
         if (this.scene.isInConstellationView()) {
           this.scene.hideConstellationView();
+          this.hud.setConstellationViewState(false);
           if (this.system) {
             this.hud.setSystem(this.system);
           }
@@ -647,6 +653,7 @@ class ConstellationGame {
         }
       } else if (action === "travel") {
         this.scene.hideConstellationView();
+        this.hud.setConstellationViewState(false);
 
         if (this.system && this.system.id === systemId) {
           this.hud.setSystem(this.system);

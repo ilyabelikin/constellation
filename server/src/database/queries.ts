@@ -352,10 +352,12 @@ export class DatabaseQueries {
     systemId: string,
     celestialBodyId: string,
     alloyPerDay: number,
-    establishedAt: number
+    establishedAt: number,
+    totalAlloyLimit: number,
+    alloyMined: number = 0
   ): void {
     const stmt = this.db.prepare(
-      "INSERT INTO mining_operations (id, player_id, system_id, celestial_body_id, alloy_per_day, established_at, last_yield_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO mining_operations (id, player_id, system_id, celestial_body_id, alloy_per_day, established_at, last_yield_at, total_alloy_limit, alloy_mined) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       id,
@@ -364,7 +366,9 @@ export class DatabaseQueries {
       celestialBodyId,
       alloyPerDay,
       establishedAt,
-      establishedAt
+      establishedAt,
+      totalAlloyLimit,
+      alloyMined
     );
   }
 
@@ -381,6 +385,8 @@ export class DatabaseQueries {
       alloyPerDay: row.alloy_per_day,
       establishedAt: row.established_at,
       lastYieldAt: row.last_yield_at,
+      totalAlloyLimit: row.total_alloy_limit || 50.0,
+      alloyMined: row.alloy_mined || 0.0,
     }));
   }
 
@@ -397,6 +403,8 @@ export class DatabaseQueries {
       alloyPerDay: row.alloy_per_day,
       establishedAt: row.established_at,
       lastYieldAt: row.last_yield_at,
+      totalAlloyLimit: row.total_alloy_limit || 50.0,
+      alloyMined: row.alloy_mined || 0.0,
     }));
   }
 
@@ -414,40 +422,103 @@ export class DatabaseQueries {
       alloyPerDay: row.alloy_per_day,
       establishedAt: row.established_at,
       lastYieldAt: row.last_yield_at,
+      totalAlloyLimit: row.total_alloy_limit || 50.0,
+      alloyMined: row.alloy_mined || 0.0,
     };
   }
 
   updateMiningOperationYield(
     miningOperationId: string,
-    lastYieldAt: number
+    lastYieldAt: number,
+    alloyMined: number
   ): void {
     const stmt = this.db.prepare(
-      "UPDATE mining_operations SET last_yield_at = ? WHERE id = ?"
+      "UPDATE mining_operations SET last_yield_at = ?, alloy_mined = ? WHERE id = ?"
     );
-    stmt.run(lastYieldAt, miningOperationId);
+    stmt.run(lastYieldAt, alloyMined, miningOperationId);
+  }
+
+  deleteMiningOperation(miningOperationId: string): void {
+    const stmt = this.db.prepare("DELETE FROM mining_operations WHERE id = ?");
+    stmt.run(miningOperationId);
   }
 
   processMiningYields(currentTime: number): void {
     // Get all mining operations
     const stmt = this.db.prepare("SELECT * FROM mining_operations");
     const rows = stmt.all() as any[];
+    const operationsToDelete: Array<{ id: string; playerId: string }> = [];
+    const MAX_ALLOY_STOCKPILE = 500; // Maximum alloy storage capacity
 
     for (const row of rows) {
       const timeSinceLastYield = currentTime - row.last_yield_at;
       const daysElapsed = timeSinceLastYield / (24 * 60 * 60);
 
       if (daysElapsed >= 1) {
+        // Get player's current alloy
+        const player = this.getPlayerById(row.player_id);
+        if (!player) continue;
+        
+        const currentAlloy = player.alloy || 0;
+        const storageAvailable = MAX_ALLOY_STOCKPILE - currentAlloy;
+        
+        // If storage is full, skip this operation (it will automatically resume when space is available)
+        if (storageAvailable <= 0) {
+          console.log(`Mining operation ${row.id} paused: storage full (${currentAlloy}/${MAX_ALLOY_STOCKPILE})`);
+          continue;
+        }
+        
         // Award resources for full days
         const fullDays = Math.floor(daysElapsed);
-        const alloyToAdd = row.alloy_per_day * fullDays;
+        let alloyToAdd = row.alloy_per_day * fullDays;
+        
+        // Get current mined amount and limit
+        const currentlyMined = row.alloy_mined || 0;
+        const totalLimit = row.total_alloy_limit || 50.0;
+        const remainingAlloy = totalLimit - currentlyMined;
+        
+        // Cap the alloy to add if it would exceed the asteroid limit
+        if (alloyToAdd > remainingAlloy) {
+          alloyToAdd = remainingAlloy;
+        }
+        
+        // Cap the alloy to add if it would exceed storage capacity
+        if (alloyToAdd > storageAvailable) {
+          alloyToAdd = storageAvailable;
+        }
+        
+        // Only add if there's still alloy to mine
+        if (alloyToAdd > 0) {
+          // Add alloy to player
+          this.addPlayerAlloy(row.player_id, alloyToAdd);
 
-        // Add alloy to player
-        this.addPlayerAlloy(row.player_id, alloyToAdd);
-
-        // Update last yield time
-        const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
-        this.updateMiningOperationYield(row.id, newLastYieldAt);
+          // Update last yield time and total mined
+          const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+          const newAlloyMined = currentlyMined + alloyToAdd;
+          this.updateMiningOperationYield(row.id, newLastYieldAt, newAlloyMined);
+          
+          // Check if mining is complete
+          if (newAlloyMined >= totalLimit) {
+            operationsToDelete.push({ id: row.id, playerId: row.player_id });
+            console.log(`Mining operation ${row.id} on body ${row.celestial_body_id} has been depleted (mined ${newAlloyMined}/${totalLimit} alloy)`);
+          }
+        } else if (remainingAlloy > 0) {
+          // Mining paused due to storage, don't delete
+          console.log(`Mining operation ${row.id} paused: no storage space available`);
+        } else {
+          // Mining operation is depleted
+          operationsToDelete.push({ id: row.id, playerId: row.player_id });
+          console.log(`Mining operation ${row.id} on body ${row.celestial_body_id} was already depleted`);
+        }
       }
+    }
+    
+    // Delete depleted mining operations and refund energy
+    for (const op of operationsToDelete) {
+      this.deleteMiningOperation(op.id);
+      // Refund 1 energy to the player when mining is exhausted
+      this.addPlayerEnergy(op.playerId, 1);
+      console.log(`Refunded 1 energy to player ${op.playerId} for exhausted mining operation ${op.id}`);
     }
   }
 

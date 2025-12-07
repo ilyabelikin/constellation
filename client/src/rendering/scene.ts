@@ -24,6 +24,7 @@ import {
   getAtmosphereColor,
 } from "./materials/planetColorUtils";
 import { getDesertAtmosphereColor } from "./materials/DesertAtmosphereGlowMaterial";
+import { MiningInstallationRenderer } from "./MiningInstallationRenderer.js";
 
 /**
  * Main scene manager that orchestrates all rendering components
@@ -43,6 +44,7 @@ export class SceneManager {
   private gateTravelAnimator: GateTravelAnimator;
   private constellationView: ConstellationView;
   private dysonSwarmFactory: DysonSwarmFactory;
+  private miningInstallationRenderer: MiningInstallationRenderer;
 
   // Scene objects
   private bodies: Map<string, THREE.Mesh | THREE.Group> = new Map();
@@ -188,6 +190,12 @@ export class SceneManager {
 
     // Initialize Dyson swarm factory
     this.dysonSwarmFactory = new DysonSwarmFactory();
+
+    // Initialize mining installation renderer
+    this.miningInstallationRenderer = new MiningInstallationRenderer(
+      this.scene,
+      this.asteroids
+    );
 
     // Create event listeners and store references for cleanup
     this.resizeHandler = () => this.onWindowResize();
@@ -733,6 +741,9 @@ export class SceneManager {
       this.disposeMesh(mesh);
       this.scene.remove(mesh);
     }
+
+    // Dispose mining installations
+    this.miningInstallationRenderer.dispose();
 
     // Dispose and remove all moons
     for (const mesh of this.moons.values()) {
@@ -1494,6 +1505,9 @@ export class SceneManager {
       this.starfield.rotation.y = realTime * 0.01; // Slow rotation
     }
 
+    // Update interpolated game time (needed for both constellation and system view)
+    this.timeInterpolator.update();
+
     // Handle constellation view updates
     if (this.isConstellationViewActive) {
       const deltaTime = 0.016; // Approximate 60fps
@@ -1543,9 +1557,6 @@ export class SceneManager {
       this.cameraController.update(undefined);
       return; // Skip system view updates when in constellation view
     }
-
-    // Update interpolated game time
-    this.timeInterpolator.update();
 
     // Update black hole animations (accretion disk rotation, lensing arcs)
     const deltaTime = 0.016; // Approximate 60fps
@@ -1631,6 +1642,8 @@ export class SceneManager {
             satellite.visible = true;
           }
         }
+        // Show mining installations after gate travel
+        this.miningInstallationRenderer.setVisible(true);
         // Show planet orbit lines for planets orbiting the primary star only
         if (this.system) {
           for (const planet of this.system.planets) {
@@ -1939,6 +1952,14 @@ export class SceneManager {
         mesh.rotation.y = rotation * 0.7;
         mesh.rotation.z = rotation * 0.5;
       }
+    }
+
+    // Update mining installations
+    if (this.system && this.system.miningOperations) {
+      this.miningInstallationRenderer.update(
+        this.system.miningOperations,
+        deltaTime
+      );
     }
 
     // Update moon positions and rotations
@@ -2657,6 +2678,8 @@ export class SceneManager {
     for (const ringGroup of this.rings.values()) {
       ringGroup.visible = false;
     }
+    // Hide mining installations during gate travel
+    this.miningInstallationRenderer.setVisible(false);
     for (const satelliteData of this.satellites.values()) {
       for (const satellite of satelliteData.meshes) {
         satellite.visible = false;
@@ -2901,6 +2924,8 @@ export class SceneManager {
     for (const ringGroup of this.rings.values()) {
       ringGroup.visible = false;
     }
+    // Hide mining installations in constellation view
+    this.miningInstallationRenderer.setVisible(false);
     for (const satelliteData of this.satellites.values()) {
       for (const satellite of satelliteData.meshes) {
         satellite.visible = false;

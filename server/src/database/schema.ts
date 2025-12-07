@@ -121,6 +121,8 @@ export function initializeDatabase(dbPath: string): Database.Database {
       alloy_per_day REAL NOT NULL,
       established_at INTEGER NOT NULL,
       last_yield_at INTEGER NOT NULL,
+      total_alloy_limit REAL DEFAULT 50.0,
+      alloy_mined REAL DEFAULT 0.0,
       FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
       FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
     );
@@ -419,6 +421,8 @@ export function initializeDatabase(dbPath: string): Database.Database {
           alloy_per_day REAL NOT NULL,
           established_at INTEGER NOT NULL,
           last_yield_at INTEGER NOT NULL,
+          total_alloy_limit REAL DEFAULT 50.0,
+          alloy_mined REAL DEFAULT 0.0,
           FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
           FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
         );
@@ -429,6 +433,28 @@ export function initializeDatabase(dbPath: string): Database.Database {
     }
   } catch (error) {
     console.error("Error during mining operations table migration:", error);
+  }
+
+  // Migration: Add total_alloy_limit and alloy_mined to mining_operations table
+  try {
+    const columns = db
+      .prepare("PRAGMA table_info(mining_operations)")
+      .all() as Array<{ name: string }>;
+    
+    const hasLimitColumn = columns.some(col => col.name === 'total_alloy_limit');
+    const hasMinedColumn = columns.some(col => col.name === 'alloy_mined');
+    
+    if (!hasLimitColumn) {
+      console.log("Migrating database: Adding total_alloy_limit to mining_operations");
+      db.exec(`ALTER TABLE mining_operations ADD COLUMN total_alloy_limit REAL DEFAULT 50.0;`);
+    }
+    
+    if (!hasMinedColumn) {
+      console.log("Migrating database: Adding alloy_mined to mining_operations");
+      db.exec(`ALTER TABLE mining_operations ADD COLUMN alloy_mined REAL DEFAULT 0.0;`);
+    }
+  } catch (error) {
+    console.error("Error during mining operations limit migration:", error);
   }
 
   // Migration: Create megastructures table if it doesn't exist
