@@ -5,7 +5,7 @@
 - **Proper Lobby System**: Game now has a dedicated lobby screen with whats new
 - **Species Generation**: Each player gets a unique alien species with distinct traits and appearance
 - **Colony System**: Found new colonies on the habitable worlds, become a multi-planetary species
-- **Mining Installation Visuals**: Active mining operations now visible on asteroids with animated ships and beems
+- **Mining Installation Visuals**: Active mining operations now visible on asteroids with animated ships and mining beams
 
 ---
 
