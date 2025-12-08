@@ -479,11 +479,24 @@ class ConstellationGame {
     };
 
     this.network.onColonyUpdated = (colony) => {
-      setTimeout(() => {
-        if (this.hud.onSelectObject) {
-          this.hud.onSelectObject(colony.planetId);
+      // Update the colony in the current system state
+      if (this.system && this.system.colonies) {
+        const colonyIndex = this.system.colonies.findIndex(c => c.id === colony.id);
+        if (colonyIndex !== -1) {
+          this.system.colonies[colonyIndex] = colony;
         }
-      }, 0);
+      }
+
+      // Update the HUD's system reference
+      if (this.system) {
+        this.hud.setSystem(this.system);
+      }
+
+      // Refresh the body detail view if this planet is currently selected
+      const selectedId = this.scene.getSelectedObjectId();
+      if (selectedId === colony.planetId) {
+        this.hud.updateObjectDetails(colony.planetId);
+      }
     };
 
     this.network.onSpeciesInfo = (species) => {

@@ -110,15 +110,7 @@ When releasing a new version:
 - 📢 **Communicate** what's new to players via changelog
 - 🔄 **Keep "Coming Soon"** section updated with roadmap
 
-## Version History
 
-- **0.3.0** - Species and Colonies (Current)
-  - Species generation system
-  - Colony founding and management
-  - Diplomatic stances
-  - Improved lobby with changelog
 
-- **0.2.0** - (Previous features)
-- **0.1.0** - Initial release
 
 
