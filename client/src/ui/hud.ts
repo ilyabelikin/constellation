@@ -141,6 +141,7 @@ export class HUDManager {
         specialization: "balanced" | "research" | "industrial"
       ) => void)
     | null = null;
+  public onRemoveColony: ((planetId: string) => void) | null = null;
   public onUpdateColonySpecialization:
     | ((
         colonyId: string,
@@ -1375,6 +1376,12 @@ export class HUDManager {
       }
     };
 
+    this.bodyDetailView.onRemoveColony = (planetId: string) => {
+      if (this.onRemoveColony) {
+        this.onRemoveColony(planetId);
+      }
+    };
+
     this.bodyDetailView.onUpdateColonySpecialization = (
       colonyId: string,
       specialization: string
@@ -1448,7 +1455,7 @@ export class HUDManager {
     if (metPlayers.length === 0) {
       const statusText = document.createElement("span");
       statusText.textContent =
-        unmetCount > 0 ? `${unmetCount} unmet` : "you alone";
+        unmetCount > 0 ? `${unmetCount} unmet` : "alone";
       this.playersDisplay.appendChild(statusText);
     } else {
       // Add clickable player names
@@ -1683,6 +1690,19 @@ export class HUDManager {
       if (this.networkClient) {
         console.log("Sending debugAddResource message for alloy");
         this.networkClient.debugAddResource("alloy", 10);
+      } else {
+        console.error("Network client not available!");
+      }
+    });
+
+    // Make science display clickable
+    this.scienceDisplay.style.cursor = "pointer";
+    this.scienceDisplay.title = "Click to add +10 science (debug mode)";
+    this.scienceDisplay.addEventListener("click", () => {
+      console.log("Science clicked! Network client:", this.networkClient);
+      if (this.networkClient) {
+        console.log("Sending debugAddResource message for science");
+        this.networkClient.debugAddResource("science", 10);
       } else {
         console.error("Network client not available!");
       }

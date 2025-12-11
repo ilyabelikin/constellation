@@ -596,6 +596,9 @@ class ConstellationGame {
     };
 
     this.network.onColonyEstablished = (colony) => {
+      // Trigger colony establishment animation
+      this.scene.triggerColonyEstablishment(colony.planetId);
+
       setTimeout(() => {
         if (this.hud.onSelectObject) {
           this.hud.onSelectObject(colony.planetId);
@@ -626,6 +629,26 @@ class ConstellationGame {
       }
     };
 
+    this.network.onColonyRemoved = (planetId) => {
+      // Remove the colony from the current system state
+      if (this.system && this.system.colonies) {
+        this.system.colonies = this.system.colonies.filter(
+          (c) => c.planetId !== planetId
+        );
+      }
+
+      // Update the HUD's system reference
+      if (this.system) {
+        this.hud.setSystem(this.system);
+      }
+
+      // Refresh the body detail view if this planet is currently selected
+      const selectedId = this.scene.getSelectedObjectId();
+      if (selectedId === planetId) {
+        this.hud.updateObjectDetails(planetId);
+      }
+    };
+
     this.network.onSpeciesInfo = (species) => {
       this.hud.displaySpeciesInfo(species);
     };
@@ -644,6 +667,10 @@ class ConstellationGame {
 
     this.hud.onEstablishColony = (planetId, specialization) => {
       this.network.establishColony(planetId, specialization);
+    };
+
+    this.hud.onRemoveColony = (planetId) => {
+      this.network.removeColony(planetId);
     };
 
     this.hud.onUpdateColonySpecialization = (colonyId, specialization) => {

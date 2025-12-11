@@ -1,8 +1,8 @@
 # What's New in Constellation
 
-## Version 0.3.1 - Species and Colonies
+## Version 0.3.2 - Species and Colonies
 
-- **Proper Lobby System**: Game now has a dedicated lobby screen with whats new; options to continue previous game, join one of the active galaxies, or start a new galaxy.
+- **Lobby System**: Game now has a dedicated lobby screen with whats new; options to continue previous game, join one of the active galaxies, or start a new galaxy.
 - **Species Selection**: A player can select one of the 18 predefined species
 - **Colony System**: Found new colonies on the habitable worlds, become a multi-planetary species
 - **Mining Installation Visuals**: Active mining operations now visible on asteroids with animated ships and mining beams

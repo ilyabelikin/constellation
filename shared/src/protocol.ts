@@ -62,6 +62,10 @@ export type ClientMessage =
       specialization: "balanced" | "research" | "industrial";
     }
   | {
+      type: "removeColony";
+      planetId: string;
+    }
+  | {
       type: "updateColonySpecialization";
       colonyId: string;
       specialization: "balanced" | "research" | "industrial";
@@ -200,6 +204,10 @@ export type ServerMessage =
   | {
       type: "colonyUpdated";
       colony: Colony;
+    }
+  | {
+      type: "colonyRemoved";
+      planetId: string;
     }
   | {
       type: "speciesInfo";

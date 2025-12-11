@@ -304,15 +304,6 @@
             margin: 0 auto;
         }
 
-        .hud-button.primary {
-            background: var(--primary-color);
-            color: #000;
-            font-weight: bold;
-        }
-
-        .hud-button.primary:hover {
-            background: var(--primary-color-bright);
-        }
 
         #galaxy-list {
             display: flex;
@@ -720,9 +711,9 @@
                     <div id="galaxy-list" style="max-height: 400px; overflow-y: auto; margin-bottom: 20px;">
                         <!-- Galaxy list will be populated here -->
                     </div>
-                    <div style="text-align: center;">
-                        <button class="hud-button" id="create-new-galaxy">Start New Galaxy</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
                         <button class="hud-button" id="back-to-lobby">Back</button>
+                        <button class="hud-button" id="create-new-galaxy" style="padding: 10px 30px; font-size: 14px;">Start New Galaxy</button>
                     </div>
                 </div>
             </div>
@@ -786,8 +777,8 @@
                         </div>
 
                         <div style="display: flex; gap: 15px; justify-content: center;">
-                            <button class="hud-button" id="species-detail-back" style="padding: 10px 30px; font-size: 14px;">Back</button>
-                            <button class="hud-button primary" id="species-detail-play" style="padding: 10px 30px; font-size: 14px;">Play as Species</button>
+                            <button class="hud-button" id="species-detail-back">Back</button>
+                            <button class="hud-button" id="species-detail-play" style="padding: 10px 30px; font-size: 14px;">Play as Species</button>
                         </div>
                     </div>
                 </div>
@@ -931,6 +922,9 @@
             </div>
             <button class="hud-button" id="body-colonize-button" style="width: 100%;">
                 🏙 Establish Colony (5 ⚡ 5 ⛏ 5 ⚗️)
+            </button>
+            <button class="hud-button" id="body-remove-colony-button" style="width: 100%; margin-top: 5px; display: none; background: #600;">
+                🗑️ Remove Colony
             </button>
         </div>
     </div>

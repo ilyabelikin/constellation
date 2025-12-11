@@ -340,7 +340,7 @@ export class DatabaseQueries {
 
     // Calculate total income rates
     const miningOperations = this.getMiningOperationsByPlayer(row.id);
-    const alloyPerDay = miningOperations.reduce(
+    const alloyFromMining = miningOperations.reduce(
       (sum, op) => sum + op.alloyPerDay,
       0
     );
@@ -355,6 +355,13 @@ export class DatabaseQueries {
       (sum, col) => sum + col.sciencePerDay,
       0
     );
+    const alloyFromColonies = colonies.reduce(
+      (sum, col) => sum + col.alloyPerDay,
+      0
+    );
+
+    // Total alloy per day from both mining operations and colonies
+    const alloyPerDay = alloyFromMining + alloyFromColonies;
 
     return {
       id: row.id,
@@ -2286,6 +2293,14 @@ export class DatabaseQueries {
       establishedAt: row.established_at,
       lastYieldAt: row.last_yield_at,
     };
+  }
+
+  /**
+   * Delete a colony
+   */
+  deleteColony(colonyId: string): void {
+    const stmt = this.db.prepare("DELETE FROM colonies WHERE id = ?");
+    stmt.run(colonyId);
   }
 
   /**

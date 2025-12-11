@@ -112,6 +112,7 @@ export class NetworkClient {
     | null = null;
   public onColonyEstablished: ((colony: any) => void) | null = null;
   public onColonyUpdated: ((colony: any) => void) | null = null;
+  public onColonyRemoved: ((planetId: string) => void) | null = null;
   public onSpeciesInfo: ((species: any) => void) | null = null;
   public onDisconnected: (() => void) | null = null;
   public onReconnected: (() => void) | null = null;
@@ -373,6 +374,11 @@ export class NetworkClient {
             this.onColonyUpdated(message.colony);
           }
           break;
+        case "colonyRemoved":
+          if (this.onColonyRemoved) {
+            this.onColonyRemoved(message.planetId);
+          }
+          break;
         case "speciesInfo":
           if (this.onSpeciesInfo) {
             this.onSpeciesInfo(message.species);
@@ -492,6 +498,10 @@ export class NetworkClient {
     specialization: "balanced" | "research" | "industrial"
   ): void {
     this.send({ type: "establishColony", planetId, specialization });
+  }
+
+  removeColony(planetId: string): void {
+    this.send({ type: "removeColony", planetId });
   }
 
   updateColonySpecialization(

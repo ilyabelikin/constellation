@@ -59,10 +59,12 @@ export class BodyDetailView {
   private colonyScience: HTMLElement | null;
   private colonyAlloy: HTMLElement | null;
   private colonizeButton: HTMLButtonElement | null;
+  private removeColonyButton: HTMLButtonElement | null;
   private specializationButtons: NodeListOf<HTMLButtonElement> | null;
   public onEstablishColony:
     | ((planetId: string, specialization: string) => void)
     | null = null;
+  public onRemoveColony: ((planetId: string) => void) | null = null;
   public onUpdateColonySpecialization:
     | ((colonyId: string, specialization: string) => void)
     | null = null;
@@ -137,6 +139,9 @@ export class BodyDetailView {
     this.colonizeButton = document.getElementById(
       "body-colonize-button"
     ) as HTMLButtonElement;
+    this.removeColonyButton = document.getElementById(
+      "body-remove-colony-button"
+    ) as HTMLButtonElement;
     this.specializationButtons = document.querySelectorAll(
       "#body-colony-specialization-buttons button"
     );
@@ -147,6 +152,15 @@ export class BodyDetailView {
         if (this.currentBody && this.onEstablishColony) {
           // Default to balanced specialization
           this.onEstablishColony(this.currentBody.id, "balanced");
+        }
+      });
+    }
+
+    // Bind remove colony button click (debug only)
+    if (this.removeColonyButton) {
+      this.removeColonyButton.addEventListener("click", () => {
+        if (this.currentBody && this.onRemoveColony) {
+          this.onRemoveColony(this.currentBody.id);
         }
       });
     }
@@ -545,6 +559,10 @@ export class BodyDetailView {
           if (this.colonizeButton) {
             this.colonizeButton.style.display = "none";
           }
+          // Show remove colony button in debug mode
+          if (this.removeColonyButton && this.isDebugMode) {
+            this.removeColonyButton.style.display = "block";
+          }
         } else {
           // Hide colony status, show colonize button
           if (this.colonyStatus) {
@@ -552,6 +570,10 @@ export class BodyDetailView {
           }
           if (this.colonizeButton) {
             this.colonizeButton.style.display = "block";
+          }
+          // Hide remove colony button when no colony
+          if (this.removeColonyButton) {
+            this.removeColonyButton.style.display = "none";
           }
         }
       }

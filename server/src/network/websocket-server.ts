@@ -202,6 +202,9 @@ export class ConstellationWebSocketServer {
             message.specialization
           );
           break;
+        case "removeColony":
+          this.handleRemoveColony(client, message.planetId);
+          break;
         case "updateColonySpecialization":
           this.handleUpdateColonySpecialization(
             client,
@@ -852,33 +855,6 @@ export class ConstellationWebSocketServer {
       `Created species for player: ${species.name} (${species.appearance.bodyType})`
     );
 
-    // Create ship orbiting the home planet (or star if no planet found)
-    // Calculate a reasonable orbital distance based on parent body
-    // Need larger orbit to account for visual scaling (BODY_SIZE_MULTIPLIER = 40)
-    const orbitDistance = homePlanet
-      ? homePlanet.radius * 200 // Orbit 200x the planet's radius for visibility
-      : 1.5 * ASTRONOMICAL_UNIT; // Default to 1.5 AU from star
-
-    const ship: Ship = {
-      id: uuidv4(),
-      playerId: player.id,
-      systemId: starterSystem.id,
-      parentBodyId: parentBodyId,
-      orbitalElements: {
-        semiMajorAxis: orbitDistance,
-        eccentricity: 0.05,
-        inclination: 0.01,
-        longitudeOfAscendingNode: 0,
-        argumentOfPeriapsis: 0,
-        meanAnomalyAtEpoch: 0,
-        epoch: this.gameState.getCurrentTime(),
-      },
-      deltaV: 10000, // 10 km/s of delta-v
-    };
-
-    this.db.createShip(ship);
-    player.shipId = ship.id;
-
     // Update client
     client.playerId = player.id;
     client.currentSystemId = starterSystem.id;
@@ -924,7 +900,6 @@ export class ConstellationWebSocketServer {
 
     // Load into game state
     this.gameState.loadSystem(starterSystem);
-    this.gameState.addShip(ship);
 
     console.log(
       `Player created: ${player.name}, Home Planet: ${
@@ -946,7 +921,6 @@ export class ConstellationWebSocketServer {
         gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
       });
     }
-    this.send(client.ws, { type: "shipData", ship });
 
     // Broadcast updated galaxy players info to ALL players in this galaxy
     this.broadcastGalaxyPlayersInfo(galaxyId);
@@ -985,6 +959,19 @@ export class ConstellationWebSocketServer {
       client.playerId,
       systemId
     );
+
+    // Send current time state BEFORE system data to ensure proper synchronization
+    if (client.galaxyId) {
+      const galaxyState = this.gameState.getGalaxyState(client.galaxyId);
+      if (galaxyState) {
+        this.send(client.ws, {
+          type: "timeUpdate",
+          currentTime: galaxyState.currentTime,
+          isPaused: galaxyState.isPaused,
+          timeScale: galaxyState.timeScale,
+        });
+      }
+    }
 
     // Send system data with gate ownership information
     this.send(client.ws, {
@@ -2669,16 +2656,16 @@ export class ConstellationWebSocketServer {
     // Once they reach 1M population, they switch to producing at smaller rates
     switch (specialization) {
       case "research":
-        sciencePerDay = -0.03 * habitabilityBonus; // Consume science
-        alloyPerDay = -0.002 * habitabilityBonus; // Consume minerals
+        sciencePerDay = -0.45 * habitabilityBonus; // Consume science (15x cost)
+        alloyPerDay = -0.03 * habitabilityBonus; // Consume minerals (15x cost)
         break;
       case "industrial":
-        sciencePerDay = -0.005 * habitabilityBonus; // Consume science
-        alloyPerDay = -0.02 * habitabilityBonus; // Consume minerals
+        sciencePerDay = -0.075 * habitabilityBonus; // Consume science (15x cost)
+        alloyPerDay = -0.3 * habitabilityBonus; // Consume minerals (15x cost)
         break;
       default: // balanced
-        sciencePerDay = -0.015 * habitabilityBonus; // Consume science
-        alloyPerDay = -0.008 * habitabilityBonus; // Consume minerals
+        sciencePerDay = -0.225 * habitabilityBonus; // Consume science (15x cost)
+        alloyPerDay = -0.12 * habitabilityBonus; // Consume minerals (15x cost)
         break;
     }
 
@@ -2723,6 +2710,52 @@ export class ConstellationWebSocketServer {
     }
 
     // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(player.id);
+    if (updatedPlayer) {
+      this.send(client.ws, {
+        type: "playerData",
+        player: updatedPlayer,
+      });
+    }
+  }
+
+  private handleRemoveColony(
+    client: ClientConnection,
+    planetId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Find the colony on this planet
+    const colony = this.db
+      .getColoniesByPlayerId(player.id)
+      .find((c) => c.planetId === planetId);
+
+    if (!colony) {
+      this.sendError(client.ws, "No colony found on this planet");
+      return;
+    }
+
+    // Delete the colony
+    this.db.deleteColony(colony.id);
+
+    console.log(`Colony removed from planet ${planetId} by player ${player.name}`);
+
+    // Notify the client
+    this.send(client.ws, {
+      type: "colonyRemoved",
+      planetId,
+    });
+
+    // Send updated player data (resources may have changed)
     const updatedPlayer = this.db.getPlayerById(player.id);
     if (updatedPlayer) {
       this.send(client.ws, {
@@ -2797,16 +2830,16 @@ export class ConstellationWebSocketServer {
       // Colony consumes resources (negative rates)
       switch (specialization) {
         case "research":
-          sciencePerDay = -0.03 * habitabilityBonus;
-          alloyPerDay = -0.002 * habitabilityBonus;
+          sciencePerDay = -0.45 * habitabilityBonus; // 15x cost
+          alloyPerDay = -0.03 * habitabilityBonus; // 15x cost
           break;
         case "industrial":
-          sciencePerDay = -0.005 * habitabilityBonus;
-          alloyPerDay = -0.02 * habitabilityBonus;
+          sciencePerDay = -0.075 * habitabilityBonus; // 15x cost
+          alloyPerDay = -0.3 * habitabilityBonus; // 15x cost
           break;
         default: // balanced
-          sciencePerDay = -0.015 * habitabilityBonus;
-          alloyPerDay = -0.008 * habitabilityBonus;
+          sciencePerDay = -0.225 * habitabilityBonus; // 15x cost
+          alloyPerDay = -0.12 * habitabilityBonus; // 15x cost
           break;
       }
     }

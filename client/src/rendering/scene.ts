@@ -25,6 +25,7 @@ import {
 } from "./materials/planetColorUtils";
 import { getDesertAtmosphereColor } from "./materials/DesertAtmosphereGlowMaterial";
 import { MiningInstallationRenderer } from "./MiningInstallationRenderer.js";
+import { ColonyEstablishmentRenderer } from "./ColonyEstablishmentRenderer.js";
 
 /**
  * Main scene manager that orchestrates all rendering components
@@ -45,6 +46,7 @@ export class SceneManager {
   private constellationView: ConstellationView;
   private dysonSwarmFactory: DysonSwarmFactory;
   private miningInstallationRenderer: MiningInstallationRenderer;
+  private colonyEstablishmentRenderer: ColonyEstablishmentRenderer;
 
   // Scene objects
   private bodies: Map<string, THREE.Mesh | THREE.Group> = new Map();
@@ -195,6 +197,12 @@ export class SceneManager {
     this.miningInstallationRenderer = new MiningInstallationRenderer(
       this.scene,
       this.asteroids
+    );
+
+    // Initialize colony establishment renderer
+    this.colonyEstablishmentRenderer = new ColonyEstablishmentRenderer(
+      this.scene,
+      this.bodies
     );
 
     // Create event listeners and store references for cleanup
@@ -882,6 +890,13 @@ export class SceneManager {
 
   setTimeState(isPaused: boolean, timeScale: number): void {
     this.timeInterpolator.setTimeState(isPaused, timeScale);
+  }
+
+  /**
+   * Trigger colony establishment animation on a planet
+   */
+  triggerColonyEstablishment(planetId: string): void {
+    this.colonyEstablishmentRenderer.startEstablishment(planetId);
   }
 
   updateState(state: SystemState): void {
@@ -1961,6 +1976,9 @@ export class SceneManager {
         deltaTime
       );
     }
+
+    // Update colony establishment animations
+    this.colonyEstablishmentRenderer.update(deltaTime);
 
     // Update moon positions and rotations
     for (const [moonId, mesh] of this.moons.entries()) {
