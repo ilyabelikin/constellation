@@ -132,8 +132,22 @@ class ConstellationApp {
 
   private async initializeLobby(): Promise<void> {
     try {
+      // Determine the correct WebSocket URL based on the current protocol and host
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      
+      let host = window.location.host;
+      if (
+        window.location.hostname === "localhost" &&
+        window.location.port === "3030"
+      ) {
+        host = "localhost:8080";
+      }
+
+      const wsUrl = `${protocol}//${host}`;
+      console.log(`Connecting to WebSocket at: ${wsUrl}`);
+      
       // Connect to server
-      await this.network.connect();
+      await this.network.connect(wsUrl);
       console.log("Connected to server from lobby");
 
       // Show lobby after connection
