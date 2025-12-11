@@ -290,8 +290,8 @@ export class DatabaseQueries {
       player.homeSystemId,
       player.homePlanetId,
       player.currentSystemId,
-      player.energy || 10,
-      player.alloy || 10,
+      player.energy || 0,
+      player.alloy || 0,
       player.science || 0,
       player.speciesId || null,
       Date.now()
@@ -325,8 +325,8 @@ export class DatabaseQueries {
       currentSystemId: row.current_system_id,
       shipId: "", // Will be loaded separately
       exploredGateIds,
-      energy: row.energy ?? 10,
-      alloy: row.alloy ?? 10,
+      energy: row.energy ?? 0,
+      alloy: row.alloy ?? 0,
       science: row.science ?? 0,
       speciesId: row.species_id || undefined,
     };
@@ -373,8 +373,8 @@ export class DatabaseQueries {
       currentSystemId: row.current_system_id,
       shipId: "",
       exploredGateIds,
-      energy: row.energy ?? 10,
-      alloy: row.alloy ?? 10,
+      energy: row.energy ?? 0,
+      alloy: row.alloy ?? 0,
       science: row.science ?? 0,
       energyPerDay,
       alloyPerDay,
@@ -417,8 +417,8 @@ export class DatabaseQueries {
     const row = stmt.get(playerId) as any;
     if (!row) return null;
     return {
-      energy: row.energy ?? 10,
-      alloy: row.alloy ?? 10,
+      energy: row.energy ?? 0,
+      alloy: row.alloy ?? 0,
       science: row.science ?? 0,
     };
   }
@@ -1182,8 +1182,8 @@ export class DatabaseQueries {
       currentSystemId: row.current_system_id,
       shipId: "",
       exploredGateIds: [],
-      energy: row.energy ?? 10,
-      alloy: row.alloy ?? 10,
+      energy: row.energy ?? 0,
+      alloy: row.alloy ?? 0,
       science: row.science ?? 0,
       speciesId: row.species_id || undefined,
     }));

@@ -305,7 +305,11 @@ class ConstellationGame {
     };
 
     this.network.onSystemData = (system, gateOwnership) => {
-      console.log("System data received:", system);
+      console.log(
+        "[SystemData] System data received at timestamp:",
+        Date.now(),
+        system
+      );
       const isSystemRefresh = this.system && this.system.id === system.id;
 
       // Store current selection before updating
@@ -388,6 +392,9 @@ class ConstellationGame {
     };
 
     this.network.onTimeUpdate = (currentTime, isPaused, timeScale) => {
+      console.log(
+        `Time update received: time=${currentTime}, paused=${isPaused}, scale=${timeScale}`
+      );
       this.isPaused = isPaused;
       this.scene.setTimeState(isPaused, timeScale);
       this.hud.updateTime(currentTime, isPaused, timeScale);

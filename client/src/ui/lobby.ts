@@ -116,6 +116,7 @@ export class LobbyManager {
 
     // Setup button handlers
     this.continueButton.addEventListener("click", () => {
+      console.log("[Continue] Button clicked, starting game continuation...");
       if (this.playerGameInfo && this.onContinue) {
         this.onContinue(this.playerGameInfo.galaxyId);
       }

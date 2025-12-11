@@ -369,7 +369,8 @@ export class HUDManager {
     });
 
     // Mineable objects widget click handlers
-    this.mineableObjectsWidget.addEventListener("click", () => {
+    this.mineableObjectsWidget.addEventListener("click", (e) => {
+      console.log("[Mining Badge] Click event fired", e);
       this.cycleToNextMineableObject();
     });
 
@@ -1788,6 +1789,11 @@ export class HUDManager {
         (obj, i) => obj.id === this.mineableObjects[i]?.id
       );
 
+    // Debug logging
+    if (listChanged && this.isCyclingMineable) {
+      console.log(`[Mining Badge] Widget updated mid-cycle! Old: ${this.mineableObjects.length}, New: ${newMineableObjects.length}, Index: ${this.currentMineableIndex}`);
+    }
+
     // Only reset cycling state if the list has changed
     if (listChanged) {
       this.mineableObjects = newMineableObjects;
@@ -1860,7 +1866,10 @@ export class HUDManager {
    * Cycle to the next mineable object
    */
   private cycleToNextMineableObject(): void {
-    if (this.mineableObjects.length === 0) return;
+    if (this.mineableObjects.length === 0) {
+      console.warn("[Mining Badge] No mineable objects available");
+      return;
+    }
 
     // Mark that we're cycling
     if (!this.isCyclingMineable) {
@@ -1877,6 +1886,7 @@ export class HUDManager {
 
     // Select the object
     const selectedObject = this.mineableObjects[this.currentMineableIndex];
+    console.log(`[Mining Badge] Selecting mineable object ${this.currentMineableIndex + 1}/${this.mineableObjects.length}:`, selectedObject);
     if (this.onSelectObject) {
       this.onSelectObject(selectedObject.id);
     }

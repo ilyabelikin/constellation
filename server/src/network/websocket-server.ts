@@ -255,12 +255,13 @@ export class ConstellationWebSocketServer {
       client.galaxyId = player.galaxyId;
 
       // Load galaxy time state into game state manager
+      // Always start paused when player reconnects/continues to prevent time advancing during load
       const galaxy = this.db.getGalaxyById(player.galaxyId);
       if (galaxy) {
         this.gameState.loadGalaxy(
           galaxy.id,
           galaxy.currentTime || 0,
-          galaxy.isPaused !== false,
+          true, // Always start paused when continuing
           galaxy.timeScale || TIME_SCALE_DEFAULT
         );
       }
@@ -933,6 +934,14 @@ export class ConstellationWebSocketServer {
     if (!client.playerId) {
       this.sendError(client.ws, "Not authenticated");
       return;
+    }
+
+    // Log the current galaxy time when this request is made
+    if (client.galaxyId) {
+      const galaxyState = this.gameState.getGalaxyState(client.galaxyId);
+      if (galaxyState) {
+        console.log(`[RequestSystemState] Galaxy time: ${galaxyState.currentTime}, paused: ${galaxyState.isPaused}`);
+      }
     }
 
     const system = this.db.getStarSystem(systemId);

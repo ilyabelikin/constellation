@@ -2442,6 +2442,7 @@ export class SceneManager {
       this.asteroids.get(objectId) ||
       this.moons.get(objectId);
     if (mesh) {
+      console.log(`[centerOnObject] Centering on ${mesh.userData.type}: ${objectId}, position:`, mesh.position);
       const shouldUseGate = this.cameraController.centerOnObject(
         objectId,
         mesh
@@ -2465,6 +2466,9 @@ export class SceneManager {
       if (shouldUseGate && this.onGateUse) {
         this.onGateUse(objectId);
       }
+    } else {
+      console.warn(`[centerOnObject] Object not found in scene: ${objectId}`);
+      console.warn(`Available asteroids:`, Array.from(this.asteroids.keys()).slice(0, 10));
     }
   }
 
