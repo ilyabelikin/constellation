@@ -26,6 +26,11 @@ import {
   StarterSystemResult,
 } from "../generation/galaxy-generator.js";
 import { generatePlayerSpecies } from "../generation/species-generator.js";
+import {
+  getAllPregeneratedSpecies,
+  getPregeneratedSpecies,
+} from "../generation/pregenerated-species.js";
+import { generateGalaxyName } from "../generation/name-generator.js";
 
 interface ClientConnection {
   ws: WebSocket;
@@ -50,6 +55,7 @@ export class ConstellationWebSocketServer {
     this.wss.on("connection", (ws) => this.handleConnection(ws));
     this.startStateUpdates();
     this.startTimeSaveInterval();
+    this.startGalaxyCleanupInterval();
 
     console.log(`WebSocket server started on port ${WEBSOCKET_PORT}`);
   }
@@ -79,8 +85,8 @@ export class ConstellationWebSocketServer {
       if (!client) return;
 
       console.log(`[Server] Received message type: ${message.type}`);
-      if (message.type === "debugAddResource") {
-        console.log("[Server] Debug message details:", message);
+      if (message.type === "debugAddResource" || message.type === "createGalaxy") {
+        console.log("[Server] Message details:", message);
       }
 
       switch (message.type) {
@@ -93,14 +99,34 @@ export class ConstellationWebSocketServer {
         case "queryGalaxy":
           this.handleQueryGalaxy(client, message.galaxyName);
           break;
+        case "getGalaxyList":
+          this.handleGetGalaxyList(client);
+          break;
+        case "getPlayerGameInfo":
+          this.handleGetPlayerGameInfo(client);
+          break;
+        case "getPregeneratedSpecies":
+          this.handleGetPregeneratedSpecies(client);
+          break;
+        case "getGalaxySpecies":
+          this.handleGetGalaxySpecies(client, message.galaxyId);
+          break;
+        case "createEmptyGalaxy":
+          this.handleCreateEmptyGalaxy(client);
+          break;
         case "joinGalaxy":
-          this.handleJoinGalaxy(client, message.galaxyName, message.playerName);
+          this.handleJoinGalaxy(
+            client,
+            message.galaxyId,
+            message.playerName,
+            message.speciesId
+          );
           break;
         case "createGalaxy":
           this.handleCreateGalaxy(
             client,
-            message.galaxyName,
-            message.playerName
+            message.playerName,
+            message.speciesId
           );
           break;
         case "resetGalaxy":
@@ -189,10 +215,14 @@ export class ConstellationWebSocketServer {
       }
     } catch (error) {
       console.error("Error handling message:", error);
+      if (error instanceof Error) {
+        console.error("Error stack:", error.stack);
+      }
       console.error("Raw message data:", data);
       try {
         const parsedMessage = JSON.parse(data);
         console.error("Parsed message:", parsedMessage);
+        console.error("Message type:", parsedMessage.type);
       } catch (e) {
         console.error("Could not parse message as JSON");
       }
@@ -334,15 +364,16 @@ export class ConstellationWebSocketServer {
 
   private handleJoinGalaxy(
     client: ClientConnection,
-    galaxyName: string,
-    playerName?: string
+    galaxyId: string,
+    playerName: string,
+    speciesId: string
   ): void {
     if (!client.uuid) {
       this.sendError(client.ws, "Not authenticated");
       return;
     }
 
-    const galaxy = this.db.getGalaxyByName(galaxyName);
+    const galaxy = this.db.getGalaxyById(galaxyId);
     if (!galaxy) {
       this.sendError(client.ws, "Galaxy not found");
       return;
@@ -360,18 +391,36 @@ export class ConstellationWebSocketServer {
     client.galaxyId = galaxy.id;
 
     // Check if player already exists
-    const existingPlayer = this.db.getPlayerByUuid(client.uuid);
+    let existingPlayer = this.db.getPlayerByUuid(client.uuid);
+    
+    // If player exists in a different galaxy, delete and recreate
+    if (existingPlayer && existingPlayer.galaxyId !== galaxyId) {
+      console.log(
+        `[Server] Player switching galaxies: ${existingPlayer.galaxyId} -> ${galaxyId}. Creating new player.`
+      );
+      // Delete old player and create new one in the new galaxy
+      this.db.deletePlayer(existingPlayer.id);
+      
+      // Clear client state and existingPlayer reference
+      client.playerId = null;
+      client.currentSystemId = null;
+      existingPlayer = null;
+    }
+    
     if (existingPlayer) {
-      // Player exists, update their name if provided
-      if (playerName && playerName.trim()) {
-        this.db.updatePlayerName(existingPlayer.id, playerName.trim());
-        existingPlayer.name = playerName.trim(); // Update in memory
-        console.log(`Updated player name to: ${playerName.trim()}`);
-      }
+      // Player exists in the same galaxy, update their name if provided
+        if (playerName && playerName.trim()) {
+          this.db.updatePlayerName(existingPlayer.id, playerName.trim());
+          existingPlayer.name = playerName.trim(); // Update in memory
+          console.log(`Updated player name to: ${playerName.trim()}`);
+        }
 
-      // Load their data
-      client.playerId = existingPlayer.id;
-      client.currentSystemId = existingPlayer.currentSystemId;
+        // Update player activity
+        this.db.updatePlayerActivity(existingPlayer.id);
+
+        // Load their data
+        client.playerId = existingPlayer.id;
+        client.currentSystemId = existingPlayer.currentSystemId;
 
       // Load system into game state (with mining operations and megastructures)
       const system = this.db.getStarSystem(existingPlayer.currentSystemId);
@@ -403,11 +452,14 @@ export class ConstellationWebSocketServer {
       if (playerName && playerName.trim()) {
         this.broadcastGalaxyPlayersInfo(galaxy.id);
       }
-    } else {
+    }
+    
+    // Check again if player needs to be created (either new or deleted above)
+    if (!client.playerId) {
       // New player, create them
       // Generate a unique starting system for this player, separate from other players
       console.log(
-        `Generating unique starting system for new player in galaxy: ${galaxyName}`
+        `Generating unique starting system for new player in galaxy: ${galaxy.name}`
       );
 
       const starterResult = generateStarterSystem(
@@ -424,10 +476,16 @@ export class ConstellationWebSocketServer {
       this.createPlayerInGalaxy(
         client,
         galaxy.id,
-        galaxyName,
+        galaxy.name,
         starterResult.homePlanetId,
-        playerName
+        playerName,
+        speciesId
       );
+
+      // Update player activity
+      if (client.playerId) {
+        this.db.updatePlayerActivity(client.playerId);
+      }
     }
 
     // Send initial time state to the joining player
@@ -442,27 +500,38 @@ export class ConstellationWebSocketServer {
     }
 
     console.log(
-      `Player joined galaxy: ${galaxyName} (active players: ${this.getActivePlayerCount()})`
+      `Player joined galaxy: ${galaxy.name} (active players: ${this.getActivePlayerCount()})`
     );
     this.send(client.ws, { type: "galaxyJoined", galaxyId: galaxy.id });
   }
 
   private handleCreateGalaxy(
     client: ClientConnection,
-    galaxyName: string,
-    playerName?: string
+    playerName: string,
+    speciesId: string
   ): void {
     if (!client.uuid) {
       this.sendError(client.ws, "Not authenticated");
       return;
     }
 
-    // Check if galaxy already exists
-    const existingGalaxy = this.db.getGalaxyByName(galaxyName);
-    if (existingGalaxy) {
-      this.sendError(client.ws, "Galaxy already exists");
-      return;
+    console.log(`[Server] Creating new galaxy for player: ${playerName}, species: ${speciesId}`);
+
+    // Check if player already exists - if so, delete them first
+    // This allows players to start fresh in a new galaxy
+    const existingPlayer = this.db.getPlayerByUuid(client.uuid);
+    if (existingPlayer) {
+      console.log(`[Server] Deleting existing player ${existingPlayer.name} to start fresh`);
+      this.db.deletePlayer(existingPlayer.id);
+      
+      // Clear client state
+      client.playerId = null;
+      client.currentSystemId = null;
+      client.galaxyId = null;
     }
+
+    // Generate a unique galaxy name
+    const galaxyName = generateGalaxyName();
 
     // Create new galaxy
     const galaxy = generateGalaxy(galaxyName);
@@ -490,7 +559,8 @@ export class ConstellationWebSocketServer {
       galaxy.id,
       galaxyName,
       starterResult.homePlanetId,
-      playerName
+      playerName,
+      speciesId
     );
 
     // Send initial time state to the joining player
@@ -504,7 +574,133 @@ export class ConstellationWebSocketServer {
       });
     }
 
-    this.send(client.ws, { type: "galaxyCreated", galaxyId: galaxy.id });
+    this.send(client.ws, {
+      type: "galaxyCreated",
+      galaxyId: galaxy.id,
+      galaxyName: galaxyName,
+    });
+  }
+
+  private handleGetGalaxyList(client: ClientConnection): void {
+    if (!client.uuid) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const galaxies = this.db.getAllGalaxiesWithStats();
+
+    this.send(client.ws, {
+      type: "galaxyList",
+      galaxies,
+    });
+  }
+
+  private handleGetPlayerGameInfo(client: ClientConnection): void {
+    if (!client.uuid) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerByUuid(client.uuid);
+    if (!player) {
+      this.send(client.ws, {
+        type: "playerGameInfo",
+        hasGame: false,
+      });
+      return;
+    }
+
+    // Get galaxy name
+    const galaxy = this.db.getGalaxyById(player.galaxyId);
+    if (!galaxy) {
+      this.send(client.ws, {
+        type: "playerGameInfo",
+        hasGame: false,
+      });
+      return;
+    }
+
+    // Get species name
+    let speciesName = "Unknown Species";
+    if (player.speciesId) {
+      const species = this.db.getSpeciesById(player.speciesId);
+      if (species) {
+        speciesName = species.name;
+      }
+    }
+
+    this.send(client.ws, {
+      type: "playerGameInfo",
+      hasGame: true,
+      playerName: player.name,
+      galaxyId: galaxy.id,
+      galaxyName: galaxy.name,
+      speciesName: speciesName,
+    });
+  }
+
+  private handleGetPregeneratedSpecies(client: ClientConnection): void {
+    if (!client.uuid) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const species = getAllPregeneratedSpecies();
+
+    this.send(client.ws, {
+      type: "pregeneratedSpecies",
+      species,
+    });
+  }
+
+  private handleGetGalaxySpecies(
+    client: ClientConnection,
+    galaxyId: string
+  ): void {
+    if (!client.uuid) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    // Get all players in the galaxy and their species IDs
+    const players = this.db.getPlayersByGalaxy(galaxyId);
+    const speciesIds = players
+      .map((p) => p.speciesId)
+      .filter((id): id is string => !!id);
+
+    this.send(client.ws, {
+      type: "galaxySpecies",
+      speciesIds,
+    });
+  }
+
+  private handleCreateEmptyGalaxy(client: ClientConnection): void {
+    if (!client.uuid) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    console.log(`[Server] Creating empty galaxy`);
+
+    // Generate a unique galaxy name
+    const galaxyName = generateGalaxyName();
+
+    // Create new galaxy (without any star systems yet)
+    const galaxy = generateGalaxy(galaxyName);
+    this.db.createGalaxy(galaxy);
+
+    // Load galaxy time state (new galaxy starts at 0, paused)
+    this.gameState.loadGalaxy(galaxy.id, 0, true, TIME_SCALE_DEFAULT);
+    this.gameState.resetTime();
+
+    console.log(`[Server] Created empty galaxy: ${galaxyName} (${galaxy.id})`);
+    console.log(`[Server] Star systems will be generated when players join`);
+
+    this.send(client.ws, {
+      type: "emptyGalaxyCreated",
+      galaxyId: galaxy.id,
+      galaxyName: galaxyName,
+    });
   }
 
   private handleResetGalaxy(
@@ -555,7 +751,8 @@ export class ConstellationWebSocketServer {
     galaxyId: string,
     galaxyName: string,
     homePlanetId: string,
-    playerName?: string
+    playerName?: string,
+    pregeneratedSpeciesId?: string
   ): void {
     if (!client.uuid) return;
 
@@ -591,7 +788,43 @@ export class ConstellationWebSocketServer {
       `Player-${client.uuid.substring(0, 8)}`;
 
     const playerId = uuidv4();
-    const speciesId = `species_player_${playerId}`;
+    let speciesId = `species_player_${playerId}`;
+    let species;
+
+    // Use pregenerated species if provided, otherwise generate one
+    if (pregeneratedSpeciesId) {
+      const pregeneratedSpecies = getPregeneratedSpecies(pregeneratedSpeciesId);
+      if (pregeneratedSpecies) {
+        // Create a copy with player-specific IDs
+        speciesId = `species_player_${playerId}`;
+        species = {
+          ...pregeneratedSpecies,
+          id: speciesId,
+          playerId: playerId,
+          homeworldId: homePlanetId,
+          homeworld: homePlanet?.name || pregeneratedSpecies.homeworld,
+          createdAt: Date.now(),
+        };
+      } else {
+        // Fallback to generated species if pregenerated not found
+        species = generatePlayerSpecies(
+          playerId,
+          finalPlayerName,
+          homePlanet?.name || "Homeworld",
+          homePlanetId,
+          homePlanet?.surfaceType
+        );
+      }
+    } else {
+      // Generate a new species
+      species = generatePlayerSpecies(
+        playerId,
+        finalPlayerName,
+        homePlanet?.name || "Homeworld",
+        homePlanetId,
+        homePlanet?.surfaceType
+      );
+    }
 
     // Create player first (required for foreign key in species table)
     const player: Player = {
@@ -612,18 +845,11 @@ export class ConstellationWebSocketServer {
 
     this.db.createPlayer(player);
 
-    // Now generate and create player species (after player exists for foreign key)
-    const species = generatePlayerSpecies(
-      playerId,
-      finalPlayerName,
-      homePlanet?.name || "Homeworld",
-      homePlanetId,
-      homePlanet?.surfaceType
-    );
+    // Create the species
     this.db.createSpecies(species);
 
     console.log(
-      `Generated species for player: ${species.name} (${species.appearance.bodyType})`
+      `Created species for player: ${species.name} (${species.appearance.bodyType})`
     );
 
     // Create ship orbiting the home planet (or star if no planet found)
@@ -2206,6 +2432,24 @@ export class ConstellationWebSocketServer {
         }
       }
     }, 10000); // Save every 10 seconds
+  }
+
+  private startGalaxyCleanupInterval(): void {
+    // Clean up old galaxies every hour
+    setInterval(() => {
+      const deletedCount = this.db.cleanupOldGalaxies();
+      if (deletedCount > 0) {
+        console.log(`Cleaned up ${deletedCount} old galaxies`);
+      }
+    }, 60 * 60 * 1000); // Run every hour
+
+    // Also run once on startup (after 1 minute to let server settle)
+    setTimeout(() => {
+      const deletedCount = this.db.cleanupOldGalaxies();
+      if (deletedCount > 0) {
+        console.log(`Initial cleanup: removed ${deletedCount} old galaxies`);
+      }
+    }, 60 * 1000);
   }
 
   private broadcastStateUpdates(): void {

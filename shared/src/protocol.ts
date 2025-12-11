@@ -17,8 +17,13 @@ export type ClientMessage =
   | { type: "authenticate"; uuid: string | null }
   | { type: "setName"; name: string }
   | { type: "queryGalaxy"; galaxyName: string }
-  | { type: "joinGalaxy"; galaxyName: string; playerName: string }
-  | { type: "createGalaxy"; galaxyName: string; playerName: string }
+  | { type: "getGalaxyList" }
+  | { type: "getPlayerGameInfo" }
+  | { type: "getPregeneratedSpecies" }
+  | { type: "getGalaxySpecies"; galaxyId: string }
+  | { type: "createEmptyGalaxy" }
+  | { type: "joinGalaxy"; galaxyId: string; playerName: string; speciesId: string }
+  | { type: "createGalaxy"; playerName: string; speciesId: string }
   | { type: "resetGalaxy"; galaxyName: string; playerName: string }
   | { type: "requestSystemState"; systemId: string }
   | { type: "setTimeScale"; scale: number }
@@ -95,7 +100,8 @@ export type ServerMessage =
       timeScale: number;
     }
   | { type: "shipData"; ship: Ship }
-  | { type: "galaxyCreated"; galaxyId: string }
+  | { type: "galaxyCreated"; galaxyId: string; galaxyName: string }
+  | { type: "emptyGalaxyCreated"; galaxyId: string; galaxyName: string }
   | { type: "galaxyJoined"; galaxyId: string }
   | { type: "galaxyReset"; galaxyId: string }
   | {
@@ -103,6 +109,35 @@ export type ServerMessage =
       galaxyName: string;
       exists: boolean;
       currentTime: number;
+    }
+  | {
+      type: "galaxyList";
+      galaxies: Array<{
+        id: string;
+        name: string;
+        createdAt: number;
+        currentTime: number;
+        starCount: number;
+        habitablePlanets: number;
+        activePlayers: number;
+        lastActivity: number;
+      }>;
+    }
+  | {
+      type: "playerGameInfo";
+      hasGame: boolean;
+      playerName?: string;
+      galaxyId?: string;
+      galaxyName?: string;
+      speciesName?: string;
+    }
+  | {
+      type: "pregeneratedSpecies";
+      species: Species[];
+    }
+  | {
+      type: "galaxySpecies";
+      speciesIds: string[];
     }
   | {
       type: "gateTravel";

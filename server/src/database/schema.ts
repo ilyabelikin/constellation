@@ -43,6 +43,7 @@ export function initializeDatabase(dbPath: string): Database.Database {
       alloy INTEGER DEFAULT 10,
       science INTEGER DEFAULT 0,
       species_id TEXT,
+      last_active_at INTEGER DEFAULT 0,
       FOREIGN KEY (galaxy_id) REFERENCES galaxies(id) ON DELETE CASCADE,
       FOREIGN KEY (home_system_id) REFERENCES star_systems(id),
       FOREIGN KEY (current_system_id) REFERENCES star_systems(id)
@@ -516,6 +517,29 @@ export function initializeDatabase(dbPath: string): Database.Database {
     }
   } catch (error) {
     console.error("Error during player species migration:", error);
+  }
+
+  // Migration: Add last_active_at column to players table if it doesn't exist
+  try {
+    const playerColumns = db
+      .prepare("PRAGMA table_info(players)")
+      .all() as Array<{ name: string }>;
+
+    const hasLastActiveAt = playerColumns.some(
+      (col) => col.name === "last_active_at"
+    );
+
+    if (!hasLastActiveAt) {
+      console.log("Migrating database: Adding last_active_at column to players");
+      db.exec(
+        "ALTER TABLE players ADD COLUMN last_active_at INTEGER DEFAULT 0"
+      );
+      // Set current timestamp for existing players
+      db.exec(`UPDATE players SET last_active_at = ${Date.now()}`);
+      console.log("Player activity tracking migration complete");
+    }
+  } catch (error) {
+    console.error("Error during player activity tracking migration:", error);
   }
 
   // Migration: Create species table if it doesn't exist

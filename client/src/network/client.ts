@@ -40,12 +40,17 @@ export class NetworkClient {
     | null = null;
   public onShipData: ((ship: Ship) => void) | null = null;
   public onError: ((message: string) => void) | null = null;
-  public onGalaxyCreated: ((galaxyId: string) => void) | null = null;
+  public onGalaxyCreated: ((galaxyId: string, galaxyName: string) => void) | null = null;
+  public onEmptyGalaxyCreated: ((galaxyId: string, galaxyName: string) => void) | null = null;
   public onGalaxyJoined: ((galaxyId: string) => void) | null = null;
   public onGalaxyReset: ((galaxyId: string) => void) | null = null;
   public onGalaxyInfo:
     | ((galaxyName: string, exists: boolean, currentTime: number) => void)
     | null = null;
+  public onGalaxyList: ((galaxies: any[]) => void) | null = null;
+  public onPlayerGameInfo: ((info: any) => void) | null = null;
+  public onPregeneratedSpecies: ((species: any[]) => void) | null = null;
+  public onGalaxySpecies: ((speciesIds: string[]) => void) | null = null;
   public onGateTravel:
     | ((
         destinationSystem: StarSystem,
@@ -224,7 +229,13 @@ export class NetworkClient {
 
         case "galaxyCreated":
           if (this.onGalaxyCreated) {
-            this.onGalaxyCreated(message.galaxyId);
+            this.onGalaxyCreated(message.galaxyId, message.galaxyName);
+          }
+          break;
+
+        case "emptyGalaxyCreated":
+          if (this.onEmptyGalaxyCreated) {
+            this.onEmptyGalaxyCreated(message.galaxyId, message.galaxyName);
           }
           break;
 
@@ -247,6 +258,30 @@ export class NetworkClient {
               message.exists,
               message.currentTime
             );
+          }
+          break;
+
+        case "galaxyList":
+          if (this.onGalaxyList) {
+            this.onGalaxyList(message.galaxies);
+          }
+          break;
+
+        case "playerGameInfo":
+          if (this.onPlayerGameInfo) {
+            this.onPlayerGameInfo(message);
+          }
+          break;
+
+        case "pregeneratedSpecies":
+          if (this.onPregeneratedSpecies) {
+            this.onPregeneratedSpecies(message.species);
+          }
+          break;
+
+        case "galaxySpecies":
+          if (this.onGalaxySpecies) {
+            this.onGalaxySpecies(message.speciesIds);
           }
           break;
 
@@ -363,12 +398,32 @@ export class NetworkClient {
     this.send({ type: "setName", name });
   }
 
-  joinGalaxy(galaxyName: string, playerName: string): void {
-    this.send({ type: "joinGalaxy", galaxyName, playerName });
+  getGalaxyList(): void {
+    this.send({ type: "getGalaxyList" });
   }
 
-  createGalaxy(galaxyName: string, playerName: string): void {
-    this.send({ type: "createGalaxy", galaxyName, playerName });
+  getPlayerGameInfo(): void {
+    this.send({ type: "getPlayerGameInfo" });
+  }
+
+  getPregeneratedSpecies(): void {
+    this.send({ type: "getPregeneratedSpecies" });
+  }
+
+  getGalaxySpecies(galaxyId: string): void {
+    this.send({ type: "getGalaxySpecies", galaxyId });
+  }
+
+  createEmptyGalaxy(): void {
+    this.send({ type: "createEmptyGalaxy" });
+  }
+
+  joinGalaxy(galaxyId: string, playerName: string, speciesId: string): void {
+    this.send({ type: "joinGalaxy", galaxyId, playerName, speciesId });
+  }
+
+  createGalaxy(playerName: string, speciesId: string): void {
+    this.send({ type: "createGalaxy", playerName, speciesId });
   }
 
   resetGalaxy(galaxyName: string, playerName: string): void {

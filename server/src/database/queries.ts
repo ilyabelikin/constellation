@@ -102,6 +102,99 @@ export class DatabaseQueries {
     stmt.run(currentTime, isPaused ? 1 : 0, timeScale, galaxyId);
   }
 
+  // Get all galaxies with statistics
+  getAllGalaxiesWithStats(): Array<{
+    id: string;
+    name: string;
+    createdAt: number;
+    currentTime: number;
+    starCount: number;
+    habitablePlanets: number;
+    activePlayers: number;
+    lastActivity: number;
+  }> {
+    const galaxies = this.db
+      .prepare("SELECT * FROM galaxies ORDER BY created_at DESC")
+      .all() as any[];
+    
+    return galaxies.map((galaxy) => {
+      // Count stars in galaxy
+      const starCount = (
+        this.db
+          .prepare("SELECT COUNT(*) as count FROM star_systems WHERE galaxy_id = ?")
+          .get(galaxy.id) as any
+      ).count;
+
+      // Count habitable planets (this is an approximation - we parse JSON to count)
+      const systems = this.db
+        .prepare("SELECT generated_data FROM star_systems WHERE galaxy_id = ?")
+        .all(galaxy.id) as any[];
+      
+      let habitablePlanets = 0;
+      systems.forEach((system) => {
+        const data = JSON.parse(system.generated_data);
+        if (data.planets) {
+          habitablePlanets += data.planets.filter(
+            (p: any) => p.habitability && p.habitability > 0.5
+          ).length;
+        }
+      });
+
+      // Count active players (last active in last 24 hours)
+      const oneDayAgo = Date.now() - 24 * 60 * 60 * 1000;
+      const activePlayers = (
+        this.db
+          .prepare(
+            "SELECT COUNT(*) as count FROM players WHERE galaxy_id = ? AND last_active_at > ?"
+          )
+          .get(galaxy.id, oneDayAgo) as any
+      ).count;
+
+      // Get last activity timestamp
+      const lastActivityRow = this.db
+        .prepare(
+          "SELECT MAX(last_active_at) as last_activity FROM players WHERE galaxy_id = ?"
+        )
+        .get(galaxy.id) as any;
+      const lastActivity = lastActivityRow?.last_activity || galaxy.created_at;
+
+      return {
+        id: galaxy.id,
+        name: galaxy.name,
+        createdAt: galaxy.created_at,
+        currentTime: galaxy.current_time || 0,
+        starCount,
+        habitablePlanets,
+        activePlayers,
+        lastActivity,
+      };
+    });
+  }
+
+  // Clean up old galaxies (no activity in more than 1 week)
+  cleanupOldGalaxies(): number {
+    const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    
+    // Find galaxies with no recent activity
+    const oldGalaxies = this.db
+      .prepare(`
+        SELECT g.id, g.name 
+        FROM galaxies g
+        LEFT JOIN players p ON g.id = p.galaxy_id
+        GROUP BY g.id
+        HAVING MAX(COALESCE(p.last_active_at, 0)) < ?
+      `)
+      .all(oneWeekAgo) as any[];
+
+    // Delete each old galaxy
+    oldGalaxies.forEach((galaxy) => {
+      console.log(`Cleaning up old galaxy: ${galaxy.name} (${galaxy.id})`);
+      this.deleteGalaxy(galaxy.id);
+    });
+
+    return oldGalaxies.length;
+  }
+
   // Star system operations
   createStarSystem(system: StarSystem): void {
     const stmt = this.db.prepare(
@@ -187,7 +280,7 @@ export class DatabaseQueries {
   // Player operations
   createPlayer(player: Player): void {
     const stmt = this.db.prepare(
-      "INSERT INTO players (id, uuid, name, galaxy_id, home_system_id, home_planet_id, current_system_id, energy, alloy, science, species_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO players (id, uuid, name, galaxy_id, home_system_id, home_planet_id, current_system_id, energy, alloy, science, species_id, last_active_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       player.id,
@@ -200,8 +293,21 @@ export class DatabaseQueries {
       player.energy || 10,
       player.alloy || 10,
       player.science || 0,
-      player.speciesId || null
+      player.speciesId || null,
+      Date.now()
     );
+  }
+
+  updatePlayerActivity(playerId: string): void {
+    const stmt = this.db.prepare(
+      "UPDATE players SET last_active_at = ? WHERE id = ?"
+    );
+    stmt.run(Date.now(), playerId);
+  }
+
+  deletePlayer(playerId: string): void {
+    const stmt = this.db.prepare("DELETE FROM players WHERE id = ?");
+    stmt.run(playerId);
   }
 
   getPlayerByUuid(uuid: string): Player | null {

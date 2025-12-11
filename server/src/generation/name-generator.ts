@@ -1631,3 +1631,125 @@ export function generateAsteroidName(
   usedNames.add(finalName);
   return finalName;
 }
+
+// Galaxy name components
+const GALAXY_PREFIXES = [
+  "Andromeda",
+  "Centaurus",
+  "Orion",
+  "Phoenix",
+  "Pegasus",
+  "Draco",
+  "Hydra",
+  "Serpens",
+  "Aquila",
+  "Cygnus",
+  "Lyra",
+  "Corona",
+  "Nebula",
+  "Spiral",
+  "Elliptical",
+  "Irregular",
+  "Stellar",
+  "Cosmic",
+  "Celestial",
+  "Galactic",
+  "Astral",
+  "Void",
+  "Quantum",
+  "Omega",
+  "Alpha",
+  "Beta",
+  "Gamma",
+  "Delta",
+  "Sigma",
+  "Nova",
+];
+
+const GALAXY_SUFFIXES = [
+  "Prime",
+  "Major",
+  "Minor",
+  "Cluster",
+  "Expanse",
+  "Reach",
+  "Arm",
+  "Sector",
+  "Zone",
+  "Realm",
+  "Domain",
+  "Nexus",
+  "Core",
+  "Edge",
+  "Rift",
+  "Vortex",
+  "Cascade",
+  "Stream",
+  "Field",
+  "Array",
+];
+
+const GALAXY_NUMBERS = [
+  "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+  "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
+];
+
+// Track used galaxy names globally
+const usedGalaxyNames = new Set<string>();
+
+/**
+ * Generate a unique galaxy name
+ */
+export function generateGalaxyName(): string {
+  const rng = new SeededRandom(Date.now() + Math.random() * 1000000);
+  let attempts = 0;
+  const maxAttempts = 100;
+  let name = "";
+
+  while (attempts < maxAttempts) {
+    const nameType = rng.next();
+
+    if (nameType < 0.4) {
+      // 40% - Prefix + Suffix (e.g., "Andromeda Expanse")
+      const prefix = rng.choice(GALAXY_PREFIXES);
+      const suffix = rng.choice(GALAXY_SUFFIXES);
+      name = `${prefix} ${suffix}`;
+    } else if (nameType < 0.7) {
+      // 30% - Prefix + Number + Suffix (e.g., "Phoenix VII Reach")
+      const prefix = rng.choice(GALAXY_PREFIXES);
+      const number = rng.choice(GALAXY_NUMBERS);
+      const suffix = rng.choice(GALAXY_SUFFIXES);
+      name = `${prefix} ${number} ${suffix}`;
+    } else {
+      // 30% - Just Prefix + Number (e.g., "Andromeda XII")
+      const prefix = rng.choice(GALAXY_PREFIXES);
+      const number = rng.choice(GALAXY_NUMBERS);
+      name = `${prefix} ${number}`;
+    }
+
+    // Check if this name is already used
+    if (!usedGalaxyNames.has(name)) {
+      usedGalaxyNames.add(name);
+      return name;
+    }
+
+    attempts++;
+  }
+
+  // Fallback: prefix + high number for guaranteed uniqueness
+  const prefix = rng.choice(GALAXY_PREFIXES);
+  let counter = 21;
+  while (usedGalaxyNames.has(`${prefix} ${counter}`) && counter < 10000) {
+    counter++;
+  }
+  const finalName = `${prefix} ${counter}`;
+  usedGalaxyNames.add(finalName);
+  return finalName;
+}
+
+/**
+ * Clear a specific galaxy name from the used names set (for cleanup)
+ */
+export function clearGalaxyName(name: string): void {
+  usedGalaxyNames.delete(name);
+}

@@ -24,6 +24,7 @@ class ConstellationApp {
   private state: AppState = AppState.LOBBY;
   private lobby: LobbyManager;
   private scene: SceneManager;
+  private network: NetworkClient;
   private game: ConstellationGame | null = null;
   private animationFrameId: number | null = null;
 
@@ -33,28 +34,117 @@ class ConstellationApp {
     this.scene = new SceneManager(container);
     this.startRenderLoop();
 
+    // Create network client early
+    this.network = new NetworkClient();
+
     // Start with lobby
     this.lobby = new LobbyManager();
 
+    // Setup lobby network callbacks
+    this.setupLobbyNetworkHandlers();
+
     // Setup lobby handlers
-    this.lobby.onContinue = (galaxyName, playerName) => {
-      // Continue existing game
-      this.startGame(galaxyName, playerName, false);
+    this.lobby.onContinue = (galaxyId: string) => {
+      // Continue existing game - just connect and the server will load the player
+      this.startGame(null, null, false, galaxyId);
     };
 
-    this.lobby.onNewGame = (galaxyName, playerName) => {
-      // Start new game (will create galaxy if it doesn't exist)
-      this.startGame(galaxyName, playerName, false);
+    this.lobby.onJoinGalaxy = (
+      galaxyId: string,
+      playerName: string,
+      speciesId: string
+    ) => {
+      // Join an existing galaxy with selected species
+      this.startGame(null, playerName, false, galaxyId, speciesId);
     };
 
-    this.lobby.onReset = (galaxyName, playerName) => {
+    this.lobby.onCreateGalaxy = (playerName: string, speciesId: string) => {
+      // Create a new galaxy with selected species
+      this.startGame(null, playerName, false, null, speciesId, true);
+    };
+
+    this.lobby.onReset = (galaxyName: string, playerName: string) => {
       // Clear UUID for fresh start
       localStorage.removeItem("constellation-uuid");
       this.startGame(galaxyName, playerName, true);
     };
 
-    // Show lobby
-    this.lobby.show();
+    // Connect to server and show lobby
+    this.initializeLobby();
+  }
+
+  private setupLobbyNetworkHandlers(): void {
+    // Setup lobby network request callbacks
+    this.lobby.requestGalaxyList = () => {
+      this.network.getGalaxyList();
+    };
+
+    this.lobby.requestPlayerGameInfo = () => {
+      this.network.getPlayerGameInfo();
+    };
+
+    this.lobby.requestPregeneratedSpecies = () => {
+      this.network.getPregeneratedSpecies();
+    };
+
+    this.lobby.requestGalaxySpecies = (galaxyId: string) => {
+      this.network.getGalaxySpecies(galaxyId);
+    };
+
+    this.lobby.createEmptyGalaxy = () => {
+      this.network.createEmptyGalaxy();
+    };
+
+    // Handle lobby data callbacks
+    this.network.onGalaxyList = (galaxies) => {
+      this.lobby.setGalaxyList(galaxies);
+    };
+
+    this.network.onPlayerGameInfo = (info) => {
+      this.lobby.setPlayerGameInfo(info);
+    };
+
+    this.network.onPregeneratedSpecies = (species) => {
+      this.lobby.setPregeneratedSpecies(species);
+    };
+
+    this.network.onGalaxySpecies = (speciesIds) => {
+      this.lobby.setTakenSpecies(speciesIds);
+    };
+
+    this.network.onEmptyGalaxyCreated = (galaxyId, galaxyName) => {
+      console.log(`Empty galaxy created: ${galaxyName} (${galaxyId})`);
+      this.lobby.onEmptyGalaxyCreated();
+    };
+
+    // Handle authentication - request initial data after auth
+    this.network.onAuthenticated = (uuid, playerId) => {
+      console.log("Authenticated in lobby:", uuid, playerId);
+      // Now that we're authenticated, request initial lobby data
+      this.lobby.requestInitialData();
+    };
+
+    // Ignore game data while in lobby (player/system data sent during reconnection)
+    this.network.onPlayerData = null;
+    this.network.onSystemData = null;
+    this.network.onShipData = null;
+  }
+
+  private async initializeLobby(): Promise<void> {
+    try {
+      // Connect to server
+      await this.network.connect();
+      console.log("Connected to server from lobby");
+
+      // Show lobby after connection
+      this.lobby.show();
+    } catch (error) {
+      console.error("Failed to connect to server:", error);
+      this.lobby.showError(
+        "Failed to connect to server. Please refresh the page."
+      );
+      this.lobby.show();
+    }
   }
 
   private startRenderLoop(): void {
@@ -72,19 +162,26 @@ class ConstellationApp {
   }
 
   private async startGame(
-    galaxyName: string,
-    playerName: string,
-    isReset: boolean
+    galaxyName: string | null,
+    playerName: string | null,
+    isReset: boolean,
+    galaxyId?: string | null,
+    speciesId?: string | null,
+    isCreateNew?: boolean
   ): Promise<void> {
     // Hide lobby
     this.lobby.hide();
 
-    // Create and initialize game (passing the existing scene)
+    // Create and initialize game (passing the existing scene and network)
     this.game = new ConstellationGame(
       this.scene,
+      this.network,
       galaxyName,
       playerName,
-      isReset
+      isReset,
+      galaxyId,
+      speciesId,
+      isCreateNew
     );
     this.state = AppState.GAME;
   }
@@ -110,17 +207,22 @@ class ConstellationGame {
   private isExploringFromConstellation = false;
   private constellationNodes: ConstellationNode[] = [];
   private constellationSelectedSystemId: string | null = null;
+  private isContinuingExistingGame: boolean = false;
 
   constructor(
     scene: SceneManager,
-    galaxyName: string,
-    playerName: string,
-    isReset: boolean
+    network: NetworkClient,
+    galaxyName: string | null,
+    playerName: string | null,
+    isReset: boolean,
+    galaxyId?: string | null,
+    speciesId?: string | null,
+    isCreateNew?: boolean
   ) {
-    this.lastGalaxyName = galaxyName;
+    this.lastGalaxyName = galaxyName || "";
     this.scene = scene;
+    this.network = network;
 
-    this.network = new NetworkClient();
     this.hud = new HUDManager();
     this.hud.setNetworkClient(this.network);
 
@@ -137,22 +239,41 @@ class ConstellationGame {
     this.hud.showGameHUD();
 
     // Start game
-    this.initializeGame(galaxyName, playerName, isReset);
+    this.initializeGame(
+      galaxyName,
+      playerName,
+      isReset,
+      galaxyId,
+      speciesId,
+      isCreateNew
+    );
   }
 
   private async initializeGame(
-    galaxyName: string,
-    playerName: string,
-    isReset: boolean
+    galaxyName: string | null,
+    playerName: string | null,
+    isReset: boolean,
+    galaxyId?: string | null,
+    speciesId?: string | null,
+    isCreateNew?: boolean
   ): Promise<void> {
-    // Connect to server
-    await this.connect();
+    // Network is already connected from lobby, just send the appropriate message
 
-    // Reset or join galaxy
-    if (isReset) {
+    // Handle different lobby flows
+    if (isReset && galaxyName && playerName) {
+      // Old reset flow (still supported for debug mode)
       this.network.resetGalaxy(galaxyName, playerName);
-    } else {
-      this.network.joinGalaxy(galaxyName, playerName);
+    } else if (isCreateNew && playerName && speciesId) {
+      // Create new galaxy
+      this.network.createGalaxy(playerName, speciesId);
+    } else if (galaxyId && playerName && speciesId) {
+      // Join existing galaxy
+      this.network.joinGalaxy(galaxyId, playerName, speciesId);
+    } else if (galaxyId) {
+      // Continue existing game
+      // Player data was already sent during authentication but system data was ignored
+      // Set flag so we request system state after player data is received
+      this.isContinuingExistingGame = true;
     }
   }
 
@@ -171,6 +292,16 @@ class ConstellationGame {
       }
 
       this.scene.setCurrentPlayerId(player.id);
+
+      // If continuing an existing game, request the current system state
+      if (this.isContinuingExistingGame && player.currentSystemId) {
+        console.log(
+          "Continuing game, requesting system:",
+          player.currentSystemId
+        );
+        this.network.requestSystemState(player.currentSystemId);
+        this.isContinuingExistingGame = false; // Reset flag
+      }
     };
 
     this.network.onSystemData = (system, gateOwnership) => {
@@ -230,19 +361,17 @@ class ConstellationGame {
           const objectId = this.pendingFocusObjectId;
           this.pendingFocusObjectId = null;
           console.log(`Focusing on pending object: ${objectId}`);
+          // Single RAF is enough - no need to wait 2 frames
           requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              this.scene.centerOnObject(objectId);
-              this.hud.updateObjectDetails(objectId);
-            });
+            this.scene.centerOnObject(objectId);
+            this.hud.updateObjectDetails(objectId);
           });
         } else {
           console.log(`Auto-selecting main star: ${system.star.id}`);
+          // Single RAF is enough - no need to wait 2 frames
           requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              this.scene.centerOnObject(system.star.id);
-              this.hud.updateObjectDetails(system.star.id);
-            });
+            this.scene.centerOnObject(system.star.id);
+            this.hud.updateObjectDetails(system.star.id);
           });
         }
       }
@@ -280,17 +409,13 @@ class ConstellationGame {
         console.error("Network error:", message);
       }
 
-      if (message === "Galaxy not found" && this.lastGalaxyName) {
-        console.log("Galaxy not found, creating:", this.lastGalaxyName);
-        const playerName = this.hud.getPlayerName();
-        this.network.createGalaxy(this.lastGalaxyName, playerName);
-      } else {
-        this.hud.showError(message);
-      }
+      // Just show error - galaxy creation is now done through lobby
+      this.hud.showError(message);
     };
 
-    this.network.onGalaxyCreated = (galaxyId) => {
-      console.log("Galaxy created:", galaxyId);
+    this.network.onGalaxyCreated = (galaxyId, galaxyName) => {
+      console.log("Galaxy created:", galaxyId, galaxyName);
+      this.lastGalaxyName = galaxyName;
       this.hud.clearError();
     };
 
@@ -302,8 +427,8 @@ class ConstellationGame {
     this.network.onGalaxyReset = (galaxyId) => {
       console.log("Galaxy reset:", galaxyId);
       this.hud.clearError();
-      const playerName = this.hud.getPlayerName();
-      this.network.joinGalaxy(this.lastGalaxyName, playerName);
+      // After reset, the galaxy is new, so we don't need to do anything
+      // The player will be created automatically by the reset handler
     };
 
     this.network.onGalaxyInfo = (galaxyName, exists, currentTime) => {
@@ -481,7 +606,9 @@ class ConstellationGame {
     this.network.onColonyUpdated = (colony) => {
       // Update the colony in the current system state
       if (this.system && this.system.colonies) {
-        const colonyIndex = this.system.colonies.findIndex(c => c.id === colony.id);
+        const colonyIndex = this.system.colonies.findIndex(
+          (c) => c.id === colony.id
+        );
         if (colonyIndex !== -1) {
           this.system.colonies[colonyIndex] = colony;
         }
