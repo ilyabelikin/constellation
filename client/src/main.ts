@@ -879,10 +879,9 @@ class ConstellationGame {
             });
           });
         } else {
+          // Request the new system - the star will be auto-selected when it loads
+          // (see lines 406-411 in onSystemData callback)
           this.network.requestSystemState(systemId);
-          if (this.system) {
-            this.hud.setSystem(this.system);
-          }
         }
       }
     };

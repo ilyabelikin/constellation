@@ -1,5 +1,5 @@
 // Version
-export const GAME_VERSION = "0.3.2";
+export const GAME_VERSION = "0.3.3";
 export const VERSION_NAME = "Species and Colonies";
 
 // Physical constants (SI units: meters, kilograms, seconds)
