@@ -17,7 +17,7 @@ export default defineConfig({
     {
       name: "copy-changelog",
       closeBundle() {
-        copyFileSync("CHANGELOG.md", "dist/CHANGELOG.md");
+        copyFileSync("./CHANGELOG.md", "dist/CHANGELOG.md");
       },
     },
   ],
