@@ -21,6 +21,7 @@ export class HUDManager {
     string,
     { ownerId: string; ownerName: string; status: string }
   > = new Map();
+  private speciesGetter: ((speciesId: string) => any) | null = null;
 
   // Detail views
   private bodyDetailView: BodyDetailView;
@@ -1557,6 +1558,12 @@ export class HUDManager {
       console.log("Setting up debug resource handlers...");
       this.setupDebugResourceHandlers();
     }
+  }
+
+  setSpeciesGetter(getter: (speciesId: string) => any): void {
+    this.speciesGetter = getter;
+    // Pass the getter to BodyDetailView
+    this.bodyDetailView.setSpeciesGetter(getter, this.networkClient);
   }
 
   private closePlayerProfileModal(): void {

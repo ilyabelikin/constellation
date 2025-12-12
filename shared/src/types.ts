@@ -385,6 +385,9 @@ export interface ConstellationNode {
   jumpsFromHome: number; // Number of gate jumps from home system
   companionStars?: Array<{ id: string; color: string; type: string }>; // For binary/trinary systems
   dysonSwarms?: Array<{ starId: string; count: number }>; // Dyson swarms by star (primary + companions)
+  habitablePlanetCount: number; // Number of habitable planets in the system
+  colonizedHabitablePlanetCount: number; // Number of colonized habitable planets
+  habitablePlanets?: Array<{ planetId: string; planetName: string; isColonized: boolean }>; // Habitable planet details
 }
 
 export interface ConstellationConnection {

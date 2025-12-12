@@ -22,6 +22,7 @@ export class BodyDetailView {
   private velocityElement: HTMLElement;
   private lifeElement: HTMLElement | null;
   private habitabilityElement: HTMLElement | null;
+  private speciesElement: HTMLElement | null;
   private compositionElement: HTMLElement | null;
   private shapeElement: HTMLElement | null;
   private debugSeedContainer: HTMLElement | null = null;
@@ -73,6 +74,10 @@ export class BodyDetailView {
   private homePlanetMass: number = EARTH_MASS;
   private homePlanetName: string = "Earth";
 
+  // Species data access
+  private speciesGetter: ((speciesId: string) => any) | null = null;
+  private networkClient: any = null;
+
   constructor() {
     this.panel = document.getElementById("body-details-panel")!;
     this.nameElement = document.getElementById("body-detail-name")!;
@@ -85,6 +90,7 @@ export class BodyDetailView {
     this.habitabilityElement = document.getElementById(
       "body-detail-habitability"
     );
+    this.speciesElement = document.getElementById("body-detail-species");
     this.compositionElement = document.getElementById(
       "body-detail-composition"
     );
@@ -208,6 +214,17 @@ export class BodyDetailView {
    */
   setOnSeedChange(callback: (seed: number) => void): void {
     this.onSeedChange = callback;
+  }
+
+  /**
+   * Set the species getter function for looking up species data
+   */
+  setSpeciesGetter(
+    getter: (speciesId: string) => any,
+    networkClient: any
+  ): void {
+    this.speciesGetter = getter;
+    this.networkClient = networkClient;
   }
 
   /**
@@ -404,6 +421,54 @@ export class BodyDetailView {
     } else {
       if (this.habitabilityElement) {
         this.habitabilityElement.style.display = "none";
+      }
+    }
+
+    // Show species information (only for planets with life or colonies)
+    if (body.type === "planet") {
+      // Check for colony on this planet
+      const colony = this.currentSystem?.colonies?.find(
+        (c: any) => c.planetId === body.id
+      );
+
+      // Check for native civilization on this planet
+      const nativeCiv = this.currentSystem?.nativeCivilizations?.find(
+        (nc: any) => nc.planetId === body.id
+      );
+
+      const speciesId = colony?.speciesId || nativeCiv?.speciesId;
+
+      if (speciesId && this.speciesElement) {
+        // Try to get species from cache
+        const species = this.speciesGetter ? this.speciesGetter(speciesId) : null;
+
+        if (species) {
+          // Species data is cached, display it
+          this.speciesElement.style.display = "block";
+          const speciesType = colony ? "Colony" : "Native Species";
+          this.speciesElement.textContent = `${speciesType}: ${species.name}`;
+        } else {
+          // Species not cached, request it and show loading
+          this.speciesElement.style.display = "block";
+          this.speciesElement.textContent = colony
+            ? "Colony: Loading..."
+            : "Native Species: Loading...";
+
+          // Request species info from server
+          if (this.networkClient) {
+            this.networkClient.requestSpeciesInfo(speciesId);
+          }
+        }
+      } else {
+        // No species on this planet
+        if (this.speciesElement) {
+          this.speciesElement.style.display = "none";
+        }
+      }
+    } else {
+      // Hide species for non-planets
+      if (this.speciesElement) {
+        this.speciesElement.style.display = "none";
       }
     }
 
@@ -673,6 +738,9 @@ export class BodyDetailView {
     }
     if (this.habitabilityElement) {
       this.habitabilityElement.style.display = "none";
+    }
+    if (this.speciesElement) {
+      this.speciesElement.style.display = "none";
     }
     if (this.compositionElement) {
       this.compositionElement.style.display = "none";

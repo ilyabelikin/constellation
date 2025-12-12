@@ -224,6 +224,7 @@ class ConstellationGame {
   private constellationNodes: ConstellationNode[] = [];
   private constellationSelectedSystemId: string | null = null;
   private isContinuingExistingGame: boolean = false;
+  private speciesCache: Map<string, any> = new Map(); // Cache for species data
 
   constructor(
     scene: SceneManager,
@@ -242,6 +243,10 @@ class ConstellationGame {
 
     this.hud = new HUDManager();
     this.hud.setNetworkClient(this.network);
+    // Set up species cache getter
+    this.hud.setSpeciesGetter((speciesId: string) =>
+      this.speciesCache.get(speciesId)
+    );
 
     this.setupNetworkHandlers();
     this.setupHUDHandlers();
@@ -684,7 +689,15 @@ class ConstellationGame {
     };
 
     this.network.onSpeciesInfo = (species) => {
+      // Cache the species data
+      this.speciesCache.set(species.id, species);
+      // Forward to HUD for modal display
       this.hud.displaySpeciesInfo(species);
+      // Refresh body detail view if it's showing a planet with this species
+      const selectedId = this.scene.getSelectedObjectId();
+      if (selectedId) {
+        this.hud.updateObjectDetails(selectedId);
+      }
     };
 
     this.hud.onSetPlayerStance = (targetPlayerId, stance) => {
@@ -879,6 +892,49 @@ class ConstellationGame {
         this.scene.getConstellationSelectedSystemId();
       this.isExploringFromConstellation = true;
       this.network.useGate(gateId);
+    };
+
+    this.scene.onConstellationPlanetSelected = (
+      systemId,
+      planetId,
+      planetName
+    ) => {
+      console.log(
+        `Main: Planet selected from constellation: ${planetName} (${planetId}) in system ${systemId}`
+      );
+
+      // Hide constellation view
+      this.scene.hideConstellationView();
+      this.hud.setConstellationViewState(false);
+
+      // If it's the current system, just center on the planet
+      if (this.system && this.system.id === systemId) {
+        this.hud.setSystem(this.system);
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            this.scene.centerOnObject(planetId);
+            this.hud.updateObjectDetails(planetId);
+          });
+        });
+      } else {
+        // Request the system state and then center on the planet
+        this.network.requestSystemState(systemId);
+        if (this.system) {
+          this.hud.setSystem(this.system);
+        }
+
+        // Store the planet ID to center on after system loads
+        // We'll use a timeout to allow the system to load first
+        setTimeout(() => {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              this.scene.centerOnObject(planetId);
+              this.hud.updateObjectDetails(planetId);
+            });
+          });
+        }, 500);
+      }
     };
   }
 

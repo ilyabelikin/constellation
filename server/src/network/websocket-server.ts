@@ -1596,6 +1596,27 @@ export class ConstellationWebSocketServer {
         })
       );
 
+      // Count habitable planets and colonized habitable planets
+      const habitablePlanets = system.planets.filter(
+        (planet) => planet.habitability && planet.habitability >= 0.5
+      );
+      const habitablePlanetCount = habitablePlanets.length;
+      
+      // Count colonized habitable planets (check if planet has a colony)
+      const colonizedHabitablePlanetIds = new Set(
+        (system.colonies || []).map((colony) => colony.planetId)
+      );
+      const colonizedHabitablePlanetCount = habitablePlanets.filter((planet) =>
+        colonizedHabitablePlanetIds.has(planet.id)
+      ).length;
+
+      // Create habitable planet details array
+      const habitablePlanetDetails = habitablePlanets.map((planet) => ({
+        planetId: planet.id,
+        planetName: planet.name,
+        isColonized: colonizedHabitablePlanetIds.has(planet.id),
+      }));
+
       return {
         systemId: system.id,
         systemName: system.star.name,
@@ -1616,6 +1637,9 @@ export class ConstellationWebSocketServer {
             }))
           : undefined,
         dysonSwarms: dysonSwarms.length > 0 ? dysonSwarms : undefined,
+        habitablePlanetCount,
+        colonizedHabitablePlanetCount,
+        habitablePlanets: habitablePlanetDetails.length > 0 ? habitablePlanetDetails : undefined,
       };
     });
 

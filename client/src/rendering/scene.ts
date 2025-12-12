@@ -90,6 +90,9 @@ export class SceneManager {
     | ((systemId: string, action: "select" | "travel") => void)
     | null = null;
   public onConstellationGateSelected: ((gateId: string) => void) | null = null;
+  public onConstellationPlanetSelected:
+    | ((systemId: string, planetId: string, planetName: string) => void)
+    | null = null;
 
   // Callback to check if keyboard input should be blocked (e.g., modal is open)
   public shouldBlockKeyboardInput: (() => boolean) | null = null;
@@ -1191,12 +1194,31 @@ export class SceneManager {
       if (event.button === 0) {
         this.cameraController.onMouseDown(event);
 
-        // Check for clicks after delay (stars or unexplored gates)
+        // Check for clicks after delay (planet circles, unexplored gates, or stars)
         setTimeout(() => {
           if (!this.cameraController.getIsDragging()) {
             const raycaster = new THREE.Raycaster();
 
-            // First check for unexplored gate clicks
+            // First check for planet circle clicks
+            const planetCircleClick = this.constellationView.onPlanetCircleClick(
+              event,
+              this.camera,
+              raycaster
+            );
+
+            if (planetCircleClick) {
+              console.log(`Scene: planet circle clicked: ${planetCircleClick.planetName} in system ${planetCircleClick.systemId}`);
+              if (this.onConstellationPlanetSelected) {
+                this.onConstellationPlanetSelected(
+                  planetCircleClick.systemId,
+                  planetCircleClick.planetId,
+                  planetCircleClick.planetName
+                );
+                return;
+              }
+            }
+
+            // Then check for unexplored gate clicks
             const clickedGateId = this.constellationView.onUnexploredGateClick(
               event,
               this.camera,
@@ -1218,7 +1240,7 @@ export class SceneManager {
               }
             }
 
-            // Then check for star clicks
+            // Finally check for star clicks
             const clickResult = this.constellationView.onStarClick(
               event,
               this.camera,

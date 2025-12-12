@@ -389,7 +389,8 @@ export class ConstellationView {
     const lineHeight = nameFontSize * 1.2;
     const statsHeight = statsFontSize * 1.2;
     const padding = 20;
-    const canvasHeight = Math.ceil(lines.length * lineHeight + statsHeight + padding * 2);
+    const circleHeight = node.habitablePlanetCount > 0 ? 30 : 0; // Add space for circles if there are habitable planets
+    const canvasHeight = Math.ceil(lines.length * lineHeight + statsHeight + circleHeight + padding * 2);
     
     // Set canvas size
     canvas.width = 512;
@@ -399,26 +400,80 @@ export class ConstellationView {
     context.fillStyle = "rgba(0, 0, 0, 0)";
     context.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw star name (possibly multi-line)
+    // Draw star name (possibly multi-line) with stroke for readability
     context.font = isSelected ? `bold ${nameFontSize}px Arial` : `${nameFontSize}px Arial`;
-    context.fillStyle = isSelected ? "#ffffff" : "#aaaaaa";
     context.textAlign = "center";
     context.textBaseline = "middle";
+    context.lineWidth = 4;
+    context.strokeStyle = "rgba(0, 0, 0, 0.8)";
     
     const startY = padding + lineHeight / 2;
     for (let i = 0; i < lines.length; i++) {
-      context.fillText(lines[i], canvas.width / 2, startY + i * lineHeight);
+      const y = startY + i * lineHeight;
+      // Draw stroke first
+      context.strokeText(lines[i], canvas.width / 2, y);
+      // Then draw fill
+      context.fillStyle = isSelected ? "#ffffff" : "#aaaaaa";
+      context.fillText(lines[i], canvas.width / 2, y);
     }
 
-    // Draw connection stats below name
+    // Draw connection stats below name with stroke for readability
     context.font = `${statsFontSize}px Arial`;
-    context.fillStyle = isSelected ? "#cccccc" : "#888888";
     const statsY = startY + lines.length * lineHeight + statsHeight / 2;
-    context.fillText(
-      `${exploredGates}/${totalGates}`,
-      canvas.width / 2,
-      statsY
-    );
+    const statsText = `${exploredGates}/${totalGates}`;
+    
+    // Draw stroke first
+    context.lineWidth = 3;
+    context.strokeStyle = "rgba(0, 0, 0, 0.8)";
+    context.strokeText(statsText, canvas.width / 2, statsY);
+    
+    // Then draw fill
+    context.fillStyle = isSelected ? "#cccccc" : "#888888";
+    context.fillText(statsText, canvas.width / 2, statsY);
+
+    // Draw habitable planet circles below connection stats
+    if (node.habitablePlanetCount > 0) {
+      const circleY = statsY + statsHeight / 2 + 15; // Position below stats
+      const circleRadius = 6;
+      const circleSpacing = 20; // Increased spacing for easier clicking
+      const totalWidth = node.habitablePlanetCount * circleSpacing - circleSpacing + circleRadius * 2;
+      const startX = (canvas.width - totalWidth) / 2 + circleRadius;
+      
+      for (let i = 0; i < node.habitablePlanetCount; i++) {
+        const x = startX + i * circleSpacing;
+        const isColonized = i < node.colonizedHabitablePlanetCount;
+        
+        if (isColonized) {
+          // Filled circle for colonized habitable planets with dark outline
+          // Draw dark outline first
+          context.beginPath();
+          context.arc(x, circleY, circleRadius + 1, 0, Math.PI * 2);
+          context.fillStyle = "rgba(0, 0, 0, 0.8)";
+          context.fill();
+          
+          // Draw green fill
+          context.beginPath();
+          context.arc(x, circleY, circleRadius, 0, Math.PI * 2);
+          context.fillStyle = "#10b981"; // Green
+          context.fill();
+        } else {
+          // Empty donut circle for uncolonized habitable planets with dark outline
+          // Draw dark outline first
+          context.beginPath();
+          context.arc(x, circleY, circleRadius, 0, Math.PI * 2);
+          context.strokeStyle = "rgba(0, 0, 0, 0.8)";
+          context.lineWidth = 4;
+          context.stroke();
+          
+          // Draw green ring
+          context.beginPath();
+          context.arc(x, circleY, circleRadius, 0, Math.PI * 2);
+          context.strokeStyle = "#10b981"; // Green
+          context.lineWidth = 2;
+          context.stroke();
+        }
+      }
+    }
 
     // Create texture from canvas
     const texture = new THREE.CanvasTexture(canvas);
@@ -440,6 +495,72 @@ export class ConstellationView {
     sprite.raycast = () => {};
 
     parent.add(sprite);
+
+    // Create clickable sprites for habitable planet circles
+    if (node.habitablePlanets && node.habitablePlanets.length > 0) {
+      const circleY = statsY + statsHeight / 2 + 15; // Position below stats (same as drawn circles)
+      const circleRadius = 6;
+      const circleSpacing = 20; // Increased spacing for easier clicking
+      const totalWidth = node.habitablePlanets.length * circleSpacing - circleSpacing + circleRadius * 2;
+      const startX = (canvas.width - totalWidth) / 2 + circleRadius;
+      
+      for (let i = 0; i < node.habitablePlanets.length; i++) {
+        const planet = node.habitablePlanets[i];
+        const canvasX = startX + i * circleSpacing;
+        
+        // Convert canvas pixel coordinates to world coordinates
+        // Canvas coordinates: (0,0) is top-left, y increases downward
+        // World coordinates: (0,0) is center, y increases upward
+        const pixelOffsetX = canvasX - canvas.width / 2;
+        const pixelOffsetY = circleY - canvasHeight / 2;
+        
+        // Convert to world units using sprite dimensions
+        const worldX = (pixelOffsetX / canvas.width) * spriteWidth;
+        const worldY = -(pixelOffsetY / canvasHeight) * spriteHeight; // Negative because canvas y is flipped
+        
+        // Create a small canvas for the clickable area
+        const clickCanvas = document.createElement("canvas");
+        clickCanvas.width = 32;
+        clickCanvas.height = 32;
+        const clickContext = clickCanvas.getContext("2d");
+        if (clickContext) {
+          // Draw a small circle (invisible but used for hitbox)
+          clickContext.fillStyle = "rgba(255, 255, 255, 0.01)"; // Nearly invisible but still renders
+          clickContext.beginPath();
+          clickContext.arc(16, 16, 14, 0, Math.PI * 2);
+          clickContext.fill();
+          
+          const clickTexture = new THREE.CanvasTexture(clickCanvas);
+          const clickMaterial = new THREE.SpriteMaterial({
+            map: clickTexture,
+            transparent: true,
+            opacity: 1.0, // Keep at 1.0 since the canvas itself has low opacity
+            depthTest: false,
+          });
+          
+          const clickSprite = new THREE.Sprite(clickMaterial);
+          // Position relative to the star (parent origin), accounting for label position
+          clickSprite.position.set(worldX, offset + 10 + worldY, 0);
+          
+          // Make sprite slightly larger than the visible circle for easier clicking
+          const clickSize = circleRadius * (spriteWidth / canvas.width) * 2.5;
+          clickSprite.scale.set(clickSize, clickSize, 1);
+          
+          // Store planet information
+          clickSprite.userData = {
+            type: "habitablePlanetCircle",
+            systemId: node.systemId,
+            planetId: planet.planetId,
+            planetName: planet.planetName,
+            isColonized: planet.isColonized,
+          };
+          
+          clickSprite.renderOrder = 999; // Render before the label sprite
+          
+          parent.add(clickSprite);
+        }
+      }
+    }
   }
 
   /**
@@ -1508,6 +1629,44 @@ export class ConstellationView {
         }
       }
     });
+  }
+
+  /**
+   * Handle click on a habitable planet circle
+   * Returns: { systemId, planetId, planetName } or null
+   */
+  onPlanetCircleClick(
+    event: MouseEvent,
+    camera: THREE.Camera,
+    raycaster: THREE.Raycaster
+  ): { systemId: string; planetId: string; planetName: string } | null {
+    // Update raycaster
+    const mouse = new THREE.Vector2(
+      (event.clientX / window.innerWidth) * 2 - 1,
+      -(event.clientY / window.innerHeight) * 2 + 1
+    );
+    raycaster.setFromCamera(mouse, camera);
+
+    // Check for intersections with planet circles
+    const nodeArray = Array.from(this.nodes.values());
+    const intersects = raycaster.intersectObjects(nodeArray, true);
+
+    if (intersects.length > 0) {
+      // Find the first object with planet circle data
+      for (const intersect of intersects) {
+        if (intersect.object.userData.type === "habitablePlanetCircle") {
+          const userData = intersect.object.userData;
+          console.log(`Planet circle clicked: ${userData.planetName} in system ${userData.systemId}`);
+          return {
+            systemId: userData.systemId,
+            planetId: userData.planetId,
+            planetName: userData.planetName,
+          };
+        }
+      }
+    }
+
+    return null;
   }
 
   /**
