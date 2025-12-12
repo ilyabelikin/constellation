@@ -6,6 +6,7 @@
 - **Species Selection**: A player can select one of the 18 predefined species
 - **Colony System**: Found new colonies on the habitable worlds, become a multi-planetary species
 - **Mining Installation Visuals**: Active mining operations now visible on asteroids with animated ships and mining beams
+- **Performance**: Star system now loads immediately when continuing a game, eliminating the wait for player data
 
 ---
 

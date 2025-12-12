@@ -640,6 +640,7 @@ export class ConstellationWebSocketServer {
       galaxyId: galaxy.id,
       galaxyName: galaxy.name,
       speciesName: speciesName,
+      currentSystemId: player.currentSystemId,
     });
   }
 

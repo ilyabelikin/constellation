@@ -134,6 +134,7 @@ export type ServerMessage =
       galaxyId?: string;
       galaxyName?: string;
       speciesName?: string;
+      currentSystemId?: string;
     }
   | {
       type: "pregeneratedSpecies";

@@ -44,9 +44,9 @@ class ConstellationApp {
     this.setupLobbyNetworkHandlers();
 
     // Setup lobby handlers
-    this.lobby.onContinue = (galaxyId: string) => {
+    this.lobby.onContinue = (galaxyId: string, currentSystemId?: string) => {
       // Continue existing game - just connect and the server will load the player
-      this.startGame(null, null, false, galaxyId);
+      this.startGame(null, null, false, galaxyId, null, false, currentSystemId);
     };
 
     this.lobby.onJoinGalaxy = (
@@ -134,7 +134,7 @@ class ConstellationApp {
     try {
       // Determine the correct WebSocket URL based on the current protocol and host
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      
+
       let host = window.location.host;
       if (
         window.location.hostname === "localhost" &&
@@ -145,7 +145,7 @@ class ConstellationApp {
 
       const wsUrl = `${protocol}//${host}`;
       console.log(`Connecting to WebSocket at: ${wsUrl}`);
-      
+
       // Connect to server
       await this.network.connect(wsUrl);
       console.log("Connected to server from lobby");
@@ -181,7 +181,8 @@ class ConstellationApp {
     isReset: boolean,
     galaxyId?: string | null,
     speciesId?: string | null,
-    isCreateNew?: boolean
+    isCreateNew?: boolean,
+    currentSystemId?: string
   ): Promise<void> {
     // Hide lobby
     this.lobby.hide();
@@ -195,7 +196,8 @@ class ConstellationApp {
       isReset,
       galaxyId,
       speciesId,
-      isCreateNew
+      isCreateNew,
+      currentSystemId
     );
     this.state = AppState.GAME;
   }
@@ -231,7 +233,8 @@ class ConstellationGame {
     isReset: boolean,
     galaxyId?: string | null,
     speciesId?: string | null,
-    isCreateNew?: boolean
+    isCreateNew?: boolean,
+    currentSystemId?: string
   ) {
     this.lastGalaxyName = galaxyName || "";
     this.scene = scene;
@@ -259,7 +262,8 @@ class ConstellationGame {
       isReset,
       galaxyId,
       speciesId,
-      isCreateNew
+      isCreateNew,
+      currentSystemId
     );
   }
 
@@ -269,7 +273,8 @@ class ConstellationGame {
     isReset: boolean,
     galaxyId?: string | null,
     speciesId?: string | null,
-    isCreateNew?: boolean
+    isCreateNew?: boolean,
+    currentSystemId?: string
   ): Promise<void> {
     // Network is already connected from lobby, just send the appropriate message
 
@@ -283,9 +288,17 @@ class ConstellationGame {
     } else if (galaxyId && playerName && speciesId) {
       // Join existing galaxy
       this.network.joinGalaxy(galaxyId, playerName, speciesId);
+    } else if (galaxyId && currentSystemId) {
+      // Continue existing game - request system state immediately
+      // No need to wait for player data since we already have the currentSystemId
+      console.log(
+        "Continuing game, requesting system immediately:",
+        currentSystemId
+      );
+      this.network.requestSystemState(currentSystemId);
+      this.isContinuingExistingGame = true;
     } else if (galaxyId) {
-      // Continue existing game
-      // Player data was already sent during authentication but system data was ignored
+      // Continue existing game without currentSystemId (fallback)
       // Set flag so we request system state after player data is received
       this.isContinuingExistingGame = true;
     }

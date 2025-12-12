@@ -62,7 +62,7 @@ export class LobbyManager {
   private takenSpeciesIds: string[] = [];
 
   // Callbacks
-  public onContinue: ((galaxyId: string) => void) | null = null;
+  public onContinue: ((galaxyId: string, currentSystemId?: string) => void) | null = null;
   public onJoinGalaxy: ((galaxyId: string, playerName: string, speciesId: string) => void) | null = null;
   public onCreateGalaxy: ((playerName: string, speciesId: string) => void) | null = null;
   public onReset: ((galaxyName: string, playerName: string) => void) | null = null;
@@ -118,7 +118,7 @@ export class LobbyManager {
     this.continueButton.addEventListener("click", () => {
       console.log("[Continue] Button clicked, starting game continuation...");
       if (this.playerGameInfo && this.onContinue) {
-        this.onContinue(this.playerGameInfo.galaxyId);
+        this.onContinue(this.playerGameInfo.galaxyId, this.playerGameInfo.currentSystemId);
       }
     });
 
