@@ -27,6 +27,7 @@ class ConstellationApp {
   private network: NetworkClient;
   private game: ConstellationGame | null = null;
   private animationFrameId: number | null = null;
+  private bufferedGalaxyPlayers: { metPlayers: { id: string; name: string }[]; totalPlayers: number } | null = null;
 
   constructor() {
     // Initialize scene for starfield background (needed for both lobby and game)
@@ -106,6 +107,20 @@ class ConstellationApp {
 
     this.network.onPregeneratedSpecies = (species) => {
       this.lobby.setPregeneratedSpecies(species);
+    };
+
+    // CRITICAL: Set up onGalaxyPlayers callback EARLY
+    // This callback must be registered before authentication
+    // because the server sends galaxyPlayers immediately after authentication
+    this.network.onGalaxyPlayers = (metPlayers, totalPlayers) => {
+      // If game is not yet created, buffer the data
+      if (!this.game) {
+        console.log("[DEBUG] Buffering galaxy players data (game not created yet):", metPlayers);
+        this.bufferedGalaxyPlayers = { metPlayers, totalPlayers };
+      } else {
+        console.log("[DEBUG] Game exists, updating players display directly:", metPlayers);
+        this.game.hud.updatePlayersDisplay(metPlayers, totalPlayers);
+      }
     };
 
     this.network.onGalaxySpecies = (speciesIds) => {
@@ -200,6 +215,13 @@ class ConstellationApp {
       currentSystemId
     );
     this.state = AppState.GAME;
+    
+    // Apply buffered galaxy players data if any
+    if (this.bufferedGalaxyPlayers) {
+      console.log("[DEBUG] Game created, applying buffered galaxy players data:", this.bufferedGalaxyPlayers);
+      this.game.hud.updatePlayersDisplay(this.bufferedGalaxyPlayers.metPlayers, this.bufferedGalaxyPlayers.totalPlayers);
+      this.bufferedGalaxyPlayers = null;
+    }
   }
 }
 
@@ -209,7 +231,7 @@ class ConstellationApp {
 class ConstellationGame {
   private network: NetworkClient;
   private scene: SceneManager;
-  private hud: HUDManager;
+  public hud: HUDManager; // Made public so ConstellationApp can access it for buffered data
 
   private player: Player | null = null;
   private system: StarSystem | null = null;
@@ -247,6 +269,8 @@ class ConstellationGame {
     this.hud.setSpeciesGetter((speciesId: string) =>
       this.speciesCache.get(speciesId)
     );
+    // Set up interpolated game time getter for countdown timers
+    this.hud.setGameTimeGetter(() => this.scene.getGameTime());
 
     this.setupNetworkHandlers();
     this.setupHUDHandlers();
@@ -397,11 +421,13 @@ class ConstellationGame {
       this.hud.setSystem(system);
 
       // Restore selection after system refresh
-      if (isSystemRefresh && previousSelection && this.hud.onSelectObject) {
+      // NOTE: Use updateObjectDetails instead of onSelectObject to avoid
+      // triggering centerOnObject again (which would be seen as a "second click" by
+      // the camera controller and trigger unwanted gate travel)
+      if (isSystemRefresh && previousSelection) {
         setTimeout(() => {
-          if (this.hud.onSelectObject) {
-            this.hud.onSelectObject(previousSelection);
-          }
+          // Just refresh the HUD panel, don't re-center camera
+          this.hud.updateObjectDetails(previousSelection);
         }, 0);
       }
 
@@ -491,7 +517,9 @@ class ConstellationGame {
     this.network.onGateTravel = (
       destinationSystem,
       exploredGateIds,
-      exitGateId
+      exitGateId,
+      gateOwnership,
+      tunnelOwnership
     ) => {
       console.log("Gate travel to system:", destinationSystem.id);
 
@@ -509,6 +537,30 @@ class ConstellationGame {
       }
 
       this.system = destinationSystem;
+
+      // Store gate ownership and tunnel ownership for destination system
+      if (gateOwnership && gateOwnership.length > 0) {
+        for (const ownership of gateOwnership) {
+          this.scene.setGateOwnership(
+            ownership.gateId,
+            ownership.ownerId,
+            ownership.ownerName,
+            ownership.status,
+            ownership.lastOvertakenAt
+          );
+          this.hud.setGateOwnership(
+            ownership.gateId,
+            ownership.ownerId,
+            ownership.ownerName,
+            ownership.status,
+            ownership.lastOvertakenAt
+          );
+        }
+      }
+
+      if (tunnelOwnership && tunnelOwnership.length > 0) {
+        this.hud.updateTunnelOwnership(tunnelOwnership);
+      }
 
       if (this.isExploringFromConstellation) {
         setTimeout(() => {
@@ -600,9 +652,8 @@ class ConstellationGame {
       this.hud.showPlayerDiscovery(discoveryType, playerNames, systemName);
     };
 
-    this.network.onGalaxyPlayers = (metPlayers, totalPlayers) => {
-      this.hud.updatePlayersDisplay(metPlayers, totalPlayers);
-    };
+    // Note: onGalaxyPlayers callback is now set earlier in setupLobbyNetworkHandlers()
+    // to ensure it's registered before authentication
 
     this.network.onPlayerStats = (
       playerId,
@@ -692,13 +743,13 @@ class ConstellationGame {
     };
 
     this.network.onGateDefenseBuilt = (defense) => {
-      // Add defense platform to the scene
+      // Add defense platform to the scene (if gate is in current system)
       this.scene.addGateDefense(defense);
 
       // Refresh gate details if this gate is currently selected
       const selectedId = this.scene.getSelectedObjectId();
       if (selectedId === defense.gateId) {
-        // Force refresh by clearing selection first
+        // Force refresh to show updated defense count
         (this.hud as any).selectedObjectId = null;
         this.hud.updateObjectDetails(defense.gateId);
       }
@@ -719,18 +770,21 @@ class ConstellationGame {
 
       console.log(`Gate attack ${attack.id} updated: status=${attack.status}`);
 
-      // If attack is complete, refresh the system state (ownership might have changed)
-      // The server will send updated system data if needed
+      // If attack is complete, refresh the HUD immediately so player can see Capture/Overtake options
       if (attack.status !== "in_progress") {
-        setTimeout(() => {
-          // Refresh the details panel if the attacked gate is selected
-          const selectedId = this.scene.getSelectedObjectId();
-          if (selectedId === attack.gateId) {
-            // Force refresh by clearing selection first
-            (this.hud as any).selectedObjectId = null;
-            this.hud.updateObjectDetails(attack.gateId);
-          }
-        }, 2000); // Wait for animations to finish
+        // Refresh the details panel immediately if the attacked gate is selected
+        const selectedId = this.scene.getSelectedObjectId();
+        
+        if (selectedId === attack.gateId) {
+          // Force refresh by clearing selection first
+          (this.hud as any).selectedObjectId = null;
+          this.hud.updateObjectDetails(attack.gateId);
+        }
+        
+        // Also request fresh system state to ensure defense counts are updated
+        if (this.player?.currentSystemId) {
+          this.network.requestSystemState(this.player.currentSystemId);
+        }
       }
     };
 

@@ -124,7 +124,7 @@ export class CameraController {
       const size = box.getSize(new THREE.Vector3());
       const maxDimension = Math.max(size.x, size.y, size.z);
       const shipRadius = maxDimension / 2;
-      
+
       // Zoom close enough to see ship details but not too close
       this.cameraDistance = shipRadius * 8;
       this.isTrackingObject = true; // Always track ships as they move
@@ -165,14 +165,15 @@ export class CameraController {
         mesh instanceof THREE.Mesh && mesh.geometry.boundingSphere
           ? mesh.geometry.boundingSphere.radius
           : 10;
-      
+
       // Rocky and barren planets use vertex displacement in shaders,
       // making them appear larger than their bounding sphere radius.
       // Use a larger multiplier to avoid zooming too close.
       const planetType = mesh.userData.body?.surfaceType;
-      const hasVertexDisplacement = planetType === "rocky" || planetType === "barren";
+      const hasVertexDisplacement =
+        planetType === "rocky" || planetType === "barren";
       const distanceMultiplier = hasVertexDisplacement ? 4 : 3;
-      
+
       // Zoom to fill screen nicely
       this.cameraDistance = objectRadius * distanceMultiplier;
       this.isTrackingObject = true; // Always track moving objects
@@ -417,7 +418,7 @@ export class CameraController {
 
       if (this.touchStartDistance > 0) {
         const delta = currentDistance / this.touchStartDistance;
-        
+
         // Apply zoom
         this.cameraDistance /= delta;
         // Clamp distance

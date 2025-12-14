@@ -777,6 +777,98 @@ export function initializeDatabase(dbPath: string): Database.Database {
     console.error("Error during gate ownership migration:", error);
   }
 
+  // Migration: Add cost tracking columns to gate_defenses for refunds
+  try {
+    const columns = db
+      .prepare("PRAGMA table_info(gate_defenses)")
+      .all() as Array<{ name: string }>;
+
+    const hasEnergyCost = columns.some((col) => col.name === "energy_cost");
+    const hasAlloyCost = columns.some((col) => col.name === "alloy_cost");
+    const hasMaintenancePerDay = columns.some(
+      (col) => col.name === "maintenance_alloy_per_day"
+    );
+    const hasLastMaintenanceAt = columns.some(
+      (col) => col.name === "last_maintenance_at"
+    );
+
+    if (!hasEnergyCost) {
+      console.log(
+        "Migrating database: Adding energy_cost to gate_defenses"
+      );
+      db.exec(
+        `ALTER TABLE gate_defenses ADD COLUMN energy_cost REAL DEFAULT 1.0;`
+      );
+    }
+
+    if (!hasAlloyCost) {
+      console.log(
+        "Migrating database: Adding alloy_cost to gate_defenses"
+      );
+      db.exec(
+        `ALTER TABLE gate_defenses ADD COLUMN alloy_cost REAL DEFAULT 10.0;`
+      );
+    }
+
+    if (!hasMaintenancePerDay) {
+      console.log(
+        "Migrating database: Adding maintenance_alloy_per_day to gate_defenses"
+      );
+      db.exec(
+        `ALTER TABLE gate_defenses ADD COLUMN maintenance_alloy_per_day REAL DEFAULT 0.1;`
+      );
+    }
+
+    if (!hasLastMaintenanceAt) {
+      console.log(
+        "Migrating database: Adding last_maintenance_at to gate_defenses"
+      );
+      db.exec(
+        `ALTER TABLE gate_defenses ADD COLUMN last_maintenance_at INTEGER DEFAULT 0;`
+      );
+    }
+
+    if (!hasEnergyCost || !hasAlloyCost || !hasMaintenancePerDay || !hasLastMaintenanceAt) {
+      console.log("Gate defenses cost tracking migration complete");
+    }
+  } catch (error) {
+    console.error("Error during gate defenses cost tracking migration:", error);
+  }
+
+  // Migration: Add cost tracking columns to gate_attacks for refunds
+  try {
+    const columns = db
+      .prepare("PRAGMA table_info(gate_attacks)")
+      .all() as Array<{ name: string }>;
+
+    const hasEnergyCost = columns.some((col) => col.name === "energy_cost_per_ship");
+    const hasAlloyCost = columns.some((col) => col.name === "alloy_cost_per_ship");
+
+    if (!hasEnergyCost) {
+      console.log(
+        "Migrating database: Adding energy_cost_per_ship to gate_attacks"
+      );
+      db.exec(
+        `ALTER TABLE gate_attacks ADD COLUMN energy_cost_per_ship REAL DEFAULT 1.0;`
+      );
+    }
+
+    if (!hasAlloyCost) {
+      console.log(
+        "Migrating database: Adding alloy_cost_per_ship to gate_attacks"
+      );
+      db.exec(
+        `ALTER TABLE gate_attacks ADD COLUMN alloy_cost_per_ship REAL DEFAULT 25.0;`
+      );
+    }
+
+    if (!hasEnergyCost || !hasAlloyCost) {
+      console.log("Gate attacks cost tracking migration complete");
+    }
+  } catch (error) {
+    console.error("Error during gate attacks cost tracking migration:", error);
+  }
+
   // Migration: Create tunnels table and migrate existing gates
   try {
     const tables = db

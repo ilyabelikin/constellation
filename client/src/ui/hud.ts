@@ -5,6 +5,7 @@ import {
   Ship,
   ConstellationNode,
   SearchResult,
+  DAYS_PER_YEAR,
 } from "@constellation/shared";
 import { BodyDetailView } from "./BodyDetailView.js";
 import { GateDetailView } from "./GateDetailView.js";
@@ -19,7 +20,12 @@ export class HUDManager {
   private selectedObjectId: string | null = null;
   private gateOwnership: Map<
     string,
-    { ownerId: string; ownerName: string; status: string }
+    {
+      ownerId: string;
+      ownerName: string;
+      status: string;
+      lastOvertakenAt: number;
+    }
   > = new Map();
   private tunnelOwnership: Map<
     string,
@@ -28,9 +34,11 @@ export class HUDManager {
       thisGateOwnerId?: string;
       thisGateOwnerName?: string;
       thisGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      thisGateDefenseCount?: number;
       otherGateOwnerId?: string;
       otherGateOwnerName?: string;
       otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      otherGateDefenseCount?: number;
       tunnelPoweredBy?: string | null;
     }
   > = new Map();
@@ -320,6 +328,8 @@ export class HUDManager {
     this.gateDetailView = new GateDetailView();
     this.shipDetailView = new ShipDetailView();
     this.constellationSystemDetailView = new ConstellationSystemDetailView();
+
+    // Time getter will be set later by main game (needs scene's interpolated time)
 
     // Setup gate detail view callbacks
     this.gateDetailView.onTravelClick = (gateId: string) => {
@@ -723,7 +733,7 @@ export class HUDManager {
     gateItem.style.color = gateColor;
 
     // Get the actual gate object to ensure we have the correct name
-    const gate = this.system.gates?.find((g) => g.id === gateId);
+    const gate = this.system?.gates?.find((g) => g.id === gateId);
     let gateName = "???";
 
     // If we found the gate and player has explored it, show the real name
@@ -754,13 +764,22 @@ export class HUDManager {
       thisGateOwnerId?: string;
       thisGateOwnerName?: string;
       thisGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      thisGateDefenseCount?: number;
       otherGateOwnerId?: string;
       otherGateOwnerName?: string;
       otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      otherGateDefenseCount?: number;
       tunnelPoweredBy?: string | null;
     }>
   ): void {
+    console.log(
+      `[HUD] Updating tunnel ownership with ${tunnelOwnerships.length} entries:`,
+      tunnelOwnerships
+    );
     for (const ownership of tunnelOwnerships) {
+      console.log(
+        `[HUD] Storing tunnel ownership for gate ${ownership.gateId}: This=${ownership.thisGateOwnerName}, Other=${ownership.otherGateOwnerName}`
+      );
       this.tunnelOwnership.set(ownership.gateId, ownership);
     }
   }
@@ -1238,11 +1257,18 @@ export class HUDManager {
       this.updateTimeToggleButtonIfNeeded();
     }
 
-    // Convert to days and hours (skip minutes - too fast at 10000x scale)
-    const days = Math.floor(currentTime / 86400);
+    // Convert to years, days, and hours (skip minutes - too fast at 10000x scale)
+    const totalDays = currentTime / 86400;
+    const years = Math.floor(totalDays / DAYS_PER_YEAR);
+    const days = Math.floor(totalDays % DAYS_PER_YEAR);
     const hours = Math.floor((currentTime % 86400) / 3600);
 
-    this.timeDisplay.textContent = `${days}d ${hours}h`;
+    // Format: show years if >= 1, otherwise just days and hours
+    if (years > 0) {
+      this.timeDisplay.textContent = `${years}y ${days}d ${hours}h`;
+    } else {
+      this.timeDisplay.textContent = `${days}d ${hours}h`;
+    }
     this.timeScaleDisplay.textContent = `${timeScale.toFixed(0)}x`;
   }
 
@@ -1302,20 +1328,28 @@ export class HUDManager {
     const gate = this.system.gates?.find((g) => g.id === objectId);
     if (gate) {
       const ownerInfo = this.gateOwnership.get(gate.id);
+      const tunnelOwnershipData = this.tunnelOwnership.get(gate.id);
+
+      // ALWAYS use scene's defense count as single source of truth
+      // The scene tracks actual rendered platforms and handles duplicates correctly
       const defenseCount = this.onGetGateDefenseCount
         ? this.onGetGateDefenseCount(gate.id)
         : 0;
+
+      // Get destination defense count from tunnel ownership if available,
+      // but we can't get it from scene since destination gate is in another system
+      const destinationDefenseCount =
+        tunnelOwnershipData?.otherGateDefenseCount ?? 0;
+
+      console.log(
+        `[HUD] Defense counts for gate ${gate.id}:`,
+        `this=${defenseCount}`,
+        `destination=${destinationDefenseCount}`
+      );
+
       const resourceFlow = this.onGetGateResourceFlow
         ? this.onGetGateResourceFlow(gate.id)
         : undefined;
-
-      // Get destination gate defense count
-      let destinationDefenseCount = 0;
-      if (gate.destinationGateId && this.onGetGateDefenseCount) {
-        destinationDefenseCount = this.onGetGateDefenseCount(
-          gate.destinationGateId
-        );
-      }
 
       // Build tunnel information from tunnelOwnership data
       let tunnelInfo:
@@ -1330,7 +1364,12 @@ export class HUDManager {
           }
         | undefined;
 
-      const tunnelOwnershipData = this.tunnelOwnership.get(gate.id);
+      console.log(
+        `[HUD] Tunnel ownership for gate ${gate.id}:`,
+        tunnelOwnershipData
+      );
+
+      // ALWAYS create tunnelInfo so the section is always shown
       if (tunnelOwnershipData) {
         // Determine if player can travel or has full tunnel power
         const playerOwnsThis =
@@ -1348,6 +1387,20 @@ export class HUDManager {
           tunnelPoweredBySpecies: tunnelOwnershipData.tunnelPoweredBy,
           canTravel: playerOwnsThis || playerOwnsOther,
           hasTunnelPower: playerOwnsThis && playerOwnsOther,
+        };
+      } else {
+        // No tunnel ownership data yet - show default values
+        console.warn(
+          `[HUD] No tunnel ownership for gate ${gate.id} - showing defaults`
+        );
+        tunnelInfo = {
+          gateAOwnerName: "Uncontrolled",
+          gateBOwnerName: "Uncontrolled",
+          gateAStatus: undefined,
+          gateBStatus: undefined,
+          tunnelPoweredBySpecies: null,
+          canTravel: false,
+          hasTunnelPower: false,
         };
       }
 
@@ -1784,6 +1837,13 @@ export class HUDManager {
     this.speciesGetter = getter;
     // Pass the getter to BodyDetailView
     this.bodyDetailView.setSpeciesGetter(getter, this.networkClient);
+  }
+
+  /**
+   * Set the function to get current interpolated game time
+   */
+  setGameTimeGetter(getter: () => number): void {
+    this.gateDetailView.setCurrentTimeGetter(getter);
   }
 
   private closePlayerProfileModal(): void {

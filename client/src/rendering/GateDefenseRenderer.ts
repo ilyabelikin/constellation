@@ -7,9 +7,13 @@ import { GateDefense, GateAttack } from "@constellation/shared";
 export class GateDefenseRenderer {
   private scene: THREE.Scene;
   private gateGroups: Map<string, THREE.Group>;
+  private playerId: string | null = null;
 
   // Map of gate ID to defense platforms
   private defensePlatforms: Map<string, DefensePlatform[]> = new Map();
+
+  // Map of gate ID to owner ID (for coloring platforms)
+  private gateOwners: Map<string, string> = new Map();
 
   // Active attacks
   private activeAttacks: Map<string, AttackAnimation> = new Map();
@@ -20,6 +24,20 @@ export class GateDefenseRenderer {
   constructor(scene: THREE.Scene, gateGroups: Map<string, THREE.Group>) {
     this.scene = scene;
     this.gateGroups = gateGroups;
+  }
+
+  /**
+   * Set the current player ID for determining friendly vs enemy colors
+   */
+  setPlayerId(playerId: string): void {
+    this.playerId = playerId;
+  }
+
+  /**
+   * Set gate ownership information
+   */
+  setGateOwner(gateId: string, ownerId: string): void {
+    this.gateOwners.set(gateId, ownerId);
   }
 
   /**
@@ -37,20 +55,37 @@ export class GateDefenseRenderer {
     }
 
     const platforms = this.defensePlatforms.get(defense.gateId) || [];
+
+    // Check if this defense platform already exists (prevent duplicates on system refresh)
+    const existingPlatform = platforms.find((p) => p.id === defense.id);
+    if (existingPlatform) {
+      return; // Skip duplicates silently
+    }
+
     const platformIndex = platforms.length;
+
+    // Determine if this platform is friendly or enemy
+    const gateOwnerId = this.gateOwners.get(defense.gateId);
+    const isEnemy = gateOwnerId !== this.playerId;
 
     const platform = new DefensePlatform(
       gateGroup,
       platformIndex,
       platforms.length + 1,
-      defense.id
+      defense.id,
+      isEnemy
     );
 
     platforms.push(platform);
     this.defensePlatforms.set(defense.gateId, platforms);
 
+    // Reposition ALL platforms to distribute them evenly around the gate
+    platforms.forEach((p, index) => {
+      p.updatePosition(index, platforms.length);
+    });
+
     console.log(
-      `Added defense platform ${defense.id} to gate ${defense.gateId}`
+      `Added defense platform ${defense.id} to gate ${defense.gateId} (total: ${platforms.length})`
     );
   }
 
@@ -70,6 +105,37 @@ export class GateDefenseRenderer {
 
     for (const defense of toAdd) {
       this.addDefensePlatform(defense);
+    }
+  }
+
+  /**
+   * Remove destroyed platforms from the map
+   * This is called after system state refresh to clean up platforms that were destroyed in combat
+   */
+  cleanupDestroyedPlatforms(): void {
+    for (const [gateId, platforms] of this.defensePlatforms.entries()) {
+      // Filter out destroyed platforms
+      const alivePlatforms = platforms.filter(p => !p.isDestroyed());
+      
+      if (alivePlatforms.length !== platforms.length) {
+        // Some platforms were destroyed - dispose them and update the map
+        const destroyedPlatforms = platforms.filter(p => p.isDestroyed());
+        for (const platform of destroyedPlatforms) {
+          platform.dispose();
+        }
+        
+        // Update the map with only alive platforms
+        this.defensePlatforms.set(gateId, alivePlatforms);
+        
+        // Reposition remaining platforms
+        alivePlatforms.forEach((p, index) => {
+          p.updatePosition(index, alivePlatforms.length);
+        });
+        
+        console.log(
+          `[GateDefenseRenderer] Cleaned up ${destroyedPlatforms.length} destroyed platforms from gate ${gateId}`
+        );
+      }
     }
   }
 
@@ -116,9 +182,27 @@ export class GateDefenseRenderer {
   }
 
   /**
+   * Check if a gate has an active attack
+   */
+  hasActiveAttack(gateId: string): boolean {
+    for (const [attackId, animation] of this.activeAttacks.entries()) {
+      // Check if any active attack is targeting this gate
+      // We need to get the gate ID from the animation somehow
+      // For now, we can check if the attack ID includes the gate ID or track it differently
+    }
+    return this.activeAttacks.size > 0; // Temporary: block all travel if any attack is active
+  }
+
+  /**
    * Start an attack animation
    */
   startAttack(attack: GateAttack): void {
+    // Check if this attack animation already exists (prevent duplicates)
+    if (this.activeAttacks.has(attack.id)) {
+      console.log(`Attack animation ${attack.id} already exists, skipping duplicate`);
+      return;
+    }
+
     const gateGroup = this.gateGroups.get(attack.gateId);
     if (!gateGroup) {
       console.warn(`Cannot start attack: gate ${attack.gateId} not found`);
@@ -127,17 +211,21 @@ export class GateDefenseRenderer {
 
     const defenses = this.defensePlatforms.get(attack.gateId) || [];
 
+    // Determine if this is the player's attack (for coloring ships)
+    const isPlayerAttacking = attack.attackerId === this.playerId;
+
     const animation = new AttackAnimation(
       this.scene,
       gateGroup,
       attack,
-      defenses
+      defenses,
+      isPlayerAttacking
     );
 
     this.activeAttacks.set(attack.id, animation);
 
     console.log(
-      `Started attack animation ${attack.id} on gate ${attack.gateId}`
+      `Started attack animation ${attack.id} on gate ${attack.gateId} (player attacking: ${isPlayerAttacking})`
     );
   }
 
@@ -194,7 +282,9 @@ export class GateDefenseRenderer {
    * Get defense count for a gate
    */
   getDefenseCount(gateId: string): number {
-    return this.defensePlatforms.get(gateId)?.length || 0;
+    const platforms = this.defensePlatforms.get(gateId) || [];
+    // Only count non-destroyed platforms
+    return platforms.filter(p => !p.isDestroyed()).length;
   }
 
   /**
@@ -278,7 +368,8 @@ class DefensePlatform {
     parent: THREE.Group,
     index: number,
     totalCount: number,
-    id: string
+    id: string,
+    isEnemy: boolean = false
   ) {
     this.id = id;
     this.index = index;
@@ -288,18 +379,21 @@ class DefensePlatform {
     // Distribute platforms evenly around the gate
     this.orbitAngle = (index / totalCount) * Math.PI * 2;
 
-    // Create platform mesh (blue octahedron)
+    // Color based on ownership: blue for friendly, red for enemy
+    const platformColor = isEnemy ? 0xff4444 : 0x4444ff;
+
+    // Create platform mesh (colored octahedron)
     const geometry = new THREE.OctahedronGeometry(2, 0);
     const material = new THREE.MeshBasicMaterial({
-      color: 0x4444ff,
+      color: platformColor,
       transparent: true,
       opacity: 0.8,
     });
     this.mesh = new THREE.Mesh(geometry, material);
     this.group.add(this.mesh);
 
-    // Add blue point light
-    this.light = new THREE.PointLight(0x4444ff, 0.5, 30);
+    // Add colored point light
+    this.light = new THREE.PointLight(platformColor, 0.5, 30);
     this.group.add(this.light);
 
     parent.add(this.group);
@@ -417,7 +511,8 @@ class AttackAnimation {
     scene: THREE.Scene,
     gateGroup: THREE.Group,
     attack: GateAttack,
-    defenses: DefensePlatform[]
+    defenses: DefensePlatform[],
+    isPlayerAttacking: boolean = false
   ) {
     this.scene = scene;
     this.gateGroup = gateGroup;
@@ -431,7 +526,12 @@ class AttackAnimation {
 
     // Create attacking ships
     for (let i = 0; i < attack.attackShipCount; i++) {
-      const ship = new AttackShip(this.group, i, attack.attackShipCount);
+      const ship = new AttackShip(
+        this.group,
+        i,
+        attack.attackShipCount,
+        isPlayerAttacking
+      );
       this.attackShips.push(ship);
     }
   }
@@ -450,11 +550,19 @@ class AttackAnimation {
     if (this.combatEventsApplied) return;
     this.combatEventsApplied = true;
 
-    // Schedule combat events
+    console.log(`[Combat] Applying ${events.length} combat events`);
+
+    // Delay combat events until ships finish approaching
+    // Ships approach at 0.5 speed, so they reach gate at progress=1, which takes ~2 seconds
+    const APPROACH_TIME = 2000; // 2 seconds for ships to reach gate
+
+    // Schedule combat events AFTER approach completes
     for (const event of events) {
+      const delay = APPROACH_TIME + event.time;
+      console.log(`[Combat] Scheduling event ${event.type} at ${delay}ms`);
       setTimeout(() => {
         this.handleCombatEvent(event);
-      }, event.time);
+      }, delay);
     }
   }
 
@@ -466,13 +574,20 @@ class AttackAnimation {
     targetId?: string;
     damage?: number;
   }): void {
+    console.log(`[Combat] Handling event: ${event.type}, targetId: ${event.targetId}`);
+    
     if (event.type === "shipHit" && event.targetId) {
       // Ship hit a defense platform - create projectile from random ship to defense
-      const aliveShips = this.attackShips.filter((s) => !s.isDestroyed());
+      // Only fire from ships that have finished approaching (are orbiting)
+      const aliveShips = this.attackShips.filter(
+        (s) => !s.isDestroyed() && !s.getIsApproaching()
+      );
+      console.log(`[Combat] shipHit - alive ships not approaching: ${aliveShips.length}/${this.attackShips.length}`);
       if (aliveShips.length > 0) {
         const ship = aliveShips[Math.floor(Math.random() * aliveShips.length)];
         const defense = this.defenses.find((d) => d.id === event.targetId);
         if (defense) {
+          console.log(`[Combat] Creating RED projectile from ship to defense`);
           const projectile = new Projectile(
             this.group,
             ship.getWorldPosition(),
@@ -480,14 +595,21 @@ class AttackAnimation {
             0xff0000 // Red for ship fire
           );
           this.projectiles.push(projectile);
+        } else {
+          console.warn(`[Combat] Defense ${event.targetId} not found`);
         }
       }
     } else if (event.type === "defenseHit" && event.targetId) {
       // Defense hit a ship - create projectile from defense to random ship
+      // Only fire at ships that have finished approaching (are orbiting)
       const defense = this.defenses.find((d) => d.id === event.targetId);
-      const aliveShips = this.attackShips.filter((s) => !s.isDestroyed());
+      const aliveShips = this.attackShips.filter(
+        (s) => !s.isDestroyed() && !s.getIsApproaching()
+      );
+      console.log(`[Combat] defenseHit - alive ships not approaching: ${aliveShips.length}/${this.attackShips.length}`);
       if (defense && aliveShips.length > 0) {
         const ship = aliveShips[Math.floor(Math.random() * aliveShips.length)];
+        console.log(`[Combat] Creating BLUE projectile from defense to ship`);
         const projectile = new Projectile(
           this.group,
           defense.getWorldPosition(),
@@ -495,10 +617,13 @@ class AttackAnimation {
           0x0000ff // Blue for defense fire
         );
         this.projectiles.push(projectile);
+      } else {
+        console.warn(`[Combat] Defense not found or no alive ships`);
       }
     } else if (event.type === "shipDestroyed") {
       // Destroy a random alive ship
       const aliveShips = this.attackShips.filter((s) => !s.isDestroyed());
+      console.log(`[Combat] shipDestroyed - destroying 1 of ${aliveShips.length} alive ships`);
       if (aliveShips.length > 0) {
         const ship = aliveShips[Math.floor(Math.random() * aliveShips.length)];
         ship.destroy();
@@ -506,6 +631,7 @@ class AttackAnimation {
     } else if (event.type === "defenseDestroyed" && event.targetId) {
       // Defense destroyed - trigger explosion animation
       const defense = this.defenses.find((d) => d.id === event.targetId);
+      console.log(`[Combat] defenseDestroyed - defense found: ${!!defense}`);
       if (defense) {
         defense.destroy();
       }
@@ -516,11 +642,13 @@ class AttackAnimation {
    * Mark the attack as complete
    */
   markComplete(outcome: "attacker_victory" | "defender_victory"): void {
+    console.log(`[Combat] Attack marked complete: ${outcome}`);
     this.outcome = outcome;
-    // Give some time for animations to finish
+    // Wait for approach (2s) + combat duration + explosions to finish
+    // Don't mark complete until all visual effects are done
     setTimeout(() => {
       this.complete = true;
-    }, 2000);
+    }, 6000); // 2s approach + 3s combat + 1s cleanup
   }
 
   /**
@@ -601,14 +729,31 @@ class AttackShip {
   private destroyed: boolean = false;
   private explosionProgress: number = 0;
 
-  constructor(parent: THREE.Group, index: number, totalCount: number) {
+  // Approach animation (flying in from off-screen)
+  private isApproaching: boolean = true;
+  private approachProgress: number = 0;
+  private startPosition: THREE.Vector3;
+  private targetPosition: THREE.Vector3;
+
+  constructor(
+    parent: THREE.Group,
+    index: number,
+    totalCount: number,
+    isPlayerShip: boolean = false
+  ) {
     this.group = new THREE.Group();
     this.orbitAngle = (index / totalCount) * Math.PI * 2;
 
-    // Create ship mesh (red cone)
+    // Vary orbit radius so ships spread out at different distances
+    this.orbitRadius = 20 + Math.random() * 10; // 20-30 units from gate
+
+    // Color based on ownership: blue for your ships, red for enemy ships
+    const shipColor = isPlayerShip ? 0x4444ff : 0xff4444;
+
+    // Create ship mesh (colored cone)
     const geometry = new THREE.ConeGeometry(1, 3, 4);
     const material = new THREE.MeshBasicMaterial({
-      color: 0xff0000,
+      color: shipColor,
       transparent: true,
       opacity: 0.9,
     });
@@ -616,11 +761,34 @@ class AttackShip {
     this.mesh.rotation.x = Math.PI / 2; // Point forward
     this.group.add(this.mesh);
 
-    // Add red point light
-    this.light = new THREE.PointLight(0xff0000, 0.5, 20);
+    // Add colored point light
+    this.light = new THREE.PointLight(shipColor, 0.5, 20);
     this.group.add(this.light);
 
     parent.add(this.group);
+
+    // Start from random off-screen position (like mining drones)
+    const spawnDistance = 200 + Math.random() * 100; // 200-300 units away
+    const spawnAngle = Math.random() * Math.PI * 2;
+    this.startPosition = new THREE.Vector3(
+      Math.cos(spawnAngle) * spawnDistance,
+      (Math.random() - 0.5) * 100, // Random vertical offset
+      Math.sin(spawnAngle) * spawnDistance
+    );
+
+    // Add some random angle variation so ships don't all line up perfectly
+    const angleVariation = (Math.random() - 0.5) * 0.5; // +/- ~15 degrees
+    this.orbitAngle += angleVariation;
+
+    // Target orbit position with varied radius and angle
+    this.targetPosition = new THREE.Vector3(
+      Math.cos(this.orbitAngle) * this.orbitRadius,
+      (Math.random() - 0.5) * 4, // Small vertical variation
+      Math.sin(this.orbitAngle) * this.orbitRadius
+    );
+
+    // Set initial position
+    this.group.position.copy(this.startPosition);
   }
 
   /**
@@ -637,23 +805,61 @@ class AttackShip {
       // Expand slightly
       const scale = 1 + this.explosionProgress * 2;
       this.mesh.scale.set(scale, scale, scale);
+      
+      // Hide completely after explosion
+      if (this.explosionProgress >= 1) {
+        this.group.visible = false;
+      }
       return;
     }
 
+    // Approach phase: fly from off-screen to orbit position
+    if (this.isApproaching) {
+      this.approachProgress += deltaTime * 0.5; // Approach speed
+
+      if (this.approachProgress >= 1) {
+        // Reached orbit position
+        console.log(`[Combat] Ship finished approaching, ready to fight`);
+        this.isApproaching = false;
+        this.approachProgress = 1;
+      }
+
+      // Smooth easing
+      const easedProgress = this.easeInOutCubic(this.approachProgress);
+
+      // Lerp from start to target position
+      this.group.position.lerpVectors(
+        this.startPosition,
+        this.targetPosition,
+        easedProgress
+      );
+
+      // Point ship toward target
+      const direction = new THREE.Vector3()
+        .subVectors(this.targetPosition, this.group.position)
+        .normalize();
+      this.mesh.lookAt(this.group.position.clone().add(direction));
+
+      return;
+    }
+
+    // Orbit phase: circle the gate
     this.orbitAngle += this.orbitSpeed * deltaTime;
 
     const x = Math.cos(this.orbitAngle) * this.orbitRadius;
     const z = Math.sin(this.orbitAngle) * this.orbitRadius;
-    this.group.position.set(x, 0, z);
+    this.group.position.set(x, this.targetPosition.y, z);
 
-    // Orient towards center
-    this.group.lookAt(0, 0, 0);
+    // Point nose toward the gate center (aggressive attack posture)
+    const targetDirection = new THREE.Vector3(0, 0, 0);
+    this.group.lookAt(targetDirection);
   }
 
   /**
    * Destroy this ship
    */
   destroy(): void {
+    console.log(`[Combat] Ship destroyed (was approaching: ${this.isApproaching})`);
     this.destroyed = true;
   }
 
@@ -665,12 +871,26 @@ class AttackShip {
   }
 
   /**
+   * Check if ship is still approaching (not yet in combat position)
+   */
+  getIsApproaching(): boolean {
+    return this.isApproaching;
+  }
+
+  /**
    * Get world position
    */
   getWorldPosition(): THREE.Vector3 {
     const worldPos = new THREE.Vector3();
     this.group.getWorldPosition(worldPos);
     return worldPos;
+  }
+
+  /**
+   * Easing function for smooth approach animation
+   */
+  private easeInOutCubic(t: number): number {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   }
 
   /**

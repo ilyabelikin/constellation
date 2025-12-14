@@ -28,6 +28,7 @@ export class GateDetailView {
   private travelButton: HTMLButtonElement;
   private fortifyButton: HTMLButtonElement;
   private attackButton: HTMLButtonElement;
+  private captureButton: HTMLButtonElement;
   private overtakeButton: HTMLButtonElement;
   private overtakeCooldownDiv: HTMLElement;
   private overtakeCooldownTimeSpan: HTMLElement;
@@ -35,6 +36,7 @@ export class GateDetailView {
   private cooldownUpdateInterval: number | null = null;
   private currentGateId: string | null = null;
   private isDebugMode: boolean = false;
+  private currentTimeGetter: (() => number) | null = null;
   public onTravelClick?: (gateId: string) => void;
   public onFortifyClick?: (gateId: string) => void;
   public onAttackClick?: (gateId: string) => void;
@@ -80,6 +82,9 @@ export class GateDetailView {
     )! as HTMLButtonElement;
     this.attackButton = document.getElementById(
       "gate-attack-button"
+    )! as HTMLButtonElement;
+    this.captureButton = document.getElementById(
+      "gate-capture-button"
     )! as HTMLButtonElement;
     this.overtakeButton = document.getElementById(
       "gate-overtake-button"
@@ -129,6 +134,7 @@ export class GateDetailView {
 
     this.attackButton.addEventListener("click", (event) => {
       event.stopPropagation(); // Prevent event bubbling
+      event.preventDefault(); // Prevent any default behavior
       if (
         this.currentGateId &&
         this.onAttackClick &&
@@ -145,6 +151,28 @@ export class GateDetailView {
         setTimeout(() => {
           this.attackButton.disabled = false;
         }, 1000);
+      }
+      return false; // Additional safety to prevent event propagation
+    });
+
+    this.captureButton.addEventListener("click", (event) => {
+      event.stopPropagation(); // Prevent event bubbling
+      if (
+        this.currentGateId &&
+        this.onOvertakeClick &&
+        !this.captureButton.disabled
+      ) {
+        console.log(
+          "[GateDetailView] Capture button clicked for gate:",
+          this.currentGateId
+        );
+        // Temporarily disable to prevent double-clicks
+        this.captureButton.disabled = true;
+        this.onOvertakeClick(this.currentGateId);
+        // Re-enable after a short delay
+        setTimeout(() => {
+          this.captureButton.disabled = false;
+        }, 1500);
       }
     });
 
@@ -174,6 +202,13 @@ export class GateDetailView {
         this.onDebugConnectClick(this.currentGateId);
       }
     });
+  }
+
+  /**
+   * Set the function to get current game time (respects time scale and pause)
+   */
+  setCurrentTimeGetter(getter: () => number): void {
+    this.currentTimeGetter = getter;
   }
 
   /**
@@ -238,19 +273,34 @@ export class GateDetailView {
         tunnelInfo.gateBOwnerName || "Uncontrolled";
       this.gateBOwnerElement.style.color = gateBColor;
 
-      // Tunnel power status
-      if (tunnelInfo.hasTunnelPower) {
-        this.tunnelPowerElement.textContent =
-          "⚡ Fully Powered (You control both gates)";
-        this.tunnelPowerElement.style.color = "#fbbf24";
-      } else if (tunnelInfo.canTravel) {
-        this.tunnelPowerElement.textContent =
-          "🔓 Can Travel (You control one gate)";
-        this.tunnelPowerElement.style.color = "#10b981";
-      } else if (tunnelInfo.tunnelPoweredBySpecies) {
-        this.tunnelPowerElement.textContent =
-          "❌ Controlled by another species";
-        this.tunnelPowerElement.style.color = "#ef4444";
+      // Tunnel power status - show which species powers the tunnel
+      // Power is independent of gate control
+      // Use neutral color - colors are ONLY for gate ownership
+      if (tunnelInfo.tunnelPoweredBySpecies) {
+        // Determine which player's species powers the tunnel
+        const thisGateOwner = tunnelInfo.gateAOwnerName || "Unknown";
+        const otherGateOwner = tunnelInfo.gateBOwnerName || "Unknown";
+
+        // If both gates owned by same player, their species powers it
+        if (
+          thisGateOwner !== "Uncontrolled" &&
+          thisGateOwner === otherGateOwner
+        ) {
+          // Check if it's the current player
+          if (
+            tunnelInfo.gateAStatus === "owned_by_self" ||
+            tunnelInfo.gateBStatus === "owned_by_self"
+          ) {
+            this.tunnelPowerElement.textContent = `⚡ Powered by Your Species`;
+          } else {
+            this.tunnelPowerElement.textContent = `⚡ Powered by ${thisGateOwner}'s Species`;
+          }
+        } else {
+          // Shouldn't happen, but handle it
+          this.tunnelPowerElement.textContent = "⚡ Powered (Unknown Species)";
+        }
+        // Always use neutral white/light color for tunnel power text
+        this.tunnelPowerElement.style.color = "#e5e7eb";
       } else {
         this.tunnelPowerElement.textContent = "⚪ Unpowered";
         this.tunnelPowerElement.style.color = "#9ca3af";
@@ -262,63 +312,23 @@ export class GateDetailView {
     // Determine display based on ownership and exploration
     let travelCost = 0; // Cost in energy
 
-    if (ownerInfo && !isExploredBySelf) {
+    // Hide status row - tunnel control provides all ownership information
+    this.statusElement.style.display = "none";
+    this.ownerRow.style.display = "none";
+
+    // Set gate name
+    if (!isExploredBySelf && ownerInfo) {
       // Gate owned by someone else but not explored by us yet
       this.nameElement.textContent = "???";
-
-      // Show diplomatic stance status
-      if (ownerInfo.status === "neutral") {
-        this.statusElement.textContent =
-          "Neutral Gate ● (Maintained by another civilization)";
-      } else if (ownerInfo.status === "friendly") {
-        this.statusElement.textContent = "Friendly Gate ✓ (Maintained by ally)";
-      } else if (ownerInfo.status === "aggressive") {
-        this.statusElement.textContent = "Hostile Gate ⚠ (Maintained by enemy)";
-      } else {
-        this.statusElement.textContent =
-          "Occupied Gate (Maintained by another civilization)";
-      }
-
-      this.ownerRow.style.display = "block";
-      this.ownerElement.textContent = ownerInfo.ownerName;
       travelCost = 0;
     } else if (!isExploredBySelf) {
       // Truly unexplored - no owner, not explored by us
       this.nameElement.textContent = "???";
-      this.statusElement.textContent = "Unexplored ◈";
-      this.ownerRow.style.display = "none";
       travelCost = 1;
     } else {
       // Explored by us
       this.nameElement.textContent = gate.name;
-      // Show status based on ownership
-      if (gateStatus === "owned_by_self") {
-        this.statusElement.textContent = "Controlled by You ⚡";
-        this.ownerRow.style.display = "none"; // No need to show owner row when it's in the status
-        travelCost = 0;
-      } else if (gateStatus === "neutral") {
-        this.statusElement.textContent = "Neutral Gate ●";
-        this.ownerRow.style.display = "block";
-        this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
-        travelCost = 0;
-      } else if (gateStatus === "aggressive") {
-        this.statusElement.textContent = "Hostile Gate ⚠";
-        this.ownerRow.style.display = "block";
-        this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
-        travelCost = 0;
-      } else if (gateStatus === "friendly") {
-        this.statusElement.textContent = "Friendly Gate ✓";
-        this.ownerRow.style.display = "block";
-        this.ownerElement.textContent = ownerInfo?.ownerName || "Unknown";
-        travelCost = 0;
-      } else {
-        // No specific status - show as controlled by player if they discovered it
-        this.statusElement.textContent = `Controlled by ${
-          player?.name || "You"
-        } ⚡`;
-        this.ownerRow.style.display = "none";
-        travelCost = 0;
-      }
+      travelCost = 0;
     }
 
     // Check if travel is blocked by defended aggressive gate
@@ -383,12 +393,15 @@ export class GateDetailView {
       this.fortifyButton.style.display = "none";
     }
 
-    // Show Attack button if another player owns the gate, has aggressive stance, AND has defenses
-    const canAttack =
-      gateStatus === "aggressive" &&
-      ownerInfo &&
-      ownerInfo.ownerId !== player?.id &&
-      defenseCount > 0; // Only show attack if there are defenses to destroy
+    // Show Attack button if another player owns the gate AND has defenses
+    // Use tunnel info for accurate ownership (not ownerInfo which might be stale)
+    // You must destroy defenses before you can capture/overtake
+    const thisGateOwnedByMe = tunnelInfo?.gateAStatus === "owned_by_self";
+    const thisGateOwnedBySomeoneElse =
+      tunnelInfo?.gateAStatus && tunnelInfo.gateAStatus !== "owned_by_self";
+
+    const canAttack = thisGateOwnedBySomeoneElse && defenseCount > 0; // Only attack if enemy owns this gate AND has defenses
+
     if (canAttack) {
       this.attackButton.style.display = "block";
       const hasResources =
@@ -399,16 +412,18 @@ export class GateDetailView {
           player?.energy ?? 0
         } energy, ${player?.alloy ?? 0} minerals)`;
       } else {
-        this.attackButton.title = `Launch an attack on this gate (${defenseCount} defense platform${
+        this.attackButton.title = `Destroy ${
+          tunnelInfo?.gateAOwnerName || "enemy"
+        }'s defenses (${defenseCount} platform${
           defenseCount !== 1 ? "s" : ""
         })`;
       }
+    } else if (thisGateOwnedByMe && defenseCount > 0) {
+      // Don't show attack button for your own defenses
+      this.attackButton.style.display = "none";
+      this.attackButton.title = "These are your own defenses";
     } else {
       this.attackButton.style.display = "none";
-      if (gateStatus === "aggressive" && defenseCount === 0) {
-        this.attackButton.title =
-          "No defenses to attack - use Overtake instead";
-      }
     }
 
     // Clear any existing cooldown update interval
@@ -417,102 +432,129 @@ export class GateDetailView {
       this.cooldownUpdateInterval = null;
     }
 
-    // Show Overtake button if gate is owned by someone else and BOTH ends are undefended
+    // Show Capture/Overtake buttons if gate is owned by someone else AND undefended
     const isOtherPlayerGate = ownerInfo && ownerInfo.ownerId !== player?.id;
     const isUndefended = defenseCount === 0;
     const isDestinationUndefended = destinationDefenseCount === 0;
 
     console.log(
-      `[GateDetailView] Overtake check: isOtherPlayerGate=${isOtherPlayerGate}, isUndefended=${isUndefended}, isDestinationUndefended=${isDestinationUndefended}, gateStatus=${gateStatus}`
+      `[GateDetailView] Capture/Overtake check: isOtherPlayerGate=${isOtherPlayerGate}, isUndefended=${isUndefended}, isDestinationUndefended=${isDestinationUndefended}, gateStatus=${gateStatus}, defenseCount=${defenseCount}`
     );
 
+    // Capture/Overtake buttons ONLY show if:
+    // 1. Gate is owned by another player (not you)
+    // 2. THIS gate has NO defenses (defenseCount === 0)
+    // If gate has defenses, only Attack button will show (see attack button logic above)
     if (isOtherPlayerGate && isUndefended) {
-      this.overtakeButton.style.display = "block";
+      // Check cooldown period (10 game days = 10 * 86400 seconds)
+      const COOLDOWN_PERIOD = 10 * 86400; // 10 days in seconds
+      const lastOvertakenAt = ownerInfo.lastOvertakenAt || 0;
+      const timeSinceOvertake = (currentTime || 0) - lastOvertakenAt;
+      const isOnCooldown =
+        lastOvertakenAt > 0 && timeSinceOvertake < COOLDOWN_PERIOD;
 
-      // Check if destination gate is defended
-      if (!isDestinationUndefended) {
+      if (isOnCooldown) {
+        // On cooldown - disable both buttons and show countdown
+        this.captureButton.style.display = "block";
+        this.captureButton.disabled = true;
+        this.captureButton.title = "Gate is protected by overtake cooldown";
+
+        this.overtakeButton.style.display = "block";
         this.overtakeButton.disabled = true;
-        this.overtakeButton.title = `Cannot overtake: destination gate has ${destinationDefenseCount} defense platform(s). Both ends must be undefended.`;
-        this.overtakeCooldownDiv.style.display = "none";
+        this.overtakeButton.title = "Gate is protected by overtake cooldown";
+
+        // Show cooldown message
+        this.overtakeCooldownDiv.style.display = "block";
+
+        // Update cooldown time display
+        const updateCooldownDisplay = () => {
+          // Get current game time from the getter (respects time scale and pause)
+          const now = this.currentTimeGetter ? this.currentTimeGetter() : currentState.currentTime;
+          const remainingSeconds = COOLDOWN_PERIOD - (now - lastOvertakenAt);
+
+          if (remainingSeconds <= 0) {
+            // Cooldown expired, hide the message and refresh the view
+            this.overtakeCooldownDiv.style.display = "none";
+            if (this.cooldownUpdateInterval !== null) {
+              clearInterval(this.cooldownUpdateInterval);
+              this.cooldownUpdateInterval = null;
+            }
+            return;
+          }
+
+          const remainingDays = Math.floor(remainingSeconds / 86400);
+          const remainingHours = Math.floor((remainingSeconds % 86400) / 3600);
+          const remainingMinutes = Math.floor((remainingSeconds % 3600) / 60);
+          const remainingSecs = Math.floor(remainingSeconds % 60);
+
+          let timeMessage = "";
+          if (remainingDays > 0) {
+            timeMessage = `${remainingDays}d ${remainingHours}h`;
+          } else if (remainingHours > 0) {
+            timeMessage = `${remainingHours}h ${remainingMinutes}m`;
+          } else if (remainingMinutes > 0) {
+            timeMessage = `${remainingMinutes}m ${remainingSecs}s`;
+          } else {
+            timeMessage = `${remainingSecs}s`;
+          }
+
+          this.overtakeCooldownTimeSpan.textContent = timeMessage;
+        };
+
+        // Initial update
+        updateCooldownDisplay();
+
+        // Update every second to show countdown
+        this.cooldownUpdateInterval = window.setInterval(
+          updateCooldownDisplay,
+          1000
+        );
       } else {
-        // Check cooldown period (10 game days = 10 * 86400 seconds)
-        const COOLDOWN_PERIOD = 10 * 86400; // 10 days in seconds
-        const lastOvertakenAt = ownerInfo.lastOvertakenAt || 0;
-        const timeSinceOvertake = (currentTime || 0) - lastOvertakenAt;
-        const isOnCooldown =
-          lastOvertakenAt > 0 && timeSinceOvertake < COOLDOWN_PERIOD;
+        // Not on cooldown - hide cooldown message
+        this.overtakeCooldownDiv.style.display = "none";
 
-        if (isOnCooldown) {
-          // On cooldown - show button disabled and display countdown
-          this.overtakeButton.disabled = true;
-          this.overtakeButton.title = "Gate is protected by overtake cooldown";
-
-          // Show cooldown message
-          this.overtakeCooldownDiv.style.display = "block";
-
-          // Update cooldown time display
-          const updateCooldownDisplay = () => {
-            const now = currentState.currentTime;
-            const remainingSeconds = COOLDOWN_PERIOD - (now - lastOvertakenAt);
-
-            if (remainingSeconds <= 0) {
-              // Cooldown expired, hide the message and refresh the view
-              this.overtakeCooldownDiv.style.display = "none";
-              if (this.cooldownUpdateInterval !== null) {
-                clearInterval(this.cooldownUpdateInterval);
-                this.cooldownUpdateInterval = null;
-              }
-              return;
-            }
-
-            const remainingDays = Math.floor(remainingSeconds / 86400);
-            const remainingHours = Math.floor(
-              (remainingSeconds % 86400) / 3600
-            );
-            const remainingMinutes = Math.floor((remainingSeconds % 3600) / 60);
-
-            let timeMessage = "";
-            if (remainingDays > 0) {
-              timeMessage = `${remainingDays}d ${remainingHours}h`;
-            } else if (remainingHours > 0) {
-              timeMessage = `${remainingHours}h ${remainingMinutes}m`;
-            } else {
-              timeMessage = `${remainingMinutes}m`;
-            }
-
-            this.overtakeCooldownTimeSpan.textContent = timeMessage;
-          };
-
-          // Initial update
-          updateCooldownDisplay();
-
-          // Update every second (game time updates)
-          this.cooldownUpdateInterval = window.setInterval(
-            updateCooldownDisplay,
-            1000
-          );
+        // CAPTURE BUTTON - only requires this gate to be undefended
+        this.captureButton.style.display = "block";
+        const hasCaptureResources = (player?.alloy ?? 0) >= 10;
+        this.captureButton.disabled = !hasCaptureResources;
+        if (!hasCaptureResources) {
+          this.captureButton.title = `Requires 10 Alloy (you have ${
+            player?.alloy ?? 0
+          } alloy)`;
         } else {
-          // Not on cooldown - hide cooldown message
-          this.overtakeCooldownDiv.style.display = "none";
+          this.captureButton.title =
+            "Capture this gate only (destination gate stays with current owner)";
+        }
 
-          // Check resources
-          const hasResources =
+        // OVERTAKE BUTTON - requires BOTH gates to be undefended
+        if (!isDestinationUndefended) {
+          // Destination gate is defended - can't overtake but can still capture
+          this.overtakeButton.style.display = "block";
+          this.overtakeButton.disabled = true;
+          this.overtakeButton.title = `Cannot overtake tunnel: destination gate has ${destinationDefenseCount} defense platform(s). Both ends must be undefended. Use Capture instead to take only this gate.`;
+        } else {
+          // Both gates undefended - can overtake
+          this.overtakeButton.style.display = "block";
+          const hasOvertakeResources =
             (player?.energy ?? 0) >= 3 && (player?.science ?? 0) >= 10;
-          this.overtakeButton.disabled = !hasResources;
-          if (!hasResources) {
+          this.overtakeButton.disabled = !hasOvertakeResources;
+          if (!hasOvertakeResources) {
             this.overtakeButton.title = `Requires 3 Energy and 10 Science (you have ${
               player?.energy ?? 0
             } energy, ${player?.science ?? 0} science)`;
           } else {
             this.overtakeButton.title =
-              "Peacefully overtake this undefended gate (both ends are clear)";
+              "Overtake entire tunnel: take both gates and start powering it with your species";
           }
         }
       }
     } else {
+      // Either not owned by another player, or this gate is defended
+      this.captureButton.style.display = "none";
       this.overtakeButton.style.display = "none";
       this.overtakeCooldownDiv.style.display = "none";
       if (defenseCount > 0) {
+        this.captureButton.title = `Cannot capture: gate has ${defenseCount} defense platform(s)`;
         this.overtakeButton.title = `Cannot overtake: gate has ${defenseCount} defense platform(s)`;
       }
     }
@@ -581,10 +623,24 @@ export class GateDetailView {
       );
     }
 
-    // Defense count - show for all owned gates (will be populated by game state updates)
-    // For now, just hide it - will be shown when defenses are loaded
-    this.defenseRow.style.display = "none";
-    this.defenseCountElement.textContent = defenseCount.toString();
+    // Defense count - show when there are defenses on this gate OR destination gate
+    if (defenseCount > 0 || destinationDefenseCount > 0) {
+      this.defenseRow.style.display = "flex";
+      if (defenseCount > 0 && destinationDefenseCount > 0) {
+        this.defenseCountElement.textContent = `🛡️ ${defenseCount} (Destination: ${destinationDefenseCount})`;
+      } else if (defenseCount > 0) {
+        this.defenseCountElement.textContent = `🛡️ ${defenseCount} platform${
+          defenseCount !== 1 ? "s" : ""
+        }`;
+      } else {
+        this.defenseCountElement.textContent = `🛡️ Destination: ${destinationDefenseCount} platform${
+          destinationDefenseCount !== 1 ? "s" : ""
+        }`;
+      }
+    } else {
+      this.defenseRow.style.display = "none";
+      this.defenseCountElement.textContent = "0";
+    }
 
     // Destination
     if (isExploredBySelf) {

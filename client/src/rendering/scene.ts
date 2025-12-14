@@ -94,7 +94,12 @@ export class SceneManager {
   private exploredGateIds: Set<string> = new Set();
   private gateOwnership: Map<
     string,
-    { ownerId: string; ownerName: string; status: string }
+    {
+      ownerId: string;
+      ownerName: string;
+      status: string;
+      lastOvertakenAt: number;
+    }
   > = new Map();
   private gateResourceFlow: Map<
     string,
@@ -522,6 +527,8 @@ export class SceneManager {
 
   setCurrentPlayerId(playerId: string): void {
     this.currentPlayerId = playerId;
+    // Set player ID in gate defense renderer for proper coloring
+    this.gateDefenseRenderer.setPlayerId(playerId);
   }
 
   /**
@@ -554,6 +561,10 @@ export class SceneManager {
   updateSystemData(system: StarSystem): void {
     this.system = system;
     this.updateStarDimming();
+    
+    // Clean up destroyed platforms after system state refresh
+    // This removes platforms that were destroyed in combat and are no longer in the database
+    this.gateDefenseRenderer.cleanupDestroyedPlatforms();
   }
 
   /**
@@ -592,6 +603,9 @@ export class SceneManager {
 
     // Update gate visual color to match new ownership status
     this.updateGateColor(gateId, status);
+
+    // Update gate defense renderer with ownership info (for coloring platforms)
+    this.gateDefenseRenderer.setGateOwner(gateId, ownerId);
   }
 
   /**
@@ -3494,6 +3508,13 @@ export class SceneManager {
    */
   updateGateAttack(attack: any): void {
     this.gateDefenseRenderer.updateAttack(attack);
+  }
+
+  /**
+   * Check if there's an active attack (blocks gate travel)
+   */
+  hasActiveAttack(gateId: string): boolean {
+    return this.gateDefenseRenderer.hasActiveAttack(gateId);
   }
 
   /**

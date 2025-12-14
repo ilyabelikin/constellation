@@ -439,6 +439,10 @@ export interface GateDefense {
   health: number; // Current health (0-100)
   maxHealth: number; // Maximum health (default 100)
   createdAt: number; // timestamp when built
+  energyCost: number; // Energy cost to build (for refund)
+  alloyCost: number; // Alloy cost to build
+  maintenanceAlloyPerDay: number; // Daily maintenance cost in alloy
+  lastMaintenanceAt: number; // timestamp of last maintenance payment
 }
 
 // Gate attack status

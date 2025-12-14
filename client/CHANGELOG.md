@@ -1,5 +1,10 @@
 # What's New in Constellation
 
+## Version 0.4.0 - Logistics and War
+
+- **Logistics**: Resources now delivered to the capital world via tunnels, so that if you lose access you lose the flow of resources
+- **War**: You may now fortify and attack gates as well as capture individual gates or take over the tunnels completely
+
 ## Version 0.3.3 - Habitable Planet Navigation
 
 - **Species Information on Planets**: Planet detail panels now display which species inhabits the planet, showing either native species or colony species names

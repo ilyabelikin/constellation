@@ -1,6 +1,6 @@
 // Version
-export const GAME_VERSION = "0.3.3";
-export const VERSION_NAME = "Species and Colonies";
+export const GAME_VERSION = "0.4.0";
+export const VERSION_NAME = "Logistics and War";
 
 // Physical constants (SI units: meters, kilograms, seconds)
 export const GRAVITATIONAL_CONSTANT = 6.6743e-11; // m³/(kg·s²)

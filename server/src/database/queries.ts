@@ -406,6 +406,13 @@ export class DatabaseQueries {
       0
     );
 
+    // Calculate defense platform maintenance costs
+    const defenses = this.getGateDefensesByPlayer(row.id);
+    const alloyCostFromDefenses = defenses.reduce(
+      (sum, def) => sum + def.maintenanceAlloyPerDay,
+      0
+    );
+
     // Calculate resource flow and blockades
     // Note: Resource flow calculation has been moved to a separate method to avoid circular dependencies
     // For now, we don't calculate blockades in this method
@@ -413,9 +420,9 @@ export class DatabaseQueries {
     let blockedAlloy = 0;
     let blockedScience = 0;
 
-    // Total income minus blockades
+    // Total income minus blockades and maintenance costs
     const energyPerDay = energyFromMegastructures - blockedEnergy;
-    const alloyPerDay = alloyFromMining + alloyFromColonies - blockedAlloy;
+    const alloyPerDay = alloyFromMining + alloyFromColonies - blockedAlloy - alloyCostFromDefenses;
     const sciencePerDay = scienceFromColonies - blockedScience;
 
     return {
@@ -725,6 +732,54 @@ export class DatabaseQueries {
       console.log(
         `Refunded 1 energy to player ${op.playerId} for exhausted mining operation ${op.id}`
       );
+    }
+  }
+
+  /**
+   * Process defense platform maintenance costs
+   * Deducts alloy per day for each platform
+   */
+  processDefenseMaintenance(currentTime: number): void {
+    // Get all defense platforms
+    const stmt = this.db.prepare("SELECT * FROM gate_defenses WHERE health > 0");
+    const rows = stmt.all() as any[];
+
+    for (const row of rows) {
+      const maintenancePerDay = row.maintenance_alloy_per_day ?? 0.1;
+      const lastMaintenanceAt = row.last_maintenance_at ?? row.created_at;
+      const timeSinceMaintenance = currentTime - lastMaintenanceAt;
+      const daysElapsed = timeSinceMaintenance / (24 * 60 * 60);
+
+      if (daysElapsed >= 1) {
+        const player = this.getPlayerById(row.player_id);
+        if (!player) continue;
+
+        const fullDays = Math.floor(daysElapsed);
+        const maintenanceCost = maintenancePerDay * fullDays;
+
+        // Check if player has enough alloy for maintenance
+        if (player.alloy >= maintenanceCost) {
+          // Deduct maintenance cost
+          this.deductPlayerAlloy(row.player_id, maintenanceCost);
+
+          // Update last maintenance time
+          const newLastMaintenanceAt = lastMaintenanceAt + fullDays * 24 * 60 * 60;
+          const updateStmt = this.db.prepare(
+            "UPDATE gate_defenses SET last_maintenance_at = ? WHERE id = ?"
+          );
+          updateStmt.run(newLastMaintenanceAt, row.id);
+
+          console.log(
+            `Deducted ${maintenanceCost.toFixed(2)} alloy maintenance from player ${row.player_id} for defense ${row.id}`
+          );
+        } else {
+          // Player can't afford maintenance - platform is disabled but not destroyed
+          console.log(
+            `Player ${row.player_id} cannot afford maintenance for defense ${row.id} (needs ${maintenanceCost.toFixed(2)}, has ${player.alloy.toFixed(2)})`
+          );
+          // TODO: In the future, you could add a "disabled" status for platforms
+        }
+      }
     }
   }
 
@@ -2090,9 +2145,11 @@ export class DatabaseQueries {
     thisGateOwnerId?: string;
     thisGateOwnerName?: string;
     thisGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+    thisGateDefenseCount?: number;
     otherGateOwnerId?: string;
     otherGateOwnerName?: string;
     otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+    otherGateDefenseCount?: number;
     tunnelPoweredBy?: string | null;
   }> {
     const gates = this.getGatesBySystem(systemId);
@@ -2102,9 +2159,11 @@ export class DatabaseQueries {
       thisGateOwnerId?: string;
       thisGateOwnerName?: string;
       thisGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      thisGateDefenseCount?: number;
       otherGateOwnerId?: string;
       otherGateOwnerName?: string;
       otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      otherGateDefenseCount?: number;
       tunnelPoweredBy?: string | null;
     }> = [];
 
@@ -2169,15 +2228,21 @@ export class DatabaseQueries {
         }
       }
 
+      // Get defense counts for both gates
+      const thisGateDefenseCount = this.getGateDefenseCount(gate.id);
+      const otherGateDefenseCount = this.getGateDefenseCount(otherGate.id);
+
       result.push({
         gateId: gate.id,
         tunnelId: gate.tunnelId,
         thisGateOwnerId,
         thisGateOwnerName,
         thisGateStatus,
+        thisGateDefenseCount,
         otherGateOwnerId,
         otherGateOwnerName,
         otherGateStatus,
+        otherGateDefenseCount,
         tunnelPoweredBy: tunnel.poweredBySpeciesId,
       });
     }
@@ -2974,12 +3039,17 @@ export class DatabaseQueries {
     id: string,
     gateId: string,
     playerId: string,
-    systemId: string
+    systemId: string,
+    energyCost: number,
+    alloyCost: number,
+    maintenancePerDay: number,
+    health: number = 100.0
   ): void {
+    const now = Date.now();
     const stmt = this.db.prepare(
-      "INSERT INTO gate_defenses (id, gate_id, player_id, system_id, health, max_health, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO gate_defenses (id, gate_id, player_id, system_id, health, max_health, created_at, energy_cost, alloy_cost, maintenance_alloy_per_day, last_maintenance_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
-    stmt.run(id, gateId, playerId, systemId, 100.0, 100.0, Date.now());
+    stmt.run(id, gateId, playerId, systemId, health, health, now, energyCost, alloyCost, maintenancePerDay, now);
   }
 
   /**
@@ -2993,6 +3063,10 @@ export class DatabaseQueries {
     health: number;
     maxHealth: number;
     createdAt: number;
+    energyCost: number;
+    alloyCost: number;
+    maintenanceAlloyPerDay: number;
+    lastMaintenanceAt: number;
   }> {
     const stmt = this.db.prepare(
       "SELECT * FROM gate_defenses WHERE gate_id = ? AND health > 0"
@@ -3006,6 +3080,10 @@ export class DatabaseQueries {
       health: row.health,
       maxHealth: row.max_health,
       createdAt: row.created_at,
+      energyCost: row.energy_cost ?? 1.0,
+      alloyCost: row.alloy_cost ?? 10.0,
+      maintenanceAlloyPerDay: row.maintenance_alloy_per_day ?? 0.1,
+      lastMaintenanceAt: row.last_maintenance_at ?? row.created_at,
     }));
   }
 
@@ -3017,6 +3095,40 @@ export class DatabaseQueries {
       "UPDATE gate_defenses SET health = ? WHERE id = ?"
     );
     stmt.run(health, defenseId);
+  }
+
+  /**
+   * Get a single defense platform by ID (for refunds)
+   */
+  getGateDefenseById(defenseId: string): {
+    id: string;
+    gateId: string;
+    playerId: string;
+    systemId: string;
+    health: number;
+    maxHealth: number;
+    createdAt: number;
+    energyCost: number;
+    alloyCost: number;
+    maintenanceAlloyPerDay: number;
+    lastMaintenanceAt: number;
+  } | null {
+    const stmt = this.db.prepare("SELECT * FROM gate_defenses WHERE id = ?");
+    const row = stmt.get(defenseId) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      gateId: row.gate_id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      health: row.health,
+      maxHealth: row.max_health,
+      createdAt: row.created_at,
+      energyCost: row.energy_cost ?? 1.0,
+      alloyCost: row.alloy_cost ?? 10.0,
+      maintenanceAlloyPerDay: row.maintenance_alloy_per_day ?? 0.1,
+      lastMaintenanceAt: row.last_maintenance_at ?? row.created_at,
+    };
   }
 
   /**
@@ -3038,6 +3150,41 @@ export class DatabaseQueries {
     return row.count;
   }
 
+  /**
+   * Get all defenses for a player (for calculating maintenance costs)
+   */
+  getGateDefensesByPlayer(playerId: string): Array<{
+    id: string;
+    gateId: string;
+    playerId: string;
+    systemId: string;
+    health: number;
+    maxHealth: number;
+    createdAt: number;
+    energyCost: number;
+    alloyCost: number;
+    maintenanceAlloyPerDay: number;
+    lastMaintenanceAt: number;
+  }> {
+    const stmt = this.db.prepare(
+      "SELECT * FROM gate_defenses WHERE player_id = ? AND health > 0"
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      gateId: row.gate_id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      health: row.health,
+      maxHealth: row.max_health,
+      createdAt: row.created_at,
+      energyCost: row.energy_cost ?? 1.0,
+      alloyCost: row.alloy_cost ?? 10.0,
+      maintenanceAlloyPerDay: row.maintenance_alloy_per_day ?? 0.1,
+      lastMaintenanceAt: row.last_maintenance_at ?? row.created_at,
+    }));
+  }
+
   // Gate attack operations
 
   /**
@@ -3049,10 +3196,12 @@ export class DatabaseQueries {
     attackerId: string,
     defenderId: string,
     systemId: string,
-    attackShipCount: number
+    attackShipCount: number,
+    energyCostPerShip: number,
+    alloyCostPerShip: number
   ): void {
     const stmt = this.db.prepare(
-      "INSERT INTO gate_attacks (id, gate_id, attacker_id, defender_id, system_id, attack_ship_count, attack_ships_remaining, status, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO gate_attacks (id, gate_id, attacker_id, defender_id, system_id, attack_ship_count, attack_ships_remaining, status, started_at, energy_cost_per_ship, alloy_cost_per_ship) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       id,
@@ -3063,7 +3212,9 @@ export class DatabaseQueries {
       attackShipCount,
       attackShipCount,
       "in_progress",
-      Date.now()
+      Date.now(),
+      energyCostPerShip,
+      alloyCostPerShip
     );
   }
 

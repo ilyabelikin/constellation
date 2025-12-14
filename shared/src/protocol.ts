@@ -117,6 +117,7 @@ export type ServerMessage =
         ownerId: string;
         ownerName: string;
         status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+        lastOvertakenAt: number;
       }>;
       tunnelOwnership?: Array<{
         gateId: string;
@@ -128,6 +129,7 @@ export type ServerMessage =
           | "neutral"
           | "friendly"
           | "aggressive";
+        thisGateDefenseCount?: number;
         otherGateOwnerId?: string;
         otherGateOwnerName?: string;
         otherGateStatus?:
@@ -135,6 +137,7 @@ export type ServerMessage =
           | "neutral"
           | "friendly"
           | "aggressive";
+        otherGateDefenseCount?: number;
         tunnelPoweredBy?: string | null;
       }>;
     }
@@ -191,6 +194,34 @@ export type ServerMessage =
       destinationSystem: StarSystem;
       exploredGateIds: string[];
       exitGateId: string;
+      gateOwnership?: Array<{
+        gateId: string;
+        ownerId: string;
+        ownerName: string;
+        status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+        lastOvertakenAt: number;
+      }>;
+      tunnelOwnership?: Array<{
+        gateId: string;
+        tunnelId: string;
+        thisGateOwnerId?: string;
+        thisGateOwnerName?: string;
+        thisGateStatus?:
+          | "owned_by_self"
+          | "neutral"
+          | "friendly"
+          | "aggressive";
+        thisGateDefenseCount?: number;
+        otherGateOwnerId?: string;
+        otherGateOwnerName?: string;
+        otherGateStatus?:
+          | "owned_by_self"
+          | "neutral"
+          | "friendly"
+          | "aggressive";
+        otherGateDefenseCount?: number;
+        tunnelPoweredBy?: string | null;
+      }>;
     }
   | {
       type: "constellationData";

@@ -17,6 +17,7 @@ export class NetworkClient {
   private ws: WebSocket | null = null;
   private uuid: string | null = null;
   private reconnectAttempts = 0;
+  bufferedGalaxyPlayers: { metPlayers: { id: string; name: string }[]; totalPlayers: number } | null = null;
 
   // Callbacks
   public onAuthenticated:
@@ -31,6 +32,7 @@ export class NetworkClient {
           ownerId: string;
           ownerName: string;
           status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+          lastOvertakenAt: number;
         }>,
         tunnelOwnership?: Array<{
           gateId: string;
@@ -42,6 +44,7 @@ export class NetworkClient {
             | "neutral"
             | "friendly"
             | "aggressive";
+          thisGateDefenseCount?: number;
           otherGateOwnerId?: string;
           otherGateOwnerName?: string;
           otherGateStatus?:
@@ -49,6 +52,7 @@ export class NetworkClient {
             | "neutral"
             | "friendly"
             | "aggressive";
+          otherGateDefenseCount?: number;
           tunnelPoweredBy?: string | null;
         }>
       ) => void)
@@ -78,7 +82,35 @@ export class NetworkClient {
     | ((
         destinationSystem: StarSystem,
         exploredGateIds: string[],
-        exitGateId: string
+        exitGateId: string,
+        gateOwnership?: Array<{
+          gateId: string;
+          ownerId: string;
+          ownerName: string;
+          status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+          lastOvertakenAt: number;
+        }>,
+        tunnelOwnership?: Array<{
+          gateId: string;
+          tunnelId: string;
+          thisGateOwnerId?: string;
+          thisGateOwnerName?: string;
+          thisGateStatus?:
+            | "owned_by_self"
+            | "neutral"
+            | "friendly"
+            | "aggressive";
+          thisGateDefenseCount?: number;
+          otherGateOwnerId?: string;
+          otherGateOwnerName?: string;
+          otherGateStatus?:
+            | "owned_by_self"
+            | "neutral"
+            | "friendly"
+            | "aggressive";
+          otherGateDefenseCount?: number;
+          tunnelPoweredBy?: string | null;
+        }>
       ) => void)
     | null = null;
   public onConstellationData:
@@ -342,7 +374,9 @@ export class NetworkClient {
             this.onGateTravel(
               message.destinationSystem,
               message.exploredGateIds,
-              message.exitGateId
+              message.exitGateId,
+              message.gateOwnership,
+              message.tunnelOwnership
             );
           }
           break;
@@ -376,8 +410,16 @@ export class NetworkClient {
           break;
 
         case "galaxyPlayers":
+          console.log("[DEBUG CLIENT] Received galaxyPlayers message:", message);
           if (this.onGalaxyPlayers) {
+            console.log("[DEBUG CLIENT] Calling onGalaxyPlayers callback with:", message.metPlayers, message.totalPlayers);
             this.onGalaxyPlayers(message.metPlayers, message.totalPlayers);
+          } else {
+            console.log("[DEBUG CLIENT] No onGalaxyPlayers callback set! Buffering data.");
+            this.bufferedGalaxyPlayers = { 
+              metPlayers: message.metPlayers, 
+              totalPlayers: message.totalPlayers 
+            };
           }
           break;
 
