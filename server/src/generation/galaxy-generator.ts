@@ -205,6 +205,22 @@ export function generateStarterSystem(
     bestHabitablePlanet.civilizationLevel = CivilizationLevel.INTERSTELLAR;
     homePlanetId = bestHabitablePlanet.id;
 
+    // Ensure habitability is at least 60% for starting civilizations
+    const MIN_STARTING_HABITABILITY = 0.6;
+    if (
+      bestHabitablePlanet.habitability &&
+      bestHabitablePlanet.habitability < MIN_STARTING_HABITABILITY
+    ) {
+      console.log(
+        `Increasing ${
+          bestHabitablePlanet.name
+        } habitability from ${bestHabitablePlanet.habitability.toFixed(
+          2
+        )} to ${MIN_STARTING_HABITABILITY.toFixed(2)}`
+      );
+      bestHabitablePlanet.habitability = MIN_STARTING_HABITABILITY;
+    }
+
     // Ensure it has a proper atmosphere if it doesn't already
     if (!bestHabitablePlanet.hasAtmosphere) {
       bestHabitablePlanet.hasAtmosphere = true;
