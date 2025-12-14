@@ -46,10 +46,18 @@ export class ConstellationView {
   // Material factory for star materials
   private materialFactory: MaterialFactory;
   private starMaterials: THREE.ShaderMaterial[] = []; // Track for animation updates
-  
+
   // Dyson swarm satellites
   private dysonSwarmFactory: DysonSwarmFactory;
-  private dysonSatellites: Map<string, { satellites: THREE.Group[]; starId: string; systemId: string; starOffset: THREE.Vector3 }> = new Map(); // Key is swarmKey (systemId-starId-swarmIndex)
+  private dysonSatellites: Map<
+    string,
+    {
+      satellites: THREE.Group[];
+      starId: string;
+      systemId: string;
+      starOffset: THREE.Vector3;
+    }
+  > = new Map(); // Key is swarmKey (systemId-starId-swarmIndex)
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -149,7 +157,16 @@ export class ConstellationView {
 
         if (connection.isExplored) {
           // Explored connections: solid line with color based on status
-          this.createConnectionLine(fromPos, toPos, true, undefined, connection.status);
+          // Use tunnel gate statuses if available for split-color visualization
+          this.createConnectionLine(
+            fromPos,
+            toPos,
+            true,
+            undefined,
+            connection.status,
+            connection.gateAStatus,
+            connection.gateBStatus
+          );
           exploredCount++;
         } else {
           // Undiscovered connections: dashed line with purple sphere at end
@@ -261,7 +278,7 @@ export class ConstellationView {
     // Store primary star ID for Dyson swarm positioning
     starMesh.userData = {
       starId: node.starId,
-      starRadius: starSize
+      starRadius: starSize,
     };
     group.add(starMesh);
 
@@ -309,7 +326,7 @@ export class ConstellationView {
         // Store companion star ID and size for Dyson swarm positioning
         companionMesh.userData = {
           starId: companion.id,
-          starRadius: companionSize
+          starRadius: companionSize,
         };
         group.add(companionMesh);
 
@@ -331,13 +348,7 @@ export class ConstellationView {
         .length;
 
     // Add text label with connection stats
-    this.createLabel(
-      group,
-      node,
-      starSize,
-      exploredGates,
-      totalGates
-    );
+    this.createLabel(group, node, starSize, exploredGates, totalGates);
 
     return group;
   }
@@ -358,24 +369,26 @@ export class ConstellationView {
 
     // System is bright if it's selected (selection starts at current system)
     const isSelected = node.systemId === this.selectedSystemId;
-    
+
     // Determine font sizes
     const nameFontSize = isSelected ? 48 : 36;
     const statsFontSize = 28;
     const maxWidth = 500; // Maximum width for text before wrapping
-    
+
     // Set font for measurement
-    context.font = isSelected ? `bold ${nameFontSize}px Arial` : `${nameFontSize}px Arial`;
-    
+    context.font = isSelected
+      ? `bold ${nameFontSize}px Arial`
+      : `${nameFontSize}px Arial`;
+
     // Wrap text if needed
-    const words = node.systemName.split(' ');
+    const words = node.systemName.split(" ");
     const lines: string[] = [];
     let currentLine = words[0];
-    
+
     for (let i = 1; i < words.length; i++) {
-      const testLine = currentLine + ' ' + words[i];
+      const testLine = currentLine + " " + words[i];
       const metrics = context.measureText(testLine);
-      
+
       if (metrics.width > maxWidth) {
         lines.push(currentLine);
         currentLine = words[i];
@@ -384,14 +397,16 @@ export class ConstellationView {
       }
     }
     lines.push(currentLine);
-    
+
     // Calculate canvas height based on number of lines
     const lineHeight = nameFontSize * 1.2;
     const statsHeight = statsFontSize * 1.2;
     const padding = 20;
     const circleHeight = node.habitablePlanetCount > 0 ? 30 : 0; // Add space for circles if there are habitable planets
-    const canvasHeight = Math.ceil(lines.length * lineHeight + statsHeight + circleHeight + padding * 2);
-    
+    const canvasHeight = Math.ceil(
+      lines.length * lineHeight + statsHeight + circleHeight + padding * 2
+    );
+
     // Set canvas size
     canvas.width = 512;
     canvas.height = canvasHeight;
@@ -401,12 +416,14 @@ export class ConstellationView {
     context.fillRect(0, 0, canvas.width, canvas.height);
 
     // Draw star name (possibly multi-line) with stroke for readability
-    context.font = isSelected ? `bold ${nameFontSize}px Arial` : `${nameFontSize}px Arial`;
+    context.font = isSelected
+      ? `bold ${nameFontSize}px Arial`
+      : `${nameFontSize}px Arial`;
     context.textAlign = "center";
     context.textBaseline = "middle";
     context.lineWidth = 4;
     context.strokeStyle = "rgba(0, 0, 0, 0.8)";
-    
+
     const startY = padding + lineHeight / 2;
     for (let i = 0; i < lines.length; i++) {
       const y = startY + i * lineHeight;
@@ -421,12 +438,12 @@ export class ConstellationView {
     context.font = `${statsFontSize}px Arial`;
     const statsY = startY + lines.length * lineHeight + statsHeight / 2;
     const statsText = `${exploredGates}/${totalGates}`;
-    
+
     // Draw stroke first
     context.lineWidth = 3;
     context.strokeStyle = "rgba(0, 0, 0, 0.8)";
     context.strokeText(statsText, canvas.width / 2, statsY);
-    
+
     // Then draw fill
     context.fillStyle = isSelected ? "#cccccc" : "#888888";
     context.fillText(statsText, canvas.width / 2, statsY);
@@ -436,13 +453,16 @@ export class ConstellationView {
       const circleY = statsY + statsHeight / 2 + 15; // Position below stats
       const circleRadius = 6;
       const circleSpacing = 20; // Increased spacing for easier clicking
-      const totalWidth = node.habitablePlanetCount * circleSpacing - circleSpacing + circleRadius * 2;
+      const totalWidth =
+        node.habitablePlanetCount * circleSpacing -
+        circleSpacing +
+        circleRadius * 2;
       const startX = (canvas.width - totalWidth) / 2 + circleRadius;
-      
+
       for (let i = 0; i < node.habitablePlanetCount; i++) {
         const x = startX + i * circleSpacing;
         const isColonized = i < node.colonizedHabitablePlanetCount;
-        
+
         if (isColonized) {
           // Filled circle for colonized habitable planets with dark outline
           // Draw dark outline first
@@ -450,7 +470,7 @@ export class ConstellationView {
           context.arc(x, circleY, circleRadius + 1, 0, Math.PI * 2);
           context.fillStyle = "rgba(0, 0, 0, 0.8)";
           context.fill();
-          
+
           // Draw green fill
           context.beginPath();
           context.arc(x, circleY, circleRadius, 0, Math.PI * 2);
@@ -464,7 +484,7 @@ export class ConstellationView {
           context.strokeStyle = "rgba(0, 0, 0, 0.8)";
           context.lineWidth = 4;
           context.stroke();
-          
+
           // Draw green ring
           context.beginPath();
           context.arc(x, circleY, circleRadius, 0, Math.PI * 2);
@@ -485,7 +505,7 @@ export class ConstellationView {
 
     const sprite = new THREE.Sprite(material);
     sprite.position.y = offset + 10; // Position above star
-    
+
     // Scale sprite based on canvas dimensions
     const spriteWidth = 30;
     const spriteHeight = spriteWidth * (canvasHeight / canvas.width);
@@ -501,23 +521,26 @@ export class ConstellationView {
       const circleY = statsY + statsHeight / 2 + 15; // Position below stats (same as drawn circles)
       const circleRadius = 6;
       const circleSpacing = 20; // Increased spacing for easier clicking
-      const totalWidth = node.habitablePlanets.length * circleSpacing - circleSpacing + circleRadius * 2;
+      const totalWidth =
+        node.habitablePlanets.length * circleSpacing -
+        circleSpacing +
+        circleRadius * 2;
       const startX = (canvas.width - totalWidth) / 2 + circleRadius;
-      
+
       for (let i = 0; i < node.habitablePlanets.length; i++) {
         const planet = node.habitablePlanets[i];
         const canvasX = startX + i * circleSpacing;
-        
+
         // Convert canvas pixel coordinates to world coordinates
         // Canvas coordinates: (0,0) is top-left, y increases downward
         // World coordinates: (0,0) is center, y increases upward
         const pixelOffsetX = canvasX - canvas.width / 2;
         const pixelOffsetY = circleY - canvasHeight / 2;
-        
+
         // Convert to world units using sprite dimensions
         const worldX = (pixelOffsetX / canvas.width) * spriteWidth;
         const worldY = -(pixelOffsetY / canvasHeight) * spriteHeight; // Negative because canvas y is flipped
-        
+
         // Create a small canvas for the clickable area
         const clickCanvas = document.createElement("canvas");
         clickCanvas.width = 32;
@@ -529,7 +552,7 @@ export class ConstellationView {
           clickContext.beginPath();
           clickContext.arc(16, 16, 14, 0, Math.PI * 2);
           clickContext.fill();
-          
+
           const clickTexture = new THREE.CanvasTexture(clickCanvas);
           const clickMaterial = new THREE.SpriteMaterial({
             map: clickTexture,
@@ -537,15 +560,15 @@ export class ConstellationView {
             opacity: 1.0, // Keep at 1.0 since the canvas itself has low opacity
             depthTest: false,
           });
-          
+
           const clickSprite = new THREE.Sprite(clickMaterial);
           // Position relative to the star (parent origin), accounting for label position
           clickSprite.position.set(worldX, offset + 10 + worldY, 0);
-          
+
           // Make sprite slightly larger than the visible circle for easier clicking
           const clickSize = circleRadius * (spriteWidth / canvas.width) * 2.5;
           clickSprite.scale.set(clickSize, clickSize, 1);
-          
+
           // Store planet information
           clickSprite.userData = {
             type: "habitablePlanetCircle",
@@ -554,9 +577,9 @@ export class ConstellationView {
             planetName: planet.planetName,
             isColonized: planet.isColonized,
           };
-          
+
           clickSprite.renderOrder = 999; // Render before the label sprite
-          
+
           parent.add(clickSprite);
         }
       }
@@ -565,13 +588,16 @@ export class ConstellationView {
 
   /**
    * Create a connection line between two stars
+   * Can show split colors for each end of the tunnel
    */
   private createConnectionLine(
     from: THREE.Vector3,
     to: THREE.Vector3,
     isExplored: boolean,
     systemId?: string,
-    status?: GateStatusType
+    status?: GateStatusType,
+    gateAStatus?: GateStatusType,
+    gateBStatus?: GateStatusType
   ): void {
     // Create a thick line using cylinder geometry (LineBasicMaterial linewidth doesn't work)
     const direction = new THREE.Vector3().subVectors(to, from);
@@ -580,54 +606,127 @@ export class ConstellationView {
       .addVectors(from, to)
       .multiplyScalar(0.5);
 
-    // Create cylinder as the line
     const thickness = isExplored ? 0.3 : 0.2;
-    const geometry = new THREE.CylinderGeometry(
-      thickness,
-      thickness,
-      length,
-      8
-    );
+    const opacity = isExplored ? 0.7 : 0.5;
 
-    // Determine color based on status (diplomatic stance)
-    let color: number;
-    if (!isExplored || status === "unexplored") {
-      color = 0x8800ff; // Purple for unexplored
-    } else if (status === "owned_by_self") {
-      color = 0xfbbf24; // Orange for owned by self
-    } else if (status === "neutral") {
-      color = 0x9ca3af; // Gray for neutral
-    } else if (status === "friendly") {
-      color = 0x10b981; // Green for friendly
-    } else if (status === "aggressive") {
-      color = 0xef4444; // Red for aggressive
+    // Helper function to get color from status
+    const getColor = (statusValue?: GateStatusType): number => {
+      if (!isExplored || statusValue === "unexplored") {
+        return 0x8800ff; // Purple for unexplored
+      } else if (statusValue === "owned_by_self") {
+        return 0xfbbf24; // Orange/Yellow for owned by self
+      } else if (statusValue === "neutral") {
+        return 0x9ca3af; // Gray for neutral
+      } else if (statusValue === "friendly") {
+        return 0x10b981; // Green for friendly
+      } else if (statusValue === "aggressive") {
+        return 0xef4444; // Red for aggressive
+      } else {
+        // Default to orange for explored but no status info
+        return 0xfbbf24;
+      }
+    };
+
+    // If we have both gate statuses, create a split-colored line
+    if (gateAStatus && gateBStatus && gateAStatus !== gateBStatus) {
+      // Create two half-cylinders with different colors
+      const halfLength = length / 2;
+
+      // First half (from start to midpoint)
+      const geometry1 = new THREE.CylinderGeometry(
+        thickness,
+        thickness,
+        halfLength,
+        8
+      );
+      const color1 = getColor(gateAStatus);
+      const material1 = new THREE.MeshBasicMaterial({
+        color: color1,
+        transparent: true,
+        opacity: opacity,
+      });
+      const line1 = new THREE.Mesh(geometry1, material1);
+
+      // Position first half
+      const quarterPoint = new THREE.Vector3()
+        .addVectors(from, midpoint)
+        .multiplyScalar(0.5);
+      line1.position.copy(quarterPoint);
+      line1.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        direction.normalize()
+      );
+
+      // Second half (from midpoint to end)
+      const geometry2 = new THREE.CylinderGeometry(
+        thickness,
+        thickness,
+        halfLength,
+        8
+      );
+      const color2 = getColor(gateBStatus);
+      const material2 = new THREE.MeshBasicMaterial({
+        color: color2,
+        transparent: true,
+        opacity: opacity,
+      });
+      const line2 = new THREE.Mesh(geometry2, material2);
+
+      // Position second half
+      const threeQuarterPoint = new THREE.Vector3()
+        .addVectors(midpoint, to)
+        .multiplyScalar(0.5);
+      line2.position.copy(threeQuarterPoint);
+      line2.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        direction.normalize()
+      );
+
+      // Store metadata
+      if (systemId) {
+        line1.userData.systemId = systemId;
+        line1.userData.type = "unexploredConnection";
+        line2.userData.systemId = systemId;
+        line2.userData.type = "unexploredConnection";
+      }
+
+      this.connections.add(line1);
+      this.connections.add(line2);
     } else {
-      // Default to orange for explored but no status info
-      color = 0xfbbf24;
+      // Single color line (original behavior)
+      const geometry = new THREE.CylinderGeometry(
+        thickness,
+        thickness,
+        length,
+        8
+      );
+
+      // Use gateAStatus if available, otherwise fall back to status
+      const color = getColor(gateAStatus || status);
+
+      const material = new THREE.MeshBasicMaterial({
+        color: color,
+        transparent: true,
+        opacity: opacity,
+      });
+
+      const line = new THREE.Mesh(geometry, material);
+      line.position.copy(midpoint);
+
+      // Orient the cylinder to point from 'from' to 'to'
+      line.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        direction.normalize()
+      );
+
+      // Store systemId for filtering unexplored connections
+      if (systemId) {
+        line.userData.systemId = systemId;
+        line.userData.type = "unexploredConnection";
+      }
+
+      this.connections.add(line);
     }
-
-    const material = new THREE.MeshBasicMaterial({
-      color: color,
-      transparent: true,
-      opacity: isExplored ? 0.7 : 0.5,
-    });
-
-    const line = new THREE.Mesh(geometry, material);
-    line.position.copy(midpoint);
-
-    // Orient the cylinder to point from 'from' to 'to'
-    line.quaternion.setFromUnitVectors(
-      new THREE.Vector3(0, 1, 0),
-      direction.normalize()
-    );
-
-    // Store systemId for filtering unexplored connections
-    if (systemId) {
-      line.userData.systemId = systemId;
-      line.userData.type = "unexploredConnection";
-    }
-
-    this.connections.add(line);
   }
 
   /**
@@ -731,7 +830,10 @@ export class ConstellationView {
         // Get the local position from the factory update
         const localPos = satellite.position.clone();
         // Add both the star offset (for companion stars) and the star group's world position
-        satellite.position.copy(localPos).add(swarmData.starOffset).add(starGroup.position);
+        satellite.position
+          .copy(localPos)
+          .add(swarmData.starOffset)
+          .add(starGroup.position);
       }
     }
   }
@@ -749,15 +851,19 @@ export class ConstellationView {
       // For each star in the system that has Dyson swarms
       for (const dysonSwarm of node.dysonSwarms) {
         const { starId, count } = dysonSwarm;
-        
+
         // Find the star mesh (primary or companion) and its position offset
         let starRadius = this.STAR_SIZE;
         let starOffset = new THREE.Vector3(0, 0, 0); // Offset from group center
-        
+
         // Check all children of the star group to find the matching star
         let foundStar = false;
         for (const child of starGroup.children) {
-          if (child instanceof THREE.Mesh && child.geometry instanceof THREE.SphereGeometry && child.userData.starId) {
+          if (
+            child instanceof THREE.Mesh &&
+            child.geometry instanceof THREE.SphereGeometry &&
+            child.userData.starId
+          ) {
             // Check if this star's ID matches the Dyson swarm's star ID
             if (child.userData.starId === starId) {
               starRadius = child.userData.starRadius || this.STAR_SIZE;
@@ -767,9 +873,9 @@ export class ConstellationView {
             }
           }
         }
-        
+
         if (!foundStar) continue;
-        
+
         // Create satellites for each swarm (up to count)
         for (let i = 0; i < count; i++) {
           const satelliteMeshes = this.dysonSwarmFactory.createSwarmSatellites(
@@ -777,7 +883,7 @@ export class ConstellationView {
             starRadius,
             0 // Start time - will be updated in update loop
           );
-          
+
           // Position satellites relative to star group position + star offset
           for (const satellite of satelliteMeshes) {
             // Satellites are created in local space relative to star center
@@ -785,7 +891,7 @@ export class ConstellationView {
             satellite.position.add(starOffset).add(starGroup.position);
             this.scene.add(satellite);
           }
-          
+
           // Store satellites for updates and cleanup with star offset
           const swarmKey = `${node.systemId}-${starId}-${i}`;
           this.dysonSatellites.set(swarmKey, {
@@ -797,8 +903,10 @@ export class ConstellationView {
         }
       }
     }
-    
-    console.log(`Created Dyson satellites for ${this.dysonSatellites.size} swarms in constellation view`);
+
+    console.log(
+      `Created Dyson satellites for ${this.dysonSatellites.size} swarms in constellation view`
+    );
   }
 
   /**
@@ -1093,7 +1201,15 @@ export class ConstellationView {
 
           if (connection.isExplored) {
             // Explored connections: solid line with color based on status
-            this.createConnectionLine(fromPos, toPos, true, undefined, connection.status);
+            this.createConnectionLine(
+              fromPos,
+              toPos,
+              true,
+              undefined,
+              connection.status,
+              connection.gateAStatus,
+              connection.gateBStatus
+            );
           } else {
             // Undiscovered connections: dashed line with purple sphere at end
             this.createConnectionLine(fromPos, toPos, false);
@@ -1550,7 +1666,7 @@ export class ConstellationView {
         // Store companion star ID and size for Dyson swarm positioning
         companionMesh.userData = {
           starId: companion.id,
-          starRadius: companionSize
+          starRadius: companionSize,
         };
         group.add(companionMesh);
 
@@ -1572,13 +1688,7 @@ export class ConstellationView {
         .length;
 
     // Add text label with connection stats
-    this.createLabel(
-      group,
-      node,
-      starSize,
-      exploredGates,
-      totalGates
-    );
+    this.createLabel(group, node, starSize, exploredGates, totalGates);
   }
 
   /**
@@ -1656,7 +1766,9 @@ export class ConstellationView {
       for (const intersect of intersects) {
         if (intersect.object.userData.type === "habitablePlanetCircle") {
           const userData = intersect.object.userData;
-          console.log(`Planet circle clicked: ${userData.planetName} in system ${userData.systemId}`);
+          console.log(
+            `Planet circle clicked: ${userData.planetName} in system ${userData.systemId}`
+          );
           return {
             systemId: userData.systemId,
             planetId: userData.planetId,

@@ -19,6 +19,7 @@ import {
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
+import { calculatePlayerResourceFlow } from "../game/resource-flow.js";
 import {
   generateGalaxy,
   generateStarterSystem,
@@ -85,7 +86,11 @@ export class ConstellationWebSocketServer {
       if (!client) return;
 
       console.log(`[Server] Received message type: ${message.type}`);
-      if (message.type === "debugAddResource" || message.type === "createGalaxy") {
+      if (
+        message.type === "debugAddResource" ||
+        message.type === "createGalaxy" ||
+        message.type === "debugConnectGate"
+      ) {
         console.log("[Server] Message details:", message);
       }
 
@@ -214,6 +219,18 @@ export class ConstellationWebSocketServer {
           break;
         case "requestSpeciesInfo":
           this.handleRequestSpeciesInfo(client, message.speciesId);
+          break;
+        case "fortifyGate":
+          this.handleFortifyGate(client, message.gateId);
+          break;
+        case "attackGate":
+          this.handleAttackGate(client, message.gateId);
+          break;
+        case "overtakeGate":
+          this.handleOvertakeGate(client, message.gateId);
+          break;
+        case "debugConnectGate":
+          this.handleDebugConnectGate(client, message.gateId);
           break;
       }
     } catch (error) {
@@ -396,7 +413,7 @@ export class ConstellationWebSocketServer {
 
     // Check if player already exists
     let existingPlayer = this.db.getPlayerByUuid(client.uuid);
-    
+
     // If player exists in a different galaxy, delete and recreate
     if (existingPlayer && existingPlayer.galaxyId !== galaxyId) {
       console.log(
@@ -404,27 +421,27 @@ export class ConstellationWebSocketServer {
       );
       // Delete old player and create new one in the new galaxy
       this.db.deletePlayer(existingPlayer.id);
-      
+
       // Clear client state and existingPlayer reference
       client.playerId = null;
       client.currentSystemId = null;
       existingPlayer = null;
     }
-    
+
     if (existingPlayer) {
       // Player exists in the same galaxy, update their name if provided
-        if (playerName && playerName.trim()) {
-          this.db.updatePlayerName(existingPlayer.id, playerName.trim());
-          existingPlayer.name = playerName.trim(); // Update in memory
-          console.log(`Updated player name to: ${playerName.trim()}`);
-        }
+      if (playerName && playerName.trim()) {
+        this.db.updatePlayerName(existingPlayer.id, playerName.trim());
+        existingPlayer.name = playerName.trim(); // Update in memory
+        console.log(`Updated player name to: ${playerName.trim()}`);
+      }
 
-        // Update player activity
-        this.db.updatePlayerActivity(existingPlayer.id);
+      // Update player activity
+      this.db.updatePlayerActivity(existingPlayer.id);
 
-        // Load their data
-        client.playerId = existingPlayer.id;
-        client.currentSystemId = existingPlayer.currentSystemId;
+      // Load their data
+      client.playerId = existingPlayer.id;
+      client.currentSystemId = existingPlayer.currentSystemId;
 
       // Load system into game state (with mining operations and megastructures)
       const system = this.db.getStarSystem(existingPlayer.currentSystemId);
@@ -457,7 +474,7 @@ export class ConstellationWebSocketServer {
         this.broadcastGalaxyPlayersInfo(galaxy.id);
       }
     }
-    
+
     // Check again if player needs to be created (either new or deleted above)
     if (!client.playerId) {
       // New player, create them
@@ -471,6 +488,17 @@ export class ConstellationWebSocketServer {
         galaxy.seed + Date.now()
       );
       this.db.createStarSystem(starterResult.system);
+
+      // Save tunnels for the starter system (only for non-placeholder systems)
+      for (const tunnel of starterResult.tunnels) {
+        // Only create tunnel if both systems exist (not placeholders)
+        if (
+          !tunnel.systemAId.startsWith("PLACEHOLDER_") &&
+          !tunnel.systemBId.startsWith("PLACEHOLDER_")
+        ) {
+          this.db.createTunnel(tunnel);
+        }
+      }
 
       // Save gates for the starter system
       for (const gate of starterResult.system.gates) {
@@ -504,7 +532,9 @@ export class ConstellationWebSocketServer {
     }
 
     console.log(
-      `Player joined galaxy: ${galaxy.name} (active players: ${this.getActivePlayerCount()})`
+      `Player joined galaxy: ${
+        galaxy.name
+      } (active players: ${this.getActivePlayerCount()})`
     );
     this.send(client.ws, { type: "galaxyJoined", galaxyId: galaxy.id });
   }
@@ -519,15 +549,19 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    console.log(`[Server] Creating new galaxy for player: ${playerName}, species: ${speciesId}`);
+    console.log(
+      `[Server] Creating new galaxy for player: ${playerName}, species: ${speciesId}`
+    );
 
     // Check if player already exists - if so, delete them first
     // This allows players to start fresh in a new galaxy
     const existingPlayer = this.db.getPlayerByUuid(client.uuid);
     if (existingPlayer) {
-      console.log(`[Server] Deleting existing player ${existingPlayer.name} to start fresh`);
+      console.log(
+        `[Server] Deleting existing player ${existingPlayer.name} to start fresh`
+      );
       this.db.deletePlayer(existingPlayer.id);
-      
+
       // Clear client state
       client.playerId = null;
       client.currentSystemId = null;
@@ -544,6 +578,11 @@ export class ConstellationWebSocketServer {
     // Generate starter system
     const starterResult = generateStarterSystem(galaxy.id, galaxy.seed);
     this.db.createStarSystem(starterResult.system);
+
+    // Save tunnels for the starter system
+    for (const tunnel of starterResult.tunnels) {
+      this.db.createTunnel(tunnel);
+    }
 
     // Save gates for the starter system
     for (const gate of starterResult.system.gates) {
@@ -738,6 +777,17 @@ export class ConstellationWebSocketServer {
     const starterResult = generateStarterSystem(galaxy.id, galaxy.seed);
     this.db.createStarSystem(starterResult.system);
 
+    // Save tunnels for the starter system (only for non-placeholder systems)
+    for (const tunnel of starterResult.tunnels) {
+      // Only create tunnel if both systems exist (not placeholders)
+      if (
+        !tunnel.systemAId.startsWith("PLACEHOLDER_") &&
+        !tunnel.systemBId.startsWith("PLACEHOLDER_")
+      ) {
+        this.db.createTunnel(tunnel);
+      }
+    }
+
     // Save gates for the starter system
     for (const gate of starterResult.system.gates) {
       this.db.createGate(gate);
@@ -867,14 +917,14 @@ export class ConstellationWebSocketServer {
     // Create initial colony on home world
     if (homePlanet) {
       const habitabilityBonus = homePlanet.habitability || 0.7;
-      
+
       // Calculate maximum population based on planet surface area and habitability
       // Surface area = 4π * radius²
       const surfaceArea = 4 * Math.PI * homePlanet.radius * homePlanet.radius;
       const maxPopulation = Math.floor(
         surfaceArea * BASE_POPULATION_DENSITY * habitabilityBonus
       );
-      
+
       // Start with 80% of maximum population (established world)
       const initialPopulation = Math.floor(maxPopulation * 0.8);
 
@@ -941,7 +991,9 @@ export class ConstellationWebSocketServer {
     if (client.galaxyId) {
       const galaxyState = this.gameState.getGalaxyState(client.galaxyId);
       if (galaxyState) {
-        console.log(`[RequestSystemState] Galaxy time: ${galaxyState.currentTime}, paused: ${galaxyState.isPaused}`);
+        console.log(
+          `[RequestSystemState] Galaxy time: ${galaxyState.currentTime}, paused: ${galaxyState.isPaused}`
+        );
       }
     }
 
@@ -964,8 +1016,24 @@ export class ConstellationWebSocketServer {
     const ships = this.db.getShipsBySystem(system.id);
     this.gameState.loadShips(system.id, ships);
 
+    // Auto-explore gates that have owners (so players can see controlled gates)
+    const gates = system.gates || [];
+    for (const gate of gates) {
+      const owner = this.db.getGateOwner(gate.id);
+      if (owner) {
+        // This gate is controlled by someone - make it visible to all players
+        this.db.markGateExploredSingle(client.playerId, gate.id);
+      }
+    }
+
     // Get gate ownership information for this system
     const gateOwnership = this.db.getGateOwnershipForSystem(
+      client.playerId,
+      systemId
+    );
+
+    // Get tunnel ownership information (includes other gate ownership)
+    const tunnelOwnership = this.db.getTunnelOwnershipForSystem(
       client.playerId,
       systemId
     );
@@ -983,12 +1051,46 @@ export class ConstellationWebSocketServer {
       }
     }
 
-    // Send system data with gate ownership information
+    // Send system data with gate and tunnel ownership information
     this.send(client.ws, {
       type: "systemData",
       system,
       gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
+      tunnelOwnership: tunnelOwnership.length > 0 ? tunnelOwnership : undefined,
     });
+
+    // Send all gate defenses in this system
+    for (const gate of gates) {
+      const defenses = this.db.getGateDefenses(gate.id);
+      for (const defense of defenses) {
+        this.send(client.ws, {
+          type: "gateDefenseBuilt",
+          defense,
+        });
+      }
+    }
+
+    // Send resource flow information for gates (for blockade display)
+    try {
+      const flow = calculatePlayerResourceFlow(this.db, client.playerId);
+
+      for (const gate of gates) {
+        const gateFlow = flow.gateFlows.get(gate.id);
+        if (gateFlow) {
+          this.send(client.ws, {
+            type: "gateResourceFlow",
+            gateId: gate.id,
+            energyFlow: gateFlow.energy,
+            alloyFlow: gateFlow.alloy,
+            scienceFlow: gateFlow.science,
+            isBlockaded: gateFlow.isBlockaded,
+            blockadeOwnerName: gateFlow.blockadeOwnerName,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Failed to calculate resource flow:", err);
+    }
 
     // Send ship data if player has one in this system
     const ship = this.db.getShipByPlayerId(client.playerId);
@@ -1239,16 +1341,28 @@ export class ConstellationWebSocketServer {
         );
 
         // Generate new system with connection back to current system at calculated position
-        destinationSystem = generateNewSystem(
+        const { system: newSystem, tunnels: newTunnels } = generateNewSystem(
           galaxy.id,
           galaxy.seed + Date.now(), // Use time as additional seed entropy
           [currentSystem.id], // First gate connects back to current system
           newSystemPosition, // Use calculated position
           !hasUnexploredGateInNetwork // Force at least one exit if no unexplored gates in entire network
         );
+        destinationSystem = newSystem;
 
         // Save the new system
         this.db.createStarSystem(destinationSystem);
+
+        // Save all tunnels (only for non-placeholder systems)
+        for (const tunnel of newTunnels) {
+          // Only create tunnel if both systems exist (not placeholders)
+          if (
+            !tunnel.systemAId.startsWith("PLACEHOLDER_") &&
+            !tunnel.systemBId.startsWith("PLACEHOLDER_")
+          ) {
+            this.db.createTunnel(tunnel);
+          }
+        }
 
         // Save all gates
         for (const newGate of destinationSystem.gates) {
@@ -1371,6 +1485,13 @@ export class ConstellationWebSocketServer {
       console.log(
         `Exit gate ${exitGate.id} already owned by player ${existingExitOwner}`
       );
+    }
+
+    // After setting ownership on both gates, ensure tunnel power is updated
+    // This is needed because the first setGateOwnership might run before the second one
+    if (gate.tunnelId) {
+      this.db.updateTunnelPower(gateId);
+      console.log(`Updated tunnel power for tunnel ${gate.tunnelId}`);
     }
 
     // Record system discovery and check if we discovered other players
@@ -1601,7 +1722,7 @@ export class ConstellationWebSocketServer {
         (planet) => planet.habitability && planet.habitability >= 0.5
       );
       const habitablePlanetCount = habitablePlanets.length;
-      
+
       // Count colonized habitable planets (check if planet has a colony)
       const colonizedHabitablePlanetIds = new Set(
         (system.colonies || []).map((colony) => colony.planetId)
@@ -1639,7 +1760,10 @@ export class ConstellationWebSocketServer {
         dysonSwarms: dysonSwarms.length > 0 ? dysonSwarms : undefined,
         habitablePlanetCount,
         colonizedHabitablePlanetCount,
-        habitablePlanets: habitablePlanetDetails.length > 0 ? habitablePlanetDetails : undefined,
+        habitablePlanets:
+          habitablePlanetDetails.length > 0
+            ? habitablePlanetDetails
+            : undefined,
       };
     });
 
@@ -2753,10 +2877,7 @@ export class ConstellationWebSocketServer {
     }
   }
 
-  private handleRemoveColony(
-    client: ClientConnection,
-    planetId: string
-  ): void {
+  private handleRemoveColony(client: ClientConnection, planetId: string): void {
     if (!client.playerId) {
       this.sendError(client.ws, "Not authenticated");
       return;
@@ -2781,7 +2902,9 @@ export class ConstellationWebSocketServer {
     // Delete the colony
     this.db.deleteColony(colony.id);
 
-    console.log(`Colony removed from planet ${planetId} by player ${player.name}`);
+    console.log(
+      `Colony removed from planet ${planetId} by player ${player.name}`
+    );
 
     // Notify the client
     this.send(client.ws, {
@@ -2924,5 +3047,780 @@ export class ConstellationWebSocketServer {
       type: "speciesInfo",
       species,
     });
+  }
+
+  private handleFortifyGate(client: ClientConnection, gateId: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Check if player owns the gate
+    const gateOwner = this.db.getGateOwner(gateId);
+    if (!gateOwner || gateOwner !== client.playerId) {
+      this.sendError(client.ws, "You don't own this gate");
+      return;
+    }
+
+    // Check resource costs
+    const ENERGY_COST = 1;
+    const MINERAL_COST = 0.1;
+
+    if (player.energy < ENERGY_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to fortify gate (requires ${ENERGY_COST} energy)`
+      );
+      return;
+    }
+
+    if (player.alloy < MINERAL_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough minerals to fortify gate (requires ${MINERAL_COST} minerals)`
+      );
+      return;
+    }
+
+    // Get the gate to find its system
+    const gate = this.db.getGateById(gateId);
+    if (!gate) {
+      this.sendError(client.ws, "Gate not found");
+      return;
+    }
+
+    // Deduct resources
+    const energySuccess = this.db.deductPlayerEnergy(
+      client.playerId,
+      ENERGY_COST
+    );
+    const alloySuccess = this.db.deductPlayerAlloy(
+      client.playerId,
+      MINERAL_COST
+    );
+
+    if (!energySuccess || !alloySuccess) {
+      this.sendError(client.ws, "Failed to deduct resources");
+      return;
+    }
+
+    // Create defense platform
+    const defenseId = uuidv4();
+    this.db.createGateDefense(
+      defenseId,
+      gateId,
+      client.playerId,
+      gate.systemId
+    );
+
+    console.log(
+      `Player ${player.name} fortified gate ${gate.name} with defense platform ${defenseId}`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Send defense built message
+    this.send(client.ws, {
+      type: "gateDefenseBuilt",
+      defense: {
+        id: defenseId,
+        gateId,
+        playerId: client.playerId,
+        systemId: gate.systemId,
+        health: 200,
+        maxHealth: 200,
+        createdAt: Date.now(),
+      },
+    });
+
+    // Broadcast to other players in the same system
+    for (const otherClient of this.clients.values()) {
+      if (
+        otherClient.currentSystemId === gate.systemId &&
+        otherClient.playerId !== client.playerId
+      ) {
+        this.send(otherClient.ws, {
+          type: "gateDefenseBuilt",
+          defense: {
+            id: defenseId,
+            gateId,
+            playerId: client.playerId,
+            systemId: gate.systemId,
+            health: 200,
+            maxHealth: 200,
+            createdAt: Date.now(),
+          },
+        });
+      }
+    }
+  }
+
+  private handleAttackGate(client: ClientConnection, gateId: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get gate owner
+    const gateOwnerId = this.db.getGateOwner(gateId);
+    if (!gateOwnerId) {
+      this.sendError(client.ws, "This gate has no owner");
+      return;
+    }
+
+    if (gateOwnerId === client.playerId) {
+      this.sendError(client.ws, "You cannot attack your own gate");
+      return;
+    }
+
+    // Check stance towards gate owner
+    const stance = this.db.getPlayerStance(client.playerId, gateOwnerId);
+    if (stance !== "aggressive") {
+      this.sendError(
+        client.ws,
+        "You must have an aggressive stance towards the gate owner to attack"
+      );
+      return;
+    }
+
+    // Check if there's already an active attack on this gate
+    const existingAttack = this.db.getActiveGateAttack(gateId);
+    if (existingAttack) {
+      this.sendError(
+        client.ws,
+        "There is already an active attack on this gate"
+      );
+      return;
+    }
+
+    // Check resource costs
+    const ENERGY_COST = 1;
+    const MINERAL_COST = 0.1;
+
+    if (player.energy < ENERGY_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to attack gate (requires ${ENERGY_COST} energy)`
+      );
+      return;
+    }
+
+    if (player.alloy < MINERAL_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough minerals to attack gate (requires ${MINERAL_COST} minerals)`
+      );
+      return;
+    }
+
+    // Get the gate to find its system
+    const gate = this.db.getGateById(gateId);
+    if (!gate) {
+      this.sendError(client.ws, "Gate not found");
+      return;
+    }
+
+    // Deduct resources
+    const energySuccess = this.db.deductPlayerEnergy(
+      client.playerId,
+      ENERGY_COST
+    );
+    const alloySuccess = this.db.deductPlayerAlloy(
+      client.playerId,
+      MINERAL_COST
+    );
+
+    if (!energySuccess || !alloySuccess) {
+      this.sendError(client.ws, "Failed to deduct resources");
+      return;
+    }
+
+    // Get defenses
+    const defenses = this.db.getGateDefenses(gateId);
+    const attackShipCount = 1; // One ship per attack
+
+    // Create attack
+    const attackId = uuidv4();
+    this.db.createGateAttack(
+      attackId,
+      gateId,
+      client.playerId,
+      gateOwnerId,
+      gate.systemId,
+      attackShipCount
+    );
+
+    console.log(
+      `Player ${player.name} started attack on gate ${gate.name} with ${attackShipCount} ships against ${defenses.length} defense platforms`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Send attack started message to all players in the system
+    const attackData = {
+      id: attackId,
+      gateId,
+      attackerId: client.playerId,
+      defenderId: gateOwnerId,
+      systemId: gate.systemId,
+      attackShipCount,
+      attackShipsRemaining: attackShipCount,
+      status: "in_progress" as const,
+      startedAt: Date.now(),
+    };
+
+    // Send to attacker
+    this.send(client.ws, {
+      type: "gateAttackStarted",
+      attack: attackData,
+    });
+
+    // Broadcast to all players in the system
+    for (const otherClient of this.clients.values()) {
+      if (otherClient.currentSystemId === gate.systemId) {
+        this.send(otherClient.ws, {
+          type: "gateAttackStarted",
+          attack: attackData,
+        });
+      }
+    }
+
+    // Simulate combat after a delay (allow animations to start)
+    setTimeout(() => {
+      this.simulateCombat(attackId, gateId, gate.systemId);
+    }, 100);
+  }
+
+  private simulateCombat(
+    attackId: string,
+    gateId: string,
+    systemId: string
+  ): void {
+    const attack = this.db.getGateAttack(attackId);
+    if (!attack || attack.status !== "in_progress") {
+      return;
+    }
+
+    const defenses = this.db.getGateDefenses(gateId);
+    let attackShipsRemaining = attack.attackShipsRemaining;
+
+    // Track ship health (300 HP each, tripled from base 100)
+    const shipHealth: number[] = [];
+    for (let i = 0; i < attackShipsRemaining; i++) {
+      shipHealth.push(300);
+    }
+
+    const combatEvents: Array<{
+      time: number;
+      type: string;
+      targetId?: string;
+      shipIndex?: number;
+      damage?: number;
+    }> = [];
+
+    let currentTime = 0;
+    const COMBAT_INTERVAL = 500; // 500ms between combat rounds
+
+    // Combat simulation: ships vs defenses
+    const aliveShips = () => shipHealth.filter((h) => h > 0).length;
+
+    while (aliveShips() > 0 && defenses.some((d) => d.health > 0)) {
+      currentTime += COMBAT_INTERVAL;
+
+      // Each alive ship attacks a random defense platform
+      for (let i = 0; i < shipHealth.length; i++) {
+        if (shipHealth[i] <= 0) continue; // Skip destroyed ships
+
+        const aliveDefenses = defenses.filter((d) => d.health > 0);
+        if (aliveDefenses.length === 0) break;
+
+        const target =
+          aliveDefenses[Math.floor(Math.random() * aliveDefenses.length)];
+        const hitChance = 0.6; // 60% chance to hit (can be modified by tech later)
+
+        if (Math.random() < hitChance) {
+          const damage = 10 + Math.random() * 20; // 10-30 damage
+          target.health = Math.max(0, target.health - damage);
+
+          combatEvents.push({
+            time: currentTime,
+            type: "shipHit",
+            targetId: target.id,
+            shipIndex: i,
+            damage,
+          });
+
+          // Update defense health in database
+          if (target.health <= 0) {
+            this.db.deleteGateDefense(target.id);
+            combatEvents.push({
+              time: currentTime,
+              type: "defenseDestroyed",
+              targetId: target.id,
+            });
+          } else {
+            this.db.updateGateDefenseHealth(target.id, target.health);
+          }
+        } else {
+          combatEvents.push({
+            time: currentTime,
+            type: "shipMiss",
+            shipIndex: i,
+          });
+        }
+      }
+
+      // Each defense platform returns fire at a random alive ship
+      const aliveDefenses = defenses.filter((d) => d.health > 0);
+      for (const defense of aliveDefenses) {
+        if (aliveShips() <= 0) break;
+
+        // Find alive ships
+        const aliveShipIndices = shipHealth
+          .map((h, i) => (h > 0 ? i : -1))
+          .filter((i) => i >= 0);
+
+        if (aliveShipIndices.length === 0) break;
+
+        const targetShipIndex =
+          aliveShipIndices[Math.floor(Math.random() * aliveShipIndices.length)];
+
+        const hitChance = 0.5; // 50% chance to hit (can be modified by tech later)
+
+        if (Math.random() < hitChance) {
+          const damage = 10 + Math.random() * 20; // 10-30 damage
+          shipHealth[targetShipIndex] = Math.max(
+            0,
+            shipHealth[targetShipIndex] - damage
+          );
+
+          combatEvents.push({
+            time: currentTime,
+            type: "defenseHit",
+            targetId: defense.id,
+            shipIndex: targetShipIndex,
+            damage,
+          });
+
+          if (shipHealth[targetShipIndex] <= 0) {
+            combatEvents.push({
+              time: currentTime,
+              type: "shipDestroyed",
+              shipIndex: targetShipIndex,
+            });
+          }
+        } else {
+          combatEvents.push({
+            time: currentTime,
+            type: "defenseMiss",
+            targetId: defense.id,
+          });
+        }
+      }
+    }
+
+    // Update attackShipsRemaining based on ships still alive
+    attackShipsRemaining = aliveShips();
+
+    // Determine outcome
+    const status =
+      attackShipsRemaining > 0 ? "attacker_victory" : "defender_victory";
+    const completedAt = Date.now();
+
+    // Log outcome - ownership does NOT change automatically
+    // Attacker must use "Overtake" to claim the now-undefended gate
+    if (status === "attacker_victory") {
+      console.log(
+        `Attacker won! Gate ${gateId} defenses destroyed. Attacker must use Overtake to claim ownership.`
+      );
+    } else {
+      console.log(
+        `Defender won! Gate ${gateId} remains defended by ${attack.defenderId}`
+      );
+    }
+
+    // Update attack in database
+    this.db.updateGateAttack(
+      attackId,
+      attackShipsRemaining,
+      status,
+      JSON.stringify(combatEvents),
+      completedAt
+    );
+
+    // Send combat update to all players in the system
+    const finalAttackData = this.db.getGateAttack(attackId);
+    if (finalAttackData) {
+      for (const client of this.clients.values()) {
+        if (client.currentSystemId === systemId) {
+          this.send(client.ws, {
+            type: "gateAttackUpdate",
+            attack: finalAttackData as any, // Type assertion for status field
+          });
+        }
+      }
+    }
+
+    // No ownership change on attack victory - attacker must use Overtake
+    // System state doesn't need refresh since only defenses were destroyed (already handled)
+  }
+
+  private handleOvertakeGate(client: ClientConnection, gateId: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get the gate
+    const gate = this.db.getGateById(gateId);
+    if (!gate) {
+      this.sendError(client.ws, "Gate not found");
+      return;
+    }
+
+    // Check if gate has defenses
+    const defenseCount = this.db.getGateDefenseCount(gateId);
+    if (defenseCount > 0) {
+      this.sendError(
+        client.ws,
+        "This gate is defended and cannot be overtaken peacefully"
+      );
+      return;
+    }
+
+    // Check if destination gate has defenses (both ends must be undefended)
+    // Find the other gate in the tunnel
+    if (gate.tunnelId) {
+      const gatesInTunnel = this.db.getGatesByTunnel(gate.tunnelId);
+      const destinationGate = gatesInTunnel.find((g) => g.id !== gate.id);
+      if (destinationGate) {
+        const destinationDefenseCount = this.db.getGateDefenseCount(
+          destinationGate.id
+        );
+        if (destinationDefenseCount > 0) {
+          this.sendError(
+            client.ws,
+            `Cannot overtake: destination gate has ${destinationDefenseCount} defense platform(s). Both ends of the wormhole must be undefended.`
+          );
+          return;
+        }
+      }
+    }
+
+    // Check if player already owns this gate
+    const currentOwner = this.db.getGateOwner(gateId);
+    if (currentOwner === client.playerId) {
+      this.sendError(client.ws, "You already own this gate");
+      return;
+    }
+
+    // Get current galaxy time
+    const galaxy = this.db.getGalaxyById(player.galaxyId);
+    if (!galaxy) {
+      this.sendError(client.ws, "Galaxy not found");
+      return;
+    }
+    const currentTime = galaxy.currentTime || 0;
+
+    // Check cooldown (10 days = 10 * 86400 seconds)
+    const COOLDOWN_PERIOD = 10 * 86400;
+    const lastOvertakenAt = this.db.getGateLastOvertakenAt(gateId);
+    const timeSinceLastOvertake = currentTime - lastOvertakenAt;
+
+    if (lastOvertakenAt > 0 && timeSinceLastOvertake < COOLDOWN_PERIOD) {
+      const remainingTime = COOLDOWN_PERIOD - timeSinceLastOvertake;
+      const remainingDays = (remainingTime / 86400).toFixed(1);
+      this.sendError(
+        client.ws,
+        `This gate was recently overtaken and is protected for ${remainingDays} more days`
+      );
+      return;
+    }
+
+    // Check resource costs
+    const ENERGY_COST = 3;
+    const SCIENCE_COST = 10;
+
+    if (player.energy < ENERGY_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to overtake gate (requires ${ENERGY_COST} energy)`
+      );
+      return;
+    }
+
+    if (player.science < SCIENCE_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough science to overtake gate (requires ${SCIENCE_COST} science)`
+      );
+      return;
+    }
+
+    // Deduct resources
+    const energySuccess = this.db.deductPlayerEnergy(
+      client.playerId,
+      ENERGY_COST
+    );
+    const scienceSuccess = this.db.deductPlayerScience(
+      client.playerId,
+      SCIENCE_COST
+    );
+
+    if (!energySuccess || !scienceSuccess) {
+      this.sendError(client.ws, "Failed to deduct resources");
+      return;
+    }
+
+    // Get system info for notification
+    const system = this.db.getStarSystem(gate.systemId);
+    const systemName = system?.star.name || "Unknown System";
+
+    // Store previous owner before transferring
+    const previousOwnerId = currentOwner;
+
+    // Transfer ownership with overtake timestamp
+    this.db.setGateOwnershipWithOvertake(gateId, client.playerId, currentTime);
+
+    console.log(
+      `Player ${player.name} overtook gate ${gate.name} (undefended)`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Broadcast gate overtaken to all players in the galaxy
+    const playerName = player.name;
+    for (const otherClient of this.clients.values()) {
+      if (otherClient.galaxyId === player.galaxyId && otherClient.playerId) {
+        this.send(otherClient.ws, {
+          type: "gateOvertaken",
+          gateId,
+          gateName: gate.name,
+          systemName: systemName,
+          newOwnerId: client.playerId,
+          newOwnerName: playerName,
+          previousOwnerId: previousOwnerId,
+          overtakeTime: currentTime,
+        });
+
+        // Refresh system data for ALL players viewing this system
+        // This ensures tunnel ownership information is updated correctly
+        if (otherClient.currentSystemId === gate.systemId) {
+          this.handleRequestSystemState(
+            otherClient,
+            otherClient.currentSystemId
+          );
+        }
+      }
+    }
+  }
+
+  private handleDebugConnectGate(
+    client: ClientConnection,
+    gateId: string
+  ): void {
+    console.log(`[Server] handleDebugConnectGate called for gate: ${gateId}`);
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get the gate
+    const gate = this.db.getGateById(gateId);
+    if (!gate) {
+      this.sendError(client.ws, "Gate not found");
+      return;
+    }
+
+    // Check if gate is already explored by current player
+    const isExplored = player.exploredGateIds?.includes(gateId) ?? false;
+    if (isExplored) {
+      this.sendError(client.ws, "Cannot connect an already explored gate");
+      return;
+    }
+
+    // Find all other players in this galaxy
+    const allPlayers = this.db.getPlayersByGalaxyId(player.galaxyId);
+    const otherPlayers = allPlayers.filter((p) => p.id !== client.playerId);
+
+    if (otherPlayers.length === 0) {
+      this.sendError(client.ws, "No other players found in this galaxy");
+      return;
+    }
+
+    // Try to find another player's unexplored gate
+    let targetGate = null;
+    let targetPlayer = null;
+
+    for (const otherPlayer of otherPlayers) {
+      // Get all gates in the galaxy
+      const allGates = this.db.getGatesByGalaxyId(player.galaxyId);
+
+      // Filter to gates that:
+      // 1. Are in the other player's current system
+      // 2. Are NOT explored by the other player (so we can link them)
+      // 3. Are NOT the same gate we're trying to connect
+      const unexploredGates = allGates.filter(
+        (g) =>
+          g.systemId === otherPlayer.currentSystemId &&
+          !(otherPlayer.exploredGateIds?.includes(g.id) ?? false) &&
+          g.id !== gateId
+      );
+
+      if (unexploredGates.length > 0) {
+        targetGate = unexploredGates[0];
+        targetPlayer = otherPlayer;
+        break;
+      }
+    }
+
+    if (!targetGate || !targetPlayer) {
+      this.sendError(
+        client.ws,
+        "Could not find a suitable unexplored gate from another civilization"
+      );
+      return;
+    }
+
+    // Create a tunnel between the two gates
+    const systemA =
+      gate.systemId < targetGate.systemId ? gate.systemId : targetGate.systemId;
+    const systemB =
+      gate.systemId < targetGate.systemId ? targetGate.systemId : gate.systemId;
+    const tunnelId = `tunnel_${systemA}_${systemB}`;
+
+    // Create tunnel if it doesn't exist
+    this.db.createTunnel({
+      id: tunnelId,
+      systemAId: systemA,
+      systemBId: systemB,
+      poweredBySpeciesId: null,
+      createdAt: Date.now(),
+    });
+
+    // Update both gates with their new destinations and tunnel ID
+    const updateStmt = this.db
+      .rawDb()
+      .prepare(
+        "UPDATE star_gates SET destination_system_id = ?, tunnel_id = ? WHERE id = ?"
+      );
+    updateStmt.run(targetGate.systemId, tunnelId, gateId);
+    updateStmt.run(gate.systemId, tunnelId, targetGate.id);
+
+    // Mark both gates as explored for BOTH players (they can now see each other)
+    this.db.markGateExploredSingle(player.id, gateId);
+    this.db.markGateExploredSingle(player.id, targetGate.id);
+    this.db.markGateExploredSingle(targetPlayer.id, gateId);
+    this.db.markGateExploredSingle(targetPlayer.id, targetGate.id);
+
+    // Update tunnel power based on current gate ownership
+    this.db.updateTunnelPower(gateId);
+
+    console.log(
+      `[Debug] Connected gate ${gate.name} (${gate.systemId}) to ${targetGate.name} (${targetGate.systemId}), linking civilizations: ${player.name} <-> ${targetPlayer.name}`
+    );
+
+    // Send success message
+    this.send(client.ws, {
+      type: "error", // We'll use error channel for info messages
+      message: `Connected to ${targetPlayer.name}'s civilization! Gate now leads to their system.`,
+    });
+
+    // Reload the current system to reflect the updated gate for the initiating player
+    const system = this.db.getStarSystem(player.currentSystemId);
+    if (system) {
+      this.gameState.loadSystem(system);
+
+      const gateOwnership = this.db.getGateOwnershipForSystem(
+        client.playerId,
+        system.id
+      );
+
+      const tunnelOwnership = this.db.getTunnelOwnershipForSystem(
+        client.playerId,
+        system.id
+      );
+
+      this.send(client.ws, {
+        type: "systemData",
+        system,
+        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
+        tunnelOwnership:
+          tunnelOwnership.length > 0 ? tunnelOwnership : undefined,
+      });
+    }
+
+    // Also notify the target player if they're online and in the connected system
+    const targetClient = Array.from(this.clients.values()).find(
+      (c) => c.playerId === targetPlayer.id
+    );
+    if (targetClient && targetPlayer.currentSystemId === targetGate.systemId) {
+      const targetSystem = this.db.getStarSystem(targetPlayer.currentSystemId);
+      if (targetSystem) {
+        this.gameState.loadSystem(targetSystem);
+
+        const targetGateOwnership = this.db.getGateOwnershipForSystem(
+          targetPlayer.id,
+          targetSystem.id
+        );
+
+        const targetTunnelOwnership = this.db.getTunnelOwnershipForSystem(
+          targetPlayer.id,
+          targetSystem.id
+        );
+
+        this.send(targetClient.ws, {
+          type: "systemData",
+          system: targetSystem,
+          gateOwnership:
+            targetGateOwnership.length > 0 ? targetGateOwnership : undefined,
+          tunnelOwnership:
+            targetTunnelOwnership.length > 0
+              ? targetTunnelOwnership
+              : undefined,
+        });
+
+        this.send(targetClient.ws, {
+          type: "error",
+          message: `${player.name}'s civilization has connected to your gate!`,
+        });
+      }
+    }
   }
 }

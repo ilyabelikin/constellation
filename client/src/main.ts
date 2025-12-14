@@ -336,7 +336,7 @@ class ConstellationGame {
       }
     };
 
-    this.network.onSystemData = (system, gateOwnership) => {
+    this.network.onSystemData = (system, gateOwnership, tunnelOwnership) => {
       console.log(
         "[SystemData] System data received at timestamp:",
         Date.now(),
@@ -352,23 +352,37 @@ class ConstellationGame {
       this.system = system;
 
       // Update gate ownership information if provided
+      console.log("[SystemData] Gate ownership data:", gateOwnership);
       if (gateOwnership && gateOwnership.length > 0) {
         this.scene.clearGateOwnership();
         this.hud.clearGateOwnership();
         for (const ownership of gateOwnership) {
+          console.log(
+            `[SystemData] Setting gate ${ownership.gateId} ownership: status=${ownership.status}, owner=${ownership.ownerName}`
+          );
           this.scene.setGateOwnership(
             ownership.gateId,
             ownership.ownerId,
             ownership.ownerName,
-            ownership.status
+            ownership.status,
+            ownership.lastOvertakenAt
           );
           this.hud.setGateOwnership(
             ownership.gateId,
             ownership.ownerId,
             ownership.ownerName,
-            ownership.status
+            ownership.status,
+            ownership.lastOvertakenAt
           );
         }
+      } else {
+        console.log("[SystemData] No gate ownership data provided");
+      }
+
+      // Update tunnel ownership information if provided
+      if (tunnelOwnership && tunnelOwnership.length > 0) {
+        console.log("[SystemData] Tunnel ownership data:", tunnelOwnership);
+        this.hud.updateTunnelOwnership(tunnelOwnership);
       }
 
       // Only reload the scene when switching to a different system
@@ -675,16 +689,132 @@ class ConstellationGame {
           (c) => c.planetId !== planetId
         );
       }
+    };
 
-      // Update the HUD's system reference
-      if (this.system) {
-        this.hud.setSystem(this.system);
+    this.network.onGateDefenseBuilt = (defense) => {
+      // Add defense platform to the scene
+      this.scene.addGateDefense(defense);
+
+      // Refresh gate details if this gate is currently selected
+      const selectedId = this.scene.getSelectedObjectId();
+      if (selectedId === defense.gateId) {
+        // Force refresh by clearing selection first
+        (this.hud as any).selectedObjectId = null;
+        this.hud.updateObjectDetails(defense.gateId);
+      }
+    };
+
+    this.network.onGateAttackStarted = (attack) => {
+      // Start attack animation
+      this.scene.startGateAttack(attack);
+
+      console.log(
+        `Gate attack started: ${attack.attackShipCount} ships attacking gate ${attack.gateId}`
+      );
+    };
+
+    this.network.onGateAttackUpdate = (attack) => {
+      // Update attack with combat results
+      this.scene.updateGateAttack(attack);
+
+      console.log(`Gate attack ${attack.id} updated: status=${attack.status}`);
+
+      // If attack is complete, refresh the system state (ownership might have changed)
+      // The server will send updated system data if needed
+      if (attack.status !== "in_progress") {
+        setTimeout(() => {
+          // Refresh the details panel if the attacked gate is selected
+          const selectedId = this.scene.getSelectedObjectId();
+          if (selectedId === attack.gateId) {
+            // Force refresh by clearing selection first
+            (this.hud as any).selectedObjectId = null;
+            this.hud.updateObjectDetails(attack.gateId);
+          }
+        }, 2000); // Wait for animations to finish
+      }
+    };
+
+    this.network.onGateOvertaken = (
+      gateId,
+      gateName,
+      systemName,
+      newOwnerId,
+      newOwnerName,
+      previousOwnerId,
+      overtakeTime
+    ) => {
+      console.log(`Gate ${gateName} was overtaken by ${newOwnerName}`);
+
+      // Determine the correct status based on ownership
+      let status: string;
+      if (this.player && newOwnerId === this.player.id) {
+        status = "owned_by_self";
+      } else {
+        // TODO: Get actual diplomatic stance from player data
+        // For now, default to neutral
+        status = "neutral";
       }
 
-      // Refresh the body detail view if this planet is currently selected
+      // Update gate ownership visually without reloading the system
+      this.scene.setGateOwnership(
+        gateId,
+        newOwnerId,
+        newOwnerName,
+        status,
+        overtakeTime
+      );
+      this.hud.setGateOwnership(
+        gateId,
+        newOwnerId,
+        newOwnerName,
+        status,
+        overtakeTime
+      );
+
+      // Refresh gate details if this gate is currently selected
       const selectedId = this.scene.getSelectedObjectId();
-      if (selectedId === planetId) {
-        this.hud.updateObjectDetails(planetId);
+      if (selectedId === gateId) {
+        // Force refresh by clearing selection first, then re-selecting
+        // This is needed because updateObjectDetails has an early return for same object
+        setTimeout(() => {
+          (this.hud as any).selectedObjectId = null; // Clear the cached selection
+          this.hud.updateObjectDetails(gateId);
+        }, 100);
+      }
+
+      // Show notification if YOUR gate was overtaken
+      if (this.player && previousOwnerId === this.player.id) {
+        this.hud.showGateOvertakeNotification(
+          newOwnerName,
+          gateName,
+          systemName
+        );
+      }
+    };
+
+    this.network.onGateResourceFlow = (
+      gateId,
+      energyFlow,
+      alloyFlow,
+      scienceFlow,
+      isBlockaded,
+      blockadeOwnerName
+    ) => {
+      // Store gate resource flow data
+      this.scene.setGateResourceFlow(
+        gateId,
+        energyFlow,
+        alloyFlow,
+        scienceFlow,
+        isBlockaded,
+        blockadeOwnerName
+      );
+
+      // Refresh gate details if this gate is currently selected
+      const selectedId = this.scene.getSelectedObjectId();
+      if (selectedId === gateId) {
+        (this.hud as any).selectedObjectId = null;
+        this.hud.updateObjectDetails(gateId);
       }
     };
 
@@ -727,6 +857,30 @@ class ConstellationGame {
     this.hud.onGateTravel = (gateId) => {
       this.scene.setEntryGate(gateId);
       this.network.useGate(gateId);
+    };
+
+    this.hud.onGateFortify = (gateId) => {
+      this.network.fortifyGate(gateId);
+    };
+
+    this.hud.onGateAttack = (gateId) => {
+      this.network.attackGate(gateId);
+    };
+
+    this.hud.onGateOvertake = (gateId) => {
+      this.network.overtakeGate(gateId);
+    };
+
+    this.hud.onGateDebugConnect = (gateId) => {
+      this.network.debugConnectGate(gateId);
+    };
+
+    this.hud.onGetGateDefenseCount = (gateId) => {
+      return this.scene.getGateDefenseCount(gateId);
+    };
+
+    this.hud.onGetGateResourceFlow = (gateId) => {
+      return this.scene.getGateResourceFlow(gateId);
     };
 
     this.network.onDisconnected = () => {

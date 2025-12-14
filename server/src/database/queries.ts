@@ -5,6 +5,7 @@ import {
   Player,
   Ship,
   StarGate,
+  Tunnel,
   Vector3,
   OrbitalElements,
   TIME_SCALE_DEFAULT,
@@ -116,12 +117,14 @@ export class DatabaseQueries {
     const galaxies = this.db
       .prepare("SELECT * FROM galaxies ORDER BY created_at DESC")
       .all() as any[];
-    
+
     return galaxies.map((galaxy) => {
       // Count stars in galaxy
       const starCount = (
         this.db
-          .prepare("SELECT COUNT(*) as count FROM star_systems WHERE galaxy_id = ?")
+          .prepare(
+            "SELECT COUNT(*) as count FROM star_systems WHERE galaxy_id = ?"
+          )
           .get(galaxy.id) as any
       ).count;
 
@@ -129,7 +132,7 @@ export class DatabaseQueries {
       const systems = this.db
         .prepare("SELECT generated_data FROM star_systems WHERE galaxy_id = ?")
         .all(galaxy.id) as any[];
-      
+
       let habitablePlanets = 0;
       systems.forEach((system) => {
         const data = JSON.parse(system.generated_data);
@@ -174,16 +177,18 @@ export class DatabaseQueries {
   // Clean up old galaxies (no activity in more than 1 week)
   cleanupOldGalaxies(): number {
     const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    
+
     // Find galaxies with no recent activity
     const oldGalaxies = this.db
-      .prepare(`
+      .prepare(
+        `
         SELECT g.id, g.name 
         FROM galaxies g
         LEFT JOIN players p ON g.id = p.galaxy_id
         GROUP BY g.id
         HAVING MAX(COALESCE(p.last_active_at, 0)) < ?
-      `)
+      `
+      )
       .all(oneWeekAgo) as any[];
 
     // Delete each old galaxy
@@ -332,6 +337,47 @@ export class DatabaseQueries {
     };
   }
 
+  getPlayersByGalaxyId(galaxyId: string): Player[] {
+    const stmt = this.db.prepare("SELECT * FROM players WHERE galaxy_id = ?");
+    const rows = stmt.all(galaxyId) as any[];
+    return rows.map((row) => {
+      const exploredGateIds = this.getExploredGates(row.id);
+      const miningOperations = this.getMiningOperationsByPlayer(row.id);
+      const alloyFromMining = miningOperations.reduce(
+        (sum, op) => sum + op.alloyPerDay,
+        0
+      );
+      const megastructures = this.getMegastructuresByPlayer(row.id);
+      const energyFromMegastructures = megastructures
+        .filter((m) => m.resourceType === "energy")
+        .reduce((sum, m) => sum + (m.resourcePerDay || 0), 0);
+      const colonies = this.getColoniesByPlayerId(row.id);
+      const scienceFromColonies = colonies.reduce(
+        (sum, c) => sum + c.sciencePerDay,
+        0
+      );
+
+      return {
+        id: row.id,
+        uuid: row.uuid,
+        name: row.name,
+        galaxyId: row.galaxy_id,
+        homeSystemId: row.home_system_id,
+        homePlanetId: row.home_planet_id,
+        currentSystemId: row.current_system_id,
+        shipId: row.ship_id || "",
+        exploredGateIds,
+        energy: row.energy,
+        alloy: row.alloy,
+        science: row.science || 0,
+        energyPerDay: energyFromMegastructures,
+        alloyPerDay: alloyFromMining,
+        sciencePerDay: scienceFromColonies,
+        speciesId: row.species_id,
+      };
+    });
+  }
+
   getPlayerById(id: string): Player | null {
     const stmt = this.db.prepare("SELECT * FROM players WHERE id = ?");
     const row = stmt.get(id) as any;
@@ -346,12 +392,12 @@ export class DatabaseQueries {
     );
 
     const megastructures = this.getMegastructuresByPlayer(row.id);
-    const energyPerDay = megastructures
+    const energyFromMegastructures = megastructures
       .filter((m) => m.resourceType === "energy")
       .reduce((sum, m) => sum + (m.resourcePerDay || 0), 0);
 
     const colonies = this.getColoniesByPlayerId(row.id);
-    const sciencePerDay = colonies.reduce(
+    const scienceFromColonies = colonies.reduce(
       (sum, col) => sum + col.sciencePerDay,
       0
     );
@@ -360,8 +406,17 @@ export class DatabaseQueries {
       0
     );
 
-    // Total alloy per day from both mining operations and colonies
-    const alloyPerDay = alloyFromMining + alloyFromColonies;
+    // Calculate resource flow and blockades
+    // Note: Resource flow calculation has been moved to a separate method to avoid circular dependencies
+    // For now, we don't calculate blockades in this method
+    let blockedEnergy = 0;
+    let blockedAlloy = 0;
+    let blockedScience = 0;
+
+    // Total income minus blockades
+    const energyPerDay = energyFromMegastructures - blockedEnergy;
+    const alloyPerDay = alloyFromMining + alloyFromColonies - blockedAlloy;
+    const sciencePerDay = scienceFromColonies - blockedScience;
 
     return {
       id: row.id,
@@ -430,6 +485,30 @@ export class DatabaseQueries {
     }
     const stmt = this.db.prepare(
       "UPDATE players SET energy = energy - ? WHERE id = ?"
+    );
+    stmt.run(amount, playerId);
+    return true;
+  }
+
+  deductPlayerAlloy(playerId: string, amount: number): boolean {
+    const resources = this.getPlayerResources(playerId);
+    if (!resources || resources.alloy < amount) {
+      return false; // Not enough alloy
+    }
+    const stmt = this.db.prepare(
+      "UPDATE players SET alloy = alloy - ? WHERE id = ?"
+    );
+    stmt.run(amount, playerId);
+    return true;
+  }
+
+  deductPlayerScience(playerId: string, amount: number): boolean {
+    const resources = this.getPlayerResources(playerId);
+    if (!resources || resources.science < amount) {
+      return false; // Not enough science
+    }
+    const stmt = this.db.prepare(
+      "UPDATE players SET science = science - ? WHERE id = ?"
     );
     stmt.run(amount, playerId);
     return true;
@@ -571,35 +650,37 @@ export class DatabaseQueries {
         // Get player's current alloy
         const player = this.getPlayerById(row.player_id);
         if (!player) continue;
-        
+
         const currentAlloy = player.alloy || 0;
         const storageAvailable = MAX_ALLOY_STOCKPILE - currentAlloy;
-        
+
         // If storage is full, skip this operation (it will automatically resume when space is available)
         if (storageAvailable <= 0) {
-          console.log(`Mining operation ${row.id} paused: storage full (${currentAlloy}/${MAX_ALLOY_STOCKPILE})`);
+          console.log(
+            `Mining operation ${row.id} paused: storage full (${currentAlloy}/${MAX_ALLOY_STOCKPILE})`
+          );
           continue;
         }
-        
+
         // Award resources for full days
         const fullDays = Math.floor(daysElapsed);
         let alloyToAdd = row.alloy_per_day * fullDays;
-        
+
         // Get current mined amount and limit
         const currentlyMined = row.alloy_mined || 0;
         const totalLimit = row.total_alloy_limit || 50.0;
         const remainingAlloy = totalLimit - currentlyMined;
-        
+
         // Cap the alloy to add if it would exceed the asteroid limit
         if (alloyToAdd > remainingAlloy) {
           alloyToAdd = remainingAlloy;
         }
-        
+
         // Cap the alloy to add if it would exceed storage capacity
         if (alloyToAdd > storageAvailable) {
           alloyToAdd = storageAvailable;
         }
-        
+
         // Only add if there's still alloy to mine
         if (alloyToAdd > 0) {
           // Add alloy to player
@@ -608,30 +689,42 @@ export class DatabaseQueries {
           // Update last yield time and total mined
           const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
           const newAlloyMined = currentlyMined + alloyToAdd;
-          this.updateMiningOperationYield(row.id, newLastYieldAt, newAlloyMined);
-          
+          this.updateMiningOperationYield(
+            row.id,
+            newLastYieldAt,
+            newAlloyMined
+          );
+
           // Check if mining is complete
           if (newAlloyMined >= totalLimit) {
             operationsToDelete.push({ id: row.id, playerId: row.player_id });
-            console.log(`Mining operation ${row.id} on body ${row.celestial_body_id} has been depleted (mined ${newAlloyMined}/${totalLimit} alloy)`);
+            console.log(
+              `Mining operation ${row.id} on body ${row.celestial_body_id} has been depleted (mined ${newAlloyMined}/${totalLimit} alloy)`
+            );
           }
         } else if (remainingAlloy > 0) {
           // Mining paused due to storage, don't delete
-          console.log(`Mining operation ${row.id} paused: no storage space available`);
+          console.log(
+            `Mining operation ${row.id} paused: no storage space available`
+          );
         } else {
           // Mining operation is depleted
           operationsToDelete.push({ id: row.id, playerId: row.player_id });
-          console.log(`Mining operation ${row.id} on body ${row.celestial_body_id} was already depleted`);
+          console.log(
+            `Mining operation ${row.id} on body ${row.celestial_body_id} was already depleted`
+          );
         }
       }
     }
-    
+
     // Delete depleted mining operations and refund energy
     for (const op of operationsToDelete) {
       this.deleteMiningOperation(op.id);
       // Refund 1 energy to the player when mining is exhausted
       this.addPlayerEnergy(op.playerId, 1);
-      console.log(`Refunded 1 energy to player ${op.playerId} for exhausted mining operation ${op.id}`);
+      console.log(
+        `Refunded 1 energy to player ${op.playerId} for exhausted mining operation ${op.id}`
+      );
     }
   }
 
@@ -944,7 +1037,11 @@ export class DatabaseQueries {
         }
 
         // Update colony with new population, stage, and yields
-        if (newPopulation !== row.population || stageChanged || crossedThreshold) {
+        if (
+          newPopulation !== row.population ||
+          stageChanged ||
+          crossedThreshold
+        ) {
           const updateStmt = this.db.prepare(
             `UPDATE colonies SET population = ?, stage = ?, science_per_day = ?, alloy_per_day = ?, last_yield_at = ? WHERE id = ?`
           );
@@ -1070,13 +1167,62 @@ export class DatabaseQueries {
     }));
   }
 
+  // Tunnel operations
+  createTunnel(tunnel: Tunnel): void {
+    const stmt = this.db.prepare(
+      "INSERT OR IGNORE INTO tunnels (id, system_a_id, system_b_id, powered_by_species_id, created_at) VALUES (?, ?, ?, ?, ?)"
+    );
+    stmt.run(
+      tunnel.id,
+      tunnel.systemAId,
+      tunnel.systemBId,
+      tunnel.poweredBySpeciesId,
+      tunnel.createdAt
+    );
+  }
+
+  getTunnelById(tunnelId: string): Tunnel | null {
+    const stmt = this.db.prepare("SELECT * FROM tunnels WHERE id = ?");
+    const row = stmt.get(tunnelId) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      systemAId: row.system_a_id,
+      systemBId: row.system_b_id,
+      poweredBySpeciesId: row.powered_by_species_id,
+      createdAt: row.created_at,
+    };
+  }
+
+  setTunnelPower(tunnelId: string, speciesId: string | null): void {
+    const stmt = this.db.prepare(
+      "UPDATE tunnels SET powered_by_species_id = ? WHERE id = ?"
+    );
+    stmt.run(speciesId, tunnelId);
+  }
+
+  getTunnelsBySystem(systemId: string): Tunnel[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM tunnels WHERE system_a_id = ? OR system_b_id = ?"
+    );
+    const rows = stmt.all(systemId, systemId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      systemAId: row.system_a_id,
+      systemBId: row.system_b_id,
+      poweredBySpeciesId: row.powered_by_species_id,
+      createdAt: row.created_at,
+    }));
+  }
+
   // Star Gate operations
   createGate(gate: StarGate): void {
     const stmt = this.db.prepare(
-      "INSERT INTO star_gates (id, system_id, destination_system_id, orbital_elements, name) VALUES (?, ?, ?, ?, ?)"
+      "INSERT INTO star_gates (id, tunnel_id, system_id, destination_system_id, orbital_elements, name) VALUES (?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       gate.id,
+      gate.tunnelId || null, // Allow null for gates with placeholder destinations
       gate.systemId,
       gate.destinationSystemId,
       JSON.stringify(gate.orbitalElements),
@@ -1091,6 +1237,7 @@ export class DatabaseQueries {
     const rows = stmt.all(systemId) as any[];
     return rows.map((row) => ({
       id: row.id,
+      tunnelId: row.tunnel_id || null,
       name: row.name,
       systemId: row.system_id,
       destinationSystemId: row.destination_system_id,
@@ -1104,11 +1251,44 @@ export class DatabaseQueries {
     if (!row) return null;
     return {
       id: row.id,
+      tunnelId: row.tunnel_id || null,
       name: row.name,
       systemId: row.system_id,
       destinationSystemId: row.destination_system_id,
       orbitalElements: JSON.parse(row.orbital_elements),
     };
+  }
+
+  getGatesByGalaxyId(galaxyId: string): StarGate[] {
+    const stmt = this.db.prepare(`
+      SELECT sg.* FROM star_gates sg
+      JOIN star_systems ss ON sg.system_id = ss.id
+      WHERE ss.galaxy_id = ?
+    `);
+    const rows = stmt.all(galaxyId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      tunnelId: row.tunnel_id || null,
+      name: row.name,
+      systemId: row.system_id,
+      destinationSystemId: row.destination_system_id,
+      orbitalElements: JSON.parse(row.orbital_elements),
+    }));
+  }
+
+  getGatesByTunnel(tunnelId: string): StarGate[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM star_gates WHERE tunnel_id = ?"
+    );
+    const rows = stmt.all(tunnelId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      tunnelId: row.tunnel_id || null,
+      name: row.name,
+      systemId: row.system_id,
+      destinationSystemId: row.destination_system_id,
+      orbitalElements: JSON.parse(row.orbital_elements),
+    }));
   }
 
   getExploredGates(playerId: string): string[] {
@@ -1247,10 +1427,46 @@ export class DatabaseQueries {
   }
 
   updateGateDestination(gateId: string, newDestinationSystemId: string): void {
-    const stmt = this.db.prepare(
-      "UPDATE star_gates SET destination_system_id = ? WHERE id = ?"
-    );
-    stmt.run(newDestinationSystemId, gateId);
+    const gate = this.getGateById(gateId);
+    if (!gate) return;
+
+    // If updating from PLACEHOLDER to a real system, create the tunnel
+    if (
+      gate.destinationSystemId.startsWith("PLACEHOLDER_") &&
+      !newDestinationSystemId.startsWith("PLACEHOLDER_")
+    ) {
+      // Generate tunnel ID
+      const systemA =
+        gate.systemId < newDestinationSystemId
+          ? gate.systemId
+          : newDestinationSystemId;
+      const systemB =
+        gate.systemId < newDestinationSystemId
+          ? newDestinationSystemId
+          : gate.systemId;
+      const tunnelId = `tunnel_${systemA}_${systemB}`;
+
+      // Create tunnel if it doesn't exist
+      this.createTunnel({
+        id: tunnelId,
+        systemAId: systemA,
+        systemBId: systemB,
+        poweredBySpeciesId: null,
+        createdAt: Date.now(),
+      });
+
+      // Update gate with tunnel_id
+      const updateStmt = this.db.prepare(
+        "UPDATE star_gates SET destination_system_id = ?, tunnel_id = ? WHERE id = ?"
+      );
+      updateStmt.run(newDestinationSystemId, tunnelId, gateId);
+    } else {
+      // Normal update
+      const stmt = this.db.prepare(
+        "UPDATE star_gates SET destination_system_id = ? WHERE id = ?"
+      );
+      stmt.run(newDestinationSystemId, gateId);
+    }
   }
 
   updateGateName(gateId: string, newName: string): void {
@@ -1261,9 +1477,69 @@ export class DatabaseQueries {
   // Gate ownership operations
   setGateOwnership(gateId: string, ownerId: string): void {
     const stmt = this.db.prepare(
-      "INSERT OR REPLACE INTO gate_ownership (gate_id, owner_id, explored_at) VALUES (?, ?, ?)"
+      "INSERT OR REPLACE INTO gate_ownership (gate_id, owner_id, explored_at, last_overtaken_at) VALUES (?, ?, ?, ?)"
     );
-    stmt.run(gateId, ownerId, Date.now());
+    stmt.run(gateId, ownerId, Date.now(), 0);
+
+    // Check if tunnel should be powered by this species
+    this.updateTunnelPower(gateId);
+  }
+
+  setGateOwnershipWithOvertake(
+    gateId: string,
+    ownerId: string,
+    overtakeTime: number
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT OR REPLACE INTO gate_ownership (gate_id, owner_id, explored_at, last_overtaken_at) VALUES (?, ?, ?, ?)"
+    );
+    stmt.run(gateId, ownerId, Date.now(), overtakeTime);
+
+    // Check if tunnel should be powered by this species
+    this.updateTunnelPower(gateId);
+  }
+
+  /**
+   * Update tunnel power based on gate ownership
+   * If both gates of a tunnel are owned by the same player, that player's species powers the tunnel
+   * Otherwise, the tunnel has no power
+   */
+  updateTunnelPower(gateId: string): void {
+    const gate = this.getGateById(gateId);
+    if (!gate || !gate.tunnelId) return; // Skip gates without tunnels
+
+    const tunnel = this.getTunnelById(gate.tunnelId);
+    if (!tunnel) return;
+
+    const gatesInTunnel = this.getGatesByTunnel(gate.tunnelId);
+    if (gatesInTunnel.length !== 2) return; // Should always be 2 gates
+
+    const gateA = gatesInTunnel[0];
+    const gateB = gatesInTunnel[1];
+
+    const ownerA = this.getGateOwner(gateA.id);
+    const ownerB = this.getGateOwner(gateB.id);
+
+    // If both gates are owned by the same player, use their species to power the tunnel
+    if (ownerA && ownerB && ownerA === ownerB) {
+      const player = this.getPlayerById(ownerA);
+      if (player && player.speciesId) {
+        this.setTunnelPower(gate.tunnelId, player.speciesId);
+      } else {
+        this.setTunnelPower(gate.tunnelId, null);
+      }
+    } else {
+      // Different owners or no owners - no tunnel power
+      this.setTunnelPower(gate.tunnelId, null);
+    }
+  }
+
+  getGateLastOvertakenAt(gateId: string): number {
+    const stmt = this.db.prepare(
+      "SELECT last_overtaken_at FROM gate_ownership WHERE gate_id = ?"
+    );
+    const row = stmt.get(gateId) as any;
+    return row?.last_overtaken_at || 0;
   }
 
   getGateOwner(gateId: string): string | null {
@@ -1761,6 +2037,7 @@ export class DatabaseQueries {
     ownerId: string;
     ownerName: string;
     status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+    lastOvertakenAt: number;
   }> {
     const gates = this.getGatesBySystem(systemId);
     const result: Array<{
@@ -1768,6 +2045,7 @@ export class DatabaseQueries {
       ownerId: string;
       ownerName: string;
       status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      lastOvertakenAt: number;
     }> = [];
 
     for (const gate of gates) {
@@ -1784,13 +2062,124 @@ export class DatabaseQueries {
           status = stance as "neutral" | "friendly" | "aggressive";
         }
 
+        // Get last overtaken timestamp
+        const lastOvertakenAt = this.getGateLastOvertakenAt(gate.id);
+
         result.push({
           gateId: gate.id,
           ownerId: ownerInfo.ownerId,
           ownerName: ownerInfo.ownerName,
           status,
+          lastOvertakenAt,
         });
       }
+    }
+
+    return result;
+  }
+
+  /**
+   * Get tunnel ownership information for gates in a system
+   */
+  getTunnelOwnershipForSystem(
+    playerId: string,
+    systemId: string
+  ): Array<{
+    gateId: string;
+    tunnelId: string;
+    thisGateOwnerId?: string;
+    thisGateOwnerName?: string;
+    thisGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+    otherGateOwnerId?: string;
+    otherGateOwnerName?: string;
+    otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+    tunnelPoweredBy?: string | null;
+  }> {
+    const gates = this.getGatesBySystem(systemId);
+    const result: Array<{
+      gateId: string;
+      tunnelId: string;
+      thisGateOwnerId?: string;
+      thisGateOwnerName?: string;
+      thisGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      otherGateOwnerId?: string;
+      otherGateOwnerName?: string;
+      otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      tunnelPoweredBy?: string | null;
+    }> = [];
+
+    for (const gate of gates) {
+      // Skip gates without tunnels (placeholder destinations)
+      if (!gate.tunnelId) {
+        continue;
+      }
+
+      const tunnel = this.getTunnelById(gate.tunnelId);
+      if (!tunnel) continue;
+
+      const gatesInTunnel = this.getGatesByTunnel(gate.tunnelId);
+
+      // Find the other gate in the tunnel
+      const otherGate = gatesInTunnel.find((g) => g.id !== gate.id);
+      if (!otherGate) continue;
+
+      // Get ownership info for this gate (the one in the current system)
+      const thisGateOwnerInfo = this.getGateOwnerWithName(gate.id);
+      let thisGateOwnerId: string | undefined;
+      let thisGateOwnerName: string | undefined;
+      let thisGateStatus:
+        | "owned_by_self"
+        | "neutral"
+        | "friendly"
+        | "aggressive"
+        | undefined;
+
+      if (thisGateOwnerInfo) {
+        thisGateOwnerId = thisGateOwnerInfo.ownerId;
+        thisGateOwnerName = thisGateOwnerInfo.ownerName;
+
+        if (thisGateOwnerId === playerId) {
+          thisGateStatus = "owned_by_self";
+        } else {
+          const stance = this.getPlayerStance(playerId, thisGateOwnerId);
+          thisGateStatus = stance as "neutral" | "friendly" | "aggressive";
+        }
+      }
+
+      // Get ownership info for the other gate (in the connected system)
+      const otherGateOwnerInfo = this.getGateOwnerWithName(otherGate.id);
+      let otherGateOwnerId: string | undefined;
+      let otherGateOwnerName: string | undefined;
+      let otherGateStatus:
+        | "owned_by_self"
+        | "neutral"
+        | "friendly"
+        | "aggressive"
+        | undefined;
+
+      if (otherGateOwnerInfo) {
+        otherGateOwnerId = otherGateOwnerInfo.ownerId;
+        otherGateOwnerName = otherGateOwnerInfo.ownerName;
+
+        if (otherGateOwnerId === playerId) {
+          otherGateStatus = "owned_by_self";
+        } else {
+          const stance = this.getPlayerStance(playerId, otherGateOwnerId);
+          otherGateStatus = stance as "neutral" | "friendly" | "aggressive";
+        }
+      }
+
+      result.push({
+        gateId: gate.id,
+        tunnelId: gate.tunnelId,
+        thisGateOwnerId,
+        thisGateOwnerName,
+        thisGateStatus,
+        otherGateOwnerId,
+        otherGateOwnerName,
+        otherGateStatus,
+        tunnelPoweredBy: tunnel.poweredBySpeciesId,
+      });
     }
 
     return result;
@@ -1814,6 +2203,25 @@ export class DatabaseQueries {
         | "neutral"
         | "aggressive"
         | "friendly";
+      // Tunnel information
+      tunnelId?: string;
+      gateAId?: string;
+      gateBId?: string;
+      gateAOwnerId?: string;
+      gateBOwnerId?: string;
+      gateAStatus?:
+        | "unexplored"
+        | "owned_by_self"
+        | "neutral"
+        | "aggressive"
+        | "friendly";
+      gateBStatus?:
+        | "unexplored"
+        | "owned_by_self"
+        | "neutral"
+        | "aggressive"
+        | "friendly";
+      tunnelPoweredBy?: string | null;
     }>;
     unexploredGates: Array<{
       gateId: string;
@@ -1847,6 +2255,24 @@ export class DatabaseQueries {
         | "neutral"
         | "aggressive"
         | "friendly";
+      tunnelId?: string;
+      gateAId?: string;
+      gateBId?: string;
+      gateAOwnerId?: string;
+      gateBOwnerId?: string;
+      gateAStatus?:
+        | "unexplored"
+        | "owned_by_self"
+        | "neutral"
+        | "aggressive"
+        | "friendly";
+      gateBStatus?:
+        | "unexplored"
+        | "owned_by_self"
+        | "neutral"
+        | "aggressive"
+        | "friendly";
+      tunnelPoweredBy?: string | null;
     }> = [];
 
     // Build full constellation from all explored gates
@@ -1912,6 +2338,83 @@ export class DatabaseQueries {
           }
         }
 
+        // Get tunnel information (both gates) - skip if gate has no tunnel (placeholder)
+        if (!gate.tunnelId) {
+          // Add connection without tunnel info for placeholder gates
+          connections.push({
+            fromSystemId: gate.systemId,
+            toSystemId: gate.destinationSystemId,
+            isExplored,
+            gateId: isExplored ? gate.id : undefined,
+            ownerId,
+            ownerName,
+            status,
+          });
+
+          // Only add destination system if this gate is explored
+          if (isExplored) {
+            systemIds.add(gate.destinationSystemId);
+          }
+          continue; // Skip tunnel processing
+        }
+
+        const tunnel = this.getTunnelById(gate.tunnelId);
+        const gatesInTunnel = this.getGatesByTunnel(gate.tunnelId);
+
+        // Find gate A and gate B
+        const gateA = gatesInTunnel.find(
+          (g) => g.systemId === tunnel?.systemAId
+        );
+        const gateB = gatesInTunnel.find(
+          (g) => g.systemId === tunnel?.systemBId
+        );
+
+        // Get ownership and status for both gates
+        let gateAOwnerId: string | undefined;
+        let gateBOwnerId: string | undefined;
+        let gateAStatus:
+          | "unexplored"
+          | "owned_by_self"
+          | "neutral"
+          | "aggressive"
+          | "friendly"
+          | undefined;
+        let gateBStatus:
+          | "unexplored"
+          | "owned_by_self"
+          | "neutral"
+          | "aggressive"
+          | "friendly"
+          | undefined;
+
+        if (gateA) {
+          const gateAOwnerInfo = this.getGateOwnerWithName(gateA.id);
+          if (gateAOwnerInfo) {
+            gateAOwnerId = gateAOwnerInfo.ownerId;
+            if (gateAOwnerId === playerId) {
+              gateAStatus = "owned_by_self";
+            } else {
+              gateAStatus = this.getPlayerStance(playerId, gateAOwnerId);
+            }
+          } else if (exploredGateIds.has(gateA.id)) {
+            gateAStatus = "unexplored";
+          }
+        }
+
+        if (gateB) {
+          const gateBOwnerInfo = this.getGateOwnerWithName(gateB.id);
+          if (gateBOwnerInfo) {
+            gateBOwnerId = gateBOwnerInfo.ownerId;
+            if (gateBOwnerId === playerId) {
+              gateBStatus = "owned_by_self";
+            } else {
+              gateBStatus = this.getPlayerStance(playerId, gateBOwnerId);
+            }
+          } else if (exploredGateIds.has(gateB.id)) {
+            gateBStatus = "unexplored";
+          }
+        }
+
         // Add connection
         connections.push({
           fromSystemId: gate.systemId,
@@ -1921,6 +2424,15 @@ export class DatabaseQueries {
           ownerId,
           ownerName,
           status,
+          // Tunnel information
+          tunnelId: gate.tunnelId,
+          gateAId: gateA?.id,
+          gateBId: gateB?.id,
+          gateAOwnerId,
+          gateBOwnerId,
+          gateAStatus,
+          gateBStatus,
+          tunnelPoweredBy: tunnel?.poweredBySpeciesId || null,
         });
 
         // Only add destination system if this gate is explored
@@ -2451,5 +2963,201 @@ export class DatabaseQueries {
       "UPDATE native_civilizations SET attitude = ? WHERE id = ?"
     );
     stmt.run(attitude, civId);
+  }
+
+  // Gate defense operations
+
+  /**
+   * Create a new defense platform for a gate
+   */
+  createGateDefense(
+    id: string,
+    gateId: string,
+    playerId: string,
+    systemId: string
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT INTO gate_defenses (id, gate_id, player_id, system_id, health, max_health, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    stmt.run(id, gateId, playerId, systemId, 100.0, 100.0, Date.now());
+  }
+
+  /**
+   * Get all defenses for a gate
+   */
+  getGateDefenses(gateId: string): Array<{
+    id: string;
+    gateId: string;
+    playerId: string;
+    systemId: string;
+    health: number;
+    maxHealth: number;
+    createdAt: number;
+  }> {
+    const stmt = this.db.prepare(
+      "SELECT * FROM gate_defenses WHERE gate_id = ? AND health > 0"
+    );
+    const rows = stmt.all(gateId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      gateId: row.gate_id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      health: row.health,
+      maxHealth: row.max_health,
+      createdAt: row.created_at,
+    }));
+  }
+
+  /**
+   * Update defense platform health
+   */
+  updateGateDefenseHealth(defenseId: string, health: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE gate_defenses SET health = ? WHERE id = ?"
+    );
+    stmt.run(health, defenseId);
+  }
+
+  /**
+   * Delete a defense platform
+   */
+  deleteGateDefense(defenseId: string): void {
+    const stmt = this.db.prepare("DELETE FROM gate_defenses WHERE id = ?");
+    stmt.run(defenseId);
+  }
+
+  /**
+   * Get count of active defenses for a gate
+   */
+  getGateDefenseCount(gateId: string): number {
+    const stmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM gate_defenses WHERE gate_id = ? AND health > 0"
+    );
+    const row = stmt.get(gateId) as any;
+    return row.count;
+  }
+
+  // Gate attack operations
+
+  /**
+   * Create a new gate attack
+   */
+  createGateAttack(
+    id: string,
+    gateId: string,
+    attackerId: string,
+    defenderId: string,
+    systemId: string,
+    attackShipCount: number
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT INTO gate_attacks (id, gate_id, attacker_id, defender_id, system_id, attack_ship_count, attack_ships_remaining, status, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    stmt.run(
+      id,
+      gateId,
+      attackerId,
+      defenderId,
+      systemId,
+      attackShipCount,
+      attackShipCount,
+      "in_progress",
+      Date.now()
+    );
+  }
+
+  /**
+   * Get an attack by ID
+   */
+  getGateAttack(attackId: string): {
+    id: string;
+    gateId: string;
+    attackerId: string;
+    defenderId: string;
+    systemId: string;
+    attackShipCount: number;
+    attackShipsRemaining: number;
+    status: string;
+    startedAt: number;
+    completedAt?: number;
+    combatLog?: string;
+  } | null {
+    const stmt = this.db.prepare("SELECT * FROM gate_attacks WHERE id = ?");
+    const row = stmt.get(attackId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      gateId: row.gate_id,
+      attackerId: row.attacker_id,
+      defenderId: row.defender_id,
+      systemId: row.system_id,
+      attackShipCount: row.attack_ship_count,
+      attackShipsRemaining: row.attack_ships_remaining,
+      status: row.status,
+      startedAt: row.started_at,
+      completedAt: row.completed_at || undefined,
+      combatLog: row.combat_log || undefined,
+    };
+  }
+
+  /**
+   * Get active attack on a gate
+   */
+  getActiveGateAttack(gateId: string): {
+    id: string;
+    gateId: string;
+    attackerId: string;
+    defenderId: string;
+    systemId: string;
+    attackShipCount: number;
+    attackShipsRemaining: number;
+    status: string;
+    startedAt: number;
+    completedAt?: number;
+    combatLog?: string;
+  } | null {
+    const stmt = this.db.prepare(
+      "SELECT * FROM gate_attacks WHERE gate_id = ? AND status = 'in_progress'"
+    );
+    const row = stmt.get(gateId) as any;
+    if (!row) return null;
+
+    return {
+      id: row.id,
+      gateId: row.gate_id,
+      attackerId: row.attacker_id,
+      defenderId: row.defender_id,
+      systemId: row.system_id,
+      attackShipCount: row.attack_ship_count,
+      attackShipsRemaining: row.attack_ships_remaining,
+      status: row.status,
+      startedAt: row.started_at,
+      completedAt: row.completed_at || undefined,
+      combatLog: row.combat_log || undefined,
+    };
+  }
+
+  /**
+   * Update attack status
+   */
+  updateGateAttack(
+    attackId: string,
+    attackShipsRemaining: number,
+    status: string,
+    combatLog: string,
+    completedAt?: number
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE gate_attacks SET attack_ships_remaining = ?, status = ?, combat_log = ?, completed_at = ? WHERE id = ?"
+    );
+    stmt.run(
+      attackShipsRemaining,
+      status,
+      combatLog,
+      completedAt || null,
+      attackId
+    );
   }
 }

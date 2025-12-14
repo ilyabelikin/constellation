@@ -60,12 +60,26 @@ export function initializeDatabase(dbPath: string): Database.Database {
       FOREIGN KEY (system_id) REFERENCES star_systems(id)
     );
 
+    CREATE TABLE IF NOT EXISTS tunnels (
+      id TEXT PRIMARY KEY,
+      system_a_id TEXT NOT NULL,
+      system_b_id TEXT NOT NULL,
+      powered_by_species_id TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (system_a_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+      FOREIGN KEY (system_b_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+      FOREIGN KEY (powered_by_species_id) REFERENCES species(id) ON DELETE SET NULL,
+      CHECK (system_a_id < system_b_id)
+    );
+
     CREATE TABLE IF NOT EXISTS star_gates (
       id TEXT PRIMARY KEY,
+      tunnel_id TEXT,
       system_id TEXT NOT NULL,
       destination_system_id TEXT NOT NULL,
       orbital_elements TEXT NOT NULL,
       name TEXT NOT NULL,
+      FOREIGN KEY (tunnel_id) REFERENCES tunnels(id) ON DELETE CASCADE,
       FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
     );
 
@@ -81,6 +95,7 @@ export function initializeDatabase(dbPath: string): Database.Database {
       gate_id TEXT PRIMARY KEY,
       owner_id TEXT NOT NULL,
       explored_at INTEGER NOT NULL,
+      last_overtaken_at INTEGER DEFAULT 0,
       FOREIGN KEY (gate_id) REFERENCES star_gates(id) ON DELETE CASCADE,
       FOREIGN KEY (owner_id) REFERENCES players(id) ON DELETE CASCADE
     );
@@ -195,7 +210,11 @@ export function initializeDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_players_galaxy ON players(galaxy_id);
     CREATE INDEX IF NOT EXISTS idx_systems_galaxy ON star_systems(galaxy_id);
     CREATE INDEX IF NOT EXISTS idx_ships_player ON ships(player_id);
+    CREATE INDEX IF NOT EXISTS idx_tunnels_system_a ON tunnels(system_a_id);
+    CREATE INDEX IF NOT EXISTS idx_tunnels_system_b ON tunnels(system_b_id);
+    CREATE INDEX IF NOT EXISTS idx_tunnels_powered_by ON tunnels(powered_by_species_id);
     CREATE INDEX IF NOT EXISTS idx_gates_system ON star_gates(system_id);
+    CREATE INDEX IF NOT EXISTS idx_gates_tunnel ON star_gates(tunnel_id);
     CREATE INDEX IF NOT EXISTS idx_explored_gates_player ON explored_gates(player_id);
     CREATE INDEX IF NOT EXISTS idx_system_discoveries_system ON system_discoveries(system_id);
     CREATE INDEX IF NOT EXISTS idx_system_discoveries_player ON system_discoveries(player_id);
@@ -441,18 +460,28 @@ export function initializeDatabase(dbPath: string): Database.Database {
     const columns = db
       .prepare("PRAGMA table_info(mining_operations)")
       .all() as Array<{ name: string }>;
-    
-    const hasLimitColumn = columns.some(col => col.name === 'total_alloy_limit');
-    const hasMinedColumn = columns.some(col => col.name === 'alloy_mined');
-    
+
+    const hasLimitColumn = columns.some(
+      (col) => col.name === "total_alloy_limit"
+    );
+    const hasMinedColumn = columns.some((col) => col.name === "alloy_mined");
+
     if (!hasLimitColumn) {
-      console.log("Migrating database: Adding total_alloy_limit to mining_operations");
-      db.exec(`ALTER TABLE mining_operations ADD COLUMN total_alloy_limit REAL DEFAULT 50.0;`);
+      console.log(
+        "Migrating database: Adding total_alloy_limit to mining_operations"
+      );
+      db.exec(
+        `ALTER TABLE mining_operations ADD COLUMN total_alloy_limit REAL DEFAULT 50.0;`
+      );
     }
-    
+
     if (!hasMinedColumn) {
-      console.log("Migrating database: Adding alloy_mined to mining_operations");
-      db.exec(`ALTER TABLE mining_operations ADD COLUMN alloy_mined REAL DEFAULT 0.0;`);
+      console.log(
+        "Migrating database: Adding alloy_mined to mining_operations"
+      );
+      db.exec(
+        `ALTER TABLE mining_operations ADD COLUMN alloy_mined REAL DEFAULT 0.0;`
+      );
     }
   } catch (error) {
     console.error("Error during mining operations limit migration:", error);
@@ -530,7 +559,9 @@ export function initializeDatabase(dbPath: string): Database.Database {
     );
 
     if (!hasLastActiveAt) {
-      console.log("Migrating database: Adding last_active_at column to players");
+      console.log(
+        "Migrating database: Adding last_active_at column to players"
+      );
       db.exec(
         "ALTER TABLE players ADD COLUMN last_active_at INTEGER DEFAULT 0"
       );
@@ -648,6 +679,246 @@ export function initializeDatabase(dbPath: string): Database.Database {
     }
   } catch (error) {
     console.error("Error during native civilizations table migration:", error);
+  }
+
+  // Migration: Create gate_defenses table if it doesn't exist
+  try {
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='gate_defenses'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (tables.length === 0) {
+      console.log("Migrating database: Creating gate_defenses table");
+      db.exec(`
+        CREATE TABLE gate_defenses (
+          id TEXT PRIMARY KEY,
+          gate_id TEXT NOT NULL,
+          player_id TEXT NOT NULL,
+          system_id TEXT NOT NULL,
+          health REAL NOT NULL DEFAULT 100.0,
+          max_health REAL NOT NULL DEFAULT 100.0,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (gate_id) REFERENCES star_gates(id) ON DELETE CASCADE,
+          FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+          FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_gate_defenses_gate ON gate_defenses(gate_id);
+        CREATE INDEX idx_gate_defenses_player ON gate_defenses(player_id);
+        CREATE INDEX idx_gate_defenses_system ON gate_defenses(system_id);
+      `);
+      console.log("Gate defenses table migration complete");
+    }
+  } catch (error) {
+    console.error("Error during gate defenses table migration:", error);
+  }
+
+  // Migration: Create gate_attacks table if it doesn't exist
+  try {
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='gate_attacks'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (tables.length === 0) {
+      console.log("Migrating database: Creating gate_attacks table");
+      db.exec(`
+        CREATE TABLE gate_attacks (
+          id TEXT PRIMARY KEY,
+          gate_id TEXT NOT NULL,
+          attacker_id TEXT NOT NULL,
+          defender_id TEXT NOT NULL,
+          system_id TEXT NOT NULL,
+          attack_ship_count INTEGER NOT NULL,
+          attack_ships_remaining INTEGER NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('in_progress', 'attacker_victory', 'defender_victory')),
+          started_at INTEGER NOT NULL,
+          completed_at INTEGER,
+          combat_log TEXT,
+          FOREIGN KEY (gate_id) REFERENCES star_gates(id) ON DELETE CASCADE,
+          FOREIGN KEY (attacker_id) REFERENCES players(id) ON DELETE CASCADE,
+          FOREIGN KEY (defender_id) REFERENCES players(id) ON DELETE CASCADE,
+          FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_gate_attacks_gate ON gate_attacks(gate_id);
+        CREATE INDEX idx_gate_attacks_attacker ON gate_attacks(attacker_id);
+        CREATE INDEX idx_gate_attacks_defender ON gate_attacks(defender_id);
+        CREATE INDEX idx_gate_attacks_system ON gate_attacks(system_id);
+        CREATE INDEX idx_gate_attacks_status ON gate_attacks(status);
+      `);
+      console.log("Gate attacks table migration complete");
+    }
+  } catch (error) {
+    console.error("Error during gate attacks table migration:", error);
+  }
+
+  // Migration: Add last_overtaken_at column to gate_ownership if it doesn't exist
+  try {
+    const columns = db
+      .prepare("PRAGMA table_info(gate_ownership)")
+      .all() as Array<{ name: string }>;
+
+    const hasLastOvertakenAt = columns.some(
+      (col) => col.name === "last_overtaken_at"
+    );
+
+    if (!hasLastOvertakenAt) {
+      console.log(
+        "Migrating database: Adding last_overtaken_at to gate_ownership"
+      );
+      db.exec(
+        `ALTER TABLE gate_ownership ADD COLUMN last_overtaken_at INTEGER DEFAULT 0;`
+      );
+      console.log("Gate ownership last_overtaken_at column migration complete");
+    }
+  } catch (error) {
+    console.error("Error during gate ownership migration:", error);
+  }
+
+  // Migration: Create tunnels table and migrate existing gates
+  try {
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='tunnels'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (tables.length === 0) {
+      console.log(
+        "Migrating database: Creating tunnels table and migrating gates"
+      );
+
+      // Create tunnels table
+      db.exec(`
+        CREATE TABLE tunnels (
+          id TEXT PRIMARY KEY,
+          system_a_id TEXT NOT NULL,
+          system_b_id TEXT NOT NULL,
+          powered_by_species_id TEXT,
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (system_a_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+          FOREIGN KEY (system_b_id) REFERENCES star_systems(id) ON DELETE CASCADE,
+          FOREIGN KEY (powered_by_species_id) REFERENCES species(id) ON DELETE SET NULL,
+          CHECK (system_a_id < system_b_id)
+        );
+        CREATE INDEX idx_tunnels_system_a ON tunnels(system_a_id);
+        CREATE INDEX idx_tunnels_system_b ON tunnels(system_b_id);
+        CREATE INDEX idx_tunnels_powered_by ON tunnels(powered_by_species_id);
+      `);
+
+      // Check if star_gates has tunnel_id column
+      const gateColumns = db
+        .prepare("PRAGMA table_info(star_gates)")
+        .all() as Array<{ name: string }>;
+      const hasTunnelId = gateColumns.some((col) => col.name === "tunnel_id");
+
+      if (!hasTunnelId) {
+        // Create new star_gates table with tunnel_id
+        db.exec(`
+          CREATE TABLE star_gates_new (
+            id TEXT PRIMARY KEY,
+            tunnel_id TEXT NOT NULL,
+            system_id TEXT NOT NULL,
+            destination_system_id TEXT NOT NULL,
+            orbital_elements TEXT NOT NULL,
+            name TEXT NOT NULL,
+            FOREIGN KEY (tunnel_id) REFERENCES tunnels(id) ON DELETE CASCADE,
+            FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+          );
+        `);
+
+        // Migrate existing gates to new structure
+        const existingGates = db
+          .prepare("SELECT * FROM star_gates")
+          .all() as Array<{
+          id: string;
+          system_id: string;
+          destination_system_id: string;
+          orbital_elements: string;
+          name: string;
+        }>;
+
+        // Group gates by system pairs to create tunnels
+        const tunnelMap = new Map<
+          string,
+          { gateA: any; gateB?: any; tunnelId: string }
+        >();
+
+        for (const gate of existingGates) {
+          const systemA =
+            gate.system_id < gate.destination_system_id
+              ? gate.system_id
+              : gate.destination_system_id;
+          const systemB =
+            gate.system_id < gate.destination_system_id
+              ? gate.destination_system_id
+              : gate.system_id;
+          const pairKey = `${systemA}:${systemB}`;
+
+          if (!tunnelMap.has(pairKey)) {
+            const tunnelId = `tunnel_${systemA}_${systemB}`;
+            tunnelMap.set(pairKey, {
+              gateA: gate,
+              tunnelId,
+            });
+          } else {
+            const tunnel = tunnelMap.get(pairKey)!;
+            tunnel.gateB = gate;
+          }
+        }
+
+        // Insert tunnels and gates
+        const insertTunnel = db.prepare(
+          "INSERT INTO tunnels (id, system_a_id, system_b_id, powered_by_species_id, created_at) VALUES (?, ?, ?, ?, ?)"
+        );
+        const insertGate = db.prepare(
+          "INSERT INTO star_gates_new (id, tunnel_id, system_id, destination_system_id, orbital_elements, name) VALUES (?, ?, ?, ?, ?, ?)"
+        );
+
+        for (const [pairKey, tunnel] of tunnelMap.entries()) {
+          const [systemA, systemB] = pairKey.split(":");
+
+          // Create tunnel
+          insertTunnel.run(tunnel.tunnelId, systemA, systemB, null, Date.now());
+
+          // Insert gate A
+          insertGate.run(
+            tunnel.gateA.id,
+            tunnel.tunnelId,
+            tunnel.gateA.system_id,
+            tunnel.gateA.destination_system_id,
+            tunnel.gateA.orbital_elements,
+            tunnel.gateA.name
+          );
+
+          // Insert gate B if it exists
+          if (tunnel.gateB) {
+            insertGate.run(
+              tunnel.gateB.id,
+              tunnel.tunnelId,
+              tunnel.gateB.system_id,
+              tunnel.gateB.destination_system_id,
+              tunnel.gateB.orbital_elements,
+              tunnel.gateB.name
+            );
+          }
+        }
+
+        // Drop old table and rename new one
+        db.exec(`
+          DROP TABLE star_gates;
+          ALTER TABLE star_gates_new RENAME TO star_gates;
+          CREATE INDEX idx_gates_system ON star_gates(system_id);
+          CREATE INDEX idx_gates_tunnel ON star_gates(tunnel_id);
+        `);
+      }
+
+      console.log("Tunnels table and gate migration complete");
+    }
+  } catch (error) {
+    console.error("Error during tunnels migration:", error);
   }
 
   return db;

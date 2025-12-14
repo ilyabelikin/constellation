@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from "uuid";
 import {
   StarGate,
+  Tunnel,
   OrbitalElements,
   SOLAR_MASS,
   ASTRONOMICAL_UNIT,
@@ -156,7 +157,17 @@ export function generateGatePosition(
 }
 
 /**
- * Generate gates for a star system
+ * Generate a tunnel ID from two system IDs (ordered)
+ */
+export function generateTunnelId(systemIdA: string, systemIdB: string): string {
+  const [sysA, sysB] =
+    systemIdA < systemIdB ? [systemIdA, systemIdB] : [systemIdB, systemIdA];
+  return `tunnel_${sysA}_${sysB}`;
+}
+
+/**
+ * Generate gates for a star system with tunnels
+ * Returns both the tunnel definitions and the gates
  * @param planetOrbits - Array of planet orbital distances (semi-major axes)
  */
 export function generateGates(
@@ -165,10 +176,26 @@ export function generateGates(
   starMass: number,
   destinationSystemIds: string[],
   planetOrbits: number[]
-): StarGate[] {
+): { gates: StarGate[]; tunnels: Tunnel[] } {
   const gates: StarGate[] = [];
+  const tunnels: Tunnel[] = [];
 
   for (let i = 0; i < destinationSystemIds.length; i++) {
+    const destinationSystemId = destinationSystemIds[i];
+    const tunnelId = generateTunnelId(systemId, destinationSystemId);
+
+    // Create tunnel if it doesn't exist yet (will be handled by database)
+    const tunnel: Tunnel = {
+      id: tunnelId,
+      systemAId:
+        systemId < destinationSystemId ? systemId : destinationSystemId,
+      systemBId:
+        systemId < destinationSystemId ? destinationSystemId : systemId,
+      poweredBySpeciesId: null,
+      createdAt: Date.now(),
+    };
+    tunnels.push(tunnel);
+
     const orbitalElements = generateGatePosition(
       rng,
       starMass,
@@ -182,14 +209,17 @@ export function generateGates(
 
     gates.push({
       id: uuidv4(),
+      tunnelId: destinationSystemId.startsWith("PLACEHOLDER_")
+        ? null
+        : tunnelId,
       name,
       systemId,
-      destinationSystemId: destinationSystemIds[i],
+      destinationSystemId,
       orbitalElements,
     });
   }
 
-  return gates;
+  return { gates, tunnels };
 }
 
 /**
@@ -202,9 +232,10 @@ export function generateStarterGates(
   systemId: string,
   starMass: number,
   planetOrbits: number[]
-): StarGate[] {
+): { gates: StarGate[]; tunnels: Tunnel[] } {
   const gateCount = determineGateCount(rng);
   const gates: StarGate[] = [];
+  const tunnels: Tunnel[] = [];
 
   for (let i = 0; i < gateCount; i++) {
     const orbitalElements = generateGatePosition(
@@ -219,14 +250,32 @@ export function generateStarterGates(
     const name = generateGateName(i);
 
     // Destination will be a placeholder - actual system generated on first travel
+    const destinationSystemId = `PLACEHOLDER_${i}`;
+    const tunnelId = generateTunnelId(systemId, destinationSystemId);
+
+    // Create placeholder tunnel
+    const tunnel: Tunnel = {
+      id: tunnelId,
+      systemAId:
+        systemId < destinationSystemId ? systemId : destinationSystemId,
+      systemBId:
+        systemId < destinationSystemId ? destinationSystemId : systemId,
+      poweredBySpeciesId: null,
+      createdAt: Date.now(),
+    };
+    tunnels.push(tunnel);
+
     gates.push({
       id: uuidv4(),
+      tunnelId: destinationSystemId.startsWith("PLACEHOLDER_")
+        ? null
+        : tunnelId,
       name,
       systemId,
-      destinationSystemId: `PLACEHOLDER_${i}`, // Will be replaced when gate is first used
+      destinationSystemId,
       orbitalElements,
     });
   }
 
-  return gates;
+  return { gates, tunnels };
 }

@@ -10,6 +10,8 @@ import {
   Species,
   Colony,
   NativeCivilization,
+  GateDefense,
+  GateAttack,
 } from "./types.js";
 
 // Client -> Server messages
@@ -22,7 +24,12 @@ export type ClientMessage =
   | { type: "getPregeneratedSpecies" }
   | { type: "getGalaxySpecies"; galaxyId: string }
   | { type: "createEmptyGalaxy" }
-  | { type: "joinGalaxy"; galaxyId: string; playerName: string; speciesId: string }
+  | {
+      type: "joinGalaxy";
+      galaxyId: string;
+      playerName: string;
+      speciesId: string;
+    }
   | { type: "createGalaxy"; playerName: string; speciesId: string }
   | { type: "resetGalaxy"; galaxyName: string; playerName: string }
   | { type: "requestSystemState"; systemId: string }
@@ -57,6 +64,10 @@ export type ClientMessage =
       amount: number;
     }
   | {
+      type: "debugConnectGate";
+      gateId: string;
+    }
+  | {
       type: "establishColony";
       planetId: string;
       specialization: "balanced" | "research" | "industrial";
@@ -73,6 +84,18 @@ export type ClientMessage =
   | {
       type: "requestSpeciesInfo";
       speciesId: string;
+    }
+  | {
+      type: "fortifyGate";
+      gateId: string;
+    }
+  | {
+      type: "attackGate";
+      gateId: string;
+    }
+  | {
+      type: "overtakeGate";
+      gateId: string;
     };
 
 export interface ShipManeuverCommand {
@@ -94,6 +117,25 @@ export type ServerMessage =
         ownerId: string;
         ownerName: string;
         status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      }>;
+      tunnelOwnership?: Array<{
+        gateId: string;
+        tunnelId: string;
+        thisGateOwnerId?: string;
+        thisGateOwnerName?: string;
+        thisGateStatus?:
+          | "owned_by_self"
+          | "neutral"
+          | "friendly"
+          | "aggressive";
+        otherGateOwnerId?: string;
+        otherGateOwnerName?: string;
+        otherGateStatus?:
+          | "owned_by_self"
+          | "neutral"
+          | "friendly"
+          | "aggressive";
+        tunnelPoweredBy?: string | null;
       }>;
     }
   | { type: "stateUpdate"; state: SystemState }
@@ -218,6 +260,37 @@ export type ServerMessage =
       type: "nativeCivilizationDiscovered";
       civilization: NativeCivilization;
       species: Species;
+    }
+  | {
+      type: "gateDefenseBuilt";
+      defense: GateDefense;
+    }
+  | {
+      type: "gateAttackStarted";
+      attack: GateAttack;
+    }
+  | {
+      type: "gateAttackUpdate";
+      attack: GateAttack;
+    }
+  | {
+      type: "gateOvertaken";
+      gateId: string;
+      gateName: string;
+      systemName: string;
+      newOwnerId: string;
+      newOwnerName: string;
+      previousOwnerId: string | null;
+      overtakeTime: number;
+    }
+  | {
+      type: "gateResourceFlow";
+      gateId: string;
+      energyFlow: number;
+      alloyFlow: number;
+      scienceFlow: number;
+      isBlockaded: boolean;
+      blockadeOwnerName?: string;
     };
 
 export interface SearchResult {

@@ -4,6 +4,7 @@ import {
   StarSystem,
   Vector3,
   StarGate,
+  Tunnel,
   LifeLevel,
   CivilizationLevel,
 } from "@constellation/shared";
@@ -41,7 +42,7 @@ export function generateNewSystem(
   fixedPosition?: Vector3,
   forceExit: boolean = false,
   isHomeWorld: boolean = false
-): StarSystem {
+): { system: StarSystem; tunnels: Tunnel[] } {
   const rng = new SeededRandom(galaxySeed);
 
   // Use provided position or generate random one
@@ -83,7 +84,7 @@ export function generateNewSystem(
     .filter((orbit) => orbit > 0)
     .sort((a, b) => a - b);
 
-  const gates = generateGates(
+  const { gates, tunnels } = generateGates(
     gateRng,
     systemId,
     star.mass,
@@ -98,7 +99,7 @@ export function generateNewSystem(
     star.name = addConnectivitySuffix(star.name, gateCount, nameRng);
   }
 
-  return {
+  const system: StarSystem = {
     id: systemId,
     galaxyId,
     position,
@@ -110,6 +111,8 @@ export function generateNewSystem(
     gates,
     companionStars,
   };
+
+  return { system, tunnels };
 }
 
 /**
@@ -118,6 +121,7 @@ export function generateNewSystem(
 export interface StarterSystemResult {
   system: StarSystem;
   homePlanetId: string;
+  tunnels: Tunnel[];
 }
 
 /**
@@ -133,12 +137,13 @@ export function generateStarterSystem(
 
   let attempt = 0;
   let starterSystem: StarSystem | null = null;
+  let starterTunnels: Tunnel[] = [];
   let bestHabitablePlanet: any = null;
 
   // Try to generate a system with a habitable planet
   while (attempt < MAX_ATTEMPTS) {
     const systemSeed = galaxySeed + attempt;
-    const tempSystem = generateNewSystem(
+    const { system: tempSystem, tunnels: tempTunnels } = generateNewSystem(
       galaxyId,
       systemSeed,
       [],
@@ -157,6 +162,7 @@ export function generateStarterSystem(
 
     if (habitablePlanets.length > 0) {
       starterSystem = tempSystem;
+      starterTunnels = tempTunnels;
       bestHabitablePlanet = habitablePlanets[0];
       console.log(
         `Found starter system with habitable planet after ${
@@ -180,7 +186,7 @@ export function generateStarterSystem(
     console.warn(
       `Could not find ideal starter system after ${MAX_ATTEMPTS} attempts, using best available`
     );
-    starterSystem = generateNewSystem(
+    const { system, tunnels } = generateNewSystem(
       galaxyId,
       galaxySeed,
       [],
@@ -188,6 +194,8 @@ export function generateStarterSystem(
       false,
       true
     );
+    starterSystem = system;
+    starterTunnels = tunnels;
     // Find best planet even if below threshold
     const sortedPlanets = starterSystem.planets
       .filter((planet) => planet.habitability !== undefined)
@@ -240,7 +248,7 @@ export function generateStarterSystem(
     }
   }
 
-  return { system: starterSystem, homePlanetId };
+  return { system: starterSystem, homePlanetId, tunnels: starterTunnels };
 }
 
 /**
@@ -289,7 +297,7 @@ export function generateAdditionalSystems(
 export function generateSystemConnections(
   systems: StarSystem[],
   galaxySeed: number
-): void {
+): Tunnel[] {
   const rng = new SeededRandom(galaxySeed + 999);
 
   // Determine gate count for each system
@@ -354,6 +362,9 @@ export function generateSystemConnections(
   }
 
   // Generate gates for each system based on connections
+  const allTunnels: Tunnel[] = [];
+  const tunnelSet = new Set<string>(); // Track unique tunnels
+
   for (const system of systems) {
     const connections = Array.from(systemConnections.get(system.id)!);
     const systemRng = new SeededRandom(system.seed + 12345);
@@ -364,13 +375,23 @@ export function generateSystemConnections(
       .filter((orbit) => orbit > 0)
       .sort((a, b) => a - b);
 
-    system.gates = generateGates(
+    const { gates, tunnels } = generateGates(
       systemRng,
       system.id,
       system.star.mass,
       connections,
       planetOrbits
     );
+
+    system.gates = gates;
+
+    // Collect unique tunnels (avoid duplicates since each tunnel is bidirectional)
+    for (const tunnel of tunnels) {
+      if (!tunnelSet.has(tunnel.id)) {
+        tunnelSet.add(tunnel.id);
+        allTunnels.push(tunnel);
+      }
+    }
 
     // Add connectivity suffix to star name based on gate count
     const nameRng = new SeededRandom(system.seed + 777);
@@ -380,4 +401,6 @@ export function generateSystemConnections(
       nameRng
     );
   }
+
+  return allTunnels;
 }

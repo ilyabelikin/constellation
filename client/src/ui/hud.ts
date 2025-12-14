@@ -21,6 +21,19 @@ export class HUDManager {
     string,
     { ownerId: string; ownerName: string; status: string }
   > = new Map();
+  private tunnelOwnership: Map<
+    string,
+    {
+      tunnelId: string;
+      thisGateOwnerId?: string;
+      thisGateOwnerName?: string;
+      thisGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      otherGateOwnerId?: string;
+      otherGateOwnerName?: string;
+      otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      tunnelPoweredBy?: string | null;
+    }
+  > = new Map();
   private speciesGetter: ((speciesId: string) => any) | null = null;
 
   // Detail views
@@ -128,6 +141,22 @@ export class HUDManager {
     | ((systemId: string, objectId: string) => void)
     | null = null;
   public onGateTravel: ((gateId: string) => void) | null = null;
+  public onGateFortify: ((gateId: string) => void) | null = null;
+  public onGateAttack: ((gateId: string) => void) | null = null;
+  public onGateOvertake: ((gateId: string) => void) | null = null;
+  public onGateDebugConnect: ((gateId: string) => void) | null = null;
+  public onGetGateDefenseCount: ((gateId: string) => number) | null = null;
+  public onGetGateResourceFlow:
+    | ((gateId: string) =>
+        | {
+            energyFlow: number;
+            alloyFlow: number;
+            scienceFlow: number;
+            isBlockaded: boolean;
+            blockadeOwnerName?: string;
+          }
+        | undefined)
+    | null = null;
   public onSetPlayerStance:
     | ((
         targetPlayerId: string,
@@ -292,10 +321,34 @@ export class HUDManager {
     this.shipDetailView = new ShipDetailView();
     this.constellationSystemDetailView = new ConstellationSystemDetailView();
 
-    // Setup gate detail view callback
+    // Setup gate detail view callbacks
     this.gateDetailView.onTravelClick = (gateId: string) => {
       if (this.onGateTravel) {
         this.onGateTravel(gateId);
+      }
+    };
+
+    this.gateDetailView.onFortifyClick = (gateId: string) => {
+      if (this.onGateFortify) {
+        this.onGateFortify(gateId);
+      }
+    };
+
+    this.gateDetailView.onAttackClick = (gateId: string) => {
+      if (this.onGateAttack) {
+        this.onGateAttack(gateId);
+      }
+    };
+
+    this.gateDetailView.onOvertakeClick = (gateId: string) => {
+      if (this.onGateOvertake) {
+        this.onGateOvertake(gateId);
+      }
+    };
+
+    this.gateDetailView.onDebugConnectClick = (gateId: string) => {
+      if (this.onGateDebugConnect) {
+        this.onGateDebugConnect(gateId);
       }
     };
 
@@ -614,13 +667,102 @@ export class HUDManager {
     gateId: string,
     ownerId: string,
     ownerName: string,
-    status: string
+    status: string,
+    lastOvertakenAt?: number
   ): void {
-    this.gateOwnership.set(gateId, { ownerId, ownerName, status });
+    this.gateOwnership.set(gateId, {
+      ownerId,
+      ownerName,
+      status,
+      lastOvertakenAt: lastOvertakenAt || 0,
+    });
+
+    // Update the outliner to reflect the new ownership
+    this.updateGateInOutliner(gateId, status);
+  }
+
+  /**
+   * Update a specific gate's appearance in the outliner
+   */
+  private updateGateInOutliner(gateId: string, status: string): void {
+    // Find the gate item in the outliner
+    const gateItem = this.outlineList.querySelector(
+      `.outline-item.gate[data-object-id="${gateId}"]`
+    ) as HTMLElement;
+
+    if (!gateItem) return;
+
+    // Determine new color and status symbol
+    let gateColor = "#a855f7"; // Purple default
+    let statusSymbol = "◈";
+
+    switch (status) {
+      case "owned_by_self":
+        gateColor = "#fbbf24"; // Orange for owned by self
+        statusSymbol = "⚡";
+        break;
+      case "neutral":
+        gateColor = "#9ca3af"; // Gray for neutral
+        statusSymbol = "●";
+        break;
+      case "aggressive":
+        gateColor = "#ef4444"; // Red for aggressive
+        statusSymbol = "▲";
+        break;
+      case "friendly":
+        gateColor = "#10b981"; // Green for friendly
+        statusSymbol = "✓";
+        break;
+      case "unexplored":
+        gateColor = "#a855f7"; // Purple for unexplored
+        statusSymbol = "◈";
+        break;
+    }
+
+    // Update the gate item's color
+    gateItem.style.color = gateColor;
+
+    // Get the actual gate object to ensure we have the correct name
+    const gate = this.system.gates?.find((g) => g.id === gateId);
+    let gateName = "???";
+
+    // If we found the gate and player has explored it, show the real name
+    if (gate) {
+      const isExplored =
+        this.player?.exploredGateIds?.includes(gateId) ?? false;
+      if (isExplored) {
+        gateName = gate.name;
+      } else {
+        // Try to preserve existing name from current text if not explored
+        const currentText = gateItem.textContent || "";
+        const gateNameMatch = currentText.match(/[◈⚡●▲✓⚠]\s+(.+)/);
+        gateName = gateNameMatch ? gateNameMatch[1] : "???";
+      }
+    }
+
+    gateItem.textContent = `${statusSymbol} ${gateName}`;
   }
 
   clearGateOwnership(): void {
     this.gateOwnership.clear();
+  }
+
+  updateTunnelOwnership(
+    tunnelOwnerships: Array<{
+      gateId: string;
+      tunnelId: string;
+      thisGateOwnerId?: string;
+      thisGateOwnerName?: string;
+      thisGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      otherGateOwnerId?: string;
+      otherGateOwnerName?: string;
+      otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+      tunnelPoweredBy?: string | null;
+    }>
+  ): void {
+    for (const ownership of tunnelOwnerships) {
+      this.tunnelOwnership.set(ownership.gateId, ownership);
+    }
   }
 
   setSystem(system: StarSystem): void {
@@ -1160,12 +1302,76 @@ export class HUDManager {
     const gate = this.system.gates?.find((g) => g.id === objectId);
     if (gate) {
       const ownerInfo = this.gateOwnership.get(gate.id);
+      const defenseCount = this.onGetGateDefenseCount
+        ? this.onGetGateDefenseCount(gate.id)
+        : 0;
+      const resourceFlow = this.onGetGateResourceFlow
+        ? this.onGetGateResourceFlow(gate.id)
+        : undefined;
+
+      // Get destination gate defense count
+      let destinationDefenseCount = 0;
+      if (gate.destinationGateId && this.onGetGateDefenseCount) {
+        destinationDefenseCount = this.onGetGateDefenseCount(
+          gate.destinationGateId
+        );
+      }
+
+      // Build tunnel information from tunnelOwnership data
+      let tunnelInfo:
+        | {
+            gateAOwnerName?: string;
+            gateBOwnerName?: string;
+            gateAStatus?: string;
+            gateBStatus?: string;
+            tunnelPoweredBySpecies?: string | null;
+            canTravel?: boolean;
+            hasTunnelPower?: boolean;
+          }
+        | undefined;
+
+      const tunnelOwnershipData = this.tunnelOwnership.get(gate.id);
+      if (tunnelOwnershipData) {
+        // Determine if player can travel or has full tunnel power
+        const playerOwnsThis =
+          tunnelOwnershipData.thisGateOwnerId === this.player?.id;
+        const playerOwnsOther =
+          tunnelOwnershipData.otherGateOwnerId === this.player?.id;
+
+        tunnelInfo = {
+          gateAOwnerName:
+            tunnelOwnershipData.thisGateOwnerName || "Uncontrolled",
+          gateBOwnerName:
+            tunnelOwnershipData.otherGateOwnerName || "Uncontrolled",
+          gateAStatus: tunnelOwnershipData.thisGateStatus,
+          gateBStatus: tunnelOwnershipData.otherGateStatus,
+          tunnelPoweredBySpecies: tunnelOwnershipData.tunnelPoweredBy,
+          canTravel: playerOwnsThis || playerOwnsOther,
+          hasTunnelPower: playerOwnsThis && playerOwnsOther,
+        };
+      }
+
+      console.log(
+        `[HUD] Showing gate ${gate.name} (${gate.id}), ownerInfo:`,
+        ownerInfo,
+        `defenseCount: ${defenseCount}`,
+        `destinationDefenseCount: ${destinationDefenseCount}`,
+        `resourceFlow:`,
+        resourceFlow,
+        `tunnelInfo:`,
+        tunnelInfo
+      );
       this.gateDetailView.show(
         gate,
         this.player,
         this.system,
         this.currentState,
-        ownerInfo
+        ownerInfo,
+        defenseCount,
+        this.currentState.currentTime,
+        resourceFlow,
+        destinationDefenseCount,
+        tunnelInfo
       );
       return;
     }
@@ -1439,6 +1645,21 @@ export class HUDManager {
     this.discoveryModal.style.display = "flex";
   }
 
+  showGateOvertakeNotification(
+    newOwnerName: string,
+    gateName: string,
+    systemName: string
+  ): void {
+    const message =
+      `<div style="margin-bottom: 15px;">⚠️ Gate Overtaken!</div>` +
+      `<div style="margin-bottom: 15px;"><strong>${newOwnerName}</strong> has overtaken your gate <strong>${gateName}</strong></div>` +
+      `<div>in system <strong>${systemName}</strong></div>`;
+
+    this.discoveryMessage.innerHTML = message;
+    this.discoveryModal.classList.remove("hidden");
+    this.discoveryModal.style.display = "flex";
+  }
+
   updatePlayersDisplay(
     metPlayers: { id: string; name: string }[],
     totalPlayers: number
@@ -1456,8 +1677,7 @@ export class HUDManager {
 
     if (metPlayers.length === 0) {
       const statusText = document.createElement("span");
-      statusText.textContent =
-        unmetCount > 0 ? `${unmetCount} unmet` : "alone";
+      statusText.textContent = unmetCount > 0 ? `${unmetCount} unmet` : "alone";
       this.playersDisplay.appendChild(statusText);
     } else {
       // Add clickable player names
@@ -1798,7 +2018,9 @@ export class HUDManager {
 
     // Debug logging
     if (listChanged && this.isCyclingMineable) {
-      console.log(`[Mining Badge] Widget updated mid-cycle! Old: ${this.mineableObjects.length}, New: ${newMineableObjects.length}, Index: ${this.currentMineableIndex}`);
+      console.log(
+        `[Mining Badge] Widget updated mid-cycle! Old: ${this.mineableObjects.length}, New: ${newMineableObjects.length}, Index: ${this.currentMineableIndex}`
+      );
     }
 
     // Only reset cycling state if the list has changed
@@ -1893,7 +2115,12 @@ export class HUDManager {
 
     // Select the object
     const selectedObject = this.mineableObjects[this.currentMineableIndex];
-    console.log(`[Mining Badge] Selecting mineable object ${this.currentMineableIndex + 1}/${this.mineableObjects.length}:`, selectedObject);
+    console.log(
+      `[Mining Badge] Selecting mineable object ${
+        this.currentMineableIndex + 1
+      }/${this.mineableObjects.length}:`,
+      selectedObject
+    );
     if (this.onSelectObject) {
       this.onSelectObject(selectedObject.id);
     }

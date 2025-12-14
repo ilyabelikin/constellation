@@ -31,6 +31,25 @@ export class NetworkClient {
           ownerId: string;
           ownerName: string;
           status: "owned_by_self" | "neutral" | "friendly" | "aggressive";
+        }>,
+        tunnelOwnership?: Array<{
+          gateId: string;
+          tunnelId: string;
+          thisGateOwnerId?: string;
+          thisGateOwnerName?: string;
+          thisGateStatus?:
+            | "owned_by_self"
+            | "neutral"
+            | "friendly"
+            | "aggressive";
+          otherGateOwnerId?: string;
+          otherGateOwnerName?: string;
+          otherGateStatus?:
+            | "owned_by_self"
+            | "neutral"
+            | "friendly"
+            | "aggressive";
+          tunnelPoweredBy?: string | null;
         }>
       ) => void)
     | null = null;
@@ -40,8 +59,12 @@ export class NetworkClient {
     | null = null;
   public onShipData: ((ship: Ship) => void) | null = null;
   public onError: ((message: string) => void) | null = null;
-  public onGalaxyCreated: ((galaxyId: string, galaxyName: string) => void) | null = null;
-  public onEmptyGalaxyCreated: ((galaxyId: string, galaxyName: string) => void) | null = null;
+  public onGalaxyCreated:
+    | ((galaxyId: string, galaxyName: string) => void)
+    | null = null;
+  public onEmptyGalaxyCreated:
+    | ((galaxyId: string, galaxyName: string) => void)
+    | null = null;
   public onGalaxyJoined: ((galaxyId: string) => void) | null = null;
   public onGalaxyReset: ((galaxyId: string) => void) | null = null;
   public onGalaxyInfo:
@@ -114,6 +137,30 @@ export class NetworkClient {
   public onColonyUpdated: ((colony: any) => void) | null = null;
   public onColonyRemoved: ((planetId: string) => void) | null = null;
   public onSpeciesInfo: ((species: any) => void) | null = null;
+  public onGateDefenseBuilt: ((defense: any) => void) | null = null;
+  public onGateAttackStarted: ((attack: any) => void) | null = null;
+  public onGateAttackUpdate: ((attack: any) => void) | null = null;
+  public onGateOvertaken:
+    | ((
+        gateId: string,
+        gateName: string,
+        systemName: string,
+        newOwnerId: string,
+        newOwnerName: string,
+        previousOwnerId: string | null,
+        overtakeTime: number
+      ) => void)
+    | null = null;
+  public onGateResourceFlow:
+    | ((
+        gateId: string,
+        energyFlow: number,
+        alloyFlow: number,
+        scienceFlow: number,
+        isBlockaded: boolean,
+        blockadeOwnerName?: string
+      ) => void)
+    | null = null;
   public onDisconnected: (() => void) | null = null;
   public onReconnected: (() => void) | null = null;
 
@@ -202,7 +249,11 @@ export class NetworkClient {
 
         case "systemData":
           if (this.onSystemData) {
-            this.onSystemData(message.system, message.gateOwnership);
+            this.onSystemData(
+              message.system,
+              message.gateOwnership,
+              message.tunnelOwnership
+            );
           }
           break;
 
@@ -384,6 +435,46 @@ export class NetworkClient {
             this.onSpeciesInfo(message.species);
           }
           break;
+        case "gateDefenseBuilt":
+          if (this.onGateDefenseBuilt) {
+            this.onGateDefenseBuilt(message.defense);
+          }
+          break;
+        case "gateAttackStarted":
+          if (this.onGateAttackStarted) {
+            this.onGateAttackStarted(message.attack);
+          }
+          break;
+        case "gateAttackUpdate":
+          if (this.onGateAttackUpdate) {
+            this.onGateAttackUpdate(message.attack);
+          }
+          break;
+        case "gateOvertaken":
+          if (this.onGateOvertaken) {
+            this.onGateOvertaken(
+              message.gateId,
+              message.gateName,
+              message.systemName,
+              message.newOwnerId,
+              message.newOwnerName,
+              message.previousOwnerId,
+              message.overtakeTime
+            );
+          }
+          break;
+        case "gateResourceFlow":
+          if (this.onGateResourceFlow) {
+            this.onGateResourceFlow(
+              message.gateId,
+              message.energyFlow,
+              message.alloyFlow,
+              message.scienceFlow,
+              message.isBlockaded,
+              message.blockadeOwnerName
+            );
+          }
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -515,6 +606,18 @@ export class NetworkClient {
     this.send({ type: "requestSpeciesInfo", speciesId });
   }
 
+  fortifyGate(gateId: string): void {
+    this.send({ type: "fortifyGate", gateId });
+  }
+
+  attackGate(gateId: string): void {
+    this.send({ type: "attackGate", gateId });
+  }
+
+  overtakeGate(gateId: string): void {
+    this.send({ type: "overtakeGate", gateId });
+  }
+
   debugAddResource(
     resourceType: "energy" | "alloy" | "science",
     amount: number
@@ -523,6 +626,11 @@ export class NetworkClient {
       `[NetworkClient] Sending debugAddResource: ${resourceType} +${amount}`
     );
     this.send({ type: "debugAddResource", resourceType, amount });
+  }
+
+  debugConnectGate(gateId: string): void {
+    console.log(`[NetworkClient] Sending debugConnectGate for gate: ${gateId}`);
+    this.send({ type: "debugConnectGate", gateId });
   }
 
   /**

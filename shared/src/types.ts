@@ -110,13 +110,23 @@ export interface PlanetaryRing {
   inclination: number; // radians, tilt relative to planet's orbital plane
 }
 
+export interface Tunnel {
+  id: string;
+  systemAId: string;
+  systemBId: string;
+  poweredBySpeciesId: string | null;
+  createdAt: number;
+}
+
 export interface StarGate {
   id: string;
+  tunnelId: string | null; // Null if destination system hasn't been generated yet
   name: string;
   systemId: string;
   destinationSystemId: string;
   orbitalElements: OrbitalElements;
-  ownerId?: string; // Player who first explored this gate
+  ownerId?: string; // Player who controls this gate
+  tunnelPoweredBy?: string | null; // Species ID that powers the tunnel
 }
 
 // Gate relationship status (for gates owned by other players)
@@ -387,21 +397,70 @@ export interface ConstellationNode {
   dysonSwarms?: Array<{ starId: string; count: number }>; // Dyson swarms by star (primary + companions)
   habitablePlanetCount: number; // Number of habitable planets in the system
   colonizedHabitablePlanetCount: number; // Number of colonized habitable planets
-  habitablePlanets?: Array<{ planetId: string; planetName: string; isColonized: boolean }>; // Habitable planet details
+  habitablePlanets?: Array<{
+    planetId: string;
+    planetName: string;
+    isColonized: boolean;
+  }>; // Habitable planet details
 }
 
 export interface ConstellationConnection {
   fromSystemId: string;
   toSystemId: string;
   isExplored: boolean; // Whether the gate has been discovered
-  gateId?: string; // Optional gate ID for explored connections
-  ownerId?: string; // Player who owns this gate
-  ownerName?: string; // Name of the player who owns this gate
-  status?: GateStatusType; // Status relative to current player
+  gateId?: string; // Optional gate ID for explored connections (gate at fromSystemId)
+  ownerId?: string; // Player who owns the gate at fromSystemId
+  ownerName?: string; // Name of the player who owns the gate at fromSystemId
+  status?: GateStatusType; // Status relative to current player (gate at fromSystemId)
+
+  // Tunnel information (both sides)
+  tunnelId?: string; // The tunnel ID connecting both systems
+  gateAId?: string; // Gate in system A
+  gateBId?: string; // Gate in system B
+  gateAOwnerId?: string; // Player who owns gate A
+  gateBOwnerId?: string; // Player who owns gate B
+  gateAStatus?: GateStatusType; // Status of gate A relative to current player
+  gateBStatus?: GateStatusType; // Status of gate B relative to current player
+  tunnelPoweredBy?: string | null; // Species ID that powers the tunnel
 }
 
 export interface UnexploredGate {
   gateId: string;
   systemId: string; // The system this gate is in
   position: Vector3; // Position where the star will appear when explored
+}
+
+// Gate defense platform
+export interface GateDefense {
+  id: string;
+  gateId: string;
+  playerId: string;
+  systemId: string;
+  health: number; // Current health (0-100)
+  maxHealth: number; // Maximum health (default 100)
+  createdAt: number; // timestamp when built
+}
+
+// Gate attack status
+export const AttackStatus = {
+  IN_PROGRESS: "in_progress",
+  ATTACKER_VICTORY: "attacker_victory",
+  DEFENDER_VICTORY: "defender_victory",
+} as const;
+
+export type AttackStatusType = (typeof AttackStatus)[keyof typeof AttackStatus];
+
+// Gate attack
+export interface GateAttack {
+  id: string;
+  gateId: string;
+  attackerId: string;
+  defenderId: string;
+  systemId: string;
+  attackShipCount: number; // Number of attacking ships
+  attackShipsRemaining: number; // Number of ships still alive
+  status: AttackStatusType;
+  startedAt: number; // timestamp when attack started
+  completedAt?: number; // timestamp when attack completed
+  combatLog?: string; // JSON string of combat events
 }
