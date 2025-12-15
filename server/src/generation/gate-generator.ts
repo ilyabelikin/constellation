@@ -191,7 +191,9 @@ export function generateGates(
         systemId < destinationSystemId ? systemId : destinationSystemId,
       systemBId:
         systemId < destinationSystemId ? destinationSystemId : systemId,
-      poweredBySpeciesId: null,
+      poweredByPlayerId: null,
+      powerCostEnergy: 0,
+      overchargedAt: 0,
       createdAt: Date.now(),
     };
     tunnels.push(tunnel);
@@ -260,7 +262,9 @@ export function generateStarterGates(
         systemId < destinationSystemId ? systemId : destinationSystemId,
       systemBId:
         systemId < destinationSystemId ? destinationSystemId : systemId,
-      poweredBySpeciesId: null,
+      poweredByPlayerId: null,
+      powerCostEnergy: 0,
+      overchargedAt: 0,
       createdAt: Date.now(),
     };
     tunnels.push(tunnel);

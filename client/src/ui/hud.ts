@@ -18,6 +18,7 @@ export class HUDManager {
   private currentState: SystemState | null = null;
   private ship: Ship | null = null;
   private selectedObjectId: string | null = null;
+  private currentTime: number = 0;
   private gateOwnership: Map<
     string,
     {
@@ -39,7 +40,9 @@ export class HUDManager {
       otherGateOwnerName?: string;
       otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
       otherGateDefenseCount?: number;
-      tunnelPoweredBy?: string | null;
+      tunnelPoweredByPlayerId?: string | null;
+      tunnelPoweredByPlayerName?: string | null;
+      overchargedAt?: number | null;
     }
   > = new Map();
   private speciesGetter: ((speciesId: string) => any) | null = null;
@@ -69,6 +72,14 @@ export class HUDManager {
   private alloyRateDisplay: HTMLElement;
   private scienceDisplay: HTMLElement;
   private scienceRateDisplay: HTMLElement;
+  private alloyBreakdownTooltip: HTMLElement;
+  private alloyBreakdownContent: HTMLElement;
+  private resourceBreakdownData: Array<{
+    systemId: string;
+    systemName: string;
+    starName: string;
+    alloyPerDay: number;
+  }> | null = null;
 
   // Notification toast
   private notificationToast: HTMLElement;
@@ -96,6 +107,12 @@ export class HUDManager {
   private discoveryModal: HTMLElement;
   private discoveryMessage: HTMLElement;
   private discoveryOkButton: HTMLElement;
+
+  // Overcharge confirmation modal elements
+  private overchargeModal: HTMLElement;
+  private overchargeConfirmButton: HTMLElement;
+  private overchargeCancelButton: HTMLElement;
+  private pendingOverchargeTunnelId: string | null = null;
 
   // Player profile modal elements
   private playerProfileModal: HTMLElement;
@@ -151,9 +168,13 @@ export class HUDManager {
   public onGateTravel: ((gateId: string) => void) | null = null;
   public onGateFortify: ((gateId: string) => void) | null = null;
   public onGateAttack: ((gateId: string) => void) | null = null;
+  public onGateCapture: ((gateId: string) => void) | null = null;
   public onGateOvertake: ((gateId: string) => void) | null = null;
   public onGateDebugConnect: ((gateId: string) => void) | null = null;
   public onGetGateDefenseCount: ((gateId: string) => number) | null = null;
+  public onTunnelPowerOff: ((tunnelId: string) => void) | null = null;
+  public onTunnelOvertake: ((tunnelId: string) => void) | null = null;
+  public onTunnelOvercharge: ((tunnelId: string) => void) | null = null;
   public onGetGateResourceFlow:
     | ((gateId: string) =>
         | {
@@ -210,6 +231,8 @@ export class HUDManager {
     this.alloyRateDisplay = document.getElementById("alloy-rate")!;
     this.scienceDisplay = document.getElementById("science-display")!;
     this.scienceRateDisplay = document.getElementById("science-rate")!;
+    this.alloyBreakdownTooltip = document.getElementById("alloy-breakdown-tooltip")!;
+    this.alloyBreakdownContent = document.getElementById("alloy-breakdown-content")!;
 
     // Notification toast
     this.notificationToast = document.getElementById("notification-toast")!;
@@ -242,6 +265,27 @@ export class HUDManager {
     this.discoveryOkButton.addEventListener("click", () => {
       this.discoveryModal.classList.add("hidden");
       this.discoveryModal.style.display = "none";
+    });
+
+    // Overcharge confirmation modal
+    this.overchargeModal = document.getElementById("overcharge-modal")!;
+    this.overchargeConfirmButton = document.getElementById("overcharge-confirm-button")!;
+    this.overchargeCancelButton = document.getElementById("overcharge-cancel-button")!;
+
+    // Overcharge modal button handlers
+    this.overchargeConfirmButton.addEventListener("click", () => {
+      if (this.pendingOverchargeTunnelId && this.onTunnelOvercharge) {
+        this.onTunnelOvercharge(this.pendingOverchargeTunnelId);
+        this.pendingOverchargeTunnelId = null;
+      }
+      this.overchargeModal.classList.add("hidden");
+      this.overchargeModal.style.display = "none";
+    });
+
+    this.overchargeCancelButton.addEventListener("click", () => {
+      this.pendingOverchargeTunnelId = null;
+      this.overchargeModal.classList.add("hidden");
+      this.overchargeModal.style.display = "none";
     });
 
     // Player profile modal
@@ -350,10 +394,29 @@ export class HUDManager {
       }
     };
 
+    this.gateDetailView.onCaptureClick = (gateId: string) => {
+      if (this.onGateCapture) {
+        this.onGateCapture(gateId);
+      }
+    };
+
     this.gateDetailView.onOvertakeClick = (gateId: string) => {
       if (this.onGateOvertake) {
         this.onGateOvertake(gateId);
       }
+    };
+
+    this.gateDetailView.onPowerOffTunnel = (tunnelId: string) => {
+      if (this.onTunnelPowerOff) {
+        this.onTunnelPowerOff(tunnelId);
+      }
+    };
+
+    this.gateDetailView.onOverchargeTunnel = (tunnelId: string) => {
+      // Show the confirmation modal
+      this.pendingOverchargeTunnelId = tunnelId;
+      this.overchargeModal.classList.remove("hidden");
+      this.overchargeModal.style.display = "flex";
     };
 
     this.gateDetailView.onDebugConnectClick = (gateId: string) => {
@@ -442,6 +505,133 @@ export class HUDManager {
       e.preventDefault();
       this.cycleToPreviousMineableObject();
     });
+
+    // Alloy rate breakdown tooltip
+    this.setupAlloyBreakdownTooltip();
+  }
+
+  private setupAlloyBreakdownTooltip(): void {
+    let hideTimeout: number | null = null;
+
+    const showTooltip = () => {
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+        hideTimeout = null;
+      }
+      
+      if (this.resourceBreakdownData && this.resourceBreakdownData.length > 0) {
+        this.showAlloyBreakdown();
+      } else {
+        // Request breakdown from server
+        if (this.networkClient) {
+          this.networkClient.requestResourceBreakdown();
+        }
+      }
+    };
+
+    const scheduleHide = () => {
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+      }
+      hideTimeout = window.setTimeout(() => {
+        this.hideAlloyBreakdown();
+        hideTimeout = null;
+      }, 150);
+    };
+
+    // Show tooltip on hover over alloy rate
+    this.alloyRateDisplay.addEventListener("mouseenter", showTooltip);
+
+    // Hide tooltip when leaving the rate display area
+    this.alloyRateDisplay.addEventListener("mouseleave", scheduleHide);
+
+    // Keep tooltip visible when hovering over it
+    this.alloyBreakdownTooltip.addEventListener("mouseenter", () => {
+      if (hideTimeout) {
+        clearTimeout(hideTimeout);
+        hideTimeout = null;
+      }
+    });
+
+    // Hide tooltip when leaving tooltip area
+    this.alloyBreakdownTooltip.addEventListener("mouseleave", scheduleHide);
+  }
+
+  private showAlloyBreakdown(): void {
+    if (!this.resourceBreakdownData || this.resourceBreakdownData.length === 0) {
+      return;
+    }
+
+    // Clear previous content
+    this.alloyBreakdownContent.innerHTML = "";
+
+    // Add each system
+    for (const system of this.resourceBreakdownData) {
+      if (system.alloyPerDay === 0) continue; // Skip systems with no income
+
+      const systemDiv = document.createElement("div");
+      systemDiv.style.cssText = "cursor: pointer; padding: 4px 6px; border-radius: 3px; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; gap: 8px;";
+      
+      systemDiv.innerHTML = `
+        <div style="color: #e2e8f0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+          ⭐ ${system.starName}
+        </div>
+        <div style="color: ${system.alloyPerDay >= 0 ? '#10b981' : '#ef4444'}; font-size: 11px; font-weight: bold; white-space: nowrap;">
+          ${system.alloyPerDay > 0 ? "+" : ""}${system.alloyPerDay.toFixed(2)}
+        </div>
+      `;
+      
+      systemDiv.addEventListener("mouseenter", () => {
+        systemDiv.style.background = "rgba(148, 163, 184, 0.15)";
+      });
+      
+      systemDiv.addEventListener("mouseleave", () => {
+        systemDiv.style.background = "transparent";
+      });
+      
+      systemDiv.addEventListener("click", () => {
+        this.navigateToSystem(system.systemId);
+        this.hideAlloyBreakdown();
+      });
+
+      this.alloyBreakdownContent.appendChild(systemDiv);
+    }
+
+    // Position tooltip near the alloy rate display
+    const rect = this.alloyRateDisplay.getBoundingClientRect();
+    this.alloyBreakdownTooltip.style.left = `${rect.left}px`;
+    this.alloyBreakdownTooltip.style.top = `${rect.bottom + 5}px`;
+    this.alloyBreakdownTooltip.style.display = "block";
+  }
+
+  private hideAlloyBreakdown(): void {
+    this.alloyBreakdownTooltip.style.display = "none";
+  }
+
+  private navigateToSystem(systemId: string): void {
+    if (this.onSearchResultClick) {
+      // Use empty objectId to just navigate to system without selecting a specific object
+      this.onSearchResultClick(systemId, "");
+    }
+  }
+
+  private navigateToSystemAndObject(systemId: string, objectId: string): void {
+    if (this.onSearchResultClick) {
+      this.onSearchResultClick(systemId, objectId);
+    }
+  }
+
+  public updateResourceBreakdown(breakdown: Array<{
+    systemId: string;
+    systemName: string;
+    starName: string;
+    alloyPerDay: number;
+  }>): void {
+    this.resourceBreakdownData = breakdown;
+    // If tooltip is currently visible, update it
+    if (this.alloyBreakdownTooltip.style.display === "block") {
+      this.showAlloyBreakdown();
+    }
   }
 
   showGameHUD(): void {
@@ -769,7 +959,9 @@ export class HUDManager {
       otherGateOwnerName?: string;
       otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
       otherGateDefenseCount?: number;
-      tunnelPoweredBy?: string | null;
+      tunnelPoweredByPlayerId?: string | null;
+      tunnelPoweredByPlayerName?: string | null;
+      overchargedAt?: number | null;
     }>
   ): void {
     console.log(
@@ -1245,6 +1437,7 @@ export class HUDManager {
   }
 
   updateTime(currentTime: number, isPaused: boolean, timeScale: number): void {
+    this.currentTime = currentTime;
     const pauseStateChanged = this.isPaused !== isPaused;
     this.isPaused = isPaused;
 
@@ -1354,13 +1547,16 @@ export class HUDManager {
       // Build tunnel information from tunnelOwnership data
       let tunnelInfo:
         | {
-            gateAOwnerName?: string;
-            gateBOwnerName?: string;
-            gateAStatus?: string;
-            gateBStatus?: string;
-            tunnelPoweredBySpecies?: string | null;
-            canTravel?: boolean;
-            hasTunnelPower?: boolean;
+          gateAOwnerName?: string;
+          gateBOwnerName?: string;
+          gateAStatus?: string;
+          gateBStatus?: string;
+          tunnelPoweredByPlayerId?: string | null;
+          tunnelPoweredByPlayerName?: string | null;
+          tunnelId?: string;
+          canTravel?: boolean;
+          hasTunnelPower?: boolean;
+          overchargeTimeRemaining?: string | null;
           }
         | undefined;
 
@@ -1384,9 +1580,12 @@ export class HUDManager {
             tunnelOwnershipData.otherGateOwnerName || "Uncontrolled",
           gateAStatus: tunnelOwnershipData.thisGateStatus,
           gateBStatus: tunnelOwnershipData.otherGateStatus,
-          tunnelPoweredBySpecies: tunnelOwnershipData.tunnelPoweredBy,
+          tunnelPoweredByPlayerId: tunnelOwnershipData.tunnelPoweredByPlayerId,
+          tunnelPoweredByPlayerName: tunnelOwnershipData.tunnelPoweredByPlayerName,
+          tunnelId: tunnelOwnershipData.tunnelId,
           canTravel: playerOwnsThis || playerOwnsOther,
-          hasTunnelPower: playerOwnsThis && playerOwnsOther,
+          hasTunnelPower: tunnelOwnershipData.tunnelPoweredByPlayerId === this.player?.id,
+          overchargeTimeRemaining: this.calculateOverchargeCooldown(tunnelOwnershipData.overchargedAt),
         };
       } else {
         // No tunnel ownership data yet - show default values
@@ -1398,9 +1597,12 @@ export class HUDManager {
           gateBOwnerName: "Uncontrolled",
           gateAStatus: undefined,
           gateBStatus: undefined,
-          tunnelPoweredBySpecies: null,
+          tunnelPoweredByPlayerId: null,
+          tunnelPoweredByPlayerName: null,
+          tunnelId: undefined,
           canTravel: false,
           hasTunnelPower: false,
+          overchargeTimeRemaining: null,
         };
       }
 
@@ -2211,5 +2413,23 @@ export class HUDManager {
     if (this.onSelectObject) {
       this.onSelectObject(selectedObject.id);
     }
+  }
+
+  private calculateOverchargeCooldown(overchargedAt?: number | null): string | null {
+    if (!overchargedAt || overchargedAt === 0) {
+      return null;
+    }
+
+    const COOLDOWN_PERIOD = 3 * 365 * 86400; // 3 years in seconds
+    const timeSinceOvercharge = this.currentTime - overchargedAt;
+
+    if (timeSinceOvercharge >= COOLDOWN_PERIOD) {
+      return null; // Cooldown expired
+    }
+
+    const remainingSeconds = COOLDOWN_PERIOD - timeSinceOvercharge;
+    const remainingYears = (remainingSeconds / (365 * 86400)).toFixed(1);
+    
+    return `${remainingYears} years`;
   }
 }

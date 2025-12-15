@@ -519,6 +519,9 @@ export class SceneManager {
 
     // Process any defense platforms that arrived before gates were loaded
     this.gateDefenseRenderer.processPendingDefenses();
+    
+    // Clear any stale pending defenses that don't match current system's gates
+    this.gateDefenseRenderer.clearStalePendingDefenses();
   }
 
   setExploredGates(exploredGateIds: string[]): void {
@@ -2918,7 +2921,8 @@ export class SceneManager {
     destinationSystem: StarSystem,
     exitGateId: string,
     onComplete?: () => void,
-    wasEntryGateExplored?: boolean
+    wasEntryGateExplored?: boolean,
+    isExitGateBlocked?: boolean
   ): void {
     // Get the entry gate (the one we're traveling through)
     const entryGateGroup = this.entryGateId
@@ -2936,6 +2940,9 @@ export class SceneManager {
     }
 
     console.log("Starting hyperspace animation from gate:", this.entryGateId);
+    if (isExitGateBlocked) {
+      console.log("Exit gate is blocked - will stop at gate instead of star");
+    }
 
     // Store exit gate ID and destination system for later
     this.exitGateId = exitGateId;
@@ -3006,7 +3013,8 @@ export class SceneManager {
       exitGateId,
       onComplete,
       isExploredGate,
-      entryGateGroup // Pass entry gate mesh for positioning
+      entryGateGroup, // Pass entry gate mesh for positioning
+      isExitGateBlocked
     );
   }
 

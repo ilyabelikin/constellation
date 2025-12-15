@@ -106,8 +106,18 @@ export const GAME_COSTS = {
     alloy: 10,
     science: 0,
   },
+  TUNNEL_POWER_ON: {
+    energy: 1,
+    alloy: 0,
+    science: 0,
+  },
   TUNNEL_OVERTAKE: {
     energy: 3,
+    alloy: 0,
+    science: 10,
+  },
+  TUNNEL_OVERCHARGE: {
+    energy: 10,
     alloy: 0,
     science: 10,
   },
@@ -173,4 +183,69 @@ export function calculateMaintenanceCost(
     alloy: Math.max(0, baseMaintenance.alloy - (modifiers?.alloy ?? 0)),
     science: Math.max(0, baseMaintenance.science - (modifiers?.science ?? 0)),
   };
+}
+
+/**
+ * Calculate colony resource yields based on population, specialization, and habitability
+ * Uses a smooth curve where colonies:
+ * - Consume resources until 1M population (starts low, peaks around 500K, then decreases to 0)
+ * - Produce resources after 1M population (grows logarithmically with population)
+ */
+export function calculateColonyYields(
+  population: number,
+  specialization: "balanced" | "research" | "industrial",
+  habitabilityBonus: number
+): { sciencePerDay: number; alloyPerDay: number } {
+  const THRESHOLD = 1000000; // 1M population threshold
+
+  if (population >= THRESHOLD) {
+    // PRODUCTION PHASE: Colony produces resources after reaching 1M population
+    // Production grows with population above 1M
+    // Using logarithmic growth for smooth scaling
+    const populationAboveThreshold = population - THRESHOLD;
+    const productionMultiplier = Math.log10(populationAboveThreshold + 1) / 2; // Starts at 0, grows slowly
+
+    switch (specialization) {
+      case "research":
+        return {
+          sciencePerDay:
+            (0.02 + productionMultiplier * 0.08) * habitabilityBonus,
+          alloyPerDay:
+            (0.002 + productionMultiplier * 0.008) * habitabilityBonus,
+        };
+      case "industrial":
+        return {
+          sciencePerDay:
+            (0.004 + productionMultiplier * 0.016) * habitabilityBonus,
+          alloyPerDay:
+            (0.016 + productionMultiplier * 0.064) * habitabilityBonus,
+        };
+      default: // balanced
+        return {
+          sciencePerDay:
+            (0.012 + productionMultiplier * 0.048) * habitabilityBonus,
+          alloyPerDay:
+            (0.006 + productionMultiplier * 0.024) * habitabilityBonus,
+        };
+    }
+  } else {
+    // CONSUMPTION PHASE: Colony consumes resources until reaching 1M population
+    // Use a smooth curve that starts low, peaks around 500K, then decreases to 0 at 1M
+    // Bell curve: peak at 0.5, using sin function for smooth transition
+    const normalizedPop = population / THRESHOLD; // 0 to 1
+    const consumptionCurve = Math.sin(normalizedPop * Math.PI); // Peaks at 0.5, returns to 0 at 1.0
+
+    // Base consumption rates (at peak, around 500K population)
+    const peakConsumption = {
+      research: { science: -0.05, alloy: -0.01 },
+      industrial: { science: -0.01, alloy: -0.04 },
+      balanced: { science: -0.03, alloy: -0.02 },
+    };
+
+    const rates = peakConsumption[specialization] || peakConsumption.balanced;
+    return {
+      sciencePerDay: rates.science * consumptionCurve * habitabilityBonus,
+      alloyPerDay: rates.alloy * consumptionCurve * habitabilityBonus,
+    };
+  }
 }

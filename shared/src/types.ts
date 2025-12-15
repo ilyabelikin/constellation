@@ -114,7 +114,9 @@ export interface Tunnel {
   id: string;
   systemAId: string;
   systemBId: string;
-  poweredBySpeciesId: string | null;
+  poweredByPlayerId: string | null; // Player who is currently powering the tunnel
+  powerCostEnergy: number; // Energy cost paid to power the tunnel
+  overchargedAt: number; // Timestamp when tunnel was last overcharged (0 if never)
   createdAt: number;
 }
 
@@ -246,6 +248,7 @@ export interface Species {
   description: string;
   createdAt: number;
   playerId?: string; // If this is a player-controlled species
+  pregeneratedSpeciesId?: string; // Original pregenerated species template ID (e.g., "species_humans")
 }
 
 // Colony development stages
@@ -421,7 +424,7 @@ export interface ConstellationConnection {
   gateBOwnerId?: string; // Player who owns gate B
   gateAStatus?: GateStatusType; // Status of gate A relative to current player
   gateBStatus?: GateStatusType; // Status of gate B relative to current player
-  tunnelPoweredBy?: string | null; // Species ID that powers the tunnel
+  tunnelPoweredByPlayerId?: string | null; // Player ID that powers the tunnel
 }
 
 export interface UnexploredGate {

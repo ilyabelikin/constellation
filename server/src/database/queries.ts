@@ -17,6 +17,7 @@ import {
   Colony,
   NativeCivilization,
   BASE_POPULATION_DENSITY,
+  calculateColonyYields,
 } from "@constellation/shared";
 
 export class DatabaseQueries {
@@ -1041,48 +1042,23 @@ export class DatabaseQueries {
             const isProducing = newPopulation >= 1000000;
             crossedThreshold = wasConsuming && isProducing;
 
-            // If stage changed, recalculate resource yields
-            if (stageChanged || crossedThreshold) {
-              const stageMultipliers: Record<string, number> = {
-                outpost: 1.0,
-                settlement: 2.0,
-                colony: 4.0,
-                developed: 8.0,
-                metropolis: 16.0,
-                ecumenopolis: 32.0,
-              };
+            // If population changed significantly, recalculate resource yields using the smooth curve
+            // We recalculate on stage changes or threshold crossing to ensure yields stay accurate
+            if (stageChanged || crossedThreshold || newPopulation !== row.population) {
+              const habitabilityBonus = planet.habitability || 0.5;
+              const yields = calculateColonyYields(
+                newPopulation,
+                row.specialization,
+                habitabilityBonus
+              );
+              sciencePerDay = yields.sciencePerDay;
+              alloyPerDay = yields.alloyPerDay;
 
               if (crossedThreshold) {
-                // Switch from consumption to production at reduced rates
-                const habitabilityBonus = planet.habitability || 0.5;
-                const multiplier = stageMultipliers[currentStage] || 1.0;
-
-                switch (row.specialization) {
-                  case "research":
-                    sciencePerDay = 0.01 * habitabilityBonus * multiplier; // Reduced from 0.03
-                    alloyPerDay = 0.001 * habitabilityBonus * multiplier; // Reduced from 0.002
-                    break;
-                  case "industrial":
-                    sciencePerDay = 0.002 * habitabilityBonus * multiplier; // Reduced from 0.005
-                    alloyPerDay = 0.008 * habitabilityBonus * multiplier; // Reduced from 0.02
-                    break;
-                  default: // balanced
-                    sciencePerDay = 0.006 * habitabilityBonus * multiplier; // Reduced from 0.015
-                    alloyPerDay = 0.003 * habitabilityBonus * multiplier; // Reduced from 0.008
-                    break;
-                }
-
                 console.log(
                   `Colony ${row.planet_name} reached 1M population - switched from consumption to production (pop: ${newPopulation})`
                 );
               } else if (stageChanged) {
-                const oldMultiplier = stageMultipliers[oldStage] || 1.0;
-                const newMultiplier = stageMultipliers[currentStage] || 1.0;
-
-                // Scale the yields by the ratio of multipliers
-                sciencePerDay = (sciencePerDay / oldMultiplier) * newMultiplier;
-                alloyPerDay = (alloyPerDay / oldMultiplier) * newMultiplier;
-
                 console.log(
                   `Colony ${row.planet_name} advanced from ${oldStage} to ${currentStage} (pop: ${newPopulation})`
                 );
@@ -1225,13 +1201,15 @@ export class DatabaseQueries {
   // Tunnel operations
   createTunnel(tunnel: Tunnel): void {
     const stmt = this.db.prepare(
-      "INSERT OR IGNORE INTO tunnels (id, system_a_id, system_b_id, powered_by_species_id, created_at) VALUES (?, ?, ?, ?, ?)"
+      "INSERT OR IGNORE INTO tunnels (id, system_a_id, system_b_id, powered_by_player_id, power_cost_energy, overcharged_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       tunnel.id,
       tunnel.systemAId,
       tunnel.systemBId,
-      tunnel.poweredBySpeciesId,
+      tunnel.poweredByPlayerId,
+      tunnel.powerCostEnergy,
+      tunnel.overchargedAt,
       tunnel.createdAt
     );
   }
@@ -1244,16 +1222,25 @@ export class DatabaseQueries {
       id: row.id,
       systemAId: row.system_a_id,
       systemBId: row.system_b_id,
-      poweredBySpeciesId: row.powered_by_species_id,
+      poweredByPlayerId: row.powered_by_player_id,
+      powerCostEnergy: row.power_cost_energy || 0,
+      overchargedAt: row.overcharged_at || 0,
       createdAt: row.created_at,
     };
   }
 
-  setTunnelPower(tunnelId: string, speciesId: string | null): void {
+  setTunnelPower(tunnelId: string, playerId: string | null, energyCost: number): void {
     const stmt = this.db.prepare(
-      "UPDATE tunnels SET powered_by_species_id = ? WHERE id = ?"
+      "UPDATE tunnels SET powered_by_player_id = ?, power_cost_energy = ? WHERE id = ?"
     );
-    stmt.run(speciesId, tunnelId);
+    stmt.run(playerId, energyCost, tunnelId);
+  }
+
+  setTunnelOvercharged(tunnelId: string, overchargedAt: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE tunnels SET overcharged_at = ?, powered_by_player_id = NULL, power_cost_energy = 0 WHERE id = ?"
+    );
+    stmt.run(overchargedAt, tunnelId);
   }
 
   getTunnelsBySystem(systemId: string): Tunnel[] {
@@ -1265,7 +1252,9 @@ export class DatabaseQueries {
       id: row.id,
       systemAId: row.system_a_id,
       systemBId: row.system_b_id,
-      poweredBySpeciesId: row.powered_by_species_id,
+      poweredByPlayerId: row.powered_by_player_id,
+      powerCostEnergy: row.power_cost_energy || 0,
+      overchargedAt: row.overcharged_at || 0,
       createdAt: row.created_at,
     }));
   }
@@ -1506,7 +1495,9 @@ export class DatabaseQueries {
         id: tunnelId,
         systemAId: systemA,
         systemBId: systemB,
-        poweredBySpeciesId: null,
+        poweredByPlayerId: null,
+        powerCostEnergy: 0,
+        overchargedAt: 0,
         createdAt: Date.now(),
       });
 
@@ -1535,9 +1526,7 @@ export class DatabaseQueries {
       "INSERT OR REPLACE INTO gate_ownership (gate_id, owner_id, explored_at, last_overtaken_at) VALUES (?, ?, ?, ?)"
     );
     stmt.run(gateId, ownerId, Date.now(), 0);
-
-    // Check if tunnel should be powered by this species
-    this.updateTunnelPower(gateId);
+    // Note: Tunnel power is now managed separately via tunnel overtake/power actions
   }
 
   setGateOwnershipWithOvertake(
@@ -1549,44 +1538,7 @@ export class DatabaseQueries {
       "INSERT OR REPLACE INTO gate_ownership (gate_id, owner_id, explored_at, last_overtaken_at) VALUES (?, ?, ?, ?)"
     );
     stmt.run(gateId, ownerId, Date.now(), overtakeTime);
-
-    // Check if tunnel should be powered by this species
-    this.updateTunnelPower(gateId);
-  }
-
-  /**
-   * Update tunnel power based on gate ownership
-   * If both gates of a tunnel are owned by the same player, that player's species powers the tunnel
-   * Otherwise, the tunnel has no power
-   */
-  updateTunnelPower(gateId: string): void {
-    const gate = this.getGateById(gateId);
-    if (!gate || !gate.tunnelId) return; // Skip gates without tunnels
-
-    const tunnel = this.getTunnelById(gate.tunnelId);
-    if (!tunnel) return;
-
-    const gatesInTunnel = this.getGatesByTunnel(gate.tunnelId);
-    if (gatesInTunnel.length !== 2) return; // Should always be 2 gates
-
-    const gateA = gatesInTunnel[0];
-    const gateB = gatesInTunnel[1];
-
-    const ownerA = this.getGateOwner(gateA.id);
-    const ownerB = this.getGateOwner(gateB.id);
-
-    // If both gates are owned by the same player, use their species to power the tunnel
-    if (ownerA && ownerB && ownerA === ownerB) {
-      const player = this.getPlayerById(ownerA);
-      if (player && player.speciesId) {
-        this.setTunnelPower(gate.tunnelId, player.speciesId);
-      } else {
-        this.setTunnelPower(gate.tunnelId, null);
-      }
-    } else {
-      // Different owners or no owners - no tunnel power
-      this.setTunnelPower(gate.tunnelId, null);
-    }
+    // Note: Tunnel power is now managed separately via tunnel overtake/power actions
   }
 
   getGateLastOvertakenAt(gateId: string): number {
@@ -2149,9 +2101,11 @@ export class DatabaseQueries {
     otherGateOwnerId?: string;
     otherGateOwnerName?: string;
     otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
-    otherGateDefenseCount?: number;
-    tunnelPoweredBy?: string | null;
-  }> {
+      otherGateDefenseCount?: number;
+      tunnelPoweredByPlayerId?: string | null;
+      tunnelPoweredByPlayerName?: string | null;
+      overchargedAt?: number | null;
+    }> {
     const gates = this.getGatesBySystem(systemId);
     const result: Array<{
       gateId: string;
@@ -2164,7 +2118,9 @@ export class DatabaseQueries {
       otherGateOwnerName?: string;
       otherGateStatus?: "owned_by_self" | "neutral" | "friendly" | "aggressive";
       otherGateDefenseCount?: number;
-      tunnelPoweredBy?: string | null;
+      tunnelPoweredByPlayerId?: string | null;
+      tunnelPoweredByPlayerName?: string | null;
+      overchargedAt?: number | null;
     }> = [];
 
     for (const gate of gates) {
@@ -2232,6 +2188,13 @@ export class DatabaseQueries {
       const thisGateDefenseCount = this.getGateDefenseCount(gate.id);
       const otherGateDefenseCount = this.getGateDefenseCount(otherGate.id);
 
+      // Get tunnel power owner info
+      let tunnelPoweredByPlayerName: string | null = null;
+      if (tunnel.poweredByPlayerId) {
+        const powerOwner = this.getPlayerById(tunnel.poweredByPlayerId);
+        tunnelPoweredByPlayerName = powerOwner?.name || null;
+      }
+
       result.push({
         gateId: gate.id,
         tunnelId: gate.tunnelId,
@@ -2243,7 +2206,9 @@ export class DatabaseQueries {
         otherGateOwnerName,
         otherGateStatus,
         otherGateDefenseCount,
-        tunnelPoweredBy: tunnel.poweredBySpeciesId,
+        tunnelPoweredByPlayerId: tunnel.poweredByPlayerId,
+        tunnelPoweredByPlayerName,
+        overchargedAt: tunnel.overchargedAt || null,
       });
     }
 
@@ -2337,7 +2302,7 @@ export class DatabaseQueries {
         | "neutral"
         | "aggressive"
         | "friendly";
-      tunnelPoweredBy?: string | null;
+      tunnelPoweredByPlayerId?: string | null;
     }> = [];
 
     // Build full constellation from all explored gates
@@ -2497,7 +2462,7 @@ export class DatabaseQueries {
           gateBOwnerId,
           gateAStatus,
           gateBStatus,
-          tunnelPoweredBy: tunnel?.poweredBySpeciesId || null,
+          tunnelPoweredByPlayerId: tunnel?.poweredByPlayerId || null,
         });
 
         // Only add destination system if this gate is explored
@@ -2664,7 +2629,7 @@ export class DatabaseQueries {
    */
   createSpecies(species: Species): void {
     const stmt = this.db.prepare(
-      "INSERT INTO species (id, name, homeworld, homeworld_id, appearance, traits, description, created_at, player_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      "INSERT INTO species (id, name, homeworld, homeworld_id, appearance, traits, description, created_at, player_id, pregenerated_species_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     );
     stmt.run(
       species.id,
@@ -2675,7 +2640,8 @@ export class DatabaseQueries {
       JSON.stringify(species.traits),
       species.description,
       species.createdAt,
-      species.playerId || null
+      species.playerId || null,
+      species.pregeneratedSpeciesId || null
     );
   }
 
@@ -2697,6 +2663,7 @@ export class DatabaseQueries {
       description: row.description,
       createdAt: row.created_at,
       playerId: row.player_id || undefined,
+      pregeneratedSpeciesId: row.pregenerated_species_id || undefined,
     };
   }
 

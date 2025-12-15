@@ -101,10 +101,28 @@ export class GateDefenseRenderer {
     );
 
     const toAdd = [...this.pendingDefenses];
-    this.pendingDefenses = [];
+    const stillPending: GateDefense[] = [];
 
     for (const defense of toAdd) {
-      this.addDefensePlatform(defense);
+      // Check if gate exists now
+      const gateGroup = this.gateGroups.get(defense.gateId);
+      if (gateGroup) {
+        // Gate exists - add the defense
+        this.addDefensePlatform(defense);
+      } else {
+        // Gate still doesn't exist - keep it buffered for now
+        // This can happen if defenses arrive for gates in other systems
+        stillPending.push(defense);
+      }
+    }
+
+    // Keep only the defenses that still couldn't be processed
+    this.pendingDefenses = stillPending;
+
+    if (stillPending.length > 0) {
+      console.log(
+        `${stillPending.length} defense platforms still pending (gates not found)`
+      );
     }
   }
 
@@ -177,8 +195,32 @@ export class GateDefenseRenderer {
     }
     this.activeAttacks.clear();
 
-    // Clear pending defenses
-    this.pendingDefenses = [];
+    // NOTE: We do NOT clear pendingDefenses here because they may be for gates
+    // in the NEW system that haven't been loaded yet (e.g., during gate travel).
+    // Pending defenses will be processed when gates are loaded, and any that
+    // don't match will remain buffered.
+    // Use clearStalePendingDefenses() after loading new system to clean up old ones.
+    console.log(`[GateDefenseRenderer] clearAll() called, keeping ${this.pendingDefenses.length} pending defenses for new system`);
+  }
+
+  /**
+   * Clear pending defenses that don't match any currently loaded gates
+   * Call this after loading a new system to remove stale buffered defenses
+   */
+  clearStalePendingDefenses(): void {
+    if (this.pendingDefenses.length === 0) return;
+
+    const validGateIds = new Set(this.gateGroups.keys());
+    const before = this.pendingDefenses.length;
+    
+    this.pendingDefenses = this.pendingDefenses.filter(defense => 
+      validGateIds.has(defense.gateId)
+    );
+
+    const removed = before - this.pendingDefenses.length;
+    if (removed > 0) {
+      console.log(`[GateDefenseRenderer] Cleared ${removed} stale pending defenses`);
+    }
   }
 
   /**

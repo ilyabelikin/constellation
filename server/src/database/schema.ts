@@ -594,15 +594,39 @@ export function initializeDatabase(dbPath: string): Database.Database {
           description TEXT NOT NULL,
           created_at INTEGER NOT NULL,
           player_id TEXT,
+          pregenerated_species_id TEXT,
           FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE SET NULL
         );
         CREATE INDEX idx_species_player ON species(player_id);
         CREATE INDEX idx_species_homeworld ON species(homeworld_id);
+        CREATE INDEX idx_species_pregenerated ON species(pregenerated_species_id);
       `);
       console.log("Species table migration complete");
     }
   } catch (error) {
     console.error("Error during species table migration:", error);
+  }
+
+  // Migration: Add pregenerated_species_id column to species table if it doesn't exist
+  try {
+    const speciesColumns = db
+      .prepare("PRAGMA table_info(species)")
+      .all() as Array<{ name: string }>;
+
+    const hasPregeneratedSpeciesId = speciesColumns.some(
+      (col) => col.name === "pregenerated_species_id"
+    );
+
+    if (!hasPregeneratedSpeciesId) {
+      console.log(
+        "Migrating database: Adding pregenerated_species_id column to species"
+      );
+      db.exec("ALTER TABLE species ADD COLUMN pregenerated_species_id TEXT");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_species_pregenerated ON species(pregenerated_species_id)");
+      console.log("Species pregenerated ID migration complete");
+    }
+  } catch (error) {
+    console.error("Error during species pregenerated ID migration:", error);
   }
 
   // Migration: Create colonies table if it doesn't exist
@@ -775,6 +799,56 @@ export function initializeDatabase(dbPath: string): Database.Database {
     }
   } catch (error) {
     console.error("Error during gate ownership migration:", error);
+  }
+
+  // Migration: Add powered_by_player_id and power_cost_energy to tunnels
+  try {
+    const columns = db
+      .prepare("PRAGMA table_info(tunnels)")
+      .all() as Array<{ name: string }>;
+
+    const hasPoweredByPlayerId = columns.some(
+      (col) => col.name === "powered_by_player_id"
+    );
+    const hasPowerCostEnergy = columns.some(
+      (col) => col.name === "power_cost_energy"
+    );
+    const hasOverchargedAt = columns.some(
+      (col) => col.name === "overcharged_at"
+    );
+
+    if (!hasPoweredByPlayerId) {
+      console.log(
+        "Migrating database: Adding powered_by_player_id to tunnels"
+      );
+      db.exec(
+        `ALTER TABLE tunnels ADD COLUMN powered_by_player_id TEXT;`
+      );
+    }
+
+    if (!hasPowerCostEnergy) {
+      console.log(
+        "Migrating database: Adding power_cost_energy to tunnels"
+      );
+      db.exec(
+        `ALTER TABLE tunnels ADD COLUMN power_cost_energy INTEGER DEFAULT 0;`
+      );
+    }
+
+    if (!hasOverchargedAt) {
+      console.log(
+        "Migrating database: Adding overcharged_at to tunnels"
+      );
+      db.exec(
+        `ALTER TABLE tunnels ADD COLUMN overcharged_at INTEGER DEFAULT 0;`
+      );
+    }
+
+    if (!hasPoweredByPlayerId || !hasPowerCostEnergy || !hasOverchargedAt) {
+      console.log("Tunnel power tracking migration complete");
+    }
+  } catch (error) {
+    console.error("Error during tunnel power tracking migration:", error);
   }
 
   // Migration: Add cost tracking columns to gate_defenses for refunds

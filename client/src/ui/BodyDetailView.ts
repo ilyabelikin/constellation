@@ -567,7 +567,7 @@ export class BodyDetailView {
     if (
       body.type === "planet" &&
       body.habitability !== undefined &&
-      body.habitability >= 0.3
+      body.habitability >= 0.6
     ) {
       if (this.colonySection) {
         this.colonySection.style.display = "block";

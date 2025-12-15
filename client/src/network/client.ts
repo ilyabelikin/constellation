@@ -110,7 +110,8 @@ export class NetworkClient {
             | "aggressive";
           otherGateDefenseCount?: number;
           tunnelPoweredBy?: string | null;
-        }>
+        }>,
+        isExitGateBlocked?: boolean
       ) => void)
     | null = null;
   public onConstellationData:
@@ -191,6 +192,16 @@ export class NetworkClient {
         scienceFlow: number,
         isBlockaded: boolean,
         blockadeOwnerName?: string
+      ) => void)
+    | null = null;
+  public onResourceBreakdown:
+    | ((
+        breakdown: Array<{
+          systemId: string;
+          systemName: string;
+          starName: string;
+          alloyPerDay: number;
+        }>
       ) => void)
     | null = null;
   public onDisconnected: (() => void) | null = null;
@@ -376,7 +387,8 @@ export class NetworkClient {
               message.exploredGateIds,
               message.exitGateId,
               message.gateOwnership,
-              message.tunnelOwnership
+              message.tunnelOwnership,
+              message.isExitGateBlocked
             );
           }
           break;
@@ -515,6 +527,11 @@ export class NetworkClient {
               message.isBlockaded,
               message.blockadeOwnerName
             );
+          }
+          break;
+        case "resourceBreakdown":
+          if (this.onResourceBreakdown) {
+            this.onResourceBreakdown(message.breakdown);
           }
           break;
       }
@@ -660,6 +677,22 @@ export class NetworkClient {
     this.send({ type: "overtakeGate", gateId });
   }
 
+  captureGate(gateId: string): void {
+    this.send({ type: "captureGate", gateId });
+  }
+
+  overtakeTunnel(tunnelId: string): void {
+    this.send({ type: "overtakeTunnel", tunnelId });
+  }
+
+  powerOffTunnel(tunnelId: string): void {
+    this.send({ type: "powerOffTunnel", tunnelId });
+  }
+
+  overchargeTunnel(tunnelId: string): void {
+    this.send({ type: "overchargeTunnel", tunnelId });
+  }
+
   debugAddResource(
     resourceType: "energy" | "alloy" | "science",
     amount: number
@@ -673,6 +706,10 @@ export class NetworkClient {
   debugConnectGate(gateId: string): void {
     console.log(`[NetworkClient] Sending debugConnectGate for gate: ${gateId}`);
     this.send({ type: "debugConnectGate", gateId });
+  }
+
+  requestResourceBreakdown(): void {
+    this.send({ type: "requestResourceBreakdown" });
   }
 
   /**

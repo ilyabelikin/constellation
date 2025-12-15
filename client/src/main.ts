@@ -27,7 +27,10 @@ class ConstellationApp {
   private network: NetworkClient;
   private game: ConstellationGame | null = null;
   private animationFrameId: number | null = null;
-  private bufferedGalaxyPlayers: { metPlayers: { id: string; name: string }[]; totalPlayers: number } | null = null;
+  private bufferedGalaxyPlayers: {
+    metPlayers: { id: string; name: string }[];
+    totalPlayers: number;
+  } | null = null;
 
   constructor() {
     // Initialize scene for starfield background (needed for both lobby and game)
@@ -115,10 +118,16 @@ class ConstellationApp {
     this.network.onGalaxyPlayers = (metPlayers, totalPlayers) => {
       // If game is not yet created, buffer the data
       if (!this.game) {
-        console.log("[DEBUG] Buffering galaxy players data (game not created yet):", metPlayers);
+        console.log(
+          "[DEBUG] Buffering galaxy players data (game not created yet):",
+          metPlayers
+        );
         this.bufferedGalaxyPlayers = { metPlayers, totalPlayers };
       } else {
-        console.log("[DEBUG] Game exists, updating players display directly:", metPlayers);
+        console.log(
+          "[DEBUG] Game exists, updating players display directly:",
+          metPlayers
+        );
         this.game.hud.updatePlayersDisplay(metPlayers, totalPlayers);
       }
     };
@@ -215,11 +224,17 @@ class ConstellationApp {
       currentSystemId
     );
     this.state = AppState.GAME;
-    
+
     // Apply buffered galaxy players data if any
     if (this.bufferedGalaxyPlayers) {
-      console.log("[DEBUG] Game created, applying buffered galaxy players data:", this.bufferedGalaxyPlayers);
-      this.game.hud.updatePlayersDisplay(this.bufferedGalaxyPlayers.metPlayers, this.bufferedGalaxyPlayers.totalPlayers);
+      console.log(
+        "[DEBUG] Game created, applying buffered galaxy players data:",
+        this.bufferedGalaxyPlayers
+      );
+      this.game.hud.updatePlayersDisplay(
+        this.bufferedGalaxyPlayers.metPlayers,
+        this.bufferedGalaxyPlayers.totalPlayers
+      );
       this.bufferedGalaxyPlayers = null;
     }
   }
@@ -519,9 +534,13 @@ class ConstellationGame {
       exploredGateIds,
       exitGateId,
       gateOwnership,
-      tunnelOwnership
+      tunnelOwnership,
+      isExitGateBlocked
     ) => {
       console.log("Gate travel to system:", destinationSystem.id);
+      if (isExitGateBlocked) {
+        console.log("⚠️ Exit gate is blocked by enemy defenses!");
+      }
 
       const oldExploredGateIds = this.player?.exploredGateIds || [];
       const oldExploredGateIdsSet = new Set(oldExploredGateIds);
@@ -577,7 +596,8 @@ class ConstellationGame {
         () => {
           this.hud.setSystem(destinationSystem);
         },
-        wasEntryGateExplored
+        wasEntryGateExplored,
+        isExitGateBlocked
       );
     };
 
@@ -774,13 +794,13 @@ class ConstellationGame {
       if (attack.status !== "in_progress") {
         // Refresh the details panel immediately if the attacked gate is selected
         const selectedId = this.scene.getSelectedObjectId();
-        
+
         if (selectedId === attack.gateId) {
           // Force refresh by clearing selection first
           (this.hud as any).selectedObjectId = null;
           this.hud.updateObjectDetails(attack.gateId);
         }
-        
+
         // Also request fresh system state to ensure defense counts are updated
         if (this.player?.currentSystemId) {
           this.network.requestSystemState(this.player.currentSystemId);
@@ -884,6 +904,10 @@ class ConstellationGame {
       }
     };
 
+    this.network.onResourceBreakdown = (breakdown) => {
+      this.hud.updateResourceBreakdown(breakdown);
+    };
+
     this.hud.onSetPlayerStance = (targetPlayerId, stance) => {
       this.network.setPlayerStance(targetPlayerId, stance);
     };
@@ -921,8 +945,38 @@ class ConstellationGame {
       this.network.attackGate(gateId);
     };
 
+    this.hud.onGateCapture = (gateId) => {
+      this.network.captureGate(gateId);
+    };
+
     this.hud.onGateOvertake = (gateId) => {
       this.network.overtakeGate(gateId);
+    };
+
+    this.hud.onTunnelPowerOff = (tunnelId) => {
+      this.network.powerOffTunnel(tunnelId);
+    };
+
+    this.hud.onTunnelOvertake = (tunnelId) => {
+      this.network.overtakeTunnel(tunnelId);
+    };
+
+    this.hud.onTunnelOvercharge = (tunnelId) => {
+      // Show confirmation modal
+      const confirmed = confirm(
+        "⚠️ OVERCHARGE TUNNEL ⚠️\n\n" +
+          "This will:\n" +
+          "• Cost 10 energy + 10 science\n" +
+          "• DESTROY all defenses on both gates\n" +
+          "• DESTROY all ongoing attacks\n" +
+          "• Power off the tunnel\n" +
+          "• Block tunnel power for 3 YEARS\n\n" +
+          "This is irreversible! Continue?"
+      );
+
+      if (confirmed) {
+        this.network.overchargeTunnel(tunnelId);
+      }
     };
 
     this.hud.onGateDebugConnect = (gateId) => {

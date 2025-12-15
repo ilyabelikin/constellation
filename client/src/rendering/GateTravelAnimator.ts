@@ -55,6 +55,7 @@ export class GateTravelAnimator {
   private isExploredGate: boolean = true;
   private startColor: THREE.Color = new THREE.Color(0xa855f7); // Purple for unexplored gates
   private endColor: THREE.Color = new THREE.Color(0xff8c00); // Orange by the end
+  private isExitGateBlocked: boolean = false; // If true, stop at exit gate instead of star
 
   // Callbacks
   public onAnimationPhaseChange: ((phase: string) => void) | null = null;
@@ -86,13 +87,15 @@ export class GateTravelAnimator {
     exitGateId: string,
     onComplete?: () => void,
     isExploredGate: boolean = true,
-    entryGateMesh?: THREE.Group
+    entryGateMesh?: THREE.Group,
+    isExitGateBlocked?: boolean
   ): void {
     this.entryGateStartDistance = this.cameraController.getCameraDistance();
     this.systemViewDistance = systemViewDistance;
     this.exitGateId = exitGateId;
     this.travelCompleteCallback = onComplete || null;
     this.isExploredGate = isExploredGate;
+    this.isExitGateBlocked = isExitGateBlocked || false;
 
     // Set start color: purple for unexplored, yellow for explored
     this.startColor = new THREE.Color(isExploredGate ? 0xfbbf24 : 0xa855f7);
@@ -426,8 +429,41 @@ export class GateTravelAnimator {
     const progress = Math.min(elapsed / this.exitDuration, 1);
     
     if (progress < 1) {
-      // First half: move outward from gate
-      // Second half: transition to star
+      // If exit gate is blocked, only move outward from gate (no transition to star)
+      if (this.isExitGateBlocked) {
+        // Move outward from gate to a comfortable viewing distance
+        const exitProgress = progress;
+        const easedExit = this.easeInOutCubic(exitProgress);
+        
+        // Start close to gate (distance 5)
+        const startDistance = 5;
+        // End at a comfortable viewing distance to see the blocked gate
+        const endDistance = 40;
+        
+        const currentDistance = startDistance + (endDistance - startDistance) * easedExit;
+        
+        // Position camera moving outward from gate
+        const gatePosition = this.exitGatePosition.clone();
+        const cameraOffset = this.exitGateExitDirection.clone().multiplyScalar(-currentDistance);
+        const newCameraPosition = gatePosition.clone().add(cameraOffset);
+        
+        this.camera.position.copy(newCameraPosition);
+        
+        // Apply light camera shake during exit (fading out)
+        const exitShakeIntensity = (1 - progress) * 0.3; // Fades from 0.3 to 0
+        this.applyCameraShake(exitShakeIntensity);
+        this.camera.position.add(this.cameraShakeOffset);
+        
+        this.camera.lookAt(this.exitGatePosition);
+        
+        // Update camera controller
+        this.cameraController.setCameraTarget(this.exitGatePosition);
+        this.cameraController.setCameraDistance(currentDistance);
+        
+        return { phase: "exit-gate-blocked", progress: exitProgress, isComplete: false };
+      }
+      
+      // Normal flow: First half move outward, second half transition to star
       const exitProgress = progress;
       const easedExit = this.easeInOutCubic(exitProgress);
       
@@ -512,21 +548,32 @@ export class GateTravelAnimator {
       return { phase: "exit-gate", progress: exitProgress, isComplete: false };
     }
     
-    // Exit animation complete - camera should now be at star
+    // Exit animation complete
     this.isExitingGate = false;
     
-    // Ensure camera is positioned at star
-    if (this.starTargetDistance > 0) {
-      this.cameraController.setCameraTarget(this.starPosition);
-      this.cameraController.setCameraDistance(this.starTargetDistance);
+    if (this.isExitGateBlocked) {
+      // If exit gate is blocked, stay focused on the gate (don't go to star)
+      // Select the exit gate so player can see and deal with the threat
+      if (this.exitGateId && this.sceneManager && this.sceneManager.centerOnObject) {
+        console.log("Exit gate blocked - selecting exit gate:", this.exitGateId);
+        this.sceneManager.centerOnObject(this.exitGateId);
+      }
+      return { phase: "exit-blocked-complete", progress: 1, isComplete: true };
+    } else {
+      // Normal flow: camera should now be at star
+      // Ensure camera is positioned at star
+      if (this.starTargetDistance > 0) {
+        this.cameraController.setCameraTarget(this.starPosition);
+        this.cameraController.setCameraDistance(this.starTargetDistance);
+      }
+      
+      // Select the star (this will trigger selection callbacks and update HUD)
+      if (this.starId && this.sceneManager && this.sceneManager.centerOnObject) {
+        this.sceneManager.centerOnObject(this.starId);
+      }
+      
+      return { phase: "exit-complete", progress: 1, isComplete: true };
     }
-    
-    // Select the star (this will trigger selection callbacks and update HUD)
-    if (this.starId && this.sceneManager && this.sceneManager.centerOnObject) {
-      this.sceneManager.centerOnObject(this.starId);
-    }
-    
-    return { phase: "exit-complete", progress: 1, isComplete: true };
   }
 
   /**

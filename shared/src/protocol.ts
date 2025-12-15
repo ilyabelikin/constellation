@@ -96,7 +96,24 @@ export type ClientMessage =
   | {
       type: "overtakeGate";
       gateId: string;
-    };
+    }
+  | {
+      type: "captureGate";
+      gateId: string;
+    }
+  | {
+      type: "overtakeTunnel";
+      tunnelId: string;
+    }
+  | {
+      type: "powerOffTunnel";
+      tunnelId: string;
+    }
+  | {
+      type: "overchargeTunnel";
+      tunnelId: string;
+    }
+  | { type: "requestResourceBreakdown" };
 
 export interface ShipManeuverCommand {
   shipId: string;
@@ -194,6 +211,7 @@ export type ServerMessage =
       destinationSystem: StarSystem;
       exploredGateIds: string[];
       exitGateId: string;
+      isExitGateBlocked?: boolean;
       gateOwnership?: Array<{
         gateId: string;
         ownerId: string;
@@ -220,7 +238,9 @@ export type ServerMessage =
           | "friendly"
           | "aggressive";
         otherGateDefenseCount?: number;
-        tunnelPoweredBy?: string | null;
+        tunnelPoweredByPlayerId?: string | null;
+        tunnelPoweredByPlayerName?: string | null;
+        overchargedAt?: number | null;
       }>;
     }
   | {
@@ -322,6 +342,15 @@ export type ServerMessage =
       scienceFlow: number;
       isBlockaded: boolean;
       blockadeOwnerName?: string;
+    }
+  | {
+      type: "resourceBreakdown";
+      breakdown: {
+        systemId: string;
+        systemName: string;
+        starName: string;
+        alloyPerDay: number;
+      }[];
     };
 
 export interface SearchResult {

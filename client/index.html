@@ -806,7 +806,7 @@
             <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="color: #94a3b8; font-size: 15px;">⛏</span>
                 <span id="alloy-display" style="font-weight: bold; font-size: 14px; color: #94a3b8;">0</span>
-                <span id="alloy-rate" style="font-size: 10px; margin-left: 4px;"></span>
+                <span id="alloy-rate" style="font-size: 10px; margin-left: 4px; cursor: pointer;"></span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
                 <span style="color: #a78bfa; font-size: 15px;">⚗️</span>
@@ -814,6 +814,11 @@
                 <span id="science-rate" style="font-size: 10px; margin-left: 4px;"></span>
             </div>
         </div>
+    </div>
+
+    <!-- Alloy Breakdown Tooltip -->
+    <div id="alloy-breakdown-tooltip" style="position: absolute; display: none; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(148, 163, 184, 0.3); border-radius: 6px; padding: 6px; font-size: 11px; max-width: 250px; z-index: 10001; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); pointer-events: auto;">
+        <div id="alloy-breakdown-content" style="display: flex; flex-direction: column; gap: 2px;"></div>
     </div>
 
     <!-- Notification Toast (under resources widget) -->
@@ -937,16 +942,11 @@
             <span class="detail-label">Type:</span>
             <span class="detail-value" id="gate-detail-type">Star Gate</span>
         </div>
-        <div class="detail-row">
-            <span class="detail-label">Status:</span>
-            <span class="detail-value" id="gate-detail-status">-</span>
-        </div>
         <div class="detail-row" id="gate-detail-owner-row" style="display: none;">
             <span class="detail-label">Owner:</span>
             <span class="detail-value" id="gate-detail-owner">-</span>
         </div>
         <div class="detail-row" id="gate-detail-tunnel-control-row" style="display: none; flex-direction: column; gap: 4px; padding: 8px; background: rgba(255, 255, 255, 0.05); border-radius: 4px; margin: 8px 0;">
-            <div style="font-weight: bold; font-size: 0.9em; margin-bottom: 4px;">🌉 Tunnel Control</div>
             <div style="font-size: 0.85em;">
                 <span class="detail-label">This Gate:</span>
                 <span class="detail-value" id="gate-detail-gate-a-owner" style="font-weight: bold;">-</span>
@@ -972,10 +972,6 @@
             <span class="detail-label">Orbital Period:</span>
             <span class="detail-value" id="gate-detail-period">-</span>
         </div>
-        <div class="detail-row" id="gate-detail-defense-row" style="display: none;">
-            <span class="detail-label">Defenses:</span>
-            <span class="detail-value" id="gate-detail-defense-count">0</span>
-        </div>
         <div class="detail-row" id="gate-detail-blockade-row" style="display: none; font-weight: bold;">
             <span class="detail-value" id="gate-detail-blockade-info" style="width: 100%; text-align: left;">-</span>
         </div>
@@ -983,10 +979,10 @@
             Travel
         </button>
         <button class="hud-button" id="gate-fortify-button" style="width: 100%; margin-top: 5px; display: none;">
-            🛡️ Fortify (1 Energy, 0.1 Minerals)
+            🛡️ Fortify
         </button>
         <button class="hud-button" id="gate-attack-button" style="width: 100%; margin-top: 5px; display: none;">
-            ⚔️ Attack (1 Energy, 0.1 Minerals)
+            ⚔️ Attack
         </button>
         <button class="hud-button" id="gate-capture-button" style="width: 100%; margin-top: 5px; display: none;">
             🚩 Capture Gate (10 Alloy)
@@ -997,8 +993,8 @@
         <div id="gate-overtake-cooldown" style="display: none; margin-top: 8px; font-size: 0.85em; color: #ff6b6b; text-align: center; font-style: italic;">
             ⏳ Gate recently overtaken. Protected for <span id="gate-overtake-cooldown-time">-</span>
         </div>
-        <button class="hud-button" id="gate-debug-connect-button" style="width: 100%; margin-top: 5px; display: none; background-color: #ff6b6b;">
-            🔧 Debug: Connect to Another Civilization
+        <button class="hud-button" id="gate-debug-connect-button" style="width: 100%; margin-top: 5px; display: none;">
+            🔧 Connect to Another Civilization
         </button>
     </div>
 
@@ -1072,6 +1068,27 @@
             <h2 style="color: var(--primary-color); margin-bottom: 20px; font-size: 24px;">🌟 Discovery! 🌟</h2>
             <div id="discovery-message" style="color: var(--primary-color); font-size: 16px; line-height: 1.6; margin-bottom: 20px;"></div>
             <button class="hud-button" id="discovery-ok-button" style="padding: 10px 30px; font-size: 14px;">OK</button>
+        </div>
+    </div>
+
+    <!-- Overcharge Confirmation Modal -->
+    <div id="overcharge-modal" class="hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 250; display: none; align-items: center; justify-content: center;">
+        <div style="background: var(--primary-color-dark); border: 2px solid #ef4444; border-radius: 12px; padding: 30px; min-width: 450px; text-align: center;">
+            <h2 style="color: #ef4444; margin-bottom: 20px; font-size: 24px;">⚠️ Overcharge Tunnel ⚠️</h2>
+            <div style="color: var(--primary-color); font-size: 16px; line-height: 1.8; margin-bottom: 25px; text-align: left;">
+                <p style="margin-bottom: 15px;">This will cause a catastrophic tunnel collapse:</p>
+                <ul style="list-style: none; padding-left: 0;">
+                    <li style="margin-bottom: 8px;">💥 <strong>Destroy all defense platforms</strong> on both gates</li>
+                    <li style="margin-bottom: 8px;">💥 <strong>Destroy all ships</strong> at both gates</li>
+                    <li style="margin-bottom: 8px;">⚡ <strong>Power off the tunnel</strong></li>
+                    <li style="margin-bottom: 8px;">🔒 <strong>3-year cooldown</strong> before tunnel can be powered again</li>
+                </ul>
+                <p style="color: #ef4444; font-weight: bold; margin-top: 15px;">This action cannot be undone!</p>
+            </div>
+            <div style="display: flex; gap: 15px; justify-content: center;">
+                <button class="hud-button" id="overcharge-cancel-button" style="padding: 10px 30px; font-size: 14px; background: #6b7280;">Cancel</button>
+                <button class="hud-button" id="overcharge-confirm-button" style="padding: 10px 30px; font-size: 14px; background: #ef4444;">Confirm Overcharge</button>
+            </div>
         </div>
     </div>
 

@@ -19,6 +19,8 @@ import {
   ATTACK_SHIP_CONFIG,
   DEFENSE_PLATFORM_CONFIG,
   COMBAT_CONFIG,
+  GAME_COSTS,
+  calculateColonyYields,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -232,8 +234,23 @@ export class ConstellationWebSocketServer {
         case "overtakeGate":
           this.handleOvertakeGate(client, message.gateId);
           break;
+        case "captureGate":
+          this.handleCaptureGate(client, message.gateId);
+          break;
+        case "overtakeTunnel":
+          this.handleOvertakeTunnel(client, message.tunnelId);
+          break;
+        case "powerOffTunnel":
+          this.handlePowerOffTunnel(client, message.tunnelId);
+          break;
+        case "overchargeTunnel":
+          this.handleOverchargeTunnel(client, message.tunnelId);
+          break;
         case "debugConnectGate":
           this.handleDebugConnectGate(client, message.gateId);
+          break;
+        case "requestResourceBreakdown":
+          this.handleRequestResourceBreakdown(client);
           break;
       }
     } catch (error) {
@@ -719,13 +736,33 @@ export class ConstellationWebSocketServer {
 
     // Get all players in the galaxy and their species IDs
     const players = this.db.getPlayersByGalaxy(galaxyId);
-    const speciesIds = players
+    const playerSpeciesIds = players
       .map((p) => p.speciesId)
+      .filter((id): id is string => !!id);
+
+    // Get the pregenerated species IDs (not the player-specific species IDs)
+    const pregeneratedSpeciesIds = playerSpeciesIds
+      .map((speciesId) => {
+        const species = this.db.getSpeciesById(speciesId);
+        if (species?.pregeneratedSpeciesId) {
+          return species.pregeneratedSpeciesId;
+        }
+        // Fallback for species created before the pregeneratedSpeciesId field was added
+        // Try to match by name to a pregenerated species
+        if (species) {
+          const allPregenerated = getAllPregeneratedSpecies();
+          const match = allPregenerated.find(
+            (ps) => ps.name === species.name
+          );
+          return match?.id;
+        }
+        return undefined;
+      })
       .filter((id): id is string => !!id);
 
     this.send(client.ws, {
       type: "galaxySpecies",
-      speciesIds,
+      speciesIds: pregeneratedSpeciesIds,
     });
   }
 
@@ -861,12 +898,13 @@ export class ConstellationWebSocketServer {
     if (pregeneratedSpeciesId) {
       const pregeneratedSpecies = getPregeneratedSpecies(pregeneratedSpeciesId);
       if (pregeneratedSpecies) {
-        // Create a copy with player-specific IDs
+        // Create a copy with player-specific IDs but store the original pregenerated species ID
         speciesId = `species_player_${playerId}`;
         species = {
           ...pregeneratedSpecies,
           id: speciesId,
           playerId: playerId,
+          pregeneratedSpeciesId: pregeneratedSpeciesId, // Store the original pregenerated species ID
           homeworldId: homePlanetId,
           homeworld: homePlanet?.name || pregeneratedSpecies.homeworld,
           createdAt: Date.now(),
@@ -939,6 +977,13 @@ export class ConstellationWebSocketServer {
       // Start with 80% of maximum population (established world)
       const initialPopulation = Math.floor(maxPopulation * 0.8);
 
+      // Calculate yields based on population
+      const yields = calculateColonyYields(
+        initialPopulation,
+        "balanced",
+        habitabilityBonus
+      );
+
       const colony: import("@constellation/shared").Colony = {
         id: uuidv4(),
         playerId: player.id,
@@ -949,8 +994,8 @@ export class ConstellationWebSocketServer {
         stage: "settlement", // Start as settlement, not just outpost
         specialization: "balanced",
         population: initialPopulation,
-        sciencePerDay: 0.015 * habitabilityBonus * 2, // 2x multiplier for settlement stage
-        alloyPerDay: 0.008 * habitabilityBonus * 2,
+        sciencePerDay: yields.sciencePerDay,
+        alloyPerDay: yields.alloyPerDay,
         establishedAt: this.gameState.getCurrentTime(),
         lastYieldAt: this.gameState.getCurrentTime(),
       };
@@ -1085,6 +1130,7 @@ export class ConstellationWebSocketServer {
     try {
       const flow = calculatePlayerResourceFlow(this.db, client.playerId);
 
+      // Send flow for gates in current system
       for (const gate of gates) {
         const gateFlow = flow.gateFlows.get(gate.id);
         if (gateFlow) {
@@ -1097,6 +1143,33 @@ export class ConstellationWebSocketServer {
             isBlockaded: gateFlow.isBlockaded,
             blockadeOwnerName: gateFlow.blockadeOwnerName,
           });
+        }
+      }
+
+      // Also send flow for OTHER gates in tunnels (the gates in connected systems)
+      // This ensures we can see resource flow on both ends of each tunnel
+      for (const tunnelOwn of tunnelOwnership) {
+        // Get all gates in this tunnel
+        const gatesInTunnel = this.db.getGatesByTunnel(tunnelOwn.tunnelId);
+        
+        // Find the other gate (not in current system)
+        const otherGate = gatesInTunnel.find(
+          (g) => g.systemId !== systemId
+        );
+        
+        if (otherGate) {
+          const otherGateFlow = flow.gateFlows.get(otherGate.id);
+          if (otherGateFlow) {
+            this.send(client.ws, {
+              type: "gateResourceFlow",
+              gateId: otherGate.id,
+              energyFlow: otherGateFlow.energy,
+              alloyFlow: otherGateFlow.alloy,
+              scienceFlow: otherGateFlow.science,
+              isBlockaded: otherGateFlow.isBlockaded,
+              blockadeOwnerName: otherGateFlow.blockadeOwnerName,
+            });
+          }
         }
       }
     } catch (err) {
@@ -1498,11 +1571,25 @@ export class ConstellationWebSocketServer {
       );
     }
 
-    // After setting ownership on both gates, ensure tunnel power is updated
-    // This is needed because the first setGateOwnership might run before the second one
+    // Auto-power tunnel if player is opening it for the first time
+    // This only happens when the tunnel is not yet powered
     if (gate.tunnelId) {
-      this.db.updateTunnelPower(gateId);
-      console.log(`Updated tunnel power for tunnel ${gate.tunnelId}`);
+      const tunnel = this.db.getTunnelById(gate.tunnelId);
+      if (tunnel && !tunnel.poweredByPlayerId) {
+        // Check if player has enough energy to open/power tunnel
+        const OPEN_ENERGY_COST = GAME_COSTS.TUNNEL_POWER_ON.energy;
+        if (player.energy >= OPEN_ENERGY_COST) {
+          this.db.deductPlayerEnergy(player.id, OPEN_ENERGY_COST);
+          this.db.setTunnelPower(gate.tunnelId, player.id, OPEN_ENERGY_COST);
+          console.log(
+            `Player ${player.name} auto-powered tunnel ${gate.tunnelId} (${OPEN_ENERGY_COST} energy)`
+          );
+        } else {
+          console.log(
+            `Player ${player.name} cannot auto-power tunnel - insufficient energy`
+          );
+        }
+      }
     }
 
     // Record system discovery and check if we discovered other players
@@ -1564,6 +1651,22 @@ export class ConstellationWebSocketServer {
       destinationSystem.id
     );
 
+    // Check if exit gate is blocked by enemy defenses
+    const exitGateOwner = this.db.getGateOwner(exitGate.id);
+    const exitGateDefenseCount = this.db.getGateDefenseCount(exitGate.id);
+    let isExitGateBlocked = false;
+    
+    if (exitGateOwner && exitGateOwner !== player.id && exitGateDefenseCount > 0) {
+      // Exit gate is owned by another player and has defenses
+      const stance = this.db.getPlayerStance(player.id, exitGateOwner);
+      if (stance === "aggressive") {
+        isExitGateBlocked = true;
+        console.log(
+          `Exit gate ${exitGate.id} is blocked by enemy defenses (${exitGateDefenseCount} platforms)`
+        );
+      }
+    }
+
     // Send travel response to client with ownership information
     this.send(client.ws, {
       type: "gateTravel",
@@ -1572,7 +1675,76 @@ export class ConstellationWebSocketServer {
       exitGateId: exitGate.id,
       gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
       tunnelOwnership: tunnelOwnership.length > 0 ? tunnelOwnership : undefined,
+      isExitGateBlocked, // New flag to indicate if exit gate is blocked
     });
+
+    // Send all gate defenses in the destination system (so client can render them)
+    const destGates = destinationSystem.gates || [];
+    let totalDefensesSent = 0;
+    for (const gate of destGates) {
+      const defenses = this.db.getGateDefenses(gate.id);
+      for (const defense of defenses) {
+        this.send(client.ws, {
+          type: "gateDefenseBuilt",
+          defense,
+        });
+        totalDefensesSent++;
+      }
+    }
+    
+    if (totalDefensesSent > 0) {
+      console.log(`Sent ${totalDefensesSent} defense platforms for destination system ${destinationSystem.star.name}`);
+    }
+
+    // Send resource flow information for gates in destination system (for blockade display)
+    try {
+      const flow = calculatePlayerResourceFlow(this.db, client.playerId);
+
+      // Send flow for gates in destination system
+      for (const gate of destGates) {
+        const gateFlow = flow.gateFlows.get(gate.id);
+        if (gateFlow) {
+          this.send(client.ws, {
+            type: "gateResourceFlow",
+            gateId: gate.id,
+            energyFlow: gateFlow.energy,
+            alloyFlow: gateFlow.alloy,
+            scienceFlow: gateFlow.science,
+            isBlockaded: gateFlow.isBlockaded,
+            blockadeOwnerName: gateFlow.blockadeOwnerName,
+          });
+        }
+      }
+
+      // Also send flow for OTHER gates in tunnels (the gates in connected systems)
+      // This ensures we can see resource flow on both ends of each tunnel
+      for (const tunnelOwn of tunnelOwnership) {
+        // Get all gates in this tunnel
+        const gatesInTunnel = this.db.getGatesByTunnel(tunnelOwn.tunnelId);
+        
+        // Find the other gate (not in destination system)
+        const otherGate = gatesInTunnel.find(
+          (g) => g.systemId !== destinationSystem.id
+        );
+        
+        if (otherGate) {
+          const otherGateFlow = flow.gateFlows.get(otherGate.id);
+          if (otherGateFlow) {
+            this.send(client.ws, {
+              type: "gateResourceFlow",
+              gateId: otherGate.id,
+              energyFlow: otherGateFlow.energy,
+              alloyFlow: otherGateFlow.alloy,
+              scienceFlow: otherGateFlow.science,
+              isBlockaded: otherGateFlow.isBlockaded,
+              blockadeOwnerName: otherGateFlow.blockadeOwnerName,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to calculate resource flow for gate travel:", err);
+    }
 
     // Update player data with new exploredGateIds, currentSystemId, and resources
     player.exploredGateIds = exploredGateIds;
@@ -2835,29 +3007,13 @@ export class ConstellationWebSocketServer {
     const populationMultiplier = 0.5 + planet.habitability * 0.5; // 0.5x to 1.0x based on habitability
     const initialPopulation = Math.floor(basePopulation * populationMultiplier);
 
-    // Calculate resource yields based on specialization and habitability
-    // Note: Colonies do not produce energy - only Dyson Swarms do that
-    // Colonies consume resources until they reach 1M population, then produce at smaller rates
+    // Calculate resource yields based on population, specialization and habitability
     const habitabilityBonus = planet.habitability || 0.5;
-    let sciencePerDay = 0.01;
-    let alloyPerDay = 0.005;
-
-    // Colonies start by consuming resources (negative rates)
-    // Once they reach 1M population, they switch to producing at smaller rates
-    switch (specialization) {
-      case "research":
-        sciencePerDay = -0.45 * habitabilityBonus; // Consume science (15x cost)
-        alloyPerDay = -0.03 * habitabilityBonus; // Consume minerals (15x cost)
-        break;
-      case "industrial":
-        sciencePerDay = -0.075 * habitabilityBonus; // Consume science (15x cost)
-        alloyPerDay = -0.3 * habitabilityBonus; // Consume minerals (15x cost)
-        break;
-      default: // balanced
-        sciencePerDay = -0.225 * habitabilityBonus; // Consume science (15x cost)
-        alloyPerDay = -0.12 * habitabilityBonus; // Consume minerals (15x cost)
-        break;
-    }
+    const yields = calculateColonyYields(
+      initialPopulation,
+      specialization,
+      habitabilityBonus
+    );
 
     // Get current game time
     const timeState = this.gameState.getGalaxyState(player.galaxyId);
@@ -2875,8 +3031,8 @@ export class ConstellationWebSocketServer {
       stage: "outpost",
       specialization,
       population: initialPopulation,
-      sciencePerDay,
-      alloyPerDay,
+      sciencePerDay: yields.sciencePerDay,
+      alloyPerDay: yields.alloyPerDay,
       establishedAt: currentTime,
       lastYieldAt: currentTime,
     };
@@ -2990,63 +3146,16 @@ export class ConstellationWebSocketServer {
 
     const habitabilityBonus = planet.habitability || 0.5;
 
-    // Update yields based on new specialization
-    // Note: Colonies do not produce energy - only Dyson Swarms do that
-    // Colonies consume resources until they reach 1M population, then produce at smaller rates
-    let sciencePerDay = 0.01;
-    let alloyPerDay = 0.005;
-
-    // Check if colony has reached 1M population
-    const isProducing = colony.population >= 1000000;
-
-    if (isProducing) {
-      // Colony produces at smaller rates after reaching 1M population
-      switch (specialization) {
-        case "research":
-          sciencePerDay = 0.01 * habitabilityBonus; // Reduced from 0.03
-          alloyPerDay = 0.001 * habitabilityBonus; // Reduced from 0.002
-          break;
-        case "industrial":
-          sciencePerDay = 0.002 * habitabilityBonus; // Reduced from 0.005
-          alloyPerDay = 0.008 * habitabilityBonus; // Reduced from 0.02
-          break;
-        default: // balanced
-          sciencePerDay = 0.006 * habitabilityBonus; // Reduced from 0.015
-          alloyPerDay = 0.003 * habitabilityBonus; // Reduced from 0.008
-          break;
-      }
-    } else {
-      // Colony consumes resources (negative rates)
-      switch (specialization) {
-        case "research":
-          sciencePerDay = -0.45 * habitabilityBonus; // 15x cost
-          alloyPerDay = -0.03 * habitabilityBonus; // 15x cost
-          break;
-        case "industrial":
-          sciencePerDay = -0.075 * habitabilityBonus; // 15x cost
-          alloyPerDay = -0.3 * habitabilityBonus; // 15x cost
-          break;
-        default: // balanced
-          sciencePerDay = -0.225 * habitabilityBonus; // 15x cost
-          alloyPerDay = -0.12 * habitabilityBonus; // 15x cost
-          break;
-      }
-    }
-
-    // Scale yields based on colony stage
-    const stageMultipliers: Record<string, number> = {
-      outpost: 1.0,
-      settlement: 2.0,
-      colony: 4.0,
-      developed: 8.0,
-      metropolis: 16.0,
-      ecumenopolis: 32.0,
-    };
-    const multiplier = stageMultipliers[colony.stage] || 1.0;
+    // Calculate yields using the new population-based formula
+    const yields = calculateColonyYields(
+      colony.population,
+      specialization,
+      habitabilityBonus
+    );
 
     colony.specialization = specialization;
-    colony.sciencePerDay = sciencePerDay * multiplier;
-    colony.alloyPerDay = alloyPerDay * multiplier;
+    colony.sciencePerDay = yields.sciencePerDay;
+    colony.alloyPerDay = yields.alloyPerDay;
 
     this.db.updateColony(colony);
 
@@ -3663,11 +3772,7 @@ export class ConstellationWebSocketServer {
     // Transfer ownership of ONLY this gate (not the destination gate)
     this.db.setGateOwnershipWithOvertake(gateId, client.playerId, currentTime);
 
-    // Update tunnel power based on new ownership
-    // Note: Capture only affects power if the player now owns both gates
-    if (gate.tunnelId) {
-      this.db.updateTunnelPower(gateId);
-    }
+    // Note: Tunnel power is now managed separately via tunnel overtake/power actions
 
     console.log(
       `Player ${player.name} captured gate ${gate.name} (single gate only)`
@@ -3800,8 +3905,8 @@ export class ConstellationWebSocketServer {
     }
 
     // Check resource costs for OVERTAKE (higher than capture)
-    const ENERGY_COST = 3;
-    const SCIENCE_COST = 10;
+    const ENERGY_COST = GAME_COSTS.TUNNEL_OVERTAKE.energy;
+    const SCIENCE_COST = GAME_COSTS.TUNNEL_OVERTAKE.science;
 
     if (player.energy < ENERGY_COST) {
       this.sendError(
@@ -3866,9 +3971,34 @@ export class ConstellationWebSocketServer {
       currentTime
     );
 
-    // Set tunnel power to the player's species
-    // This happens automatically when we call updateTunnelPower since player now owns both gates
-    this.db.updateTunnelPower(gateId);
+    // Transfer tunnel power to the overtaker
+    // If tunnel is currently powered by someone else, refund them
+    const tunnel = this.db.getTunnelById(gate.tunnelId);
+    if (tunnel && tunnel.poweredByPlayerId && tunnel.poweredByPlayerId !== client.playerId) {
+      // Refund the previous power provider
+      if (tunnel.powerCostEnergy > 0) {
+        this.db.addPlayerEnergy(tunnel.poweredByPlayerId, tunnel.powerCostEnergy);
+        const previousPowerOwner = this.db.getPlayerById(tunnel.poweredByPlayerId);
+        if (previousPowerOwner) {
+          console.log(
+            `Refunded ${tunnel.powerCostEnergy} energy to ${previousPowerOwner.name} (tunnel overtaken)`
+          );
+          // Send updated player data to previous power owner
+          const prevOwnerClient = Array.from(this.clients.values()).find(
+            (c) => c.playerId === tunnel.poweredByPlayerId
+          );
+          if (prevOwnerClient) {
+            const updatedPrevOwner = this.db.getPlayerById(tunnel.poweredByPlayerId);
+            if (updatedPrevOwner) {
+              this.send(prevOwnerClient.ws, { type: "playerData", player: updatedPrevOwner });
+            }
+          }
+        }
+      }
+    }
+
+    // Set tunnel power to the overtaker (costs ENERGY_COST to maintain)
+    this.db.setTunnelPower(gate.tunnelId, client.playerId, ENERGY_COST);
 
     console.log(
       `Player ${player.name} overtook ENTIRE TUNNEL: ${gate.name} <-> ${destinationGate.name} (both gates + tunnel power)`
@@ -3917,6 +4047,310 @@ export class ConstellationWebSocketServer {
             otherClient,
             otherClient.currentSystemId
           );
+        }
+      }
+    }
+  }
+
+  private handleOvertakeTunnel(client: ClientConnection, tunnelId: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get the tunnel
+    const tunnel = this.db.getTunnelById(tunnelId);
+    if (!tunnel) {
+      this.sendError(client.ws, "Tunnel not found");
+      return;
+    }
+
+    // Check if tunnel is already powered by this player
+    if (tunnel.poweredByPlayerId === client.playerId) {
+      this.sendError(client.ws, "You are already powering this tunnel");
+      return;
+    }
+
+    // Check resource costs (same as GAME_COSTS.TUNNEL_OVERTAKE)
+    const ENERGY_COST = 3;
+    const SCIENCE_COST = 10;
+
+    if (player.energy < ENERGY_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to overtake tunnel power (requires ${ENERGY_COST} energy)`
+      );
+      return;
+    }
+
+    if (player.science < SCIENCE_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough science to overtake tunnel power (requires ${SCIENCE_COST} science)`
+      );
+      return;
+    }
+
+    // If tunnel is currently powered, refund the previous owner
+    if (tunnel.poweredByPlayerId && tunnel.powerCostEnergy > 0) {
+      this.db.addPlayerEnergy(tunnel.poweredByPlayerId, tunnel.powerCostEnergy);
+      const previousOwner = this.db.getPlayerById(tunnel.poweredByPlayerId);
+      if (previousOwner) {
+        console.log(
+          `Refunded ${tunnel.powerCostEnergy} energy to ${previousOwner.name} (tunnel power taken over)`
+        );
+        // Send updated player data to previous owner
+        const prevOwnerClient = Array.from(this.clients.values()).find(
+          (c) => c.playerId === tunnel.poweredByPlayerId
+        );
+        if (prevOwnerClient) {
+          const updatedPrevOwner = this.db.getPlayerById(tunnel.poweredByPlayerId);
+          if (updatedPrevOwner) {
+            this.send(prevOwnerClient.ws, { type: "playerData", player: updatedPrevOwner });
+          }
+        }
+      }
+    }
+
+    // Deduct resources from new owner
+    const energySuccess = this.db.deductPlayerEnergy(client.playerId, ENERGY_COST);
+    const scienceSuccess = this.db.deductPlayerScience(client.playerId, SCIENCE_COST);
+
+    if (!energySuccess || !scienceSuccess) {
+      this.sendError(client.ws, "Failed to deduct resources");
+      return;
+    }
+
+    // Set tunnel power to this player
+    this.db.setTunnelPower(tunnelId, client.playerId, ENERGY_COST);
+
+    console.log(
+      `Player ${player.name} took over power supply for tunnel ${tunnelId}`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Refresh system data for all players viewing systems connected by this tunnel
+    const gatesInTunnel = this.db.getGatesByTunnel(tunnelId);
+    for (const gate of gatesInTunnel) {
+      for (const otherClient of this.clients.values()) {
+        if (otherClient.galaxyId === player.galaxyId && 
+            otherClient.currentSystemId === gate.systemId) {
+          this.handleRequestSystemState(otherClient, otherClient.currentSystemId);
+        }
+      }
+    }
+  }
+
+  private handlePowerOffTunnel(client: ClientConnection, tunnelId: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get the tunnel
+    const tunnel = this.db.getTunnelById(tunnelId);
+    if (!tunnel) {
+      this.sendError(client.ws, "Tunnel not found");
+      return;
+    }
+
+    // Check if player is currently powering this tunnel
+    if (tunnel.poweredByPlayerId !== client.playerId) {
+      this.sendError(client.ws, "You are not currently powering this tunnel");
+      return;
+    }
+
+    // Refund the energy cost
+    if (tunnel.powerCostEnergy > 0) {
+      this.db.addPlayerEnergy(client.playerId, tunnel.powerCostEnergy);
+      console.log(
+        `Refunded ${tunnel.powerCostEnergy} energy to ${player.name} (powered off tunnel)`
+      );
+    }
+
+    // Remove tunnel power
+    this.db.setTunnelPower(tunnelId, null, 0);
+
+    console.log(
+      `Player ${player.name} powered off tunnel ${tunnelId}`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Refresh system data for all players viewing systems connected by this tunnel
+    const gatesInTunnel = this.db.getGatesByTunnel(tunnelId);
+    for (const gate of gatesInTunnel) {
+      for (const otherClient of this.clients.values()) {
+        if (otherClient.galaxyId === player.galaxyId && 
+            otherClient.currentSystemId === gate.systemId) {
+          this.handleRequestSystemState(otherClient, otherClient.currentSystemId);
+        }
+      }
+    }
+  }
+
+  private handleOverchargeTunnel(client: ClientConnection, tunnelId: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get the tunnel
+    const tunnel = this.db.getTunnelById(tunnelId);
+    if (!tunnel) {
+      this.sendError(client.ws, "Tunnel not found");
+      return;
+    }
+
+    // Check if player is currently powering this tunnel
+    if (tunnel.poweredByPlayerId !== client.playerId) {
+      this.sendError(client.ws, "You are not currently powering this tunnel");
+      return;
+    }
+
+    // Check resource costs
+    const ENERGY_COST = GAME_COSTS.TUNNEL_OVERCHARGE.energy;
+    const SCIENCE_COST = GAME_COSTS.TUNNEL_OVERCHARGE.science;
+
+    if (player.energy < ENERGY_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to overcharge tunnel (requires ${ENERGY_COST} energy)`
+      );
+      return;
+    }
+
+    if (player.science < SCIENCE_COST) {
+      this.sendError(
+        client.ws,
+        `Not enough science to overcharge tunnel (requires ${SCIENCE_COST} science)`
+      );
+      return;
+    }
+
+    // Get current game time
+    const galaxy = this.db.getGalaxyById(player.galaxyId);
+    if (!galaxy) {
+      this.sendError(client.ws, "Galaxy not found");
+      return;
+    }
+    const currentTime = galaxy.currentTime || 0;
+
+    // Deduct resources
+    const energySuccess = this.db.deductPlayerEnergy(client.playerId, ENERGY_COST);
+    const scienceSuccess = this.db.deductPlayerScience(client.playerId, SCIENCE_COST);
+
+    if (!energySuccess || !scienceSuccess) {
+      this.sendError(client.ws, "Failed to deduct resources");
+      return;
+    }
+
+    // Get both gates in the tunnel
+    const gatesInTunnel = this.db.getGatesByTunnel(tunnelId);
+    if (gatesInTunnel.length !== 2) {
+      this.sendError(client.ws, "Invalid tunnel structure");
+      return;
+    }
+
+    const gateA = gatesInTunnel[0];
+    const gateB = gatesInTunnel[1];
+
+    // Destroy all defense platforms on both gates
+    const defenseCountA = this.db.getGateDefenseCount(gateA.id);
+    const defenseCountB = this.db.getGateDefenseCount(gateB.id);
+    const totalDefensesDestroyed = defenseCountA + defenseCountB;
+
+    if (defenseCountA > 0) {
+      const defensesA = this.db.getGateDefenses(gateA.id);
+      for (const defense of defensesA) {
+        this.db.deleteGateDefense(defense.id);
+      }
+    }
+
+    if (defenseCountB > 0) {
+      const defensesB = this.db.getGateDefenses(gateB.id);
+      for (const defense of defensesB) {
+        this.db.deleteGateDefense(defense.id);
+      }
+    }
+
+    // Destroy any ongoing attacks at both gates
+    const attackA = this.db.getActiveGateAttack(gateA.id);
+    const attackB = this.db.getActiveGateAttack(gateB.id);
+    let totalAttacksDestroyed = 0;
+
+    if (attackA) {
+      // Mark attack as defender victory (overcharge destroyed all attacking ships)
+      this.db.updateGateAttack(
+        attackA.id,
+        0, // No ships remaining
+        "defender_victory",
+        JSON.stringify({ result: "Tunnel overcharged - all attacking ships destroyed" }),
+        currentTime
+      );
+      totalAttacksDestroyed++;
+    }
+
+    if (attackB) {
+      this.db.updateGateAttack(
+        attackB.id,
+        0,
+        "defender_victory",
+        JSON.stringify({ result: "Tunnel overcharged - all attacking ships destroyed" }),
+        currentTime
+      );
+      totalAttacksDestroyed++;
+    }
+
+    // Set tunnel as overcharged and power it off
+    this.db.setTunnelOvercharged(tunnelId, currentTime);
+
+    console.log(
+      `Player ${player.name} OVERCHARGED tunnel ${tunnelId} - Destroyed ${totalDefensesDestroyed} defenses and ${totalAttacksDestroyed} attacks. 3-year cooldown activated.`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Broadcast to all players in the galaxy
+    for (const otherClient of this.clients.values()) {
+      if (otherClient.galaxyId === player.galaxyId) {
+        // Refresh system data for players viewing either system
+        if (
+          otherClient.currentSystemId === gateA.systemId ||
+          otherClient.currentSystemId === gateB.systemId
+        ) {
+          this.handleRequestSystemState(otherClient, otherClient.currentSystemId);
         }
       }
     }
@@ -4007,7 +4441,9 @@ export class ConstellationWebSocketServer {
       id: tunnelId,
       systemAId: systemA,
       systemBId: systemB,
-      poweredBySpeciesId: null,
+      poweredByPlayerId: null,
+      powerCostEnergy: 0,
+      overchargedAt: 0,
       createdAt: Date.now(),
     });
 
@@ -4026,8 +4462,7 @@ export class ConstellationWebSocketServer {
     this.db.markGateExploredSingle(targetPlayer.id, gateId);
     this.db.markGateExploredSingle(targetPlayer.id, targetGate.id);
 
-    // Update tunnel power based on current gate ownership
-    this.db.updateTunnelPower(gateId);
+    // Note: Tunnel power is now managed separately via tunnel overtake/power actions
 
     console.log(
       `[Debug] Connected gate ${gate.name} (${gate.systemId}) to ${targetGate.name} (${targetGate.systemId}), linking civilizations: ${player.name} <-> ${targetPlayer.name}`
@@ -4099,5 +4534,76 @@ export class ConstellationWebSocketServer {
         });
       }
     }
+  }
+
+  private handleRequestResourceBreakdown(client: ClientConnection): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get all mining operations for this player
+    const miningOps = this.db.getMiningOperationsByPlayer(client.playerId);
+    
+    // Get all colonies for this player
+    const colonies = this.db.getColoniesByPlayerId(client.playerId);
+
+    // Group by system
+    const systemMap = new Map<string, {
+      systemId: string;
+      systemName: string;
+      starName: string;
+      alloyPerDay: number;
+    }>();
+
+    // Process mining operations
+    for (const op of miningOps) {
+      if (!systemMap.has(op.systemId)) {
+        const system = this.db.getStarSystem(op.systemId);
+        if (!system) continue;
+        
+        systemMap.set(op.systemId, {
+          systemId: op.systemId,
+          systemName: system.star.name,
+          starName: system.star.name,
+          alloyPerDay: 0,
+        });
+      }
+
+      const systemData = systemMap.get(op.systemId)!;
+      systemData.alloyPerDay += op.alloyPerDay;
+    }
+
+    // Process colonies
+    for (const colony of colonies) {
+      if (!systemMap.has(colony.systemId)) {
+        const system = this.db.getStarSystem(colony.systemId);
+        if (!system) continue;
+        
+        systemMap.set(colony.systemId, {
+          systemId: colony.systemId,
+          systemName: system.star.name,
+          starName: system.star.name,
+          alloyPerDay: 0,
+        });
+      }
+
+      const systemData = systemMap.get(colony.systemId)!;
+      systemData.alloyPerDay += colony.alloyPerDay;
+    }
+
+    // Convert map to array and send
+    const breakdown = Array.from(systemMap.values());
+    
+    this.send(client.ws, {
+      type: "resourceBreakdown",
+      breakdown,
+    });
   }
 }

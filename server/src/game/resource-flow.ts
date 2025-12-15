@@ -7,11 +7,12 @@
  * TUNNEL CONTROL LOGIC:
  * - Each tunnel has 2 gates (one at each end)
  * - Gates can be controlled independently by any species
- * - Tunnels can only be powered by one species at a time
- * - To TRAVEL: you need to control at least one gate on your side
- * - To POWER the tunnel: you need to control BOTH gates
- * - Resources can flow through tunnels powered by any species if you control a gate
- * - Resources are BLOCKED if a tunnel is powered by a hostile species
+ * - Tunnels can be powered by one player at a time (separate from gate control)
+ * - To TRAVEL: you need to control at least one gate
+ * - To POWER the tunnel: use the tunnel overtake/power on action (costs energy)
+ * - Resources are BLOCKED if:
+ *   1. The tunnel is unpowered (no player providing power)
+ *   2. The tunnel is powered by an aggressive hostile species with defenses
  */
 
 import { DatabaseQueries } from "../database/queries.js";
@@ -26,7 +27,7 @@ export interface TunnelResourceFlow {
   blockadeSpeciesId?: string;
   gateAOwnerId?: string;
   gateBOwnerId?: string;
-  poweredBySpeciesId?: string | null;
+  poweredByPlayerId?: string | null;
   canTravel: boolean; // Can travel through if you control at least one gate
   hasTunnelPower: boolean; // Have tunnel power if you control both gates
 }
@@ -112,9 +113,11 @@ export function findGatePath(
  * NEW TUNNEL CONTROL LOGIC:
  * - Each tunnel has 2 gates (gate A and gate B)
  * - Players can control gates independently
+ * - Tunnel power is managed separately from gate control
  * - To travel through a tunnel: control at least 1 gate
- * - To power a tunnel: control BOTH gates
- * - If a tunnel is powered by a hostile species, it blocks resource flow
+ * - To power a tunnel: use tunnel overtake/power on action (costs energy)
+ * - Unpowered tunnels block resource flow
+ * - Tunnels powered by hostile species with defenses also block resource flow
  */
 export function calculatePlayerResourceFlow(
   db: DatabaseQueries,
@@ -197,7 +200,7 @@ export function calculatePlayerResourceFlow(
           isBlockaded: false,
           gateAOwnerId: gateAOwner || undefined,
           gateBOwnerId: gateBOwner || undefined,
-          poweredBySpeciesId: tunnel?.poweredBySpeciesId || null,
+          poweredByPlayerId: tunnel?.poweredByPlayerId || null,
           canTravel,
           hasTunnelPower,
         };
@@ -275,7 +278,7 @@ export function calculatePlayerResourceFlow(
           isBlockaded: false,
           gateAOwnerId: gateAOwner || undefined,
           gateBOwnerId: gateBOwner || undefined,
-          poweredBySpeciesId: tunnel?.poweredBySpeciesId || null,
+          poweredByPlayerId: tunnel?.poweredByPlayerId || null,
           canTravel,
           hasTunnelPower,
         };
@@ -348,7 +351,7 @@ export function calculatePlayerResourceFlow(
           isBlockaded: false,
           gateAOwnerId: gateAOwner || undefined,
           gateBOwnerId: gateBOwner || undefined,
-          poweredBySpeciesId: tunnel?.poweredBySpeciesId || null,
+          poweredByPlayerId: tunnel?.poweredByPlayerId || null,
           canTravel,
           hasTunnelPower,
         };
@@ -376,43 +379,36 @@ export function calculatePlayerResourceFlow(
 
   // Check each tunnel for blockades
   // A tunnel is blockaded if:
-  // 1. It's powered by a hostile species (not the player's species)
-  // 2. The tunnel has defenses
+  // 1. It's unpowered (no power supply)
+  // 2. It's powered by a hostile species (not the player's species) AND has defenses
   for (const [tunnelId, tunnelFlow] of tunnelFlows.entries()) {
     const tunnel = db.getTunnelById(tunnelId);
     if (!tunnel) continue;
 
-    // If tunnel is powered by a hostile species, it's a blockade
-    if (
-      tunnel.poweredBySpeciesId &&
-      tunnel.poweredBySpeciesId !== playerSpeciesId
-    ) {
-      // Find the player who controls the tunnel (has both gates)
-      const gatesInTunnel = db.getGatesByTunnel(tunnelId);
-      const gateA = gatesInTunnel.find(
-        (g: StarGate) => g.systemId === tunnel.systemAId
-      );
-      const gateB = gatesInTunnel.find(
-        (g: StarGate) => g.systemId === tunnel.systemBId
-      );
+    // If tunnel is unpowered, it's automatically blockaded
+    if (!tunnel.poweredByPlayerId) {
+      tunnelFlow.isBlockaded = true;
+      tunnelFlow.blockadeSpeciesId = undefined; // No specific species blockading
+      continue;
+    }
 
-      const gateAOwner = gateA ? db.getGateOwner(gateA.id) : null;
-      const gateBOwner = gateB ? db.getGateOwner(gateB.id) : null;
+    // If tunnel is powered by a hostile player, it's a blockade
+    const tunnelOwner = tunnel.poweredByPlayerId;
+    if (tunnelOwner && tunnelOwner !== playerId) {
+      const stance = db.getPlayerStance(playerId, tunnelOwner);
+      if (stance === "aggressive") {
+        // Check if any gate in the tunnel has defenses
+        const gatesInTunnel = db.getGatesByTunnel(tunnelId);
+        const hasDefenses = gatesInTunnel.some((gate: StarGate) => {
+          const defenses = db.getGateDefenses(gate.id);
+          return defenses.length > 0;
+        });
 
-      // If both gates are owned by the same player (not us), check if hostile
-      if (gateAOwner && gateAOwner === gateBOwner && gateAOwner !== playerId) {
-        const stance = db.getPlayerStance(playerId, gateAOwner);
-        if (stance === "aggressive") {
-          // Check if any gate in the tunnel has defenses
-          const hasDefenses = gatesInTunnel.some((gate: StarGate) => {
-            const defenses = db.getGateDefenses(gate.id);
-            return defenses.length > 0;
-          });
-
-          if (hasDefenses) {
-            tunnelFlow.isBlockaded = true;
-            tunnelFlow.blockadeSpeciesId = tunnel.poweredBySpeciesId;
-          }
+        if (hasDefenses) {
+          tunnelFlow.isBlockaded = true;
+          // Get blockader's species for display
+          const blockader = db.getPlayerById(tunnelOwner);
+          tunnelFlow.blockadeSpeciesId = blockader?.speciesId || undefined;
         }
       }
     }
