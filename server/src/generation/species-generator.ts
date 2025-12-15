@@ -170,50 +170,146 @@ const TRAIT_DESCRIPTIONS: Record<SpeciesTraitType, string> = {
     "eager to interact with and learn from other species",
 };
 
-// Generate skin/surface colors based on body type
+// Generate skin/surface color descriptions based on body type
 function generateColors(
   random: SeededRandom,
   bodyType: string
 ): { skinColor: string; eyeColor: string } {
-  const colorPalettes: Record<string, { skin: string[]; eyes: string[] }> = {
+  const colorDescriptions: Record<string, { skin: string[]; eyes: string[] }> = {
     humanoid: {
-      skin: ["#f4c4a0", "#d4a574", "#8d5524", "#4a2c18", "#a8d8ea", "#c4b5fd"],
-      eyes: ["#2d4a7c", "#4a7c59", "#7c4a2d", "#6b46c1", "#dc2626", "#059669"],
+      skin: [
+        "Ranging from pale ivory to deep ebony, with brown, tan, and olive tones across populations",
+        "Skin tones from light beige to dark brown, with peachy, olive, and bronze undertones",
+        "Diverse complexions from alabaster to mahogany, encompassing all shades of brown and tan",
+        "Light blue to azure skin with silver undertones, showing regional variations",
+        "Pale lavender to deep purple skin tones with subtle iridescent qualities",
+      ],
+      eyes: [
+        "Brown eyes are most common, with blue, green, hazel, and amber widespread in populations",
+        "Eye colors ranging from dark brown to light blue, with green and hazel also frequent",
+        "Deep purple and violet eyes dominate, with amethyst and indigo variations present",
+        "Blue and green eyes are characteristic, though brown, gray, and hazel also occur",
+        "Red and amber eyes are most common, with golden and orange hues also appearing",
+      ],
     },
     insectoid: {
-      skin: ["#2d4a2d", "#4a2d1a", "#8b4513", "#2f4f2f", "#556b2f"],
-      eyes: ["#ff0000", "#ffd700", "#00ff00", "#ffffff", "#ff6347"],
+      skin: [
+        "Chitinous exoskeletons in dark green to black, with brown and gray variations across hives",
+        "Dark brown to black carapaces, with regional populations showing reddish or mahogany tints",
+        "Exoskeletons ranging from tan brown to dark copper, with some showing metallic sheens",
+        "Forest green to olive carapaces with darker populations displaying black or deep brown",
+        "Golden-brown to bronze chitinous shells, with silver and pale variants in some colonies",
+      ],
+      eyes: [
+        "Compound eyes predominantly red to orange, with golden and crimson variations common",
+        "Bright golden compound eyes are universal, with yellow-green and copper also present",
+        "Red compound eyes dominate, though orange, yellow, and rare white mutations occur",
+        "Cyan and turquoise compound eyes are typical, with variations into green and blue",
+        "Multifaceted eyes in shades of green to yellow, with white and red appearing rarely",
+      ],
     },
     reptilian: {
-      skin: ["#4a7c59", "#2d4a2d", "#8b7355", "#556b2f", "#6b8e23"],
-      eyes: ["#ffd700", "#ff4500", "#32cd32", "#ff8c00", "#ffff00"],
+      skin: [
+        "Scales from forest green to dark teal, with olive, brown, and gray-green populations",
+        "Earth-toned scales in browns and tans, with regional groups showing green or gray hues",
+        "Copper-brown to bronze scales dominate, with variations into red, green, and charcoal",
+        "Olive-green to moss-green scaling with brown, sage, and yellow-green differences by region",
+        "Blue-green to teal scales with darker populations showing gray or black undertones",
+      ],
+      eyes: [
+        "Golden and amber eyes are characteristic, with orange, yellow, and green also common",
+        "Fierce orange-red eyes dominate, with variations in gold, crimson, and deep amber",
+        "Bright green eyes ranging from lime to emerald, with yellow-green and jade present",
+        "Yellow to orange slit-pupiled eyes are most frequent, with red and green also appearing",
+        "Reptilian eyes in shades of gold, copper, and bright yellow with rare green variants",
+      ],
     },
     avian: {
-      skin: ["#4169e1", "#dc143c", "#ffd700", "#32cd32", "#ff69b4", "#00ced1"],
-      eyes: ["#000000", "#ffd700", "#ff4500", "#4169e1"],
+      skin: [
+        "Brilliant plumage in royal blue to sky blue, with azure, violet, and teal variations",
+        "Vibrant feathers from crimson to scarlet, with flame-orange and burgundy populations",
+        "Golden to yellow plumage with variations into orange, amber, and white-gold",
+        "Bright green feathering from emerald to lime, with yellow-green and teal accents",
+        "Multi-colored plumage combining blues, reds, and golds in regional patterns",
+      ],
+      eyes: [
+        "Golden and amber eyes are typical, with black, orange, and yellow also occurring",
+        "Fierce orange to red eyes with intensity varying from bright to deep crimson",
+        "Keen black eyes dominate, though golden, blue, and orange appear in populations",
+        "Sharp blue eyes ranging from sky to royal blue, with some showing violet tints",
+        "Bright eyes in golds, oranges, and reds with rare green or purple individuals",
+      ],
     },
     aquatic: {
-      skin: ["#00ced1", "#20b2aa", "#5f9ea0", "#4682b4", "#6495ed"],
-      eyes: ["#000000", "#4169e1", "#00ff00", "#ff1493"],
+      skin: [
+        "Smooth skin in turquoise and seafoam green, with deeper dwellers showing blue-gray or silver",
+        "Aquatic coloration from light cyan to deep blue, with teal and green variations by depth",
+        "Scales and skin in shades of blue from pale sky to deep navy, with silver undertones",
+        "Green-blue to teal coloration with pearl, silver, and white patterns in some populations",
+        "Ocean-toned skin from pale aqua to deep sea blue, with bioluminescent patterns varying",
+      ],
+      eyes: [
+        "Royal blue eyes are prevalent, with variations in deep sea blue, violet, and bright green",
+        "Large eyes ranging from black to deep blue, adapted for low-light vision in depths",
+        "Bright green to cyan eyes common in shallow dwellers, with blue dominant in deep populations",
+        "Eyes in shades of blue and violet, with rare individuals showing green or silver",
+        "Bioluminescent eyes glowing blue, green, or cyan depending on regional adaptations",
+      ],
     },
     crystalline: {
-      skin: ["#e0e0e0", "#b8860b", "#4169e1", "#9370db", "#ff1493"],
-      eyes: ["#ffffff", "#00ffff", "#ff00ff", "#ffff00"],
+      skin: [
+        "Translucent crystalline structures from clear to pale gray, with rainbow refractions",
+        "Faceted surfaces in shades of gold and bronze with metallic and iridescent qualities",
+        "Blue crystalline forms from sapphire to pale sky blue with internal light patterns",
+        "Purple to violet crystalline structures showing amethyst and lavender variations",
+        "Multi-hued crystalline bodies displaying pink, purple, and blue internal colors",
+      ],
+      eyes: [
+        "Luminous white to pale cyan energy nodes acting as sensory organs",
+        "Brilliant energy cores in cyan, magenta, and yellow depending on composition",
+        "Multispectral sensor arrays glowing in yellows, pinks, and blues",
+        "Pure white to pale blue light emanations from crystalline eye structures",
+        "Prismatic light emissions showing rainbow effects from white to cyan cores",
+      ],
     },
     gaseous: {
-      skin: ["#9370db", "#4169e1", "#00ced1", "#ff69b4", "#ffd700"],
-      eyes: ["#ffffff", "#ffff00", "#00ffff"],
+      skin: [
+        "Nebulous forms in medium purple to violet, with darker indigo and lighter lavender individuals",
+        "Luminous plasma clouds shifting between deep blue, violet, and cyan with occasional pink",
+        "Radiant golden plasma forms from bright yellow to amber, with rare white-gold variants",
+        "Swirling gas forms in shades of cyan to turquoise with blue and green variations",
+        "Ethereal cloud bodies in pinks, purples, and blues with constantly shifting patterns",
+      ],
+      eyes: [
+        "Cyan and turquoise energy concentrations are common, ranging through aqua and pale blue",
+        "Bright white to pale blue energy cores, with some showing yellow or cyan focal points",
+        "Brilliant yellow energy cores universal, from pale lemon to deep golden-yellow",
+        "White to pale yellow light centers with occasional cyan or pink individuals",
+        "Multicolored energy nodes showing blues, yellows, and cyans in different manifestations",
+      ],
     },
     mechanical: {
-      skin: ["#808080", "#c0c0c0", "#696969", "#a9a9a9", "#2f4f4f"],
-      eyes: ["#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff"],
+      skin: [
+        "Metallic casings from polished silver to gunmetal gray, with bronze and copper variants",
+        "Brushed steel to dark gray alloy bodies with regional design differences",
+        "Chrome and silver exteriors with darker populations using tactical gray or black",
+        "Aged bronze to copper-colored chassis with oxidized green-blue patinas in some units",
+        "Sleek metallic forms in grays, silvers, and blacks with occasional colored accent panels",
+      ],
+      eyes: [
+        "Optical sensors typically glow green, though red, blue, yellow, and cyan configurations exist",
+        "Red photoreceptors are standard issue, with blue, green, and white for specialized functions",
+        "Blue light optics dominate, with yellow, white, and red used for different operational modes",
+        "Glowing yellow sensors are characteristic, with red, green, and cyan alternatives by model",
+        "Multicolored sensor arrays capable of shifting between red, green, blue, and white",
+      ],
     },
   };
 
-  const palette = colorPalettes[bodyType] || colorPalettes.humanoid;
+  const descriptions = colorDescriptions[bodyType] || colorDescriptions.humanoid;
   return {
-    skinColor: random.choice(palette.skin),
-    eyeColor: random.choice(palette.eyes),
+    skinColor: random.choice(descriptions.skin),
+    eyeColor: random.choice(descriptions.eyes),
   };
 }
 

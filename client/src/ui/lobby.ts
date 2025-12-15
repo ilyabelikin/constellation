@@ -491,9 +491,9 @@ export class LobbyManager {
       species.appearance.bodyType.charAt(0).toUpperCase() +
       species.appearance.bodyType.slice(1);
 
-    // Set appearance colors
-    this.speciesDetailSkinColor.style.backgroundColor = species.appearance.skinColor;
-    this.speciesDetailEyeColor.style.backgroundColor = species.appearance.eyeColor;
+    // Set appearance descriptions
+    this.speciesDetailSkinColor.textContent = species.appearance.skinColor;
+    this.speciesDetailEyeColor.textContent = species.appearance.eyeColor;
 
     // Set height and build
     this.speciesDetailHeight.textContent =

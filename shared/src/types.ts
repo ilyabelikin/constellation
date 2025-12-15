@@ -231,8 +231,8 @@ export interface SpeciesAppearance {
     | "crystalline"
     | "gaseous"
     | "mechanical";
-  skinColor: string; // hex color
-  eyeColor: string; // hex color
+  skinColor: string; // description of skin/surface color variety
+  eyeColor: string; // description of eye color variety
   height: "short" | "medium" | "tall" | "variable";
   build: "slender" | "average" | "stocky" | "massive";
 }

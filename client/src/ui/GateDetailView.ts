@@ -43,6 +43,7 @@ export class GateDetailView {
   public onOvertakeClick?: (gateId: string) => void;
   public onDebugConnectClick?: (gateId: string) => void;
   public onPowerOffTunnel?: (tunnelId: string) => void;
+  public onPowerOnTunnel?: (tunnelId: string) => void;
   public onOverchargeTunnel?: (tunnelId: string) => void;
 
   constructor() {
@@ -239,6 +240,7 @@ export class GateDetailView {
       gateBStatus?: string;
       tunnelPoweredByPlayerId?: string | null;
       tunnelPoweredByPlayerName?: string | null;
+      tunnelPoweredBySpeciesName?: string | null;
       tunnelId?: string;
       canTravel?: boolean;
       hasTunnelPower?: boolean;
@@ -296,7 +298,8 @@ export class GateDetailView {
               ? `Cooldown: ${tunnelInfo.overchargeTimeRemaining}`
               : "Overcharge tunnel (10 Energy + 10 Science)";
           
-          this.tunnelPowerElement.innerHTML = `⚡ Powered by You 
+          const speciesName = tunnelInfo.tunnelPoweredBySpeciesName || "Your Species";
+          this.tunnelPowerElement.innerHTML = `${speciesName}
             <button id="power-off-tunnel-btn" style="margin-left: 8px; padding: 2px 6px; font-size: 0.75em; cursor: pointer; background: #ef4444; color: white; border: none; border-radius: 3px;">✕ Power Off</button>
             <button id="overcharge-tunnel-btn" 
               style="margin-left: 4px; padding: 2px 6px; font-size: 0.75em; cursor: ${overchargeDisabled ? 'not-allowed' : 'pointer'}; background: ${overchargeDisabled ? '#6b7280' : '#dc2626'}; color: white; border: none; border-radius: 3px; font-weight: bold; opacity: ${overchargeDisabled ? '0.5' : '1'};"
@@ -331,9 +334,45 @@ export class GateDetailView {
           }
         }
       } else {
-        // Unpowered - can only be powered by traveling through the gate or overtaking
-        this.tunnelPowerElement.textContent = `⚪ Unpowered (Travel through to open)`;
-        this.tunnelPowerElement.style.color = "#9ca3af";
+        // Unpowered - check if tunnel was previously opened or never opened
+        const bothGatesHaveOwners = 
+          tunnelInfo.gateAOwnerName && tunnelInfo.gateAOwnerName !== "Uncontrolled" &&
+          tunnelInfo.gateBOwnerName && tunnelInfo.gateBOwnerName !== "Uncontrolled";
+        
+        const playerOwnsEitherGate = 
+          tunnelInfo.gateAStatus === "owned_by_self" || 
+          tunnelInfo.gateBStatus === "owned_by_self";
+        
+        if (bothGatesHaveOwners) {
+          // Tunnel was opened before but is now powered off
+          if (playerOwnsEitherGate && tunnelInfo.tunnelId) {
+            // Player owns at least one gate - show power on button
+            this.tunnelPowerElement.innerHTML = `⚪ Deactivated 
+              <button id="power-on-tunnel-btn" style="margin-left: 8px; padding: 2px 6px; font-size: 0.75em; cursor: pointer; background: #10b981; color: white; border: none; border-radius: 3px;">⚡ Power On</button>`;
+            this.tunnelPowerElement.style.color = "#9ca3af";
+            
+            // Add event listener for power on button
+            setTimeout(() => {
+              const powerOnBtn = document.getElementById("power-on-tunnel-btn");
+              if (powerOnBtn && tunnelInfo.tunnelId) {
+                const tunnelId = tunnelInfo.tunnelId;
+                powerOnBtn.onclick = () => {
+                  if (this.onPowerOnTunnel) {
+                    this.onPowerOnTunnel(tunnelId);
+                  }
+                };
+              }
+            }, 0);
+          } else {
+            // Someone else owns the gates
+            this.tunnelPowerElement.textContent = `⚪ Deactivated (Open to activate)`;
+            this.tunnelPowerElement.style.color = "#9ca3af";
+          }
+        } else {
+          // Tunnel never opened - first time
+          this.tunnelPowerElement.textContent = `⚪ Unpowered (Travel through to open)`;
+          this.tunnelPowerElement.style.color = "#9ca3af";
+        }
       }
     } else {
       this.tunnelControlRow.style.display = "none";
@@ -370,12 +409,19 @@ export class GateDetailView {
       this.travelButton.title =
         "Cannot travel through defended hostile gate - destroy defenses first";
     } else {
-      // Update travel/open button text with cost
-      this.travelButton.style.display = "block";
+      // Check if tunnel is powered (active) or deactivated
+      const isTunnelPowered = tunnelInfo && tunnelInfo.tunnelPoweredByPlayerId;
       const isUnexplored = !(
         player?.exploredGateIds?.includes(gate.id) ?? false
       );
-      const buttonLabel = isUnexplored ? "Open" : "Travel";
+      
+      // If tunnel is deactivated (not powered), show "Open" button for reactivation
+      // If tunnel is powered and explored, show "Travel"
+      // If tunnel is powered but unexplored by player, show "Open"
+      const buttonLabel = (isUnexplored || !isTunnelPowered) ? "Open" : "Travel";
+      
+      // Update travel/open button text with cost
+      this.travelButton.style.display = "block";
       if (travelCost > 0) {
         this.travelButton.textContent = `⚡ ${buttonLabel} (${travelCost} Energy)`;
       } else {

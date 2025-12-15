@@ -243,6 +243,9 @@ export class ConstellationWebSocketServer {
         case "powerOffTunnel":
           this.handlePowerOffTunnel(client, message.tunnelId);
           break;
+        case "powerOnTunnel":
+          this.handlePowerOnTunnel(client, message.tunnelId);
+          break;
         case "overchargeTunnel":
           this.handleOverchargeTunnel(client, message.tunnelId);
           break;
@@ -1573,22 +1576,29 @@ export class ConstellationWebSocketServer {
 
     // Auto-power tunnel if player is opening it for the first time
     // This only happens when the tunnel is not yet powered
-    if (gate.tunnelId) {
-      const tunnel = this.db.getTunnelById(gate.tunnelId);
+    // Re-fetch the gate to get the updated tunnelId (it was just created/updated above)
+    const updatedGate = this.db.getGateById(gateId);
+    console.log(`[DEBUG] Checking auto-power: gate.tunnelId=${updatedGate?.tunnelId}`);
+    if (updatedGate?.tunnelId) {
+      const tunnel = this.db.getTunnelById(updatedGate.tunnelId);
+      console.log(`[DEBUG] Tunnel: ${tunnel ? `id=${tunnel.id}, poweredBy=${tunnel.poweredByPlayerId}, cost=${tunnel.powerCostEnergy}` : 'null'}`);
       if (tunnel && !tunnel.poweredByPlayerId) {
         // Check if player has enough energy to open/power tunnel
         const OPEN_ENERGY_COST = GAME_COSTS.TUNNEL_POWER_ON.energy;
+        console.log(`[DEBUG] Player energy: ${player.energy}, required: ${OPEN_ENERGY_COST}`);
         if (player.energy >= OPEN_ENERGY_COST) {
           this.db.deductPlayerEnergy(player.id, OPEN_ENERGY_COST);
-          this.db.setTunnelPower(gate.tunnelId, player.id, OPEN_ENERGY_COST);
+          this.db.setTunnelPower(updatedGate.tunnelId, player.id, OPEN_ENERGY_COST);
           console.log(
-            `Player ${player.name} auto-powered tunnel ${gate.tunnelId} (${OPEN_ENERGY_COST} energy)`
+            `Player ${player.name} auto-powered tunnel ${updatedGate.tunnelId} (${OPEN_ENERGY_COST} energy)`
           );
         } else {
           console.log(
             `Player ${player.name} cannot auto-power tunnel - insufficient energy`
           );
         }
+      } else {
+        console.log(`[DEBUG] Skip auto-power: tunnel=${tunnel ? 'exists' : 'null'}, poweredBy=${tunnel?.poweredByPlayerId}`);
       }
     }
 
@@ -2789,12 +2799,13 @@ export class ConstellationWebSocketServer {
     }, 60 * 60 * 1000); // Run every hour
 
     // Also run once on startup (after 1 minute to let server settle)
-    setTimeout(() => {
-      const deletedCount = this.db.cleanupOldGalaxies();
-      if (deletedCount > 0) {
-        console.log(`Initial cleanup: removed ${deletedCount} old galaxies`);
-      }
-    }, 60 * 1000);
+    // Temporarily disabled for testing
+    // setTimeout(() => {
+    //   const deletedCount = this.db.cleanupOldGalaxies();
+    //   if (deletedCount > 0) {
+    //     console.log(`Initial cleanup: removed ${deletedCount} old galaxies`);
+    //   }
+    // }, 60 * 1000);
   }
 
   private broadcastStateUpdates(): void {
@@ -4185,8 +4196,8 @@ export class ConstellationWebSocketServer {
       );
     }
 
-    // Remove tunnel power
-    this.db.setTunnelPower(tunnelId, null, 0);
+    // Remove tunnel power but keep the cost (will be charged again when powering on)
+    this.db.setTunnelPower(tunnelId, null, tunnel.powerCostEnergy);
 
     console.log(
       `Player ${player.name} powered off tunnel ${tunnelId}`
@@ -4200,6 +4211,85 @@ export class ConstellationWebSocketServer {
 
     // Refresh system data for all players viewing systems connected by this tunnel
     const gatesInTunnel = this.db.getGatesByTunnel(tunnelId);
+    for (const gate of gatesInTunnel) {
+      for (const otherClient of this.clients.values()) {
+        if (otherClient.galaxyId === player.galaxyId && 
+            otherClient.currentSystemId === gate.systemId) {
+          this.handleRequestSystemState(otherClient, otherClient.currentSystemId);
+        }
+      }
+    }
+  }
+
+  private handlePowerOnTunnel(client: ClientConnection, tunnelId: string): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get the tunnel
+    const tunnel = this.db.getTunnelById(tunnelId);
+    if (!tunnel) {
+      this.sendError(client.ws, "Tunnel not found");
+      return;
+    }
+
+    // Check if tunnel is already powered
+    if (tunnel.poweredByPlayerId) {
+      this.sendError(client.ws, "Tunnel is already powered by another player");
+      return;
+    }
+
+    // Check if player owns at least one gate in the tunnel
+    const gatesInTunnel = this.db.getGatesByTunnel(tunnelId);
+    const playerOwnsGate = gatesInTunnel.some(gate => {
+      const gateOwnerId = this.db.getGateOwner(gate.id);
+      return gateOwnerId === client.playerId;
+    });
+
+    if (!playerOwnsGate) {
+      this.sendError(client.ws, "You must own at least one gate in this tunnel to power it");
+      return;
+    }
+
+    // Check if player has enough energy to power on the tunnel
+    const powerCost = tunnel.powerCostEnergy || 0;
+    if (player.energy < powerCost) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to power on tunnel (requires ${powerCost} energy)`
+      );
+      return;
+    }
+
+    // Deduct energy cost if any
+    if (powerCost > 0) {
+      this.db.deductPlayerEnergy(client.playerId, powerCost);
+      console.log(
+        `Player ${player.name} paid ${powerCost} energy to power on tunnel ${tunnelId}`
+      );
+    }
+
+    // Power on the tunnel
+    this.db.setTunnelPower(tunnelId, client.playerId, powerCost);
+
+    console.log(
+      `Player ${player.name} powered on tunnel ${tunnelId}`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Refresh system data for all players viewing systems connected by this tunnel
     for (const gate of gatesInTunnel) {
       for (const otherClient of this.clients.values()) {
         if (otherClient.galaxyId === player.galaxyId && 

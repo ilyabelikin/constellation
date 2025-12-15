@@ -110,6 +110,10 @@ export type ClientMessage =
       tunnelId: string;
     }
   | {
+      type: "powerOnTunnel";
+      tunnelId: string;
+    }
+  | {
       type: "overchargeTunnel";
       tunnelId: string;
     }

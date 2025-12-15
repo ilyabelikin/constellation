@@ -173,6 +173,7 @@ export class HUDManager {
   public onGateDebugConnect: ((gateId: string) => void) | null = null;
   public onGetGateDefenseCount: ((gateId: string) => number) | null = null;
   public onTunnelPowerOff: ((tunnelId: string) => void) | null = null;
+  public onTunnelPowerOn: ((tunnelId: string) => void) | null = null;
   public onTunnelOvertake: ((tunnelId: string) => void) | null = null;
   public onTunnelOvercharge: ((tunnelId: string) => void) | null = null;
   public onGetGateResourceFlow:
@@ -409,6 +410,12 @@ export class HUDManager {
     this.gateDetailView.onPowerOffTunnel = (tunnelId: string) => {
       if (this.onTunnelPowerOff) {
         this.onTunnelPowerOff(tunnelId);
+      }
+    };
+
+    this.gateDetailView.onPowerOnTunnel = (tunnelId: string) => {
+      if (this.onTunnelPowerOn) {
+        this.onTunnelPowerOn(tunnelId);
       }
     };
 
@@ -1553,6 +1560,7 @@ export class HUDManager {
           gateBStatus?: string;
           tunnelPoweredByPlayerId?: string | null;
           tunnelPoweredByPlayerName?: string | null;
+          tunnelPoweredBySpeciesName?: string | null;
           tunnelId?: string;
           canTravel?: boolean;
           hasTunnelPower?: boolean;
@@ -1573,6 +1581,12 @@ export class HUDManager {
         const playerOwnsOther =
           tunnelOwnershipData.otherGateOwnerId === this.player?.id;
 
+        // Get species name if tunnel is powered by current player
+        let tunnelPoweredBySpeciesName = null;
+        if (tunnelOwnershipData.tunnelPoweredByPlayerId === this.player?.id) {
+          tunnelPoweredBySpeciesName = this.speciesNameDisplay.textContent || null;
+        }
+
         tunnelInfo = {
           gateAOwnerName:
             tunnelOwnershipData.thisGateOwnerName || "Uncontrolled",
@@ -1582,6 +1596,7 @@ export class HUDManager {
           gateBStatus: tunnelOwnershipData.otherGateStatus,
           tunnelPoweredByPlayerId: tunnelOwnershipData.tunnelPoweredByPlayerId,
           tunnelPoweredByPlayerName: tunnelOwnershipData.tunnelPoweredByPlayerName,
+          tunnelPoweredBySpeciesName: tunnelPoweredBySpeciesName,
           tunnelId: tunnelOwnershipData.tunnelId,
           canTravel: playerOwnsThis || playerOwnsOther,
           hasTunnelPower: tunnelOwnershipData.tunnelPoweredByPlayerId === this.player?.id,
@@ -1599,6 +1614,7 @@ export class HUDManager {
           gateBStatus: undefined,
           tunnelPoweredByPlayerId: null,
           tunnelPoweredByPlayerName: null,
+          tunnelPoweredBySpeciesName: null,
           tunnelId: undefined,
           canTravel: false,
           hasTunnelPower: false,
@@ -2080,11 +2096,9 @@ export class HUDManager {
       species.appearance.bodyType.charAt(0).toUpperCase() +
       species.appearance.bodyType.slice(1);
 
-    // Set appearance colors
-    this.speciesInfoSkinColor.style.backgroundColor =
-      species.appearance.skinColor;
-    this.speciesInfoEyeColor.style.backgroundColor =
-      species.appearance.eyeColor;
+    // Set appearance descriptions
+    this.speciesInfoSkinColor.textContent = species.appearance.skinColor;
+    this.speciesInfoEyeColor.textContent = species.appearance.eyeColor;
 
     // Set height and build
     this.speciesInfoHeight.textContent =

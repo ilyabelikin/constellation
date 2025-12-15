@@ -689,6 +689,10 @@ export class NetworkClient {
     this.send({ type: "powerOffTunnel", tunnelId });
   }
 
+  powerOnTunnel(tunnelId: string): void {
+    this.send({ type: "powerOnTunnel", tunnelId });
+  }
+
   overchargeTunnel(tunnelId: string): void {
     this.send({ type: "overchargeTunnel", tunnelId });
   }

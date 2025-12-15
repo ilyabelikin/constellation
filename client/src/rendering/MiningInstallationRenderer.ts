@@ -227,6 +227,16 @@ class MiningShip {
   // Rotation animation
   private rotationOffset: number = 0; // Accumulated rotation offset for smooth orbital motion
   
+  // Particle system for material extraction effect
+  private particleSystem: THREE.Points | null = null;
+  private particleCount: number = 40; // Number of particles in the beam
+  private particlePositions: Float32Array;
+  private particleProgress: Float32Array; // 0-1 progress along beam for each particle
+  private particleSpeeds: Float32Array; // Individual speed multipliers
+  private particleSizes: Float32Array; // Individual particle sizes for variety
+  private particleAngles: Float32Array; // Random angles for cone distribution
+  private particleRadii: Float32Array; // Random radii for cone distribution
+  
   constructor(
     parent: THREE.Group,
     asteroidRadius: number,
@@ -290,6 +300,7 @@ class MiningShip {
       opacity: 0.0, // Start invisible during arrival
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
+      depthWrite: false, // Don't write to depth buffer to avoid occluding particles
     });
     this.beamCone = new THREE.Mesh(beamGeometry, beamMaterial);
     this.group.add(this.beamCone);
@@ -309,6 +320,125 @@ class MiningShip {
     this.pointLight = new THREE.PointLight(0x4499ff, 2.0, orbitRadius * 1.5);
     this.pointLight.position.copy(this.startPosition);
     this.group.add(this.pointLight);
+    
+    // Initialize particle system arrays
+    this.particlePositions = new Float32Array(this.particleCount * 3);
+    this.particleProgress = new Float32Array(this.particleCount);
+    this.particleSpeeds = new Float32Array(this.particleCount);
+    this.particleSizes = new Float32Array(this.particleCount);
+    this.particleAngles = new Float32Array(this.particleCount);
+    this.particleRadii = new Float32Array(this.particleCount);
+    
+    // Initialize particles with random progress, speeds, sizes, and cone distribution
+    for (let i = 0; i < this.particleCount; i++) {
+      this.particleProgress[i] = Math.random(); // Random start position along beam
+      this.particleSpeeds[i] = 0.8 + Math.random() * 0.4; // Vary speed (0.8-1.2x)
+      this.particleSizes[i] = 0.5 + Math.random() * 1.0; // Vary size (0.5-1.5x)
+      this.particleAngles[i] = Math.random() * Math.PI * 2; // Random angle around beam axis
+      this.particleRadii[i] = Math.random(); // Random distance from beam center (0-1)
+    }
+    
+    this.createParticleSystem();
+  }
+
+  /**
+   * Create the particle system for material extraction visualization
+   */
+  private createParticleSystem(): void {
+    const particleGeometry = new THREE.BufferGeometry();
+    particleGeometry.setAttribute(
+      'position',
+      new THREE.BufferAttribute(this.particlePositions, 3)
+    );
+    
+    // Add size attribute for per-particle size variation
+    particleGeometry.setAttribute(
+      'size',
+      new THREE.BufferAttribute(this.particleSizes, 1)
+    );
+    
+    // Create particle material with orange glow
+    const particleMaterial = new THREE.PointsMaterial({
+      color: 0xffaa44, // Bright orange/yellow for mined materials
+      size: this.asteroidRadius * 0.04, // Half the original size (0.08 -> 0.04)
+      transparent: true,
+      opacity: 0.0, // Start invisible during arrival
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      sizeAttenuation: true,
+    });
+    
+    this.particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+    this.group.add(this.particleSystem);
+  }
+  
+  /**
+   * Update particle positions to flow from asteroid to ship
+   */
+  private updateParticles(deltaTime: number, shipPos: THREE.Vector3): void {
+    if (!this.particleSystem) return;
+    
+    const beamLength = shipPos.length() - this.asteroidRadius * 0.3;
+    const direction = new THREE.Vector3(0, 0, 0).sub(shipPos).normalize();
+    
+    // Calculate impact point on asteroid surface
+    const impactPoint = direction.clone().multiplyScalar(-this.asteroidRadius);
+    
+    // Create perpendicular vectors for cone distribution
+    const perpendicular1 = new THREE.Vector3();
+    const perpendicular2 = new THREE.Vector3();
+    const tempVec = new THREE.Vector3();
+    
+    // Find a vector not parallel to direction to create orthogonal basis
+    if (Math.abs(direction.y) < 0.9) {
+      tempVec.set(0, 1, 0); // Use Y axis if direction isn't too aligned with it
+    } else {
+      tempVec.set(1, 0, 0); // Otherwise use X axis
+    }
+    
+    // Create orthogonal basis using cross products
+    perpendicular1.crossVectors(direction, tempVec).normalize();
+    perpendicular2.crossVectors(direction, perpendicular1).normalize();
+    
+    // Update each particle
+    for (let i = 0; i < this.particleCount; i++) {
+      // Move particle along beam
+      this.particleProgress[i] += deltaTime * 0.15 * this.particleSpeeds[i]; // Slow movement
+      
+      // Reset particle when it reaches the ship
+      if (this.particleProgress[i] >= 1.0) {
+        this.particleProgress[i] = 0.0;
+        // Randomize cone distribution for new cycle
+        this.particleAngles[i] = Math.random() * Math.PI * 2;
+        this.particleRadii[i] = Math.random();
+      }
+      
+      const progress = this.particleProgress[i];
+      
+      // Interpolate position from asteroid surface to ship
+      const particlePos = impactPoint.clone().lerp(shipPos, progress);
+      
+      // Cone effect: particles start spread out and condense toward the ship
+      // Cone radius is largest at the asteroid (progress=0) and smallest at ship (progress=1)
+      const coneRadius = beamLength * 0.15 * (1.0 - progress * 0.85); // Reduces to 15% at ship
+      const radialOffset = coneRadius * this.particleRadii[i];
+      
+      // Apply radial offset using the perpendicular vectors
+      const offsetX = Math.cos(this.particleAngles[i]) * radialOffset;
+      const offsetZ = Math.sin(this.particleAngles[i]) * radialOffset;
+      
+      particlePos.add(perpendicular1.clone().multiplyScalar(offsetX));
+      particlePos.add(perpendicular2.clone().multiplyScalar(offsetZ));
+      
+      // Store in positions array
+      this.particlePositions[i * 3] = particlePos.x;
+      this.particlePositions[i * 3 + 1] = particlePos.y;
+      this.particlePositions[i * 3 + 2] = particlePos.z;
+    }
+    
+    // Update the geometry
+    const positionAttribute = this.particleSystem.geometry.getAttribute('position');
+    (positionAttribute as THREE.BufferAttribute).needsUpdate = true;
   }
 
   /**
@@ -347,6 +477,12 @@ class MiningShip {
         beamMaterial.opacity = beamFade * 0.25;
         this.spotlight.intensity = beamFade * 8.0;
         
+        // Fade in particles with beam
+        if (this.particleSystem) {
+          const particleMaterial = this.particleSystem.material as THREE.PointsMaterial;
+          particleMaterial.opacity = beamFade * 0.8;
+        }
+        
         // Update beam cone position
         const direction = new THREE.Vector3(0, 0, 0).sub(shipPos).normalize();
         const beamLength = shipPos.length() - this.asteroidRadius * 0.3;
@@ -356,6 +492,9 @@ class MiningShip {
           new THREE.Vector3(0, -1, 0),
           direction
         );
+        
+        // Update particles during arrival
+        this.updateParticles(deltaTime, shipPos);
       }
       
     } else {
@@ -375,6 +514,12 @@ class MiningShip {
       // Pulse beam cone opacity and brightness
       const beamMaterial = this.beamCone.material as THREE.MeshBasicMaterial;
       beamMaterial.opacity = 0.2 + basePulse * 0.2;
+      
+      // Pulse particle opacity with beam
+      if (this.particleSystem) {
+        const particleMaterial = this.particleSystem.material as THREE.PointsMaterial;
+        particleMaterial.opacity = 0.6 + basePulse * 0.3;
+      }
       
       // Slight rotation of ship position around asteroid for variety
       // Use accumulated rotation offset instead of Date.now() to avoid jumps
@@ -400,6 +545,9 @@ class MiningShip {
         new THREE.Vector3(0, -1, 0), // Cone tip points down by default, so use negative Y
         direction
       );
+      
+      // Update particles during normal mining
+      this.updateParticles(deltaTime, shipPos);
     }
   }
 
@@ -412,6 +560,13 @@ class MiningShip {
     this.beamCone.geometry.dispose();
     (this.beamCone.material as THREE.Material).dispose();
     this.spotlight.dispose();
+    
+    // Clean up particle system
+    if (this.particleSystem) {
+      this.particleSystem.geometry.dispose();
+      (this.particleSystem.material as THREE.Material).dispose();
+      this.particleSystem = null;
+    }
     
     if (this.group.parent) {
       this.group.parent.remove(this.group);

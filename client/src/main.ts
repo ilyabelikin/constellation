@@ -957,6 +957,10 @@ class ConstellationGame {
       this.network.powerOffTunnel(tunnelId);
     };
 
+    this.hud.onTunnelPowerOn = (tunnelId) => {
+      this.network.powerOnTunnel(tunnelId);
+    };
+
     this.hud.onTunnelOvertake = (tunnelId) => {
       this.network.overtakeTunnel(tunnelId);
     };
