@@ -2434,7 +2434,7 @@ export class HUDManager {
       return null;
     }
 
-    const COOLDOWN_PERIOD = 3 * 365 * 86400; // 3 years in seconds
+    const COOLDOWN_PERIOD = 1 * 365 * 86400; // 1 year in seconds
     const timeSinceOvercharge = this.currentTime - overchargedAt;
 
     if (timeSinceOvercharge >= COOLDOWN_PERIOD) {

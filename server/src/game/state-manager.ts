@@ -23,10 +23,20 @@ export class GameStateManager {
     isPaused: boolean;
     timeScale: number;
     lastUpdateTime: number;
+    lastProcessedDay: number; // Track which day we last processed yields for
   }> = new Map();
+  private onDayElapsed: ((galaxyId: string, currentTime: number, daysElapsed: number) => void) | null = null;
 
   constructor() {
     this.startSimulation();
+  }
+  
+  /**
+   * Register a callback to be notified when in-game days elapse
+   * This is how the websocket server will be notified to process yields
+   */
+  setDayElapsedCallback(callback: (galaxyId: string, currentTime: number, daysElapsed: number) => void): void {
+    this.onDayElapsed = callback;
   }
 
   private startSimulation(): void {
@@ -37,6 +47,7 @@ export class GameStateManager {
 
   private update(): void {
     const now = Date.now();
+    const SECONDS_PER_DAY = 24 * 60 * 60;
     
     // Update time for all active galaxies, not just the "current" one
     for (const [galaxyId, timeState] of this.galaxyTimeState.entries()) {
@@ -50,6 +61,17 @@ export class GameStateManager {
 
       timeState.currentTime += deltaGameTime;
       timeState.lastUpdateTime = now;
+      
+      // Check if we've crossed into a new in-game day
+      const currentDay = Math.floor(timeState.currentTime / SECONDS_PER_DAY);
+      if (currentDay > timeState.lastProcessedDay) {
+        const daysElapsed = currentDay - timeState.lastProcessedDay;
+        // Notify the websocket server that days have passed so it can process yields
+        if (this.onDayElapsed) {
+          this.onDayElapsed(galaxyId, timeState.currentTime, daysElapsed);
+        }
+        timeState.lastProcessedDay = currentDay;
+      }
     }
   }
 
@@ -73,11 +95,13 @@ export class GameStateManager {
   loadGalaxy(galaxyId: string, currentTime: number = 0, isPaused: boolean = true, timeScale: number = TIME_SCALE_DEFAULT): void {
     this.currentGalaxyId = galaxyId;
     if (!this.galaxyTimeState.has(galaxyId)) {
+      const SECONDS_PER_DAY = 24 * 60 * 60;
       this.galaxyTimeState.set(galaxyId, {
         currentTime,
         isPaused,
         timeScale,
         lastUpdateTime: Date.now(),
+        lastProcessedDay: Math.floor(currentTime / SECONDS_PER_DAY), // Initialize based on current time
       });
     }
   }

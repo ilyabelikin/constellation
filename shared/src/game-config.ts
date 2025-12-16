@@ -88,6 +88,30 @@ export const DEFENSE_PLATFORM_CONFIG: UnitConfig = {
 };
 
 /**
+ * Mining Installation Configuration
+ * Automated mining operations on asteroids and moons
+ */
+export const MINING_INSTALLATION_CONFIG: UnitConfig = {
+  cost: {
+    energy: 1,
+    alloy: 5,
+    science: 2,
+  },
+  stats: {
+    health: 0, // Not applicable for mining installations
+    attack: 0,
+    defense: 0,
+    hitChance: 0,
+  },
+  refundOnDestruction: {
+    energy: true, // Energy is refunded
+    alloy: true, // Alloy can be recovered from dismantling
+    science: false, // Research knowledge is not refunded
+    maintenance: false, // No maintenance for mining installations
+  },
+};
+
+/**
  * Other game costs
  */
 export const GAME_COSTS = {
@@ -186,60 +210,119 @@ export function calculateMaintenanceCost(
 }
 
 /**
+ * Determine colony stage based on population
+ * Centralized logic for consistent stage classification across all systems
+ */
+export function getColonyStage(
+  population: number
+):
+  | "outpost"
+  | "settlement"
+  | "colony"
+  | "developed"
+  | "metropolis"
+  | "ecumenopolis" {
+  if (population >= 15000000000) {
+    // 15B
+    return "ecumenopolis";
+  } else if (population >= 5000000000) {
+    // 5B
+    return "metropolis";
+  } else if (population >= 2000000000) {
+    // 2B
+    return "developed";
+  } else if (population >= 500000000) {
+    // 500M
+    return "colony";
+  } else if (population >= 50000000) {
+    // 50M
+    return "settlement";
+  } else {
+    return "outpost";
+  }
+}
+
+/**
  * Calculate colony resource yields based on population, specialization, and habitability
- * Uses a smooth curve where colonies:
- * - Consume resources until 1M population (starts low, peaks around 500K, then decreases to 0)
- * - Produce resources after 1M population (grows logarithmically with population)
+ * Uses a tiered system:
+ * - Outpost (0-50M): Consumes resources, peaks at 25M (-0.5 science, -0.3 alloy for balanced)
+ * - Settlement (50M-100M): Transitioning to self-sufficiency, gradually becomes positive
+ * - Colony+ (100M+): Produces resources, grows logarithmically with population
  */
 export function calculateColonyYields(
   population: number,
   specialization: "balanced" | "research" | "industrial",
   habitabilityBonus: number
 ): { sciencePerDay: number; alloyPerDay: number } {
-  const THRESHOLD = 1000000; // 1M population threshold
+  const OUTPOST_THRESHOLD = 50000000; // 50M - Outposts drain resources below this
+  const PRODUCTION_THRESHOLD = 100000000; // 100M - Significant production starts here
 
-  if (population >= THRESHOLD) {
-    // PRODUCTION PHASE: Colony produces resources after reaching 1M population
-    // Production grows with population above 1M
+  if (population >= PRODUCTION_THRESHOLD) {
+    // PRODUCTION PHASE: Colony produces resources after reaching 100M population
+    // Production grows with population above 100M
     // Using logarithmic growth for smooth scaling
-    const populationAboveThreshold = population - THRESHOLD;
-    const productionMultiplier = Math.log10(populationAboveThreshold + 1) / 2; // Starts at 0, grows slowly
+    const populationAboveThreshold = population - PRODUCTION_THRESHOLD;
+    const productionMultiplier = Math.log10(populationAboveThreshold + 1) / 1.5;
 
     switch (specialization) {
       case "research":
         return {
           sciencePerDay:
-            (0.02 + productionMultiplier * 0.08) * habitabilityBonus,
+            (0.05 + productionMultiplier * 0.15) * habitabilityBonus,
           alloyPerDay:
-            (0.002 + productionMultiplier * 0.008) * habitabilityBonus,
+            (0.005 + productionMultiplier * 0.015) * habitabilityBonus,
         };
       case "industrial":
         return {
           sciencePerDay:
-            (0.004 + productionMultiplier * 0.016) * habitabilityBonus,
-          alloyPerDay:
-            (0.016 + productionMultiplier * 0.064) * habitabilityBonus,
+            (0.01 + productionMultiplier * 0.03) * habitabilityBonus,
+          alloyPerDay: (0.04 + productionMultiplier * 0.12) * habitabilityBonus,
         };
       default: // balanced
         return {
           sciencePerDay:
-            (0.012 + productionMultiplier * 0.048) * habitabilityBonus,
+            (0.03 + productionMultiplier * 0.09) * habitabilityBonus,
           alloyPerDay:
-            (0.006 + productionMultiplier * 0.024) * habitabilityBonus,
+            (0.015 + productionMultiplier * 0.045) * habitabilityBonus,
+        };
+    }
+  } else if (population >= OUTPOST_THRESHOLD) {
+    // TRANSITION PHASE: Settlement (50M-100M) gradually becomes productive
+    // Starts at 0 (sustainability at 50M), grows to small positive at 100M
+    const normalizedPop =
+      (population - OUTPOST_THRESHOLD) /
+      (PRODUCTION_THRESHOLD - OUTPOST_THRESHOLD); // 0 to 1
+    const transitionMultiplier = normalizedPop * 0.3; // Gentle growth to 30% of base production
+
+    switch (specialization) {
+      case "research":
+        return {
+          sciencePerDay: 0.015 * transitionMultiplier * habitabilityBonus,
+          alloyPerDay: 0.002 * transitionMultiplier * habitabilityBonus,
+        };
+      case "industrial":
+        return {
+          sciencePerDay: 0.003 * transitionMultiplier * habitabilityBonus,
+          alloyPerDay: 0.012 * transitionMultiplier * habitabilityBonus,
+        };
+      default: // balanced
+        return {
+          sciencePerDay: 0.009 * transitionMultiplier * habitabilityBonus,
+          alloyPerDay: 0.005 * transitionMultiplier * habitabilityBonus,
         };
     }
   } else {
-    // CONSUMPTION PHASE: Colony consumes resources until reaching 1M population
-    // Use a smooth curve that starts low, peaks around 500K, then decreases to 0 at 1M
-    // Bell curve: peak at 0.5, using sin function for smooth transition
-    const normalizedPop = population / THRESHOLD; // 0 to 1
-    const consumptionCurve = Math.sin(normalizedPop * Math.PI); // Peaks at 0.5, returns to 0 at 1.0
+    // CONSUMPTION PHASE: Outpost (0-50M) drains resources from home world
+    // Bell curve peaks at 25M (middle of outpost phase)
+    // At peak: -0.5 science, -0.3 alloy (balanced specialization)
+    const normalizedPop = population / OUTPOST_THRESHOLD; // 0 to 1
+    const consumptionCurve = Math.sin(normalizedPop * Math.PI); // Peaks at 0.5 (25M), returns to 0 at 1.0 (50M)
 
-    // Base consumption rates (at peak, around 500K population)
+    // Peak consumption rates at 25M population
     const peakConsumption = {
-      research: { science: -0.05, alloy: -0.01 },
-      industrial: { science: -0.01, alloy: -0.04 },
-      balanced: { science: -0.03, alloy: -0.02 },
+      research: { science: -0.6, alloy: -0.2 }, // Research outposts consume more science
+      industrial: { science: -0.2, alloy: -0.4 }, // Industrial outposts consume more alloy
+      balanced: { science: -0.5, alloy: -0.3 }, // Balanced as specified
     };
 
     const rates = peakConsumption[specialization] || peakConsumption.balanced;
@@ -249,3 +332,69 @@ export function calculateColonyYields(
     };
   }
 }
+
+/**
+ * Technology configuration
+ */
+export interface TechnologyDefinition {
+  id: string;
+  name: string;
+  description: string;
+  scienceCost: number;
+  researchDays: number; // Days required to complete research
+  effects: {
+    dysonSwarmEnergyBonus?: number; // Percentage bonus to energy from NEW dyson swarms
+    colonyAlloyBonus?: number; // Percentage bonus to alloy from planet colonies (retroactive)
+    miningInstallationBonus?: number; // Percentage bonus to alloy from mining installations on asteroids/moons (retroactive)
+    shipDefenseBonus?: number; // Percentage bonus to defense of NEW ships
+    defenseplatformDefenseBonus?: number; // Percentage bonus to defense of NEW defense platforms
+  };
+}
+
+export const TECHNOLOGIES: Record<string, TechnologyDefinition> = {
+  nano_arrays: {
+    id: "nano_arrays",
+    name: "Nano Arrays",
+    description:
+      "Advanced nanostructure arrays increase energy collection efficiency in new Dyson Swarms by +10%.",
+    scienceCost: 60,
+    researchDays: 30,
+    effects: {
+      dysonSwarmEnergyBonus: 0.1, // +10%
+    },
+  },
+  deep_mining: {
+    id: "deep_mining",
+    name: "Deep Mining",
+    description:
+      "Enhanced mining techniques increase alloy output from planet colonies by +50%.",
+    scienceCost: 60,
+    researchDays: 30,
+    effects: {
+      colonyAlloyBonus: 0.5, // +50%
+    },
+  },
+  shields: {
+    id: "shields",
+    name: "Shields",
+    description:
+      "Advanced shielding technology increases defense of new ships and defense platforms by +30%.",
+    scienceCost: 60,
+    researchDays: 30,
+    effects: {
+      shipDefenseBonus: 0.3, // +30%
+      defenseplatformDefenseBonus: 0.3, // +30%
+    },
+  },
+  gyro_traction_beam: {
+    id: "gyro_traction_beam",
+    name: "Gyro Traction Beam",
+    description:
+      "Advanced traction beam technology increases alloy output from mining installations on asteroids and moons by +10%.",
+    scienceCost: 60,
+    researchDays: 30,
+    effects: {
+      miningInstallationBonus: 0.1, // +10%
+    },
+  },
+};

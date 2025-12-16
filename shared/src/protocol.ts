@@ -117,7 +117,20 @@ export type ClientMessage =
       type: "overchargeTunnel";
       tunnelId: string;
     }
-  | { type: "requestResourceBreakdown" };
+  | { type: "requestResourceBreakdown" }
+  | { type: "requestTechTree" }
+  | {
+      type: "startResearch";
+      technologyId: string;
+    }
+  | {
+      type: "pauseResearch";
+      technologyId: string;
+    }
+  | {
+      type: "resumeResearch";
+      technologyId: string;
+    };
 
 export interface ShipManeuverCommand {
   shipId: string;
@@ -355,6 +368,41 @@ export type ServerMessage =
         starName: string;
         alloyPerDay: number;
       }[];
+    }
+  | {
+      type: "techTreeData";
+      completedTechs: string[]; // IDs of completed technologies
+      currentResearch: {
+        technologyId: string;
+        status: "in_progress" | "paused";
+        progressDays: number;
+        scienceInvested: number;
+        scienceNeeded: number;
+        daysNeeded: number;
+      } | null;
+    }
+  | {
+      type: "researchStarted";
+      technologyId: string;
+    }
+  | {
+      type: "researchPaused";
+      technologyId: string;
+    }
+  | {
+      type: "researchResumed";
+      technologyId: string;
+    }
+  | {
+      type: "researchCompleted";
+      technologyId: string;
+      technologyName: string;
+    }
+  | {
+      type: "researchProgressUpdate";
+      technologyId: string;
+      progressDays: number;
+      scienceInvested: number;
     };
 
 export interface SearchResult {

@@ -18,6 +18,8 @@ import {
   NativeCivilization,
   BASE_POPULATION_DENSITY,
   calculateColonyYields,
+  getColonyStage,
+  TECHNOLOGIES,
 } from "@constellation/shared";
 
 export class DatabaseQueries {
@@ -421,10 +423,14 @@ export class DatabaseQueries {
     let blockedAlloy = 0;
     let blockedScience = 0;
 
+    // Calculate science consumption from active research
+    const currentResearch = this.getCurrentResearch(row.id);
+    const researchCostPerDay = currentResearch && currentResearch.status === "in_progress" ? 2 : 0; // 60 science / 30 days = 2 per day
+
     // Total income minus blockades and maintenance costs
     const energyPerDay = energyFromMegastructures - blockedEnergy;
     const alloyPerDay = alloyFromMining + alloyFromColonies - blockedAlloy - alloyCostFromDefenses;
-    const sciencePerDay = scienceFromColonies - blockedScience;
+    const sciencePerDay = scienceFromColonies - blockedScience - researchCostPerDay;
 
     return {
       id: row.id,
@@ -673,6 +679,12 @@ export class DatabaseQueries {
         // Award resources for full days
         const fullDays = Math.floor(daysElapsed);
         let alloyToAdd = row.alloy_per_day * fullDays;
+        
+        // Apply "Gyro Traction Beam" tech bonus if researched (affects mining installations)
+        const techBonuses = this.getPlayerTechBonuses(row.player_id);
+        if (techBonuses.miningInstallationBonus) {
+          alloyToAdd = alloyToAdd * (1 + techBonuses.miningInstallationBonus);
+        }
 
         // Get current mined amount and limit
         const currentlyMined = row.alloy_mined || 0;
@@ -899,10 +911,11 @@ export class DatabaseQueries {
   /**
    * Process colony resource yields and population growth based on current game time
    */
-  processColonyYields(currentTime: number): void {
+  processColonyYields(currentTime: number): Colony[] {
     // Get all colonies
     const stmt = this.db.prepare("SELECT * FROM colonies");
     const rows = stmt.all() as any[];
+    const updatedColonies: Colony[] = [];
 
     for (const row of rows) {
       const timeSinceLastYield = currentTime - row.last_yield_at;
@@ -913,7 +926,7 @@ export class DatabaseQueries {
         const fullDays = Math.floor(daysElapsed);
 
         const scienceToAdd = row.science_per_day * fullDays;
-        const alloyToAdd = row.alloy_per_day * fullDays;
+        let alloyToAdd = row.alloy_per_day * fullDays;
 
         // Add or subtract resources from player (no energy from colonies)
         // Get current player resources to prevent going negative
@@ -930,6 +943,11 @@ export class DatabaseQueries {
             this.addPlayerScience(row.player_id, -scienceToConsume);
           }
           if (alloyToAdd > 0) {
+            // Apply "Deep Mining" tech bonus if researched (only for positive alloy production from colonies)
+            const techBonuses = this.getPlayerTechBonuses(row.player_id);
+            if (techBonuses.colonyAlloyBonus) {
+              alloyToAdd = alloyToAdd * (1 + techBonuses.colonyAlloyBonus);
+            }
             this.addPlayerAlloy(row.player_id, alloyToAdd);
           } else if (alloyToAdd < 0) {
             // Consuming alloy - don't let it go below 0
@@ -959,6 +977,13 @@ export class DatabaseQueries {
             const maxPopulation = Math.floor(
               surfaceArea * BASE_POPULATION_DENSITY * planet.habitability
             );
+
+            // Debug logging for stuck population
+            if (fullDays > 0 && newPopulation === row.population && newPopulation < maxPopulation) {
+              console.log(
+                `Population debug for ${row.planet_name}: pop=${newPopulation}, max=${maxPopulation}, radius=${planet.radius}, habitability=${planet.habitability}`
+              );
+            }
 
             // Calculate population growth for each day
             for (let day = 0; day < fullDays; day++) {
@@ -998,11 +1023,26 @@ export class DatabaseQueries {
               ); // Logistic growth
 
               // Calculate growth
-              const growthRate =
+              let growthRate =
                 baseGrowthRate *
                 habitabilityModifier *
                 specializationModifier *
                 carryingCapacityModifier;
+              
+              // Minimum growth guarantee for small colonies (under 100K)
+              // Ensures colonies always grow at least a bit unless truly at max capacity
+              if (newPopulation < 100000 && populationRatio < 0.95) {
+                const minGrowthRate = 0.001; // Minimum 0.1% per day
+                growthRate = Math.max(growthRate, minGrowthRate);
+              }
+              
+              // Debug logging for first day if population not growing
+              if (day === 0 && fullDays > 0 && (carryingCapacityModifier < 0.1 || growthRate < 0.002)) {
+                console.log(
+                  `Low growth for ${row.planet_name}: growthRate=${growthRate.toFixed(6)}, carryingCapacity=${carryingCapacityModifier.toFixed(4)}, ratio=${populationRatio.toFixed(4)}, pop=${newPopulation}, max=${maxPopulation}`
+                );
+              }
+              
               newPopulation = Math.floor(newPopulation * (1 + growthRate));
 
               // Ensure we don't exceed maximum population
@@ -1011,35 +1051,15 @@ export class DatabaseQueries {
 
             // Check if colony should advance to next stage
             const oldStage = currentStage;
-            if (currentStage === "outpost" && newPopulation >= 1000) {
-              currentStage = "settlement";
-              stageChanged = true;
-            } else if (
-              currentStage === "settlement" &&
-              newPopulation >= 10000
-            ) {
-              currentStage = "colony";
-              stageChanged = true;
-            } else if (currentStage === "colony" && newPopulation >= 100000) {
-              currentStage = "developed";
-              stageChanged = true;
-            } else if (
-              currentStage === "developed" &&
-              newPopulation >= 1000000
-            ) {
-              currentStage = "metropolis";
-              stageChanged = true;
-            } else if (
-              currentStage === "metropolis" &&
-              newPopulation >= 10000000000
-            ) {
-              currentStage = "ecumenopolis";
+            const newStage = getColonyStage(newPopulation);
+            if (newStage !== currentStage) {
+              currentStage = newStage;
               stageChanged = true;
             }
 
-            // Check if colony crossed the 1M threshold (from consuming to producing)
-            const wasConsuming = row.population < 1000000;
-            const isProducing = newPopulation >= 1000000;
+            // Check if colony crossed the 100M threshold (from consuming to producing)
+            const wasConsuming = row.population < 100000000;
+            const isProducing = newPopulation >= 100000000;
             crossedThreshold = wasConsuming && isProducing;
 
             // If population changed significantly, recalculate resource yields using the smooth curve
@@ -1084,6 +1104,23 @@ export class DatabaseQueries {
             row.last_yield_at + fullDays * 24 * 60 * 60,
             row.id
           );
+          
+          // Track this colony as updated for real-time notifications
+          updatedColonies.push({
+            id: row.id,
+            playerId: row.player_id,
+            speciesId: row.species_id,
+            systemId: row.system_id,
+            planetId: row.planet_id,
+            planetName: row.planet_name,
+            stage: currentStage,
+            specialization: row.specialization,
+            population: newPopulation,
+            sciencePerDay: sciencePerDay,
+            alloyPerDay: alloyPerDay,
+            establishedAt: row.established_at,
+            lastYieldAt: row.last_yield_at + fullDays * 24 * 60 * 60,
+          });
         } else {
           // Just update last yield time
           const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
@@ -1091,6 +1128,274 @@ export class DatabaseQueries {
         }
       }
     }
+    
+    return updatedColonies;
+  }
+
+  /**
+   * Process population migration between colonies
+   * Each colony can send population to one other colony per day
+   * Uses gate pathfinding to ensure colonies are connected
+   */
+  processPopulationMigration(currentTime: number): Colony[] {
+    // Get all players
+    const playersStmt = this.db.prepare("SELECT id FROM players");
+    const players = playersStmt.all() as Array<{ id: string }>;
+    const updatedColonies: Colony[] = [];
+
+    for (const player of players) {
+      // Get all colonies for this player
+      const colonies = this.getColoniesByPlayerId(player.id);
+      if (colonies.length < 2) continue; // Need at least 2 colonies for migration
+
+      // Build a list of potential migration sources and targets
+      interface MigrationCandidate {
+        colony: any;
+        system: any;
+        planet: any;
+        maxPopulation: number;
+        availablePopulation: number; // How much can be sent
+        populationNeeded: number; // How much can be received
+        habitabilityScore: number; // For prioritization
+      }
+
+      const candidates: MigrationCandidate[] = [];
+
+      for (const colony of colonies) {
+        const system = this.getStarSystem(colony.systemId);
+        if (!system) continue;
+
+        const planet = system.planets.find((p: any) => p.id === colony.planetId);
+        if (!planet || !planet.habitability) continue;
+
+        // Calculate max population for this planet
+        const surfaceArea = 4 * Math.PI * planet.radius * planet.radius;
+        const maxPopulation = Math.floor(
+          surfaceArea * BASE_POPULATION_DENSITY * planet.habitability
+        );
+
+        // Calculate population ratio
+        const populationRatio = colony.population / maxPopulation;
+
+        // Calculate how much population can be sent (send up to 10% if above 50% of max)
+        const availablePopulation = populationRatio > 0.5
+          ? Math.floor(colony.population * 0.1)
+          : 0;
+
+        // Calculate how much population is needed (if below 80% of max)
+        const populationNeeded = populationRatio < 0.8 
+          ? Math.floor(maxPopulation * 0.8 - colony.population)
+          : 0;
+
+        // Habitability score for prioritization (prefer high habitability, low population ratio)
+        const habitabilityScore = planet.habitability * (1 - populationRatio);
+
+        candidates.push({
+          colony,
+          system,
+          planet,
+          maxPopulation,
+          availablePopulation,
+          populationNeeded,
+          habitabilityScore,
+        });
+      }
+
+      // For each source colony, find the best target
+      const sources = candidates.filter(c => c.availablePopulation > 0);
+      const targets = candidates.filter(c => c.populationNeeded > 0);
+
+      // Sort targets by habitability score (best first)
+      targets.sort((a, b) => b.habitabilityScore - a.habitabilityScore);
+
+      // Track which targets have already received migration this tick
+      const targetedColonies = new Set<string>();
+
+      for (const source of sources) {
+        let bestTarget: MigrationCandidate | null = null;
+        let bestPath: string[] | null = null;
+
+        // Find the best connected target
+        for (const target of targets) {
+          // Skip if same colony or target already receiving
+          if (source.colony.id === target.colony.id || targetedColonies.has(target.colony.id)) {
+            continue;
+          }
+
+          // Check if colonies are connected via gates
+          const path = this.findGatePathForMigration(
+            source.colony.systemId,
+            target.colony.systemId,
+            player.id
+          );
+
+          if (path !== null) {
+            bestTarget = target;
+            bestPath = path;
+            break; // Take the first (best habitability) connected target
+          }
+        }
+
+        // Perform migration if we found a target
+        if (bestTarget && bestPath !== null) {
+          // Immigration capacity limits (infrastructure takes time to develop)
+          // Max 10% population growth per day from immigration OR 50M people, whichever is smaller
+          const maxImmigrationRate = Math.min(
+            Math.floor(bestTarget.colony.population * 0.1), // 10% of current population
+            50000000 // Absolute cap of 50M per day
+          );
+
+          // Calculate migration amount considering:
+          // 1. How much source can send (10% of source population)
+          // 2. How much target needs (to reach 80% capacity)
+          // 3. Target's immigration capacity (infrastructure limits)
+          const migrationAmount = Math.min(
+            source.availablePopulation,
+            bestTarget.populationNeeded,
+            Math.floor(source.colony.population * 0.1), // Max 10% of source per day
+            maxImmigrationRate // Target's immigration capacity
+          );
+
+          if (migrationAmount > 0) {
+            // Update source colony
+            const newSourcePopulation = source.colony.population - migrationAmount;
+            this.db.prepare("UPDATE colonies SET population = ? WHERE id = ?")
+              .run(newSourcePopulation, source.colony.id);
+
+            // Update target colony
+            const newTargetPopulation = bestTarget.colony.population + migrationAmount;
+            
+            // Recalculate yields for target colony since population changed
+            const habitabilityBonus = bestTarget.planet.habitability || 0.5;
+            const yields = calculateColonyYields(
+              newTargetPopulation,
+              bestTarget.colony.specialization,
+              habitabilityBonus
+            );
+
+            // Check if target colony should advance to next stage
+            const newStage = getColonyStage(newTargetPopulation);
+
+            this.db.prepare(
+              "UPDATE colonies SET population = ?, stage = ?, science_per_day = ?, alloy_per_day = ? WHERE id = ?"
+            ).run(
+              newTargetPopulation,
+              newStage,
+              yields.sciencePerDay,
+              yields.alloyPerDay,
+              bestTarget.colony.id
+            );
+
+            // Log migration with infrastructure capacity info
+            const capacityLimited = migrationAmount < Math.min(source.availablePopulation, bestTarget.populationNeeded);
+            console.log(
+              `Migration: ${(migrationAmount / 1000000).toFixed(1)}M people from ${source.colony.planetName} to ${bestTarget.colony.planetName} (${bestPath.length} jumps)${capacityLimited ? ' [infrastructure limited]' : ''}`
+            );
+
+            // Track updated target colony for real-time notifications
+            updatedColonies.push({
+              id: bestTarget.colony.id,
+              playerId: bestTarget.colony.playerId,
+              speciesId: bestTarget.colony.speciesId,
+              systemId: bestTarget.colony.systemId,
+              planetId: bestTarget.colony.planetId,
+              planetName: bestTarget.colony.planetName,
+              stage: newStage,
+              specialization: bestTarget.colony.specialization,
+              population: newTargetPopulation,
+              sciencePerDay: yields.sciencePerDay,
+              alloyPerDay: yields.alloyPerDay,
+              establishedAt: bestTarget.colony.establishedAt,
+              lastYieldAt: bestTarget.colony.lastYieldAt,
+            });
+
+            // Mark this target as receiving migration
+            targetedColonies.add(bestTarget.colony.id);
+          }
+        }
+      }
+    }
+    
+    return updatedColonies;
+  }
+
+  /**
+   * Find a gate path for population migration
+   * Only uses paths through tunnels that are not blocked
+   */
+  private findGatePathForMigration(
+    fromSystemId: string,
+    toSystemId: string,
+    playerId: string
+  ): string[] | null {
+    if (fromSystemId === toSystemId) {
+      return []; // Same system
+    }
+
+    // BFS to find shortest path through unblocked tunnels
+    const queue: Array<{ systemId: string; path: string[] }> = [
+      { systemId: fromSystemId, path: [] },
+    ];
+    const visited = new Set<string>([fromSystemId]);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+
+      // Get all gates in current system
+      const gates = this.getGatesBySystem(current.systemId);
+
+      for (const gate of gates) {
+        // Only use explored/owned gates
+        const owner = this.getGateOwner(gate.id);
+        if (!owner) continue;
+
+        const destinationSystemId = gate.destinationSystemId;
+        if (!destinationSystemId) continue;
+
+        // Check if tunnel is blocked
+        if (gate.tunnelId) {
+          const tunnel = this.getTunnelById(gate.tunnelId);
+          if (!tunnel) continue;
+
+          // Check if tunnel is powered
+          if (!tunnel.poweredByPlayerId) {
+            continue; // Unpowered tunnels block migration
+          }
+
+          // Check if tunnel is blockaded by hostile player
+          if (tunnel.poweredByPlayerId !== playerId) {
+            // Check if the tunnel controller is hostile
+            const stance = this.getPlayerStance(playerId, tunnel.poweredByPlayerId);
+            if (stance === 'aggressive') {
+              // Check for defenses at either gate
+              const gatesInTunnel = this.getGatesByTunnel(tunnel.id);
+              for (const g of gatesInTunnel) {
+                const defenses = this.getGateDefenses(g.id);
+                if (defenses.length > 0) {
+                  continue; // This tunnel is blockaded, skip it
+                }
+              }
+            }
+          }
+        }
+
+        // Check if we reached the destination
+        if (destinationSystemId === toSystemId) {
+          return [...current.path, gate.id];
+        }
+
+        // Continue BFS
+        if (!visited.has(destinationSystemId)) {
+          visited.add(destinationSystemId);
+          queue.push({
+            systemId: destinationSystemId,
+            path: [...current.path, gate.id],
+          });
+        }
+      }
+    }
+
+    return null; // No path found
   }
 
   // Calculate total energy bonus from Dyson Swarms for a player
@@ -3277,5 +3582,293 @@ export class DatabaseQueries {
       completedAt || null,
       attackId
     );
+  }
+
+  // ==================== Technology Research Operations ====================
+
+  /**
+   * Get technology research status for a player
+   */
+  getTechnologyResearch(
+    playerId: string,
+    technologyId: string
+  ): {
+    playerId: string;
+    technologyId: string;
+    status: string;
+    progressDays: number;
+    scienceInvested: number;
+    startedAt: number;
+    completedAt?: number;
+    pausedAt?: number;
+  } | null {
+    const stmt = this.db.prepare(
+      "SELECT * FROM technology_research WHERE player_id = ? AND technology_id = ?"
+    );
+    const row = stmt.get(playerId, technologyId) as any;
+    if (!row) return null;
+
+    return {
+      playerId: row.player_id,
+      technologyId: row.technology_id,
+      status: row.status,
+      progressDays: row.progress_days,
+      scienceInvested: row.science_invested,
+      startedAt: row.started_at,
+      completedAt: row.completed_at || undefined,
+      pausedAt: row.paused_at || undefined,
+    };
+  }
+
+  /**
+   * Get all completed technologies for a player
+   */
+  getCompletedTechnologies(playerId: string): string[] {
+    const stmt = this.db.prepare(
+      "SELECT technology_id FROM technology_research WHERE player_id = ? AND status = 'completed'"
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => row.technology_id);
+  }
+
+  /**
+   * Get tech bonuses for a player from completed research
+   */
+  getPlayerTechBonuses(playerId: string): {
+    colonyAlloyBonus?: number;
+    miningInstallationBonus?: number;
+    dysonSwarmEnergyBonus?: number;
+    shipDefenseBonus?: number;
+    defenseplatformDefenseBonus?: number;
+  } {
+    const completedTechs = this.getCompletedTechnologies(playerId);
+    const bonuses: {
+      colonyAlloyBonus?: number;
+      miningInstallationBonus?: number;
+      dysonSwarmEnergyBonus?: number;
+      shipDefenseBonus?: number;
+      defenseplatformDefenseBonus?: number;
+    } = {};
+
+    for (const techId of completedTechs) {
+      const tech = TECHNOLOGIES[techId];
+      if (tech && tech.effects) {
+        // Merge effects into bonuses
+        if (tech.effects.colonyAlloyBonus !== undefined) {
+          bonuses.colonyAlloyBonus =
+            (bonuses.colonyAlloyBonus || 0) + tech.effects.colonyAlloyBonus;
+        }
+        if (tech.effects.miningInstallationBonus !== undefined) {
+          bonuses.miningInstallationBonus =
+            (bonuses.miningInstallationBonus || 0) + tech.effects.miningInstallationBonus;
+        }
+        if (tech.effects.dysonSwarmEnergyBonus !== undefined) {
+          bonuses.dysonSwarmEnergyBonus =
+            (bonuses.dysonSwarmEnergyBonus || 0) +
+            tech.effects.dysonSwarmEnergyBonus;
+        }
+        if (tech.effects.shipDefenseBonus !== undefined) {
+          bonuses.shipDefenseBonus =
+            (bonuses.shipDefenseBonus || 0) + tech.effects.shipDefenseBonus;
+        }
+        if (tech.effects.defenseplatformDefenseBonus !== undefined) {
+          bonuses.defenseplatformDefenseBonus =
+            (bonuses.defenseplatformDefenseBonus || 0) +
+            tech.effects.defenseplatformDefenseBonus;
+        }
+      }
+    }
+
+    return bonuses;
+  }
+
+  /**
+   * Get current research in progress for a player
+   */
+  getCurrentResearch(playerId: string): {
+    technologyId: string;
+    status: string;
+    progressDays: number;
+    scienceInvested: number;
+    startedAt: number;
+    pausedAt?: number;
+  } | null {
+    const stmt = this.db.prepare(
+      "SELECT * FROM technology_research WHERE player_id = ? AND status IN ('in_progress', 'paused')"
+    );
+    const row = stmt.get(playerId) as any;
+    if (!row) return null;
+
+    return {
+      technologyId: row.technology_id,
+      status: row.status,
+      progressDays: row.progress_days,
+      scienceInvested: row.science_invested,
+      startedAt: row.started_at,
+      pausedAt: row.paused_at || undefined,
+    };
+  }
+
+  /**
+   * Start research on a technology
+   */
+  startTechnologyResearch(
+    playerId: string,
+    technologyId: string,
+    startedAt: number
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT OR REPLACE INTO technology_research (player_id, technology_id, status, progress_days, science_invested, started_at) VALUES (?, ?, 'in_progress', 0, 0, ?)"
+    );
+    stmt.run(playerId, technologyId, startedAt);
+  }
+
+  /**
+   * Update technology research progress
+   */
+  updateTechnologyResearchProgress(
+    playerId: string,
+    technologyId: string,
+    progressDays: number,
+    scienceInvested: number
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE technology_research SET progress_days = ?, science_invested = ? WHERE player_id = ? AND technology_id = ?"
+    );
+    stmt.run(progressDays, scienceInvested, playerId, technologyId);
+  }
+
+  /**
+   * Pause technology research
+   */
+  pauseTechnologyResearch(
+    playerId: string,
+    technologyId: string,
+    pausedAt: number
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE technology_research SET status = 'paused', paused_at = ? WHERE player_id = ? AND technology_id = ?"
+    );
+    stmt.run(pausedAt, playerId, technologyId);
+  }
+
+  /**
+   * Resume technology research
+   */
+  resumeTechnologyResearch(playerId: string, technologyId: string): void {
+    const stmt = this.db.prepare(
+      "UPDATE technology_research SET status = 'in_progress', paused_at = NULL WHERE player_id = ? AND technology_id = ?"
+    );
+    stmt.run(playerId, technologyId);
+  }
+
+  /**
+   * Complete technology research
+   */
+  completeTechnologyResearch(
+    playerId: string,
+    technologyId: string,
+    completedAt: number
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE technology_research SET status = 'completed', completed_at = ? WHERE player_id = ? AND technology_id = ?"
+    );
+    stmt.run(completedAt, playerId, technologyId);
+  }
+
+  /**
+   * Process technology research progress based on current game time
+   * Consumes science proportionally every day for in-progress research
+   */
+  processTechnologyResearch(currentTime: number): {
+    playerId: string;
+    technologyId: string;
+    technologyName: string;
+    completed: boolean;
+  }[] {
+    const completedResearch: {
+      playerId: string;
+      technologyId: string;
+      technologyName: string;
+      completed: boolean;
+    }[] = [];
+
+    // Get all in-progress research
+    const stmt = this.db.prepare(
+      "SELECT tr.*, p.science FROM technology_research tr JOIN players p ON tr.player_id = p.id WHERE tr.status = 'in_progress'"
+    );
+    const rows = stmt.all() as any[];
+
+    for (const row of rows) {
+      const timeSinceStart = currentTime - row.started_at;
+      const daysElapsed = timeSinceStart / (24 * 60 * 60);
+      const currentProgress = row.progress_days;
+
+      // Calculate how many more days of progress should be added
+      const targetProgress = Math.min(daysElapsed, 30); // Cap at 30 days
+      const progressToAdd = targetProgress - currentProgress;
+
+      if (progressToAdd > 0) {
+        // Calculate science needed for this progress (60 total / 30 days = 2 per day)
+        const scienceNeeded = progressToAdd * 2;
+        const playerScience = row.science;
+
+        // Calculate actual progress based on available science
+        let actualProgress = progressToAdd;
+        let scienceToConsume = scienceNeeded;
+
+        if (playerScience < scienceNeeded) {
+          // Not enough science - consume what's available and slow down research
+          scienceToConsume = playerScience;
+          actualProgress = scienceToConsume / 2; // Convert science back to days
+          
+          // If no science available at all, pause research
+          if (playerScience === 0) {
+            this.pauseTechnologyResearch(
+              row.player_id,
+              row.technology_id,
+              currentTime
+            );
+            console.log(
+              `Research on ${row.technology_id} auto-paused: no science available`
+            );
+            continue;
+          }
+        }
+
+        if (actualProgress > 0) {
+          // Update progress and consume science
+          const newProgress = currentProgress + actualProgress;
+          const newScienceInvested = row.science_invested + scienceToConsume;
+
+          this.updateTechnologyResearchProgress(
+            row.player_id,
+            row.technology_id,
+            newProgress,
+            newScienceInvested
+          );
+
+          // Consume science from player
+          this.addPlayerScience(row.player_id, -scienceToConsume);
+
+          // Check if research is complete
+          if (newProgress >= 30) {
+            this.completeTechnologyResearch(
+              row.player_id,
+              row.technology_id,
+              currentTime
+            );
+            completedResearch.push({
+              playerId: row.player_id,
+              technologyId: row.technology_id,
+              technologyName: row.technology_id, // Will be mapped to name on client
+              completed: true,
+            });
+          }
+        }
+      }
+    }
+
+    return completedResearch;
   }
 }

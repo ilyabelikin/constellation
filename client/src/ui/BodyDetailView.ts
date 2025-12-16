@@ -7,6 +7,7 @@ import {
   Player,
   StarSystem,
   formatLargeNumber,
+  BASE_POPULATION_DENSITY,
 } from "@constellation/shared";
 
 /**
@@ -587,9 +588,15 @@ export class BodyDetailView {
                 existingColony.stage.slice(1);
             }
             if (this.colonyPopulation) {
-              this.colonyPopulation.textContent = formatLargeNumber(
-                existingColony.population
+              // Calculate max population for this planet
+              const surfaceArea = 4 * Math.PI * body.radius * body.radius;
+              const maxPopulation = Math.floor(
+                surfaceArea * BASE_POPULATION_DENSITY * body.habitability
               );
+              
+              this.colonyPopulation.textContent = `${formatLargeNumber(
+                existingColony.population
+              )}/${formatLargeNumber(maxPopulation)}`;
             }
             if (this.colonySpecialization) {
               this.colonySpecialization.textContent =

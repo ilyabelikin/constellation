@@ -204,6 +204,32 @@ export class NetworkClient {
         }>
       ) => void)
     | null = null;
+  public onTechTreeData:
+    | ((
+        completedTechs: string[],
+        currentResearch: {
+          technologyId: string;
+          status: "in_progress" | "paused";
+          progressDays: number;
+          scienceInvested: number;
+          scienceNeeded: number;
+          daysNeeded: number;
+        } | null
+      ) => void)
+    | null = null;
+  public onResearchStarted: ((technologyId: string) => void) | null = null;
+  public onResearchPaused: ((technologyId: string) => void) | null = null;
+  public onResearchResumed: ((technologyId: string) => void) | null = null;
+  public onResearchCompleted:
+    | ((technologyId: string, technologyName: string) => void)
+    | null = null;
+  public onResearchProgressUpdate:
+    | ((
+        technologyId: string,
+        progressDays: number,
+        scienceInvested: number
+      ) => void)
+    | null = null;
   public onDisconnected: (() => void) | null = null;
   public onReconnected: (() => void) | null = null;
 
@@ -534,6 +560,43 @@ export class NetworkClient {
             this.onResourceBreakdown(message.breakdown);
           }
           break;
+        case "techTreeData":
+          if (this.onTechTreeData) {
+            this.onTechTreeData(message.completedTechs, message.currentResearch);
+          }
+          break;
+        case "researchStarted":
+          if (this.onResearchStarted) {
+            this.onResearchStarted(message.technologyId);
+          }
+          break;
+        case "researchPaused":
+          if (this.onResearchPaused) {
+            this.onResearchPaused(message.technologyId);
+          }
+          break;
+        case "researchResumed":
+          if (this.onResearchResumed) {
+            this.onResearchResumed(message.technologyId);
+          }
+          break;
+        case "researchCompleted":
+          if (this.onResearchCompleted) {
+            this.onResearchCompleted(
+              message.technologyId,
+              message.technologyName
+            );
+          }
+          break;
+        case "researchProgressUpdate":
+          if (this.onResearchProgressUpdate) {
+            this.onResearchProgressUpdate(
+              message.technologyId,
+              message.progressDays,
+              message.scienceInvested
+            );
+          }
+          break;
       }
     } catch (error) {
       console.error("Error handling message:", error);
@@ -714,6 +777,34 @@ export class NetworkClient {
 
   requestResourceBreakdown(): void {
     this.send({ type: "requestResourceBreakdown" });
+  }
+
+  /**
+   * Request tech tree data
+   */
+  requestTechTree(): void {
+    this.send({ type: "requestTechTree" });
+  }
+
+  /**
+   * Start researching a technology
+   */
+  startResearch(technologyId: string): void {
+    this.send({ type: "startResearch", technologyId });
+  }
+
+  /**
+   * Pause current research
+   */
+  pauseResearch(technologyId: string): void {
+    this.send({ type: "pauseResearch", technologyId });
+  }
+
+  /**
+   * Resume paused research
+   */
+  resumeResearch(technologyId: string): void {
+    this.send({ type: "resumeResearch", technologyId });
   }
 
   /**

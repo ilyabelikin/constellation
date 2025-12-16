@@ -18,9 +18,12 @@ import {
   BASE_POPULATION_DENSITY,
   ATTACK_SHIP_CONFIG,
   DEFENSE_PLATFORM_CONFIG,
+  MINING_INSTALLATION_CONFIG,
   COMBAT_CONFIG,
   GAME_COSTS,
   calculateColonyYields,
+  getColonyStage,
+  TECHNOLOGIES,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -57,6 +60,11 @@ export class ConstellationWebSocketServer {
     this.db = db;
     this.gameState = gameState;
     this.wss = new WebSocketServer({ port: WEBSOCKET_PORT });
+
+    // Register callback for when in-game days elapse (integrated with game state updates)
+    this.gameState.setDayElapsedCallback((galaxyId, currentTime, daysElapsed) => {
+      this.handleDayElapsed(galaxyId, currentTime, daysElapsed);
+    });
 
     this.wss.on("connection", (ws) => this.handleConnection(ws));
     this.startStateUpdates();
@@ -254,6 +262,18 @@ export class ConstellationWebSocketServer {
           break;
         case "requestResourceBreakdown":
           this.handleRequestResourceBreakdown(client);
+          break;
+        case "requestTechTree":
+          this.handleRequestTechTree(client);
+          break;
+        case "startResearch":
+          this.handleStartResearch(client, message.technologyId);
+          break;
+        case "pauseResearch":
+          this.handlePauseResearch(client, message.technologyId);
+          break;
+        case "resumeResearch":
+          this.handleResumeResearch(client, message.technologyId);
           break;
       }
     } catch (error) {
@@ -980,6 +1000,9 @@ export class ConstellationWebSocketServer {
       // Start with 80% of maximum population (established world)
       const initialPopulation = Math.floor(maxPopulation * 0.8);
 
+      // Determine appropriate stage based on population
+      const stage = getColonyStage(initialPopulation);
+
       // Calculate yields based on population
       const yields = calculateColonyYields(
         initialPopulation,
@@ -994,7 +1017,7 @@ export class ConstellationWebSocketServer {
         systemId: starterSystem.id,
         planetId: homePlanet.id,
         planetName: homePlanet.name,
-        stage: "settlement", // Start as settlement, not just outpost
+        stage: stage,
         specialization: "balanced",
         population: initialPopulation,
         sciencePerDay: yields.sciencePerDay,
@@ -1865,6 +1888,56 @@ export class ConstellationWebSocketServer {
     return jumps;
   }
 
+  /**
+   * Calculate gate jumps between two systems using BFS
+   */
+  private calculateGateJumps(
+    fromSystemId: string,
+    toSystemId: string
+  ): number | null {
+    if (fromSystemId === toSystemId) {
+      return 0;
+    }
+
+    const queue: Array<{ systemId: string; distance: number }> = [];
+    const visited = new Set<string>();
+
+    queue.push({ systemId: fromSystemId, distance: 0 });
+    visited.add(fromSystemId);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+
+      // Get all gates in current system
+      const gates = this.db.getGatesBySystem(current.systemId);
+
+      for (const gate of gates) {
+        // Only use explored gates (gates with owners)
+        const owner = this.db.getGateOwner(gate.id);
+        if (!owner) continue;
+
+        const destinationSystemId = gate.destinationSystemId;
+        if (!destinationSystemId) continue;
+
+        // Check if we reached the destination
+        if (destinationSystemId === toSystemId) {
+          return current.distance + 1;
+        }
+
+        // Continue BFS
+        if (!visited.has(destinationSystemId)) {
+          visited.add(destinationSystemId);
+          queue.push({
+            systemId: destinationSystemId,
+            distance: current.distance + 1,
+          });
+        }
+      }
+    }
+
+    return null; // No path found
+  }
+
   private handleRequestConstellation(client: ClientConnection): void {
     if (!client.playerId || !client.currentSystemId) {
       this.sendError(client.ws, "Not authenticated or no current system");
@@ -2107,12 +2180,26 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    // Check if player has enough energy
-    const MINING_COST = 1;
-    if (player.energy < MINING_COST) {
+    // Check if player has enough resources
+    const cost = MINING_INSTALLATION_CONFIG.cost;
+    if (player.energy < cost.energy) {
       this.sendError(
         client.ws,
-        `Not enough energy to establish mining operation (requires ${MINING_COST} energy)`
+        `Not enough energy to establish mining operation (requires ${cost.energy} energy)`
+      );
+      return;
+    }
+    if (player.alloy < cost.alloy) {
+      this.sendError(
+        client.ws,
+        `Not enough alloy to establish mining operation (requires ${cost.alloy} alloy)`
+      );
+      return;
+    }
+    if (player.science < cost.science) {
+      this.sendError(
+        client.ws,
+        `Not enough science to establish mining operation (requires ${cost.science} science)`
       );
       return;
     }
@@ -2178,10 +2265,25 @@ export class ConstellationWebSocketServer {
     }
     const currentTime = galaxy.currentTime || 0;
 
-    // Deduct energy
-    const success = this.db.deductPlayerEnergy(client.playerId, MINING_COST);
-    if (!success) {
+    // Deduct resources
+    const energySuccess = this.db.deductPlayerEnergy(client.playerId, cost.energy);
+    if (!energySuccess) {
       this.sendError(client.ws, "Failed to deduct energy");
+      return;
+    }
+    const alloySuccess = this.db.deductPlayerAlloy(client.playerId, cost.alloy);
+    if (!alloySuccess) {
+      // Refund energy if alloy deduction fails
+      this.db.addPlayerEnergy(client.playerId, cost.energy);
+      this.sendError(client.ws, "Failed to deduct alloy");
+      return;
+    }
+    const scienceSuccess = this.db.deductPlayerScience(client.playerId, cost.science);
+    if (!scienceSuccess) {
+      // Refund energy and alloy if science deduction fails
+      this.db.addPlayerEnergy(client.playerId, cost.energy);
+      this.db.addPlayerAlloy(client.playerId, cost.alloy);
+      this.sendError(client.ws, "Failed to deduct science");
       return;
     }
 
@@ -2345,7 +2447,17 @@ export class ConstellationWebSocketServer {
     deductStmt.run(DYSON_SWARM_COST, client.playerId);
 
     // Add energy immediately (Dyson Swarms provide instant permanent energy boost)
-    const ENERGY_PER_SWARM = 1;
+    let ENERGY_PER_SWARM = 1;
+
+    // Apply Nano Arrays technology bonus (+10% energy)
+    const completedTechs = this.db.getCompletedTechnologies(client.playerId);
+    if (completedTechs.includes("nano_arrays")) {
+      ENERGY_PER_SWARM = ENERGY_PER_SWARM * 1.1; // +10% bonus
+      console.log(
+        `Nano Arrays tech applied: ${ENERGY_PER_SWARM} energy/day (was 1.0)`
+      );
+    }
+
     this.db.addPlayerEnergy(client.playerId, ENERGY_PER_SWARM);
 
     // Create Dyson Swarm megastructure
@@ -2741,8 +2853,75 @@ export class ConstellationWebSocketServer {
     }, 1000 / STATE_UPDATE_RATE);
   }
 
+  /**
+   * Handle when in-game days elapse - process all yields and updates
+   * This is called by GameStateManager when game time advances
+   * Integrated with the existing game state update loop
+   */
+  private handleDayElapsed(galaxyId: string, currentTime: number, daysElapsed: number): void {
+    // Process all yields for this galaxy
+    // Process mining yields based on current time
+    this.db.processMiningYields(currentTime);
+
+    // Process megastructure yields based on current time
+    this.db.processMegastructureYields(currentTime);
+
+    // Process colony yields based on current time (population growth, resource generation)
+    const updatedColonies = this.db.processColonyYields(currentTime);
+
+    // Process population migration between colonies
+    const migratedColonies = this.db.processPopulationMigration(currentTime);
+    
+    // Combine all updated colonies
+    const allUpdatedColonies = [...updatedColonies, ...migratedColonies];
+    
+    // Notify clients about colony updates in real-time
+    for (const colony of allUpdatedColonies) {
+      // Find all clients viewing this system
+      for (const client of this.clients.values()) {
+        if (client.currentSystemId === colony.systemId && client.galaxyId === galaxyId) {
+          this.send(client.ws, {
+            type: "colonyUpdated",
+            colony,
+          });
+        }
+      }
+    }
+
+    // Process defense platform maintenance costs
+    this.db.processDefenseMaintenance(currentTime);
+
+    // Process technology research (consumes science proportionally)
+    const completedResearch = this.db.processTechnologyResearch(currentTime);
+
+    // Notify players of completed research
+    for (const completion of completedResearch) {
+      const client = this.findClientByPlayerId(completion.playerId);
+      if (client && client.galaxyId === galaxyId) {
+        // Get technology info from TECHNOLOGIES
+        const tech = TECHNOLOGIES[completion.technologyId];
+        this.send(client.ws, {
+          type: "researchCompleted",
+          technologyId: completion.technologyId,
+          technologyName: tech?.name || completion.technologyId,
+        });
+      }
+    }
+    
+    // Send updated player data to clients in this galaxy (for resource updates)
+    for (const client of this.clients.values()) {
+      if (client.playerId && client.galaxyId === galaxyId) {
+        const player = this.db.getPlayerById(client.playerId);
+        if (player) {
+          this.send(client.ws, { type: "playerData", player });
+        }
+      }
+    }
+  }
+
   private startTimeSaveInterval(): void {
-    // Save galaxy time state to database every 10 seconds
+    // Periodically save galaxy time state to database for crash recovery
+    // Yield processing now happens in handleDayElapsed() when game time advances
     setInterval(() => {
       // Get unique galaxy IDs from all connected clients
       const activeGalaxyIds = new Set<string>();
@@ -2762,31 +2941,9 @@ export class ConstellationWebSocketServer {
             timeState.isPaused,
             timeState.timeScale
           );
-
-          // Process mining yields based on current time
-          this.db.processMiningYields(timeState.currentTime);
-
-          // Process megastructure yields based on current time
-          this.db.processMegastructureYields(timeState.currentTime);
-
-          // Process colony yields based on current time
-          this.db.processColonyYields(timeState.currentTime);
-
-          // Process defense platform maintenance costs
-          this.db.processDefenseMaintenance(timeState.currentTime);
         }
       }
-
-      // Send updated player data to all connected clients (for resource updates)
-      for (const client of this.clients.values()) {
-        if (client.playerId) {
-          const player = this.db.getPlayerById(client.playerId);
-          if (player) {
-            this.send(client.ws, { type: "playerData", player });
-          }
-        }
-      }
-    }, 10000); // Save every 10 seconds
+    }, 10000); // Save every 10 seconds for crash recovery
   }
 
   private startGalaxyCleanupInterval(): void {
@@ -3013,10 +3170,22 @@ export class ConstellationWebSocketServer {
       player.science - COLONY_SCIENCE_COST
     );
 
-    // Calculate initial population based on habitability
-    const basePopulation = 1000;
+    // Calculate maximum population for this planet first
+    const surfaceArea = 4 * Math.PI * planet.radius * planet.radius;
+    const maxPopulation = Math.floor(
+      surfaceArea * BASE_POPULATION_DENSITY * planet.habitability
+    );
+
+    // Initial population should be 5-10% of max, with minimum of 5K
+    const basePopulation = 10000;
     const populationMultiplier = 0.5 + planet.habitability * 0.5; // 0.5x to 1.0x based on habitability
-    const initialPopulation = Math.floor(basePopulation * populationMultiplier);
+    const targetInitialPopulation = Math.floor(basePopulation * populationMultiplier);
+    
+    // Ensure we don't start too close to max capacity (start at max 10% of capacity)
+    const initialPopulation = Math.max(
+      5000, // Minimum 5K population
+      Math.min(targetInitialPopulation, Math.floor(maxPopulation * 0.1))
+    );
 
     // Calculate resource yields based on population, specialization and habitability
     const habitabilityBonus = planet.habitability || 0.5;
@@ -3030,6 +3199,9 @@ export class ConstellationWebSocketServer {
     const timeState = this.gameState.getGalaxyState(player.galaxyId);
     const currentTime = timeState ? timeState.currentTime : 0;
 
+    // Determine appropriate stage based on initial population
+    const colonyStage = getColonyStage(initialPopulation);
+
     // Create colony
     const colonyId = uuidv4();
     const colony: import("@constellation/shared").Colony = {
@@ -3039,7 +3211,7 @@ export class ConstellationWebSocketServer {
       systemId: system.id,
       planetId: planet.id,
       planetName: planet.name,
-      stage: "outpost",
+      stage: colonyStage,
       specialization,
       population: initialPopulation,
       sciencePerDay: yields.sciencePerDay,
@@ -3049,6 +3221,83 @@ export class ConstellationWebSocketServer {
     };
 
     this.db.createColony(colony);
+
+    // Deduct 10,000 population from the most populated nearby colony
+    // This represents colonists leaving from an existing world to establish the new colony
+    const existingColonies = this.db.getColoniesByPlayerId(player.id);
+    if (existingColonies.length > 1) { // More than just the newly created colony
+      // Calculate distance in gate jumps from new colony to each existing colony
+      interface ColonyDistance {
+        colony: any;
+        distance: number;
+      }
+      
+      const coloniesWithDistance: ColonyDistance[] = [];
+      
+      for (const existingColony of existingColonies) {
+        // Skip the newly created colony
+        if (existingColony.id === colony.id) continue;
+        
+        // Calculate path length (number of gate jumps)
+        const distance = this.calculateGateJumps(system.id, existingColony.systemId);
+        
+        if (distance !== null) {
+          coloniesWithDistance.push({
+            colony: existingColony,
+            distance: distance,
+          });
+        }
+      }
+      
+      if (coloniesWithDistance.length > 0) {
+        // Sort by distance (closest first), then by population (most populated first)
+        coloniesWithDistance.sort((a, b) => {
+          if (a.distance !== b.distance) {
+            return a.distance - b.distance;
+          }
+          return b.colony.population - a.colony.population;
+        });
+        
+        // Deduct from the most populated among the closest
+        const sourceColony = coloniesWithDistance[0].colony;
+        const populationToDeduct = Math.min(10000, sourceColony.population);
+        
+        if (populationToDeduct > 0) {
+          const newPopulation = sourceColony.population - populationToDeduct;
+          
+          // Get planet data for recalculating yields
+          const sourceSystem = this.db.getStarSystem(sourceColony.systemId);
+          if (sourceSystem) {
+            const sourcePlanet = sourceSystem.planets.find(
+              (p: any) => p.id === sourceColony.planetId
+            );
+            
+            if (sourcePlanet && sourcePlanet.habitability) {
+              // Recalculate yields
+              const yields = calculateColonyYields(
+                newPopulation,
+                sourceColony.specialization,
+                sourcePlanet.habitability
+              );
+              
+              // Update the source colony with new population and yields
+              const updatedSourceColony = {
+                ...sourceColony,
+                population: newPopulation,
+                sciencePerDay: yields.sciencePerDay,
+                alloyPerDay: yields.alloyPerDay,
+              };
+              
+              this.db.updateColony(updatedSourceColony);
+              
+              console.log(
+                `Colony ${sourceColony.planetName} sent ${populationToDeduct} colonists to ${planet.name} (${coloniesWithDistance[0].distance} jumps away)`
+              );
+            }
+          }
+        }
+      }
+    }
 
     // Send success message
     this.send(client.ws, {
@@ -3265,6 +3514,17 @@ export class ConstellationWebSocketServer {
 
     // Create defense platform with cost tracking
     const defenseId = uuidv4();
+    
+    // Apply "Shields" tech bonus if researched
+    let platformHealth = DEFENSE_PLATFORM_CONFIG.stats.health;
+    const techBonuses = this.db.getPlayerTechBonuses(client.playerId);
+    if (techBonuses.defenseplatformDefenseBonus) {
+      platformHealth = platformHealth * (1 + techBonuses.defenseplatformDefenseBonus);
+      console.log(
+        `Shields tech applied to defense platform: ${platformHealth} health (was ${DEFENSE_PLATFORM_CONFIG.stats.health})`
+      );
+    }
+    
     this.db.createGateDefense(
       defenseId,
       gateId,
@@ -3273,7 +3533,7 @@ export class ConstellationWebSocketServer {
       ENERGY_COST,
       ALLOY_COST,
       MAINTENANCE_PER_DAY,
-      DEFENSE_PLATFORM_CONFIG.stats.health
+      platformHealth
     );
 
     console.log(
@@ -3295,8 +3555,8 @@ export class ConstellationWebSocketServer {
         gateId,
         playerId: client.playerId,
         systemId: gate.systemId,
-        health: DEFENSE_PLATFORM_CONFIG.stats.health,
-        maxHealth: DEFENSE_PLATFORM_CONFIG.stats.health,
+        health: platformHealth,
+        maxHealth: platformHealth,
         createdAt: now,
         energyCost: ENERGY_COST,
         alloyCost: ALLOY_COST,
@@ -3318,8 +3578,8 @@ export class ConstellationWebSocketServer {
             gateId,
             playerId: client.playerId,
             systemId: gate.systemId,
-            health: DEFENSE_PLATFORM_CONFIG.stats.health,
-            maxHealth: DEFENSE_PLATFORM_CONFIG.stats.health,
+            health: platformHealth,
+            maxHealth: platformHealth,
             createdAt: now,
             energyCost: ENERGY_COST,
             alloyCost: ALLOY_COST,
@@ -3487,9 +3747,20 @@ export class ConstellationWebSocketServer {
     let attackShipsRemaining = attack.attackShipsRemaining;
 
     // Track ship health (300 HP each, tripled from base 100)
+    let baseShipHealth = 300;
+    
+    // Apply "Shields" tech bonus if attacker has researched it
+    const attackerTechBonuses = this.db.getPlayerTechBonuses(attack.attackerId);
+    if (attackerTechBonuses.shipDefenseBonus) {
+      baseShipHealth = baseShipHealth * (1 + attackerTechBonuses.shipDefenseBonus);
+      console.log(
+        `Shields tech applied to attack ships: ${baseShipHealth} health (was 300)`
+      );
+    }
+    
     const shipHealth: number[] = [];
     for (let i = 0; i < attackShipsRemaining; i++) {
-      shipHealth.push(300);
+      shipHealth.push(baseShipHealth);
     }
 
     const combatEvents: Array<{
@@ -3641,6 +3912,19 @@ export class ConstellationWebSocketServer {
         this.db.addPlayerEnergy(attack.attackerId, totalEnergyRefund);
         console.log(
           `Refunded ${totalEnergyRefund} energy to player ${attack.attackerId} for ${shipsDestroyed} destroyed attack ships`
+        );
+      }
+    }
+
+    // Refund alloy for surviving attack ships (they return home)
+    if (attackShipsRemaining > 0) {
+      const attackInfo = this.db.getGateAttack(attackId);
+      if (attackInfo) {
+        const alloyCostPerShip = (attackInfo as any).alloyCostPerShip ?? ATTACK_SHIP_CONFIG.cost.alloy;
+        const totalAlloyRefund = alloyCostPerShip * attackShipsRemaining;
+        this.db.addPlayerAlloy(attack.attackerId, totalAlloyRefund);
+        console.log(
+          `Refunded ${totalAlloyRefund} alloy to player ${attack.attackerId} for ${attackShipsRemaining} surviving attack ships`
         );
       }
     }
@@ -4423,7 +4707,7 @@ export class ConstellationWebSocketServer {
     this.db.setTunnelOvercharged(tunnelId, currentTime);
 
     console.log(
-      `Player ${player.name} OVERCHARGED tunnel ${tunnelId} - Destroyed ${totalDefensesDestroyed} defenses and ${totalAttacksDestroyed} attacks. 3-year cooldown activated.`
+      `Player ${player.name} OVERCHARGED tunnel ${tunnelId} - Destroyed ${totalDefensesDestroyed} defenses and ${totalAttacksDestroyed} attacks. 1-year cooldown activated.`
     );
 
     // Send updated player data
@@ -4695,5 +4979,164 @@ export class ConstellationWebSocketServer {
       type: "resourceBreakdown",
       breakdown,
     });
+  }
+
+  private async handleRequestTechTree(client: ClientConnection): Promise<void> {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get completed technologies
+    const completedTechs = this.db.getCompletedTechnologies(client.playerId);
+
+    // Get current research
+    const currentResearch = this.db.getCurrentResearch(client.playerId);
+
+    // Build response
+    let currentResearchData: {
+      technologyId: string;
+      status: "in_progress" | "paused";
+      progressDays: number;
+      scienceInvested: number;
+      scienceNeeded: number;
+      daysNeeded: number;
+    } | null = null;
+    if (currentResearch) {
+      const tech = TECHNOLOGIES[currentResearch.technologyId];
+      if (tech) {
+        currentResearchData = {
+          technologyId: currentResearch.technologyId,
+          status: currentResearch.status as "in_progress" | "paused",
+          progressDays: currentResearch.progressDays,
+          scienceInvested: currentResearch.scienceInvested,
+          scienceNeeded: tech.scienceCost,
+          daysNeeded: tech.researchDays,
+        };
+      }
+    }
+
+    this.send(client.ws, {
+      type: "techTreeData",
+      completedTechs,
+      currentResearch: currentResearchData,
+    });
+  }
+
+  private handleStartResearch(
+    client: ClientConnection,
+    technologyId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Check if player already completed this tech
+    const completedTechs = this.db.getCompletedTechnologies(client.playerId);
+    if (completedTechs.includes(technologyId)) {
+      this.sendError(client.ws, "Technology already researched");
+      return;
+    }
+
+    // Check if there's already research in progress
+    const currentResearch = this.db.getCurrentResearch(client.playerId);
+    if (currentResearch) {
+      // Pause current research first
+      const timeState = this.gameState.getGalaxyTimeState(player.galaxyId);
+      if (timeState) {
+        this.db.pauseTechnologyResearch(
+          client.playerId,
+          currentResearch.technologyId,
+          timeState.currentTime
+        );
+      }
+    }
+
+    // Start new research
+    const timeState = this.gameState.getGalaxyTimeState(player.galaxyId);
+    if (timeState) {
+      this.db.startTechnologyResearch(
+        client.playerId,
+        technologyId,
+        timeState.currentTime
+      );
+      this.send(client.ws, {
+        type: "researchStarted",
+        technologyId,
+      });
+
+      // Send updated tech tree
+      this.handleRequestTechTree(client);
+    }
+  }
+
+  private handlePauseResearch(
+    client: ClientConnection,
+    technologyId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    const timeState = this.gameState.getGalaxyTimeState(player.galaxyId);
+    if (timeState) {
+      this.db.pauseTechnologyResearch(
+        client.playerId,
+        technologyId,
+        timeState.currentTime
+      );
+      this.send(client.ws, {
+        type: "researchPaused",
+        technologyId,
+      });
+
+      // Send updated tech tree
+      this.handleRequestTechTree(client);
+    }
+  }
+
+  private handleResumeResearch(
+    client: ClientConnection,
+    technologyId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    this.db.resumeTechnologyResearch(client.playerId, technologyId);
+    this.send(client.ws, {
+      type: "researchResumed",
+      technologyId,
+    });
+
+    // Send updated tech tree
+    this.handleRequestTechTree(client);
   }
 }

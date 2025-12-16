@@ -254,11 +254,11 @@ export interface Species {
 // Colony development stages
 export const ColonyStage = {
   OUTPOST: "outpost", // Initial settlement (100-1000 population)
-  SETTLEMENT: "settlement", // Growing colony (1,000-10,000)
-  COLONY: "colony", // Established colony (10,000-100,000)
-  DEVELOPED: "developed", // Developed world (100,000-1M)
-  METROPOLIS: "metropolis", // Major population center (1M+)
-  ECUMENOPOLIS: "ecumenopolis", // Planet-wide city (10B+)
+  SETTLEMENT: "settlement", // Growing colony (50M-500M)
+  COLONY: "colony", // Established colony (500M-2B)
+  DEVELOPED: "developed", // Developed world (2B-5B)
+  METROPOLIS: "metropolis", // Major population center (5B-15B)
+  ECUMENOPOLIS: "ecumenopolis", // Planet-wide city (15B+)
 } as const;
 
 export type ColonyStageType = (typeof ColonyStage)[keyof typeof ColonyStage];
@@ -470,4 +470,37 @@ export interface GateAttack {
   startedAt: number; // timestamp when attack started
   completedAt?: number; // timestamp when attack completed
   combatLog?: string; // JSON string of combat events
+}
+
+// Technology types
+export const TechnologyId = {
+  NANO_ARRAYS: "nano_arrays",
+  DEEP_MINING: "deep_mining",
+  SHIELDS: "shields",
+} as const;
+
+export type TechnologyIdType =
+  (typeof TechnologyId)[keyof typeof TechnologyId];
+
+// Technology research status
+export const ResearchStatus = {
+  NOT_STARTED: "not_started",
+  IN_PROGRESS: "in_progress",
+  PAUSED: "paused",
+  COMPLETED: "completed",
+} as const;
+
+export type ResearchStatusType =
+  (typeof ResearchStatus)[keyof typeof ResearchStatus];
+
+// Technology research progress
+export interface TechnologyResearch {
+  playerId: string;
+  technologyId: TechnologyIdType;
+  status: ResearchStatusType;
+  progressDays: number; // Days of research completed (0-30)
+  scienceInvested: number; // Total science invested
+  startedAt: number; // Timestamp when research started
+  completedAt?: number; // Timestamp when research completed
+  pausedAt?: number; // Timestamp when research was paused
 }

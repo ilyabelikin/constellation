@@ -35,9 +35,10 @@ export const MAX_DYSON_SWARMS_PER_STAR = 30; // Maximum swarms per star
 
 // Population constants
 // Maximum population is based on planet radius (surface area scales with radius²)
-// Earth-like planet (6.4M km radius) can support ~10 billion at ecumenopolis stage
-// Population scales with surface area: pop = BASE_POP_PER_RADIUS² * (radius/EARTH_RADIUS)²
-export const BASE_POPULATION_DENSITY = 2.44e-7; // Population per m² at max capacity (10B / 4πr² for Earth)
+// Earth-like planet (6.371 Mm radius) can support ~10 billion at ecumenopolis stage
+// Population scales with surface area: pop = BASE_POPULATION_DENSITY × surface_area × habitability
+// For Earth: 10B / (4π × (6.371e6)²) ≈ 1.96e-5 people per m²
+export const BASE_POPULATION_DENSITY = 1.96e-5; // Population per m² at max capacity
 
 /**
  * Format a large number with appropriate suffix (K, M, B, T)

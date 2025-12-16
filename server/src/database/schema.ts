@@ -943,6 +943,38 @@ export function initializeDatabase(dbPath: string): Database.Database {
     console.error("Error during gate attacks cost tracking migration:", error);
   }
 
+  // Migration: Create technology_research table if it doesn't exist
+  try {
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='technology_research'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (tables.length === 0) {
+      console.log("Migrating database: Creating technology_research table");
+      db.exec(`
+        CREATE TABLE technology_research (
+          player_id TEXT NOT NULL,
+          technology_id TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('not_started', 'in_progress', 'paused', 'completed')),
+          progress_days REAL NOT NULL DEFAULT 0,
+          science_invested REAL NOT NULL DEFAULT 0,
+          started_at INTEGER DEFAULT 0,
+          completed_at INTEGER,
+          paused_at INTEGER,
+          PRIMARY KEY (player_id, technology_id),
+          FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_technology_research_player ON technology_research(player_id);
+        CREATE INDEX idx_technology_research_status ON technology_research(status);
+      `);
+      console.log("Technology research table migration complete");
+    }
+  } catch (error) {
+    console.error("Error during technology research table migration:", error);
+  }
+
   // Migration: Create tunnels table and migrate existing gates
   try {
     const tables = db

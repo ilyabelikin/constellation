@@ -3,13 +3,16 @@
 ## Version 0.4.0 - Logistics and War
 
 - **Logistics**: Resources now delivered to the capital world via tunnels, so that if you lose access you lose the flow of resources
+- **Migration**: established worlds now send their population to colonies so that you planes will grow much faster and become productive
 - **Gate Controll**: You may now fortify and attack gates as well as capture individual gates or take over the tunnels completely
-- **Overcharge**: a civilization that controls the tunnel energy supply may overcharge it exploding both gates and blocking tunnel for 3 years
+- **Overcharge**: a civilization that controls the tunnel energy supply may overcharge it exploding both gates and blocking tunnel for 1 year
+- **Tech**: Introduced a few technologies that a civilization now can develop: Nano Arrays, Deep Mining, Sheilds, Gyro Traction Beam
+- **Billions**: fixed a bug that was keeping planets populations in millions instead of billions
 
 ## Version 0.3.3 - Habitable Planets Navigation
 
-- **Species Information on Planets**: Planet detail panels now display which species inhabits the planet, showing either native species or colony species names
-- **Habitable Planet Indicators**: Constellation view now shows green circles below system names indicating habitable planets (filled = colonized, empty = uncolonized); click circles to jump directly to that planet
+- **Species Information on Planets**: Planet detail panels now display which species inhabits the planet
+- **Habitable Planet Indicators**: Constellation view now shows green circles below system names indicating habitable planets (filled = colonized, empty = uncolonized); click on them to jump directly to that planet
 - **Performance**: Star system now loads immediately when continuing a game, eliminating the wait for player data
 
 ---
