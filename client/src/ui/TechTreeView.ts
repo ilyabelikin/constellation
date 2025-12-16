@@ -12,6 +12,11 @@ export class TechTreeView {
     daysNeeded: number;
   } | null = null;
 
+  // Progress UI elements for real-time updates
+  private progressBar: HTMLElement | null = null;
+  private progressText: HTMLElement | null = null;
+  private scienceText: HTMLElement | null = null;
+
   // Callbacks
   public onStartResearch: ((technologyId: string) => void) | null = null;
   public onPauseResearch: ((technologyId: string) => void) | null = null;
@@ -61,10 +66,32 @@ export class TechTreeView {
   public hide(): void {
     this.container.classList.add("hidden");
     this.container.style.display = "none";
+    // Clear progress element references
+    this.progressBar = null;
+    this.progressText = null;
+    this.scienceText = null;
   }
 
   public isVisible(): boolean {
     return !this.container.classList.contains("hidden");
+  }
+
+  // Update progress display in real-time (called every frame when modal is visible)
+  public updateProgressDisplay(progressDays: number, scienceInvested: number): void {
+    if (!this.currentResearch || !this.progressBar || !this.progressText || !this.scienceText) {
+      return;
+    }
+
+    const progressPercent = Math.min(99.9, (progressDays / this.currentResearch.daysNeeded) * 100);
+    
+    // Update progress bar width
+    this.progressBar.style.width = `${progressPercent}%`;
+    
+    // Update progress text
+    this.progressText.textContent = `Progress: ${progressDays.toFixed(1)}/${this.currentResearch.daysNeeded} days (${progressPercent.toFixed(1)}%)`;
+    
+    // Update science text
+    this.scienceText.textContent = `Science: ${scienceInvested.toFixed(1)}/${this.currentResearch.scienceNeeded}`;
   }
 
   private render(): void {
@@ -216,6 +243,9 @@ export class TechTreeView {
     progressContainer.appendChild(progressBar);
     section.appendChild(progressContainer);
 
+    // Store reference for real-time updates
+    this.progressBar = progressBar;
+
     // Progress text
     const progressText = document.createElement("div");
     progressText.style.cssText = `
@@ -228,6 +258,9 @@ export class TechTreeView {
     )}/${this.currentResearch.daysNeeded} days (${progressPercent.toFixed(1)}%)`;
     section.appendChild(progressText);
 
+    // Store reference for real-time updates
+    this.progressText = progressText;
+
     // Science invested
     const scienceText = document.createElement("div");
     scienceText.style.cssText = `
@@ -239,6 +272,9 @@ export class TechTreeView {
       1
     )}/${this.currentResearch.scienceNeeded}`;
     section.appendChild(scienceText);
+
+    // Store reference for real-time updates
+    this.scienceText = scienceText;
 
     // Pause/Resume button
     const button = document.createElement("button");

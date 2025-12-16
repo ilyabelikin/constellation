@@ -1,8 +1,16 @@
 import * as THREE from "three";
+import { 
+  DYSON_PANEL_SIZE, 
+  DYSON_ORBIT_DISTANCE_MULTIPLIER, 
+  SOLAR_RADIUS,
+  MAX_DYSON_SWARMS_PER_STAR,
+  PANELS_PER_SWARM
+} from "../../../shared/src/constants";
 
 /**
  * Factory for creating Dyson Swarm visuals
  * Each swarm consists of 3 satellites orbiting the star
+ * Panels are now constant size regardless of star size
  */
 export class DysonSwarmFactory {
   /**
@@ -136,14 +144,16 @@ export class DysonSwarmFactory {
   /**
    * Create satellites for a Dyson Swarm around a star
    * @param swarmIndex - Index of this swarm (0-9)
-   * @param starRadius - Radius of the star in meters
+   * @param starRadius - Radius of the star in scene units (already scaled and multiplied)
    * @param currentTime - Current game time for orbital positions
+   * @param maxSwarmsForStar - Maximum swarms this star can support (for proper distribution)
    * @returns Array of THREE.Group objects representing satellites (solar panels)
    */
   createSwarmSatellites(
     swarmIndex: number,
     starRadius: number,
-    currentTime: number
+    currentTime: number,
+    maxSwarmsForStar?: number
   ): THREE.Group[] {
     const satellites: THREE.Group[] = [];
 
@@ -152,10 +162,12 @@ export class DysonSwarmFactory {
 
     // Orbital distance: ALL satellites orbit at the same distance, forming a single sphere
     // This creates a true Dyson swarm that gradually covers the star like a shell
-    const orbitRadius = starRadius * 1.08; // Very close to star surface, same for all swarms
+    const orbitRadius = starRadius * DYSON_ORBIT_DISTANCE_MULTIPLIER;
 
-    // Calculate satellite size (larger so they're more visible in the swarm)
-    const satelliteSize = starRadius * 0.195; // 30% larger for better star coverage (0.15 * 1.3)
+    // CONSTANT panel size: panels are the same physical size regardless of star size
+    // Make panels large enough to be visible (about 2.6% of star radius)
+    // 30% larger than base size for better clarity
+    const satelliteSize = starRadius * 0.026; // 2.6% of star radius for visibility
 
     // Create 3 satellites evenly distributed on the sphere
     for (let i = 0; i < satellitesPerSwarm; i++) {
@@ -167,13 +179,15 @@ export class DysonSwarmFactory {
       const goldenRatio = (1 + Math.sqrt(5)) / 2;
       const satelliteGlobalIndex = swarmIndex * satellitesPerSwarm + i;
       
-      // Each satellite has a FIXED position on the sphere
-      // ALL satellites (regardless of swarm) rotate together with the SAME period
-      // This creates one unified, coordinated spherical shell
+      // Each satellite has a FIXED position on the sphere based on its index
+      // Scale distribution based on this star's actual max capacity, not global max
+      // This ensures full coverage at max capacity for each star
+      const maxSwarms = maxSwarmsForStar || MAX_DYSON_SWARMS_PER_STAR;
+      const MAX_TOTAL_SATELLITES = maxSwarms * PANELS_PER_SWARM;
       
       // Calculate fixed latitude (inclination) using Fibonacci sphere
       // This distributes satellites evenly from north pole to south pole
-      const inclination = Math.acos(1 - 2 * (satelliteGlobalIndex + 0.5) / 90); // 90 = max satellites (30 swarms * 3)
+      const inclination = Math.acos(1 - 2 * (satelliteGlobalIndex + 0.5) / MAX_TOTAL_SATELLITES);
       
       // Calculate fixed longitude using golden ratio for even azimuthal spacing
       const fixedLongitude = (satelliteGlobalIndex * goldenRatio) * Math.PI * 2;
@@ -254,12 +268,12 @@ export class DysonSwarmFactory {
   /**
    * Create orbital path visualization for a swarm
    * @param swarmIndex - Index of this swarm
-   * @param starRadius - Radius of the star
+   * @param starRadius - Radius of the star in scene units
    * @returns THREE.Line representing the orbital path
    */
   createOrbitalPath(swarmIndex: number, starRadius: number): THREE.Line {
     // All satellites orbit at the same radius, forming a single sphere
-    const orbitRadius = starRadius * 1.08;
+    const orbitRadius = starRadius * DYSON_ORBIT_DISTANCE_MULTIPLIER;
 
     const points: THREE.Vector3[] = [];
     const segments = 64;

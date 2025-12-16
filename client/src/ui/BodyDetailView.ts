@@ -8,6 +8,11 @@ import {
   StarSystem,
   formatLargeNumber,
   BASE_POPULATION_DENSITY,
+  MINING_INSTALLATION_CONFIG,
+  formatCost,
+  GAME_COSTS,
+  calculateMaxDysonSwarms,
+  SOLAR_RADIUS,
 } from "@constellation/shared";
 
 /**
@@ -106,8 +111,11 @@ export class BodyDetailView {
       "body-mine-button"
     ) as HTMLButtonElement;
 
-    // Bind mine button click
+    // Bind mine button click and set initial text from config
     if (this.mineButton) {
+      // Set button text from config using shared formatCost function
+      this.mineButton.textContent = `⛏ Establish Mining ${formatCost(MINING_INSTALLATION_CONFIG.cost)}`;
+      
       this.mineButton.addEventListener("click", () => {
         if (this.currentBody && this.onEstablishMining) {
           this.onEstablishMining(this.currentBody.id);
@@ -524,6 +532,10 @@ export class BodyDetailView {
       if (this.dysonSection) {
         this.dysonSection.style.display = "block";
 
+        // Calculate maximum swarms based on star's physical size (12-320 range)
+        const starRadiusInSolarRadii = body.radius / SOLAR_RADIUS;
+        const maxSwarms = calculateMaxDysonSwarms(starRadiusInSolarRadii);
+
         // Count existing Dyson Swarms on this star
         const dysonSwarms =
           this.currentSystem?.megastructures?.filter(
@@ -532,18 +544,19 @@ export class BodyDetailView {
           ) || [];
 
         const swarmCount = dysonSwarms.length;
-        const maxSwarms = 30;
-        const totalEnergy = swarmCount * 1; // 1 energy per swarm (permanent boost)
+        
+        // Calculate total energy from all swarms (1 energy per swarm base, may vary with tech)
+        const totalEnergy = dysonSwarms.reduce((sum: number, ms: any) => sum + (ms.resourcePerDay || 0), 0);
 
         // Always show swarm status for stars
         if (this.dysonStatus) {
           this.dysonStatus.style.display = "block";
           if (this.dysonCount) {
-            this.dysonCount.textContent = `${swarmCount}`;
+            this.dysonCount.textContent = `${swarmCount}/${maxSwarms}`;
           }
           if (this.dysonEnergy) {
             this.dysonEnergy.textContent =
-              totalEnergy > 0 ? `+${totalEnergy}` : `${totalEnergy}`;
+              totalEnergy > 0 ? `+${totalEnergy.toFixed(1)}` : `0`;
           }
         }
 
@@ -553,7 +566,7 @@ export class BodyDetailView {
             this.dysonButton.style.display = "none";
           } else {
             this.dysonButton.style.display = "block";
-            this.dysonButton.textContent = `☀ Launch Dyson Swarm (10 ⛏) [${swarmCount}/${maxSwarms}]`;
+            this.dysonButton.textContent = `☀ Launch Dyson Swarm ${formatCost(GAME_COSTS.DYSON_SWARM)}`;
           }
         }
       }
@@ -642,6 +655,8 @@ export class BodyDetailView {
           }
           if (this.colonizeButton) {
             this.colonizeButton.style.display = "block";
+            // Update button text with costs from config
+            this.colonizeButton.textContent = `🏙 Establish Colony ${formatCost(GAME_COSTS.COLONY_ESTABLISHMENT)}`;
           }
           // Hide remove colony button when no colony
           if (this.removeColonyButton) {

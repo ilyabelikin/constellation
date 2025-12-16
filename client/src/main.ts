@@ -146,6 +146,8 @@ class ConstellationApp {
     // Handle authentication - request initial data after auth
     this.network.onAuthenticated = (uuid, playerId) => {
       console.log("Authenticated in lobby:", uuid, playerId);
+      // Reload settings for this user
+      this.lobby.reloadSettings();
       // Now that we're authenticated, request initial lobby data
       this.lobby.requestInitialData();
     };
@@ -413,6 +415,8 @@ class ConstellationGame {
   private setupNetworkHandlers(): void {
     this.network.onAuthenticated = (uuid, playerId) => {
       console.log("Authenticated:", uuid, playerId);
+      // Reload camera settings for this user
+      this.scene.reloadCameraSettings();
     };
 
     this.network.onPlayerData = (player) => {
@@ -777,7 +781,8 @@ class ConstellationGame {
       megastructureId,
       starId,
       energyPerDay,
-      count
+      count,
+      maxSwarms
     ) => {
       this.scene.launchDysonSwarm(megastructureId, starId);
       setTimeout(() => {
@@ -983,7 +988,7 @@ class ConstellationGame {
         this.techTreeView.show(completedTechs, currentResearch);
         this.shouldShowTechTreeModal = false; // Reset flag
       }
-      
+
       // Store current research data for real-time updates
       if (currentResearch) {
         this.currentResearchData = {
@@ -1066,15 +1071,19 @@ class ConstellationGame {
     };
 
     this.network.onResearchCompleted = (technologyId, technologyName) => {
-      console.log(`Research completed: ${technologyName}`);
+      console.log(`[Research] ✅ onResearchCompleted callback triggered!`);
+      console.log(`[Research] Technology: ${technologyName} (${technologyId})`);
       // Clear the stored research data
       this.currentResearchData = null;
       // Hide the progress indicator
       this.hideTechProgressIndicator();
       // Show the tech complete alert with full details
+      console.log(`[Research] About to call showTechCompleteAlert...`);
       this.showTechCompleteAlert(technologyId, technologyName);
+      console.log(`[Research] showTechCompleteAlert called`);
       // Refresh tech tree if it's open
       if (this.techTreeView.isVisible()) {
+        this.shouldShowTechTreeModal = true;
         this.network.requestTechTree();
       }
     };
@@ -1530,16 +1539,16 @@ class ConstellationGame {
       this.currentResearchData.status === "in_progress"
     ) {
       // Calculate interpolated progress based on elapsed time
-      const elapsedSeconds = currentGameTime - this.currentResearchData.lastUpdateTime;
+      const elapsedSeconds =
+        currentGameTime - this.currentResearchData.lastUpdateTime;
       const elapsedDays = elapsedSeconds / 86400; // 86400 seconds per day
-      const currentProgressDays = this.currentResearchData.progressDays + elapsedDays;
-      
+      const currentProgressDays =
+        this.currentResearchData.progressDays + elapsedDays;
+
       // Check if research has reached 100%
       if (currentProgressDays >= this.currentResearchData.daysNeeded) {
-        // Hide the progress indicator when complete
+        // Hide the progress indicator when complete (but keep data until server confirms)
         this.hideTechProgressIndicator();
-        // Clear research data to prevent further updates
-        this.currentResearchData = null;
       } else {
         // Update the indicator with current progress
         this.updateTechProgressIndicator(
@@ -1547,6 +1556,14 @@ class ConstellationGame {
           currentProgressDays,
           this.currentResearchData.scienceInvested
         );
+
+        // Also update the tech tree modal if it's visible
+        if (this.techTreeView.isVisible()) {
+          this.techTreeView.updateProgressDisplay(
+            currentProgressDays,
+            this.currentResearchData.scienceInvested
+          );
+        }
       }
     }
   }
@@ -1602,15 +1619,28 @@ class ConstellationGame {
     technologyId: string,
     technologyName: string
   ): void {
+    console.log(
+      `[TechAlert] Showing tech complete alert for: ${technologyName} (${technologyId})`
+    );
     const tech = TECHNOLOGIES[technologyId];
 
+    if (!tech) {
+      console.error(`[TechAlert] Technology not found: ${technologyId}`);
+      return;
+    }
+
     if (
-      !tech ||
       !this.techCompleteModal ||
       !this.techCompleteName ||
       !this.techCompleteDescription ||
       !this.techCompleteEffectsList
     ) {
+      console.error("[TechAlert] Modal elements not initialized:", {
+        modal: !!this.techCompleteModal,
+        name: !!this.techCompleteName,
+        description: !!this.techCompleteDescription,
+        effectsList: !!this.techCompleteEffectsList,
+      });
       return;
     }
 
@@ -1669,8 +1699,13 @@ class ConstellationGame {
     }
 
     // Show the modal
+    console.log("[TechAlert] Displaying modal");
     this.techCompleteModal.classList.remove("hidden");
     this.techCompleteModal.style.display = "flex";
+    console.log(
+      "[TechAlert] Modal display set to:",
+      this.techCompleteModal.style.display
+    );
   }
 
   private hideTechCompleteAlert(): void {

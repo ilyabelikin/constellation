@@ -27,6 +27,7 @@ import { getDesertAtmosphereColor } from "./materials/DesertAtmosphereGlowMateri
 import { MiningInstallationRenderer } from "./MiningInstallationRenderer.js";
 import { ColonyEstablishmentRenderer } from "./ColonyEstablishmentRenderer.js";
 import { GateDefenseRenderer } from "./GateDefenseRenderer.js";
+import { SOLAR_RADIUS, calculateMaxDysonSwarms } from "../../../shared/src/constants.js";
 
 /**
  * Main scene manager that orchestrates all rendering components
@@ -487,6 +488,10 @@ export class SceneManager {
           (a, b) => a.establishedAt - b.establishedAt
         );
 
+        // Calculate max swarms for this star to ensure proper distribution
+        const starRadiusInSolarRadii = star.radius / SOLAR_RADIUS;
+        const maxSwarms = calculateMaxDysonSwarms(starRadiusInSolarRadii);
+
         for (let i = 0; i < sortedSwarms.length; i++) {
           const megastructure = sortedSwarms[i];
           const currentTime = this.timeInterpolator.getGameTime();
@@ -495,7 +500,8 @@ export class SceneManager {
           const satelliteMeshes = this.dysonSwarmFactory.createSwarmSatellites(
             i, // swarm index (0-9)
             starRadius,
-            currentTime
+            currentTime,
+            maxSwarms // Pass max swarms for proper distribution
           );
 
           // Add satellites to scene
@@ -707,6 +713,10 @@ export class SceneManager {
     // Calculate scaled star radius
     const starRadius = star.radius * this.SCALE * this.BODY_SIZE_MULTIPLIER;
 
+    // Calculate max swarms for this star to ensure proper distribution
+    const starRadiusInSolarRadii = star.radius / SOLAR_RADIUS;
+    const maxSwarms = calculateMaxDysonSwarms(starRadiusInSolarRadii);
+
     // Count how many swarms already exist or are launching for this star
     const existingSwarms = Array.from(this.satellites.values()).filter(
       (satelliteData) => satelliteData.starId === starId
@@ -724,7 +734,8 @@ export class SceneManager {
     const satelliteMeshes = this.dysonSwarmFactory.createSwarmSatellites(
       swarmIndex,
       starRadius,
-      currentTime
+      currentTime,
+      maxSwarms // Pass max swarms for proper distribution
     );
 
     // Get camera position for launch animation
@@ -1281,6 +1292,10 @@ export class SceneManager {
                 (s) => s.id === megastructure.id
               );
 
+              // Calculate max swarms for proper distribution
+              const starRadiusInSolarRadii = star.radius / SOLAR_RADIUS;
+              const maxSwarms = calculateMaxDysonSwarms(starRadiusInSolarRadii);
+
               // Create satellites for this swarm (returns an array)
               const currentTime = state.currentTime;
               const starRadius =
@@ -1289,7 +1304,8 @@ export class SceneManager {
                 this.dysonSwarmFactory.createSwarmSatellites(
                   swarmIndex,
                   starRadius,
-                  currentTime
+                  currentTime,
+                  maxSwarms
                 );
 
               // Add metadata to each satellite
@@ -3048,6 +3064,13 @@ export class SceneManager {
 
   getSelectedObjectId(): string | null {
     return this.cameraController.getSelectedObjectId();
+  }
+
+  /**
+   * Reload camera controller settings (called when user changes)
+   */
+  reloadCameraSettings(): void {
+    this.cameraController.reloadSettings();
   }
 
   getGateMesh(gateId: string): THREE.Group | undefined {

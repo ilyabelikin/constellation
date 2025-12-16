@@ -3785,13 +3785,40 @@ export class DatabaseQueries {
     technologyId: string;
     technologyName: string;
     completed: boolean;
+    resumed?: boolean;
+    paused?: boolean;
   }[] {
     const completedResearch: {
       playerId: string;
       technologyId: string;
       technologyName: string;
       completed: boolean;
+      resumed?: boolean;
+      paused?: boolean;
     }[] = [];
+
+    // First, check for paused research that can be auto-resumed
+    const pausedStmt = this.db.prepare(
+      "SELECT tr.*, p.science FROM technology_research tr JOIN players p ON tr.player_id = p.id WHERE tr.status = 'paused'"
+    );
+    const pausedRows = pausedStmt.all() as any[];
+    
+    for (const row of pausedRows) {
+      // If player has science available, resume the research
+      if (row.science > 0) {
+        this.resumeTechnologyResearch(row.player_id, row.technology_id);
+        console.log(
+          `Research on ${row.technology_id} auto-resumed: science available`
+        );
+        completedResearch.push({
+          playerId: row.player_id,
+          technologyId: row.technology_id,
+          technologyName: row.technology_id,
+          completed: false,
+          resumed: true,
+        });
+      }
+    }
 
     // Get all in-progress research
     const stmt = this.db.prepare(
@@ -3832,6 +3859,13 @@ export class DatabaseQueries {
             console.log(
               `Research on ${row.technology_id} auto-paused: no science available`
             );
+            completedResearch.push({
+              playerId: row.player_id,
+              technologyId: row.technology_id,
+              technologyName: row.technology_id,
+              completed: false,
+              paused: true,
+            });
             continue;
           }
         }

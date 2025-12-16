@@ -21,8 +21,54 @@ export class CameraController {
   private selectedObjectId: string | null = null;
   private isTrackingObject: boolean = false;
 
+  // Camera control settings
+  private invertX: boolean = false;
+  private invertY: boolean = false;
+
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
+    this.loadSettings();
+    
+    // Listen for settings changes
+    window.addEventListener("settings-changed", ((event: CustomEvent) => {
+      this.invertX = event.detail.invertX || false;
+      this.invertY = event.detail.invertY || false;
+    }) as EventListener);
+  }
+
+  /**
+   * Get the settings key based on current user UUID
+   */
+  private getSettingsKey(): string {
+    const uuid = localStorage.getItem("constellation-uuid");
+    if (uuid) {
+      return `constellation-settings-${uuid}`;
+    }
+    return "constellation-settings";
+  }
+
+  /**
+   * Load camera control settings from localStorage
+   */
+  private loadSettings(): void {
+    try {
+      const settingsKey = this.getSettingsKey();
+      const settings = localStorage.getItem(settingsKey);
+      if (settings) {
+        const parsed = JSON.parse(settings);
+        this.invertX = parsed.invertX || false;
+        this.invertY = parsed.invertY || false;
+      }
+    } catch (error) {
+      console.error("Failed to load camera settings:", error);
+    }
+  }
+
+  /**
+   * Public method to reload settings - called when user logs in/changes
+   */
+  public reloadSettings(): void {
+    this.loadSettings();
   }
 
   /**
@@ -54,8 +100,11 @@ export class CameraController {
       if (this.isDragging) {
         // Rotate camera around target (works both with and without tracking)
         const rotationSpeed = 0.005;
-        this.cameraTheta -= deltaX * rotationSpeed;
-        this.cameraPhi -= deltaY * rotationSpeed;
+        const xMultiplier = this.invertX ? 1 : -1;
+        const yMultiplier = this.invertY ? 1 : -1;
+        
+        this.cameraTheta += deltaX * rotationSpeed * xMultiplier;
+        this.cameraPhi += deltaY * rotationSpeed * yMultiplier;
 
         // Clamp phi to prevent flipping
         this.cameraPhi = Math.max(0.1, Math.min(Math.PI - 0.1, this.cameraPhi));
@@ -399,8 +448,11 @@ export class CameraController {
       if (this.isTouchDragging) {
         // Rotate camera around target
         const rotationSpeed = 0.005;
-        this.cameraTheta -= deltaX * rotationSpeed;
-        this.cameraPhi -= deltaY * rotationSpeed;
+        const xMultiplier = this.invertX ? 1 : -1;
+        const yMultiplier = this.invertY ? 1 : -1;
+        
+        this.cameraTheta += deltaX * rotationSpeed * xMultiplier;
+        this.cameraPhi += deltaY * rotationSpeed * yMultiplier;
 
         // Clamp phi to prevent flipping
         this.cameraPhi = Math.max(0.1, Math.min(Math.PI - 0.1, this.cameraPhi));

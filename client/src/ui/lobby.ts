@@ -20,9 +20,16 @@ export class LobbyManager {
   private continueButton: HTMLElement;
   private newGameButton: HTMLElement;
   private resetButton: HTMLElement;
+  private settingsButton: HTMLElement;
   private gameStatus: HTMLElement;
   private errorMessage: HTMLElement;
   private changelogContent: HTMLElement;
+  
+  // Settings modal elements
+  private settingsModal: HTMLElement;
+  private settingsCloseButton: HTMLElement;
+  private settingsInvertX: HTMLInputElement;
+  private settingsInvertY: HTMLInputElement;
 
   // Views
   private lobbyMainView: HTMLElement;
@@ -80,9 +87,16 @@ export class LobbyManager {
     this.continueButton = document.getElementById("continue-game")!;
     this.newGameButton = document.getElementById("new-game")!;
     this.resetButton = document.getElementById("reset-galaxy")!;
+    this.settingsButton = document.getElementById("settings-button")!;
     this.gameStatus = document.getElementById("game-status")!;
     this.errorMessage = document.getElementById("error-message")!;
     this.changelogContent = document.getElementById("changelog-content")!;
+    
+    // Settings modal elements
+    this.settingsModal = document.getElementById("settings-modal")!;
+    this.settingsCloseButton = document.getElementById("settings-close-button")!;
+    this.settingsInvertX = document.getElementById("settings-invert-x") as HTMLInputElement;
+    this.settingsInvertY = document.getElementById("settings-invert-y") as HTMLInputElement;
 
     // Views
     this.lobbyMainView = document.getElementById("lobby-main")!;
@@ -157,6 +171,25 @@ export class LobbyManager {
     this.speciesDetailPlayButton.addEventListener("click", () => {
       this.confirmSpeciesSelection();
     });
+
+    this.settingsButton.addEventListener("click", () => {
+      this.showSettings();
+    });
+
+    this.settingsCloseButton.addEventListener("click", () => {
+      this.hideSettings();
+    });
+
+    this.settingsInvertX.addEventListener("change", () => {
+      this.saveSettings();
+    });
+
+    this.settingsInvertY.addEventListener("change", () => {
+      this.saveSettings();
+    });
+
+    // Load settings from localStorage
+    this.loadSettings();
 
     // Load changelog
     this.loadChangelog();
@@ -555,5 +588,62 @@ export class LobbyManager {
         this.onJoinGalaxy(this.selectedGalaxyId, playerName, speciesId);
       }
     }
+  }
+
+  private showSettings(): void {
+    this.settingsModal.classList.remove("hidden");
+    this.settingsModal.style.display = "flex";
+  }
+
+  private hideSettings(): void {
+    this.settingsModal.classList.add("hidden");
+    this.settingsModal.style.display = "none";
+  }
+
+  private getSettingsKey(): string {
+    // Use user-specific settings key based on UUID
+    const uuid = localStorage.getItem("constellation-uuid");
+    if (uuid) {
+      return `constellation-settings-${uuid}`;
+    }
+    // Fall back to global settings if no user is logged in yet
+    return "constellation-settings";
+  }
+
+  private loadSettings(): void {
+    try {
+      const settingsKey = this.getSettingsKey();
+      const settings = localStorage.getItem(settingsKey);
+      if (settings) {
+        const parsed = JSON.parse(settings);
+        this.settingsInvertX.checked = parsed.invertX || false;
+        this.settingsInvertY.checked = parsed.invertY || false;
+      }
+    } catch (error) {
+      console.error("Failed to load settings:", error);
+    }
+  }
+
+  private saveSettings(): void {
+    try {
+      const settings = {
+        invertX: this.settingsInvertX.checked,
+        invertY: this.settingsInvertY.checked,
+      };
+      const settingsKey = this.getSettingsKey();
+      localStorage.setItem(settingsKey, JSON.stringify(settings));
+      
+      // Dispatch a custom event so the camera controller can react to changes
+      window.dispatchEvent(new CustomEvent("settings-changed", { detail: settings }));
+    } catch (error) {
+      console.error("Failed to save settings:", error);
+    }
+  }
+
+  /**
+   * Public method to reload settings - called when user logs in/changes
+   */
+  public reloadSettings(): void {
+    this.loadSettings();
   }
 }

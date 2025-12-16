@@ -14,7 +14,6 @@ import {
   ASTRONOMICAL_UNIT,
   SearchResult,
   TIME_SCALE_DEFAULT,
-  MAX_DYSON_SWARMS_PER_STAR,
   BASE_POPULATION_DENSITY,
   ATTACK_SHIP_CONFIG,
   DEFENSE_PLATFORM_CONFIG,
@@ -24,6 +23,9 @@ import {
   calculateColonyYields,
   getColonyStage,
   TECHNOLOGIES,
+  SOLAR_RADIUS,
+  DYSON_SWARM_ENERGY_PER_DAY,
+  calculateMaxDysonSwarms,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -2379,11 +2381,11 @@ export class ConstellationWebSocketServer {
     }
 
     // Check if player has enough alloy
-    const DYSON_SWARM_COST = 10;
-    if (player.alloy < DYSON_SWARM_COST) {
+    const dysonSwarmCost = GAME_COSTS.DYSON_SWARM.alloy;
+    if (player.alloy < dysonSwarmCost) {
       this.sendError(
         client.ws,
-        "Not enough alloy to launch Dyson Swarm (requires 10 alloy)"
+        `Not enough alloy to launch Dyson Swarm (requires ${dysonSwarmCost} alloy)`
       );
       return;
     }
@@ -2396,12 +2398,14 @@ export class ConstellationWebSocketServer {
     }
 
     // Check if the star is in this system (primary or companion)
-    const isValidStar =
-      system.star.id === starId ||
-      (system.companionStars &&
-        system.companionStars.some((cs) => cs.id === starId));
+    let targetStar = null;
+    if (system.star.id === starId) {
+      targetStar = system.star;
+    } else if (system.companionStars) {
+      targetStar = system.companionStars.find((cs) => cs.id === starId);
+    }
 
-    if (!isValidStar) {
+    if (!targetStar) {
       this.sendError(client.ws, "Star not found in current system");
       return;
     }
@@ -2420,14 +2424,17 @@ export class ConstellationWebSocketServer {
       return;
     }
 
+    // Calculate maximum swarms based on star's physical size (12-320 range)
+    const starRadiusInSolarRadii = targetStar.radius / SOLAR_RADIUS;
+    const maxSwarms = calculateMaxDysonSwarms(starRadiusInSolarRadii);
+
     // Check how many Dyson Swarms are already on this star
     const existingSwarms = this.db.countDysonSwarmsByStar(starId);
-    const MAX_SWARMS = MAX_DYSON_SWARMS_PER_STAR;
 
-    if (existingSwarms >= MAX_SWARMS) {
+    if (existingSwarms >= maxSwarms) {
       this.sendError(
         client.ws,
-        `Maximum Dyson Swarms (${MAX_SWARMS}) already deployed on this star`
+        `Maximum Dyson Swarms (${maxSwarms}) already deployed on this star. Star size limits capacity.`
       );
       return;
     }
@@ -2444,21 +2451,22 @@ export class ConstellationWebSocketServer {
     const deductStmt = this.db
       .rawDb()
       .prepare("UPDATE players SET alloy = alloy - ? WHERE id = ?");
-    deductStmt.run(DYSON_SWARM_COST, client.playerId);
+    deductStmt.run(dysonSwarmCost, client.playerId);
 
     // Add energy immediately (Dyson Swarms provide instant permanent energy boost)
-    let ENERGY_PER_SWARM = 1;
+    // Each swarm generates DYSON_SWARM_ENERGY_PER_DAY (1 energy per swarm)
+    let energyPerSwarm = DYSON_SWARM_ENERGY_PER_DAY;
 
     // Apply Nano Arrays technology bonus (+10% energy)
     const completedTechs = this.db.getCompletedTechnologies(client.playerId);
     if (completedTechs.includes("nano_arrays")) {
-      ENERGY_PER_SWARM = ENERGY_PER_SWARM * 1.1; // +10% bonus
+      energyPerSwarm = energyPerSwarm * 1.1; // +10% bonus
       console.log(
-        `Nano Arrays tech applied: ${ENERGY_PER_SWARM} energy/day (was 1.0)`
+        `Nano Arrays tech applied: ${energyPerSwarm} energy/day (was ${DYSON_SWARM_ENERGY_PER_DAY})`
       );
     }
 
-    this.db.addPlayerEnergy(client.playerId, ENERGY_PER_SWARM);
+    this.db.addPlayerEnergy(client.playerId, energyPerSwarm);
 
     // Create Dyson Swarm megastructure
     const megastructureId = uuidv4();
@@ -2470,26 +2478,15 @@ export class ConstellationWebSocketServer {
       "dyson_swarm",
       starId,
       "energy",
-      ENERGY_PER_SWARM,
+      energyPerSwarm,
       currentTime,
       null
     );
 
-    // Get the star name (primary or companion)
-    let starName = system.star.name;
-    if (starId !== system.star.id && system.companionStars) {
-      const companionStar = system.companionStars.find(
-        (cs) => cs.id === starId
-      );
-      if (companionStar) {
-        starName = companionStar.name;
-      }
-    }
-
     console.log(
       `Player ${player.name} launched Dyson Swarm #${
         existingSwarms + 1
-      } on ${starName} in system ${system.id} (+${ENERGY_PER_SWARM} energy)`
+      }/${maxSwarms} on ${targetStar.name} in system ${system.id} (+${energyPerSwarm} energy/day)`
     );
 
     // Send updated player data with new alloy amount FIRST
@@ -2542,8 +2539,9 @@ export class ConstellationWebSocketServer {
       type: "dysonSwarmLaunched",
       megastructureId,
       starId,
-      energyPerDay: ENERGY_PER_SWARM,
+      energyPerDay: energyPerSwarm,
       count: existingSwarms + 1,
+      maxSwarms: maxSwarms,
     });
   }
 
@@ -2894,17 +2892,31 @@ export class ConstellationWebSocketServer {
     // Process technology research (consumes science proportionally)
     const completedResearch = this.db.processTechnologyResearch(currentTime);
 
-    // Notify players of completed research
+    // Notify players of completed, resumed, and paused research
     for (const completion of completedResearch) {
       const client = this.findClientByPlayerId(completion.playerId);
       if (client && client.galaxyId === galaxyId) {
-        // Get technology info from TECHNOLOGIES
-        const tech = TECHNOLOGIES[completion.technologyId];
-        this.send(client.ws, {
-          type: "researchCompleted",
-          technologyId: completion.technologyId,
-          technologyName: tech?.name || completion.technologyId,
-        });
+        if (completion.paused) {
+          // Notify about auto-paused research
+          this.send(client.ws, {
+            type: "researchPaused",
+            technologyId: completion.technologyId,
+          });
+        } else if (completion.resumed) {
+          // Notify about auto-resumed research
+          this.send(client.ws, {
+            type: "researchResumed",
+            technologyId: completion.technologyId,
+          });
+        } else if (completion.completed) {
+          // Notify about completed research
+          const tech = TECHNOLOGIES[completion.technologyId];
+          this.send(client.ws, {
+            type: "researchCompleted",
+            technologyId: completion.technologyId,
+            technologyName: tech?.name || completion.technologyId,
+          });
+        }
       }
     }
     

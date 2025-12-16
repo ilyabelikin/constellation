@@ -17,7 +17,10 @@ export class NetworkClient {
   private ws: WebSocket | null = null;
   private uuid: string | null = null;
   private reconnectAttempts = 0;
-  bufferedGalaxyPlayers: { metPlayers: { id: string; name: string }[]; totalPlayers: number } | null = null;
+  bufferedGalaxyPlayers: {
+    metPlayers: { id: string; name: string }[];
+    totalPlayers: number;
+  } | null = null;
 
   // Callbacks
   public onAuthenticated:
@@ -163,7 +166,8 @@ export class NetworkClient {
         megastructureId: string,
         starId: string,
         energyPerDay: number,
-        count: number
+        count: number,
+        maxSwarms: number
       ) => void)
     | null = null;
   public onColonyEstablished: ((colony: any) => void) | null = null;
@@ -448,15 +452,24 @@ export class NetworkClient {
           break;
 
         case "galaxyPlayers":
-          console.log("[DEBUG CLIENT] Received galaxyPlayers message:", message);
+          console.log(
+            "[DEBUG CLIENT] Received galaxyPlayers message:",
+            message
+          );
           if (this.onGalaxyPlayers) {
-            console.log("[DEBUG CLIENT] Calling onGalaxyPlayers callback with:", message.metPlayers, message.totalPlayers);
+            console.log(
+              "[DEBUG CLIENT] Calling onGalaxyPlayers callback with:",
+              message.metPlayers,
+              message.totalPlayers
+            );
             this.onGalaxyPlayers(message.metPlayers, message.totalPlayers);
           } else {
-            console.log("[DEBUG CLIENT] No onGalaxyPlayers callback set! Buffering data.");
-            this.bufferedGalaxyPlayers = { 
-              metPlayers: message.metPlayers, 
-              totalPlayers: message.totalPlayers 
+            console.log(
+              "[DEBUG CLIENT] No onGalaxyPlayers callback set! Buffering data."
+            );
+            this.bufferedGalaxyPlayers = {
+              metPlayers: message.metPlayers,
+              totalPlayers: message.totalPlayers,
             };
           }
           break;
@@ -491,7 +504,8 @@ export class NetworkClient {
               message.megastructureId,
               message.starId,
               message.energyPerDay,
-              message.count
+              message.count,
+              message.maxSwarms
             );
           }
           break;
@@ -562,7 +576,10 @@ export class NetworkClient {
           break;
         case "techTreeData":
           if (this.onTechTreeData) {
-            this.onTechTreeData(message.completedTechs, message.currentResearch);
+            this.onTechTreeData(
+              message.completedTechs,
+              message.currentResearch
+            );
           }
           break;
         case "researchStarted":
@@ -581,11 +598,18 @@ export class NetworkClient {
           }
           break;
         case "researchCompleted":
+          console.log(
+            `[Network] 📡 Received researchCompleted message:`,
+            message
+          );
           if (this.onResearchCompleted) {
+            console.log(`[Network] Calling onResearchCompleted callback...`);
             this.onResearchCompleted(
               message.technologyId,
               message.technologyName
             );
+          } else {
+            console.warn(`[Network] ⚠️ onResearchCompleted callback not set!`);
           }
           break;
         case "researchProgressUpdate":

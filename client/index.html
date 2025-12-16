@@ -681,7 +681,7 @@
             display: inline-block;
             width: 12px;
             height: 12px;
-            margin-left: 6px;
+            margin-left: 4px;
             vertical-align: middle;
         }
 
@@ -701,7 +701,7 @@
             fill: none;
             stroke: var(--primary-color);
             stroke-width: 2.5;
-            stroke-linecap: round;
+            stroke-linecap: butt;
             transition: stroke-dashoffset 0.3s ease;
         }
 
@@ -817,6 +817,7 @@
                     
                     <button class="hud-button" id="new-game" style="margin-bottom: 10px;">New Game</button>
                     <button class="hud-button" id="reset-galaxy" style="display: none; margin-bottom: 10px;">Reset Galaxy</button>
+                    <button class="hud-button" id="settings-button" style="margin-bottom: 10px;">⚙️ Settings</button>
                     
                     <div id="error-message" class="hidden" style="color: #ef4444; margin: 10px 0; padding: 8px; background: rgba(239, 68, 68, 0.1); border-radius: 4px;"></div>
                 </div>
@@ -1032,15 +1033,15 @@
                 </span>
             </div>
             <button class="hud-button" id="body-mine-button" style="width: 100%;">
-                ⛏ Establish Mining (1 ⚡)
+                ⛏ Establish Mining
             </button>
         </div>
         <div id="body-dyson-section" style="display: none; margin-top: 1rem;">
             <div id="body-dyson-status" class="detail-value" style="display: none; color: #60a5fa; margin-bottom: 0.5rem;">
-                ☀ Dyson Swarms: <span id="body-dyson-count">-</span>/30 (<span id="body-dyson-energy">-</span> ⚡)
+                ☀ Dyson Swarms: <span id="body-dyson-count">-</span> (<span id="body-dyson-energy">-</span> ⚡)
             </div>
             <button class="hud-button" id="body-dyson-button" style="width: 100%;">
-                ☀ Launch Dyson Swarm (10 ⛏)
+                ☀ Launch Dyson Swarm
             </button>
         </div>
         <div id="body-colony-section" style="display: none; margin-top: 1rem;">
@@ -1061,7 +1062,7 @@
                 </div>
             </div>
             <button class="hud-button" id="body-colonize-button" style="width: 100%;">
-                🏙 Establish Colony (5 ⚡ 5 ⛏ 5 ⚗️)
+                🏙 Establish Colony
             </button>
             <button class="hud-button" id="body-remove-colony-button" style="width: 100%; margin-top: 5px; display: none; background: #600;">
                 🗑️ Remove Colony
@@ -1119,10 +1120,10 @@
             ⚔️ Attack
         </button>
         <button class="hud-button" id="gate-capture-button" style="width: 100%; margin-top: 5px; display: none;">
-            🚩 Capture Gate (10 Alloy)
+            🚩 Capture Gate
         </button>
         <button class="hud-button" id="gate-overtake-button" style="width: 100%; margin-top: 5px; display: none;">
-            🏳️ Overtake Tunnel (3 Energy, 10 Science)
+            🏳️ Overtake Tunnel
         </button>
         <div id="gate-overtake-cooldown" style="display: none; margin-top: 8px; font-size: 0.85em; color: #ff6b6b; text-align: center; font-style: italic;">
             ⏳ Gate recently overtaken. Protected for <span id="gate-overtake-cooldown-time">-</span>
@@ -1303,6 +1304,39 @@
             </div>
 
             <button class="hud-button" id="species-info-close-button" style="padding: 10px 30px; font-size: 14px; width: 100%;">Close</button>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="hidden" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.85); z-index: 250; display: none; align-items: center; justify-content: center;">
+        <div style="background: var(--primary-color-dark); border: 2px solid var(--primary-color); border-radius: 12px; padding: 30px; min-width: 450px; max-width: 600px;">
+            <h2 style="color: var(--primary-color); margin-bottom: 20px; font-size: 22px;">⚙️ Settings</h2>
+            
+            <div style="margin-bottom: 25px;">
+                <h3 style="color: #94a3b8; font-size: 16px; margin-bottom: 15px; font-weight: 600;">Camera Controls</h3>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 10px; background: rgba(15, 255, 15, 0.05); border-radius: 6px; transition: background 0.2s;">
+                        <input type="checkbox" id="settings-invert-x" style="width: 18px; height: 18px; cursor: pointer; accent-color: #0f0;">
+                        <div>
+                            <div style="color: var(--primary-color); font-size: 14px; font-weight: 500;">Invert X-Axis (Horizontal)</div>
+                            <div style="color: #64748b; font-size: 12px; margin-top: 2px;">Reverse horizontal camera rotation direction</div>
+                        </div>
+                    </label>
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 10px; background: rgba(15, 255, 15, 0.05); border-radius: 6px; transition: background 0.2s;">
+                        <input type="checkbox" id="settings-invert-y" style="width: 18px; height: 18px; cursor: pointer; accent-color: #0f0;">
+                        <div>
+                            <div style="color: var(--primary-color); font-size: 14px; font-weight: 500;">Invert Y-Axis (Vertical)</div>
+                            <div style="color: #64748b; font-size: 12px; margin-top: 2px;">Reverse vertical camera rotation direction</div>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <button class="hud-button" id="settings-close-button" style="padding: 10px 30px; font-size: 14px; width: 100%;">Close</button>
         </div>
     </div>
 

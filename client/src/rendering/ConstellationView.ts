@@ -7,6 +7,7 @@ import {
 } from "@constellation/shared";
 import { MaterialFactory } from "./MaterialFactory.js";
 import { DysonSwarmFactory } from "./DysonSwarmFactory.js";
+import { SOLAR_RADIUS, calculateMaxDysonSwarms } from "../../../shared/src/constants.js";
 
 /**
  * Renders a constellation view showing connected star systems
@@ -876,12 +877,18 @@ export class ConstellationView {
 
         if (!foundStar) continue;
 
+        // In constellation view, use actual count as max
+        // This ensures few swarms are concentrated, many swarms spread out
+        // At max capacity, they'll fully cover the star
+        const maxSwarms = count; // Use actual count for natural progression
+
         // Create satellites for each swarm (up to count)
         for (let i = 0; i < count; i++) {
           const satelliteMeshes = this.dysonSwarmFactory.createSwarmSatellites(
             i,
             starRadius,
-            0 // Start time - will be updated in update loop
+            0, // Start time - will be updated in update loop
+            maxSwarms // Pass actual count for proper distribution
           );
 
           // Position satellites relative to star group position + star offset

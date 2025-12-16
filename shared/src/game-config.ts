@@ -94,8 +94,8 @@ export const DEFENSE_PLATFORM_CONFIG: UnitConfig = {
 export const MINING_INSTALLATION_CONFIG: UnitConfig = {
   cost: {
     energy: 1,
-    alloy: 5,
-    science: 2,
+    alloy: 1,
+    science: 0,
   },
   stats: {
     health: 0, // Not applicable for mining installations
@@ -145,6 +145,11 @@ export const GAME_COSTS = {
     alloy: 0,
     science: 10,
   },
+  DYSON_SWARM: {
+    energy: 0,
+    alloy: 10,
+    science: 0,
+  },
 } as const;
 
 /**
@@ -155,6 +160,38 @@ export const COMBAT_CONFIG = {
   DAMAGE_MIN: 10,
   DAMAGE_MAX: 30,
 } as const;
+
+/**
+ * Format a cost object as a string with emoji symbols, hiding zero values
+ * @param cost - The cost object with energy, alloy, and science
+ * @param options - Formatting options
+ * @returns Formatted cost string (e.g., "1 ⚡, 15 ⛏" or "10 ⛏, 5 🔬")
+ */
+export function formatCost(
+  cost: UnitCost | { energy: number; alloy: number; science: number },
+  options?: {
+    showParentheses?: boolean; // Wrap in parentheses (default: true)
+    separator?: string; // Separator between items (default: ", ")
+  }
+): string {
+  const showParentheses = options?.showParentheses ?? true;
+  const separator = options?.separator ?? ", ";
+
+  const parts: string[] = [];
+
+  if (cost.energy > 0) {
+    parts.push(`${cost.energy} ⚡`);
+  }
+  if (cost.alloy > 0) {
+    parts.push(`${cost.alloy} ⛏`);
+  }
+  if (cost.science > 0) {
+    parts.push(`${cost.science} 🔬`);
+  }
+
+  const formatted = parts.join(separator);
+  return showParentheses && formatted ? `(${formatted})` : formatted;
+}
 
 /**
  * Helper function to calculate unit cost with tech modifiers

@@ -8,6 +8,7 @@
 - **Overcharge**: a civilization that controls the tunnel energy supply may overcharge it exploding both gates and blocking tunnel for 1 year
 - **Tech**: Introduced a few technologies that a civilization now can develop: Nano Arrays, Deep Mining, Sheilds, Gyro Traction Beam
 - **Billions**: fixed a bug that was keeping planets populations in millions instead of billions
+- **Settings**: we now have game settings currently only with option to reverse rotation controls
 
 ## Version 0.3.3 - Habitable Planets Navigation
 

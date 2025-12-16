@@ -307,6 +307,7 @@ export type ServerMessage =
       starId: string;
       energyPerDay: number;
       count: number;
+      maxSwarms: number;
     }
   | {
       type: "colonyEstablished";

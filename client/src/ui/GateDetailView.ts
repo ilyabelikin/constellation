@@ -5,6 +5,8 @@ import {
   ASTRONOMICAL_UNIT,
   DEFENSE_PLATFORM_CONFIG,
   ATTACK_SHIP_CONFIG,
+  formatCost,
+  GAME_COSTS,
 } from "@constellation/shared";
 
 /**
@@ -453,17 +455,18 @@ export class GateDetailView {
     );
     if (playerOwnsGate) {
       this.fortifyButton.style.display = "block";
-      const fortifyEnergyCost = DEFENSE_PLATFORM_CONFIG.cost.energy;
-      const fortifyAlloyCost = DEFENSE_PLATFORM_CONFIG.cost.alloy;
+      const fortifyCost = DEFENSE_PLATFORM_CONFIG.cost;
       const canFortify =
-        playerEnergy >= fortifyEnergyCost && playerAlloy >= fortifyAlloyCost;
+        playerEnergy >= fortifyCost.energy && 
+        playerAlloy >= fortifyCost.alloy && 
+        playerScience >= fortifyCost.science;
       this.fortifyButton.disabled = !canFortify;
-      // Update button text with actual costs
-      this.fortifyButton.textContent = `🛡️ Fortify (${fortifyEnergyCost} Energy, ${fortifyAlloyCost} Alloy)`;
+      // Update button text with actual costs using formatCost
+      this.fortifyButton.textContent = `🛡️ Fortify ${formatCost(fortifyCost)}`;
       if (!canFortify) {
-        this.fortifyButton.title = `Requires ${fortifyEnergyCost} Energy and ${fortifyAlloyCost} Alloy (you have ${
+        this.fortifyButton.title = `Requires ${formatCost(fortifyCost, { showParentheses: false })} (you have ${
           playerEnergy.toFixed(2)
-        } energy, ${playerAlloy.toFixed(2)} alloy)`;
+        } ⚡, ${playerAlloy.toFixed(2)} ⛏, ${playerScience.toFixed(2)} 🔬)`;
       } else {
         this.fortifyButton.title =
           "Build a defense platform to protect this gate";
@@ -483,17 +486,18 @@ export class GateDetailView {
 
     if (canAttack) {
       this.attackButton.style.display = "block";
-      const attackEnergyCost = ATTACK_SHIP_CONFIG.cost.energy;
-      const attackAlloyCost = ATTACK_SHIP_CONFIG.cost.alloy;
+      const attackCost = ATTACK_SHIP_CONFIG.cost;
       const hasResources =
-        playerEnergy >= attackEnergyCost && playerAlloy >= attackAlloyCost;
+        playerEnergy >= attackCost.energy && 
+        playerAlloy >= attackCost.alloy && 
+        playerScience >= attackCost.science;
       this.attackButton.disabled = !hasResources;
-      // Update button text with actual costs
-      this.attackButton.textContent = `⚔️ Attack (${attackEnergyCost} Energy, ${attackAlloyCost} Alloy)`;
+      // Update button text with actual costs using formatCost
+      this.attackButton.textContent = `⚔️ Attack ${formatCost(attackCost)}`;
       if (!hasResources) {
-        this.attackButton.title = `Requires ${attackEnergyCost} Energy and ${attackAlloyCost} Alloy (you have ${
+        this.attackButton.title = `Requires ${formatCost(attackCost, { showParentheses: false })} (you have ${
           playerEnergy.toFixed(2)
-        } energy, ${playerAlloy.toFixed(2)} alloy)`;
+        } ⚡, ${playerAlloy.toFixed(2)} ⛏, ${playerScience.toFixed(2)} 🔬)`;
       } else {
         this.attackButton.title = `Destroy ${
           tunnelInfo?.gateAOwnerName || "enemy"
@@ -598,12 +602,18 @@ export class GateDetailView {
 
         // CAPTURE BUTTON - only requires this gate to be undefended
         this.captureButton.style.display = "block";
-        const hasCaptureResources = playerAlloy >= 10;
+        const captureCost = GAME_COSTS.GATE_CAPTURE;
+        const hasCaptureResources = 
+          playerEnergy >= captureCost.energy && 
+          playerAlloy >= captureCost.alloy && 
+          playerScience >= captureCost.science;
         this.captureButton.disabled = !hasCaptureResources;
+        // Update button text with costs from config
+        this.captureButton.textContent = `🚩 Capture Gate ${formatCost(captureCost)}`;
         if (!hasCaptureResources) {
-          this.captureButton.title = `Requires 10 Alloy (you have ${
-            playerAlloy.toFixed(2)
-          } alloy)`;
+          this.captureButton.title = `Requires ${formatCost(captureCost, { showParentheses: false })} (you have ${
+            playerEnergy.toFixed(2)
+          } ⚡, ${playerAlloy.toFixed(2)} ⛏, ${playerScience.toFixed(2)} 🔬)`;
         } else {
           this.captureButton.title =
             "Capture this gate only (destination gate stays with current owner)";
@@ -618,13 +628,18 @@ export class GateDetailView {
         } else {
           // Both gates undefended - can overtake
           this.overtakeButton.style.display = "block";
+          const overtakeCost = GAME_COSTS.TUNNEL_OVERTAKE;
           const hasOvertakeResources =
-            playerEnergy >= 3 && playerScience >= 10;
+            playerEnergy >= overtakeCost.energy && 
+            playerAlloy >= overtakeCost.alloy && 
+            playerScience >= overtakeCost.science;
           this.overtakeButton.disabled = !hasOvertakeResources;
+          // Update button text with costs from config
+          this.overtakeButton.textContent = `🏳️ Overtake Tunnel ${formatCost(overtakeCost)}`;
           if (!hasOvertakeResources) {
-            this.overtakeButton.title = `Requires 3 Energy and 10 Science (you have ${
+            this.overtakeButton.title = `Requires ${formatCost(overtakeCost, { showParentheses: false })} (you have ${
               playerEnergy.toFixed(2)
-            } energy, ${playerScience.toFixed(2)} science)`;
+            } ⚡, ${playerAlloy.toFixed(2)} ⛏, ${playerScience.toFixed(2)} 🔬)`;
           } else {
             this.overtakeButton.title =
               "Overtake entire tunnel: take both gates and start powering it with your species";
