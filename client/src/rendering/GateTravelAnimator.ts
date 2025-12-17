@@ -326,9 +326,15 @@ export class GateTravelAnimator {
     this.cameraRollAngle = 0;
 
     // Reset scene background to original color
-    if (this.scene && this.originalBackgroundColor) {
-      this.scene.background = this.originalBackgroundColor.clone();
-      console.log("Reset scene background to original color");
+    if (this.scene) {
+      if (this.originalBackgroundColor) {
+        this.scene.background = this.originalBackgroundColor.clone();
+        console.log("Reset scene background to original color");
+      } else {
+        // Fallback to black if original color wasn't stored
+        this.scene.background = new THREE.Color(0x000000);
+        console.log("Reset scene background to black (fallback)");
+      }
     }
 
     // Clean up hyperspace effects
@@ -550,6 +556,18 @@ export class GateTravelAnimator {
     
     // Exit animation complete
     this.isExitingGate = false;
+    
+    // Ensure background is reset to original color (defensive - in case it wasn't reset earlier)
+    if (this.scene) {
+      if (this.originalBackgroundColor) {
+        this.scene.background = this.originalBackgroundColor.clone();
+        console.log("Reset scene background to original color (exit animation complete)");
+      } else {
+        // Fallback to black if original color wasn't stored
+        this.scene.background = new THREE.Color(0x000000);
+        console.log("Reset scene background to black (fallback)");
+      }
+    }
     
     if (this.isExitGateBlocked) {
       // If exit gate is blocked, stay focused on the gate (don't go to star)
@@ -1783,6 +1801,16 @@ export class GateTravelAnimator {
    */
   dispose(): void {
     this.removeHyperspaceEffects();
+    
+    // Reset background to original color or black
+    if (this.scene) {
+      if (this.originalBackgroundColor) {
+        this.scene.background = this.originalBackgroundColor.clone();
+      } else {
+        this.scene.background = new THREE.Color(0x000000);
+      }
+    }
+    
     this.travelCompleteCallback = null;
     this.onAnimationPhaseChange = null;
     this.scene = null;

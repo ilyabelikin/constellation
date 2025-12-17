@@ -1,5 +1,5 @@
 import Database from "better-sqlite3";
-import { TIME_SCALE_DEFAULT } from "@constellation/shared";
+import { TIME_SCALE_DEFAULT, STARTING_RESOURCES } from "@constellation/shared";
 
 export function initializeDatabase(dbPath: string): Database.Database {
   const db = new Database(dbPath);
@@ -39,9 +39,9 @@ export function initializeDatabase(dbPath: string): Database.Database {
       home_planet_id TEXT NOT NULL,
       current_system_id TEXT NOT NULL,
       constellation_positions TEXT DEFAULT '{}',
-      energy INTEGER DEFAULT 10,
-      alloy INTEGER DEFAULT 10,
-      science INTEGER DEFAULT 0,
+      energy INTEGER DEFAULT ${STARTING_RESOURCES.energy},
+      alloy INTEGER DEFAULT ${STARTING_RESOURCES.alloy},
+      science INTEGER DEFAULT ${STARTING_RESOURCES.science},
       species_id TEXT,
       last_active_at INTEGER DEFAULT 0,
       FOREIGN KEY (galaxy_id) REFERENCES galaxies(id) ON DELETE CASCADE,
@@ -325,12 +325,16 @@ export function initializeDatabase(dbPath: string): Database.Database {
 
     if (!hasEnergy) {
       console.log("Migrating database: Adding energy column to players");
-      db.exec("ALTER TABLE players ADD COLUMN energy INTEGER DEFAULT 10");
+      db.exec(
+        `ALTER TABLE players ADD COLUMN energy INTEGER DEFAULT ${STARTING_RESOURCES.energy}`
+      );
     }
 
     if (!hasAlloy) {
       console.log("Migrating database: Adding alloy column to players");
-      db.exec("ALTER TABLE players ADD COLUMN alloy INTEGER DEFAULT 10");
+      db.exec(
+        `ALTER TABLE players ADD COLUMN alloy INTEGER DEFAULT ${STARTING_RESOURCES.alloy}`
+      );
     }
 
     if (!hasEnergy || !hasAlloy) {
@@ -622,7 +626,9 @@ export function initializeDatabase(dbPath: string): Database.Database {
         "Migrating database: Adding pregenerated_species_id column to species"
       );
       db.exec("ALTER TABLE species ADD COLUMN pregenerated_species_id TEXT");
-      db.exec("CREATE INDEX IF NOT EXISTS idx_species_pregenerated ON species(pregenerated_species_id)");
+      db.exec(
+        "CREATE INDEX IF NOT EXISTS idx_species_pregenerated ON species(pregenerated_species_id)"
+      );
       console.log("Species pregenerated ID migration complete");
     }
   } catch (error) {
@@ -803,9 +809,9 @@ export function initializeDatabase(dbPath: string): Database.Database {
 
   // Migration: Add powered_by_player_id and power_cost_energy to tunnels
   try {
-    const columns = db
-      .prepare("PRAGMA table_info(tunnels)")
-      .all() as Array<{ name: string }>;
+    const columns = db.prepare("PRAGMA table_info(tunnels)").all() as Array<{
+      name: string;
+    }>;
 
     const hasPoweredByPlayerId = columns.some(
       (col) => col.name === "powered_by_player_id"
@@ -818,27 +824,19 @@ export function initializeDatabase(dbPath: string): Database.Database {
     );
 
     if (!hasPoweredByPlayerId) {
-      console.log(
-        "Migrating database: Adding powered_by_player_id to tunnels"
-      );
-      db.exec(
-        `ALTER TABLE tunnels ADD COLUMN powered_by_player_id TEXT;`
-      );
+      console.log("Migrating database: Adding powered_by_player_id to tunnels");
+      db.exec(`ALTER TABLE tunnels ADD COLUMN powered_by_player_id TEXT;`);
     }
 
     if (!hasPowerCostEnergy) {
-      console.log(
-        "Migrating database: Adding power_cost_energy to tunnels"
-      );
+      console.log("Migrating database: Adding power_cost_energy to tunnels");
       db.exec(
         `ALTER TABLE tunnels ADD COLUMN power_cost_energy INTEGER DEFAULT 0;`
       );
     }
 
     if (!hasOverchargedAt) {
-      console.log(
-        "Migrating database: Adding overcharged_at to tunnels"
-      );
+      console.log("Migrating database: Adding overcharged_at to tunnels");
       db.exec(
         `ALTER TABLE tunnels ADD COLUMN overcharged_at INTEGER DEFAULT 0;`
       );
@@ -867,18 +865,14 @@ export function initializeDatabase(dbPath: string): Database.Database {
     );
 
     if (!hasEnergyCost) {
-      console.log(
-        "Migrating database: Adding energy_cost to gate_defenses"
-      );
+      console.log("Migrating database: Adding energy_cost to gate_defenses");
       db.exec(
         `ALTER TABLE gate_defenses ADD COLUMN energy_cost REAL DEFAULT 1.0;`
       );
     }
 
     if (!hasAlloyCost) {
-      console.log(
-        "Migrating database: Adding alloy_cost to gate_defenses"
-      );
+      console.log("Migrating database: Adding alloy_cost to gate_defenses");
       db.exec(
         `ALTER TABLE gate_defenses ADD COLUMN alloy_cost REAL DEFAULT 10.0;`
       );
@@ -902,7 +896,12 @@ export function initializeDatabase(dbPath: string): Database.Database {
       );
     }
 
-    if (!hasEnergyCost || !hasAlloyCost || !hasMaintenancePerDay || !hasLastMaintenanceAt) {
+    if (
+      !hasEnergyCost ||
+      !hasAlloyCost ||
+      !hasMaintenancePerDay ||
+      !hasLastMaintenanceAt
+    ) {
       console.log("Gate defenses cost tracking migration complete");
     }
   } catch (error) {
@@ -915,8 +914,12 @@ export function initializeDatabase(dbPath: string): Database.Database {
       .prepare("PRAGMA table_info(gate_attacks)")
       .all() as Array<{ name: string }>;
 
-    const hasEnergyCost = columns.some((col) => col.name === "energy_cost_per_ship");
-    const hasAlloyCost = columns.some((col) => col.name === "alloy_cost_per_ship");
+    const hasEnergyCost = columns.some(
+      (col) => col.name === "energy_cost_per_ship"
+    );
+    const hasAlloyCost = columns.some(
+      (col) => col.name === "alloy_cost_per_ship"
+    );
 
     if (!hasEnergyCost) {
       console.log(

@@ -27,6 +27,7 @@ import { getDesertAtmosphereColor } from "./materials/DesertAtmosphereGlowMateri
 import { MiningInstallationRenderer } from "./MiningInstallationRenderer.js";
 import { ColonyEstablishmentRenderer } from "./ColonyEstablishmentRenderer.js";
 import { GateDefenseRenderer } from "./GateDefenseRenderer.js";
+import { GateResourceFlowRenderer } from "./GateResourceFlowRenderer.js";
 import { SOLAR_RADIUS, calculateMaxDysonSwarms } from "../../../shared/src/constants.js";
 
 /**
@@ -50,6 +51,7 @@ export class SceneManager {
   private miningInstallationRenderer: MiningInstallationRenderer;
   private colonyEstablishmentRenderer: ColonyEstablishmentRenderer;
   private gateDefenseRenderer: GateDefenseRenderer;
+  private gateResourceFlowRenderer: GateResourceFlowRenderer;
 
   // Scene objects
   private bodies: Map<string, THREE.Mesh | THREE.Group> = new Map();
@@ -248,6 +250,9 @@ export class SceneManager {
     );
 
     this.gateDefenseRenderer = new GateDefenseRenderer(this.scene, this.gates);
+
+    // Initialize gate resource flow renderer
+    this.gateResourceFlowRenderer = new GateResourceFlowRenderer(this.scene);
 
     // Create event listeners and store references for cleanup
     this.resizeHandler = () => this.onWindowResize();
@@ -677,7 +682,8 @@ export class SceneManager {
 
   clearGateOwnership(): void {
     this.gateOwnership.clear();
-    this.gateResourceFlow.clear();
+    // Note: Don't clear gateResourceFlow here - it's independent and will be
+    // updated separately when new resource flow messages arrive
   }
 
   getGateOwnership(gateId: string):
@@ -886,6 +892,10 @@ export class SceneManager {
 
     // Clear all gate defenses and attacks
     this.gateDefenseRenderer.clearAll();
+
+    // Clear gate resource flow animations and data
+    this.gateResourceFlowRenderer.clear();
+    this.gateResourceFlow.clear();
 
     // Clear planet rotation tracking
     this.planetRotations.clear();
@@ -2204,6 +2214,9 @@ export class SceneManager {
 
     // Update gate defense and attack animations
     this.gateDefenseRenderer.update(deltaTime);
+
+    // Update gate resource flow animations
+    this.gateResourceFlowRenderer.update(deltaTime);
 
     // Update moon positions and rotations
     for (const [moonId, mesh] of this.moons.entries()) {
@@ -3570,6 +3583,19 @@ export class SceneManager {
       isBlockaded,
       blockadeOwnerName,
     });
+
+    // Update visual resource flow animation
+    const gateGroup = this.gates.get(gateId);
+    if (gateGroup) {
+      this.gateResourceFlowRenderer.setGateResourceFlow(
+        gateId,
+        gateGroup,
+        energyFlow,
+        alloyFlow,
+        scienceFlow,
+        isBlockaded
+      );
+    }
   }
 
   getGateResourceFlow(gateId: string):

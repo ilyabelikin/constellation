@@ -436,6 +436,9 @@ class ConstellationGame {
         this.network.requestTechTree();
       }
 
+      // Request resource breakdown to populate the tooltip data
+      this.network.requestResourceBreakdown();
+
       // If continuing an existing game, request the current system state
       if (this.isContinuingExistingGame && player.currentSystemId) {
         console.log(
@@ -501,6 +504,9 @@ class ConstellationGame {
         this.scene.loadSystem(system);
         this.hud.hideDetailPanels();
         this.scene.showSystemView();
+        
+        // Request resource breakdown when entering a new system
+        this.network.requestResourceBreakdown();
       } else {
         this.scene.updateSystemData(system);
       }
@@ -770,6 +776,9 @@ class ConstellationGame {
       celestialBodyId,
       alloyPerDay
     ) => {
+      // Request updated resource breakdown to show the new mining operation
+      this.network.requestResourceBreakdown();
+      
       setTimeout(() => {
         if (this.hud.onSelectObject) {
           this.hud.onSelectObject(celestialBodyId);

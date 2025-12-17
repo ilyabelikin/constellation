@@ -20,6 +20,7 @@ import {
   MINING_INSTALLATION_CONFIG,
   COMBAT_CONFIG,
   GAME_COSTS,
+  STARTING_RESOURCES,
   calculateColonyYields,
   getColonyStage,
   TECHNOLOGIES,
@@ -466,7 +467,7 @@ export class ConstellationWebSocketServer {
     // If player exists in a different galaxy, delete and recreate
     if (existingPlayer && existingPlayer.galaxyId !== galaxyId) {
       console.log(
-        `[Server] Player switching galaxies: ${existingPlayer.galaxyId} -> ${galaxyId}. Creating new player.`
+        `[Server] Player switching galaxies: ${existingPlayer.galaxyId} -> ${galaxyId}. Old resources: energy=${existingPlayer.energy}, alloy=${existingPlayer.alloy}, science=${existingPlayer.science}`
       );
       // Delete old player and create new one in the new galaxy
       this.db.deletePlayer(existingPlayer.id);
@@ -475,6 +476,8 @@ export class ConstellationWebSocketServer {
       client.playerId = null;
       client.currentSystemId = null;
       existingPlayer = null;
+      
+      console.log(`[Server] Player deleted and will be recreated with starting resources`);
     }
 
     if (existingPlayer) {
@@ -611,7 +614,7 @@ export class ConstellationWebSocketServer {
     const existingPlayer = this.db.getPlayerByUuid(client.uuid);
     if (existingPlayer) {
       console.log(
-        `[Server] Deleting existing player ${existingPlayer.name} to start fresh`
+        `[Server] Deleting existing player ${existingPlayer.name} (ID: ${existingPlayer.id}) to start fresh. Old resources: energy=${existingPlayer.energy}, alloy=${existingPlayer.alloy}, science=${existingPlayer.science}`
       );
       this.db.deletePlayer(existingPlayer.id);
 
@@ -619,6 +622,8 @@ export class ConstellationWebSocketServer {
       client.playerId = null;
       client.currentSystemId = null;
       client.galaxyId = null;
+      
+      console.log(`[Server] Player deleted and client state cleared`);
     }
 
     // Generate a unique galaxy name
@@ -966,13 +971,17 @@ export class ConstellationWebSocketServer {
       currentSystemId: starterSystem.id,
       shipId: "",
       exploredGateIds: [], // New player has not explored any gates yet
-      energy: 10, // Initial energy
-      alloy: 10, // Initial alloy
-      science: 0, // Initial science
+      energy: STARTING_RESOURCES.energy,
+      alloy: STARTING_RESOURCES.alloy,
+      science: STARTING_RESOURCES.science,
       speciesId: speciesId,
     };
 
     this.db.createPlayer(player);
+
+    console.log(
+      `[Server] Created new player ${player.name} (ID: ${player.id}) with starting resources: energy=${player.energy}, alloy=${player.alloy}, science=${player.science}`
+    );
 
     // Create the species
     this.db.createSpecies(species);
@@ -1045,6 +1054,9 @@ export class ConstellationWebSocketServer {
 
     // Send data to client (get fresh system data with mining operations and megastructures)
     const systemWithOperations = this.db.getStarSystem(starterSystem.id);
+    console.log(
+      `[Server] Sending playerData to client with resources: energy=${player.energy}, alloy=${player.alloy}, science=${player.science}`
+    );
     this.send(client.ws, { type: "playerData", player });
     if (systemWithOperations) {
       const gateOwnership = this.db.getGateOwnershipForSystem(

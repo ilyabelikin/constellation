@@ -112,6 +112,15 @@ export const MINING_INSTALLATION_CONFIG: UnitConfig = {
 };
 
 /**
+ * Starting resources for new players
+ */
+export const STARTING_RESOURCES = {
+  energy: 6,
+  alloy: 18,
+  science: 6,
+} as const;
+
+/**
  * Other game costs
  */
 export const GAME_COSTS = {

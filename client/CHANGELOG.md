@@ -10,6 +10,8 @@
 - **Billions**: fixed a bug that was keeping planets populations in millions instead of billions
 - **Settings**: we now have game settings currently only with option to reverse rotation controls
 
+---
+
 ## Version 0.3.3 - Habitable Planets Navigation
 
 - **Species Information on Planets**: Planet detail panels now display which species inhabits the planet
@@ -32,7 +34,7 @@
 - **Space Lift** - a planetary megastructure
 - **Asteroid Alert** - a disaster when asteroid might whipe out life on a planet and you may or may not prevent it
 - **Custom Species** - option to choose your own starting species characteristics and name
-- **Research Stations and Technology** - ways to produce more science outside of planets and ways to spend science for beneficial improvements to your civilization
+- **Research Stations** - ways to produce more science outside of the habitable planets
 
 ---
 
