@@ -5197,11 +5197,38 @@ export class ConstellationWebSocketServer {
       return;
     }
 
+    // Get all tunnels connected to the current player's home system
+    const existingTunnels = this.db.getTunnelsBySystem(player.homeSystemId);
+    
+    // Find all system IDs already connected to the current player
+    const connectedSystemIds = new Set<string>();
+    for (const tunnel of existingTunnels) {
+      // Add the other system in each tunnel
+      if (tunnel.systemAId === player.homeSystemId) {
+        connectedSystemIds.add(tunnel.systemBId);
+      } else {
+        connectedSystemIds.add(tunnel.systemAId);
+      }
+    }
+
+    // Filter out players whose home systems are already connected
+    const availablePlayers = otherPlayers.filter(
+      (p) => !connectedSystemIds.has(p.homeSystemId)
+    );
+
+    if (availablePlayers.length === 0) {
+      this.sendError(
+        client.ws,
+        "All other civilizations are already connected to your civilization"
+      );
+      return;
+    }
+
     // Try to find another player's unexplored gate
     let targetGate = null;
     let targetPlayer = null;
 
-    for (const otherPlayer of otherPlayers) {
+    for (const otherPlayer of availablePlayers) {
       // Get all gates in the galaxy
       const allGates = this.db.getGatesByGalaxyId(player.galaxyId);
 

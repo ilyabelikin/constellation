@@ -258,8 +258,12 @@ export class ConstellationView {
     // Create Dyson swarm satellites for each system
     this.createDysonSatellites(nodes);
 
-    // Update visibility to only show mystery pathways for selected system
-    this.updateUnexploredGatesVisibility();
+    // Properly select the system to trigger animations (like path-to-home)
+    // This ensures the animation shows regardless of how constellation view was opened
+    // Note: selectSystem() will also update unexplored gates visibility
+    if (this.selectedSystemId) {
+      this.selectSystem(this.selectedSystemId);
+    }
   }
 
   /**

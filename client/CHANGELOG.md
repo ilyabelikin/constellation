@@ -1,5 +1,9 @@
 # What's New in Constellation
 
+## Version 0.4.1 - Way home
+
+- **Way home**: Fixed a bug where path-to-home animation wouldn't show when opening constellation view after traveling to a non-home system
+
 ## Version 0.4.0 - Logistics and War
 
 - **Logistics**: Resources now delivered to the capital world via space-time tunnels, so that if you lose control over a tunnel your supply will be interrupted
