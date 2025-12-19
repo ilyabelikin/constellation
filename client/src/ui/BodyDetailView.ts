@@ -13,6 +13,7 @@ import {
   GAME_COSTS,
   calculateMaxDysonSwarms,
   SOLAR_RADIUS,
+  calculateIceCapCoverage,
 } from "@constellation/shared";
 
 /**
@@ -328,8 +329,14 @@ export class BodyDetailView {
    * Show the celestial body detail panel with the given information
    */
   show(body: any, bodyState: any, currentState: SystemState): void {
+    // Prevent unnecessary re-rendering if already showing the same body
+    if (this.currentBodyId === body.id && !this.panel.classList.contains("hidden")) {
+      return;
+    }
+
     this.panel.classList.remove("hidden");
     this.currentBody = body;
+    this.currentBodyId = body.id;
 
     this.nameElement.textContent = body.name;
     this.typeElement.textContent =
@@ -603,8 +610,21 @@ export class BodyDetailView {
             if (this.colonyPopulation) {
               // Calculate max population for this planet
               const surfaceArea = 4 * Math.PI * body.radius * body.radius;
+              
+              // Calculate ice cap coverage to reduce habitable surface area
+              const semiMajorAxis = body.orbitalElements?.semiMajorAxis || 0;
+              const iceCapCoverage = calculateIceCapCoverage(
+                semiMajorAxis,
+                body.habitability || 0,
+                body.id,
+                body.surfaceType,
+                body.hasAtmosphere
+              );
+              
+              // Ice caps reduce available habitable surface area proportionally
+              const habitableSurfaceFactor = 1 - iceCapCoverage;
               const maxPopulation = Math.floor(
-                surfaceArea * BASE_POPULATION_DENSITY * body.habitability
+                surfaceArea * BASE_POPULATION_DENSITY * (body.habitability || 0) * habitableSurfaceFactor
               );
               
               this.colonyPopulation.textContent = `${formatLargeNumber(

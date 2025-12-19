@@ -983,19 +983,28 @@ export class HUDManager {
     }
   }
 
-  setSystem(system: StarSystem): void {
+  setSystem(system: StarSystem, isRefresh: boolean = false): void {
+    const isSystemChange = this.system?.id !== system.id;
     this.system = system;
 
     // Set current system on body detail view for mining checks
     this.bodyDetailView.setCurrentSystem(system);
 
-    // CRITICAL: Hide all panels when changing systems
-    // This prevents detail panels from the previous system from remaining visible
-    this.hideDetailPanels();
+    // Only hide panels and repopulate outline when actually changing systems
+    if (isSystemChange || !isRefresh) {
+      // CRITICAL: Hide all panels when changing systems
+      // This prevents detail panels from the previous system from remaining visible
+      this.hideDetailPanels();
 
-    // Apply theme FIRST so outline elements are created with the correct colors
-    this.applyStarTheme(system.star.color);
-    this.populateSystemOutline();
+      // Apply theme FIRST so outline elements are created with the correct colors
+      this.applyStarTheme(system.star.color);
+      this.populateSystemOutline();
+      
+      // Restore selection after repopulating outline
+      if (this.selectedObjectId) {
+        this.updateSelectedInOutline(this.selectedObjectId);
+      }
+    }
 
     // Update body detail view with home planet reference
     this.bodyDetailView.setHomePlanet(this.player, this.system);
@@ -1430,14 +1439,20 @@ export class HUDManager {
   }
 
   updateSelectedInOutline(objectId: string): void {
+    // Check if the item is already selected to avoid unnecessary DOM manipulation
+    const selectedItem = this.outlineList.querySelector(
+      `[data-object-id="${objectId}"]`
+    );
+    if (selectedItem && selectedItem.classList.contains("selected")) {
+      // Already selected, no need to update
+      return;
+    }
+
     // Remove previous selection
     const items = this.outlineList.querySelectorAll(".outline-item");
     items.forEach((item) => item.classList.remove("selected"));
 
     // Highlight current selection
-    const selectedItem = this.outlineList.querySelector(
-      `[data-object-id="${objectId}"]`
-    );
     if (selectedItem) {
       selectedItem.classList.add("selected");
     }

@@ -249,6 +249,11 @@ export class GateDetailView {
       overchargeTimeRemaining?: string | null;
     }
   ): void {
+    // Prevent unnecessary re-rendering if already showing the same gate
+    if (this.currentGateId === gate.id && !this.panel.classList.contains("hidden")) {
+      return;
+    }
+
     this.panel.classList.remove("hidden");
     this.currentGateId = gate.id;
 
@@ -657,46 +662,42 @@ export class GateDetailView {
       }
     }
 
-    // Display blockade information if gate is blockading resources
-    if (resourceFlow && resourceFlow.isBlockaded) {
-      this.blockadeRow.style.display = "flex";
-      this.blockadeRow.style.color = "#ff6b6b"; // Red for blockade
-      const blockedResources = [];
-      if (resourceFlow.energyFlow > 0) {
-        blockedResources.push(`${resourceFlow.energyFlow.toFixed(1)} ⚡`);
-      }
-      if (resourceFlow.alloyFlow > 0) {
-        blockedResources.push(`${resourceFlow.alloyFlow.toFixed(1)} ⛏`);
-      }
-      if (resourceFlow.scienceFlow > 0) {
-        blockedResources.push(`${resourceFlow.scienceFlow.toFixed(1)} 🔬`);
-      }
-      const blockedText = blockedResources.join(", ");
-      this.blockadeInfoElement.textContent = `⚠️ BLOCKADE: ${
-        resourceFlow.blockadeOwnerName || "Enemy"
-      } blocking ${blockedText}/day`;
-    } else if (
-      resourceFlow &&
-      (resourceFlow.energyFlow > 0 ||
+    // Display resource flow information
+    if (resourceFlow) {
+      const hasFlow = resourceFlow.energyFlow > 0 ||
         resourceFlow.alloyFlow > 0 ||
-        resourceFlow.scienceFlow > 0)
-    ) {
-      // Show resource flow even if not blockaded (for information)
-      this.blockadeRow.style.display = "flex";
-      this.blockadeRow.style.color = "#66ff66"; // Green for active flow
-      const flowingResources = [];
-      if (resourceFlow.energyFlow > 0) {
-        flowingResources.push(`${resourceFlow.energyFlow.toFixed(1)} ⚡`);
+        resourceFlow.scienceFlow > 0;
+      
+      if (hasFlow) {
+        this.blockadeRow.style.display = "flex";
+        const flowingResources = [];
+        if (resourceFlow.energyFlow > 0) {
+          flowingResources.push(`${resourceFlow.energyFlow.toFixed(2)} ⚡`);
+        }
+        if (resourceFlow.alloyFlow > 0) {
+          flowingResources.push(`${resourceFlow.alloyFlow.toFixed(2)} ⛏`);
+        }
+        if (resourceFlow.scienceFlow > 0) {
+          flowingResources.push(`${resourceFlow.scienceFlow.toFixed(2)} 🔬`);
+        }
+        const flowText = flowingResources.join(", ");
+        
+        if (resourceFlow.isBlockaded) {
+          // Show blocked resources
+          this.blockadeRow.style.color = "#ff6b6b"; // Red for blockade
+          const blockadeName = resourceFlow.blockadeOwnerName || "Unknown";
+          this.blockadeInfoElement.textContent = `⚠️ BLOCKADE: ${blockadeName} blocking ${flowText}/day`;
+        } else {
+          // Show flowing resources
+          this.blockadeRow.style.color = "#66ff66"; // Green for active flow
+          this.blockadeInfoElement.textContent = `✓ Resources flowing: ${flowText}/day`;
+        }
+      } else {
+        // No resource flow
+        this.blockadeRow.style.display = "none";
       }
-      if (resourceFlow.alloyFlow > 0) {
-        flowingResources.push(`${resourceFlow.alloyFlow.toFixed(1)} ⛏`);
-      }
-      if (resourceFlow.scienceFlow > 0) {
-        flowingResources.push(`${resourceFlow.scienceFlow.toFixed(1)} 🔬`);
-      }
-      const flowText = flowingResources.join(", ");
-      this.blockadeInfoElement.textContent = `✓ Resources flowing: ${flowText}/day`;
     } else {
+      // No resource flow data available
       this.blockadeRow.style.display = "none";
     }
 

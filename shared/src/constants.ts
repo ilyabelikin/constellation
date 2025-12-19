@@ -75,9 +75,98 @@ export function calculateMaxDysonSwarms(
 // Population constants
 // Maximum population is based on planet radius (surface area scales with radius²)
 // Earth-like planet (6.371 Mm radius) can support ~10 billion at ecumenopolis stage
-// Population scales with surface area: pop = BASE_POPULATION_DENSITY × surface_area × habitability
+// Population scales with surface area: pop = BASE_POPULATION_DENSITY × surface_area × habitability × (1 - iceCapCoverage)
 // For Earth: 10B / (4π × (6.371e6)²) ≈ 1.96e-5 people per m²
 export const BASE_POPULATION_DENSITY = 1.96e-5; // Population per m² at max capacity
+
+/**
+ * Calculate ice cap coverage percentage (0-1) for a planet
+ * Based on the same logic used in shader materials for visual rendering
+ * Ice caps reduce habitable surface area, affecting max population
+ * 
+ * @param semiMajorAxis - Orbital distance from star in meters
+ * @param habitability - Planet habitability (0-1)
+ * @param planetId - Planet ID for deterministic seed-based variation (optional)
+ * @param surfaceType - Planet surface type (only affects terrestrial/desert planets with atmosphere)
+ * @param hasAtmosphere - Whether planet has atmosphere
+ * @returns Ice cap coverage as a fraction (0.0 = no ice caps, 1.0 = fully covered)
+ */
+export function calculateIceCapCoverage(
+  semiMajorAxis: number,
+  habitability: number,
+  planetId?: string,
+  surfaceType?: string,
+  hasAtmosphere?: boolean
+): number {
+  // Only terrestrial and desert planets with atmosphere have ice caps
+  // Ice planets are fully covered by ice, but they're not habitable anyway
+  if (!hasAtmosphere || (surfaceType !== "terrestrial" && surfaceType !== "desert")) {
+    return 0;
+  }
+
+  // Normalize orbital distance (same as shader)
+  // Map to 0.0 (close) to 1.0+ (far) for easier calculation
+  const normalizedDistance = Math.max(0, (semiMajorAxis - 1.0e11) / 2.0e11);
+  const temperatureFactor = Math.max(0, Math.min(2.0, normalizedDistance));
+
+  // Determine ice cap threshold ranges based on temperature (same logic as shader)
+  let minIceThreshold: number;
+  let maxIceThreshold: number;
+
+  if (temperatureFactor < 0.5) {
+    // Hot planets (close to star) - tiny ice caps
+    minIceThreshold = 0.85;
+    maxIceThreshold = 0.92;
+  } else if (temperatureFactor < 1.0) {
+    // Temperate planets (habitable zone) - moderate ice caps
+    minIceThreshold = 0.70;
+    maxIceThreshold = 0.85;
+  } else if (temperatureFactor < 1.5) {
+    // Cool planets - large ice caps
+    minIceThreshold = 0.30;
+    maxIceThreshold = 0.70;
+  } else {
+    // Frozen planets (far from star) - massive ice caps up to 90%
+    minIceThreshold = 0.10;
+    maxIceThreshold = 0.30;
+  }
+
+  // Adjust ice caps based on habitability (same logic as shader)
+  if (habitability < 0.6) {
+    // Uninhabitable/marginal: expand ice caps significantly
+    const coldnessFactor = (0.6 - habitability) / 0.6; // 0.0 at hab=0.6, 1.0 at hab=0.0
+    const iceExpansion = coldnessFactor * 0.6; // Up to 60% reduction in threshold
+    minIceThreshold = Math.max(0.05, minIceThreshold - iceExpansion);
+    maxIceThreshold = Math.max(0.10, maxIceThreshold - iceExpansion);
+  } else if (habitability > 0.7) {
+    // Highly habitable: shrink ice caps slightly
+    const warmthFactor = (habitability - 0.7) / 0.3; // 0.0 at hab=0.7, 1.0 at hab=1.0
+    const iceShrinkage = warmthFactor * 0.15; // Up to 15% increase in threshold
+    minIceThreshold = Math.min(0.92, minIceThreshold + iceShrinkage);
+    maxIceThreshold = Math.min(0.95, maxIceThreshold + iceShrinkage);
+  }
+
+  // Use midpoint of threshold range for deterministic calculation
+  // (Shader uses random seed, but for game logic we use average)
+  const baseIceThreshold = (minIceThreshold + maxIceThreshold) / 2;
+
+  // Account for noise variation (shader uses ±0.12, so we subtract average noise effect)
+  // This gives us a slightly more conservative estimate (slightly more ice coverage)
+  const averageNoiseEffect = 0.06; // Half of 0.12
+  const iceThreshold = baseIceThreshold - averageNoiseEffect;
+  const clampedThreshold = Math.max(0.05, Math.min(0.95, iceThreshold));
+
+  // Calculate ice cap coverage from threshold
+  // On a sphere, if ice extends from threshold T to pole (distanceFromPole from T to 1.0),
+  // the distanceFromPole maps to colatitude: distanceFromPole = 0 at equator, 1 at pole
+  // For a more accurate calculation accounting for spherical geometry:
+  // Coverage = 1 - cos((1 - T) × π/2)
+  // For simplicity and reasonable approximation, we use a linear formula: 1 - T
+  // This gives slightly higher coverage estimates (more conservative)
+  const iceCapCoverage = 1 - clampedThreshold;
+
+  return Math.max(0, Math.min(1, iceCapCoverage));
+}
 
 /**
  * Format a large number with appropriate suffix (K, M, B, T)

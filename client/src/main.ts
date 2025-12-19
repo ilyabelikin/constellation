@@ -511,7 +511,7 @@ class ConstellationGame {
         this.scene.updateSystemData(system);
       }
 
-      this.hud.setSystem(system);
+      this.hud.setSystem(system, isSystemRefresh);
 
       // Restore selection after system refresh
       // NOTE: Use updateObjectDetails instead of onSelectObject to avoid
@@ -672,7 +672,7 @@ class ConstellationGame {
         destinationSystem,
         exitGateId,
         () => {
-          this.hud.setSystem(destinationSystem);
+          this.hud.setSystem(destinationSystem, false);
         },
         wasEntryGateExplored,
         isExitGateBlocked
@@ -825,7 +825,7 @@ class ConstellationGame {
 
       // Update the HUD's system reference
       if (this.system) {
-        this.hud.setSystem(this.system);
+        this.hud.setSystem(this.system, true);
       }
 
       // Refresh the body detail view if this planet is currently selected
@@ -1246,7 +1246,7 @@ class ConstellationGame {
           this.scene.hideConstellationView();
           this.hud.setConstellationViewState(false);
           if (this.system) {
-            this.hud.setSystem(this.system);
+            this.hud.setSystem(this.system, true);
           }
         }
 
@@ -1281,7 +1281,7 @@ class ConstellationGame {
         this.scene.hideConstellationView();
         this.hud.setConstellationViewState(false);
         if (this.system) {
-          this.hud.setSystem(this.system);
+          this.hud.setSystem(this.system, true);
         }
       }
 
@@ -1335,7 +1335,7 @@ class ConstellationGame {
           this.scene.hideConstellationView();
           this.hud.setConstellationViewState(false);
           if (this.system) {
-            this.hud.setSystem(this.system);
+            this.hud.setSystem(this.system, true);
           }
         }
 
@@ -1375,7 +1375,7 @@ class ConstellationGame {
         this.hud.setConstellationViewState(false);
 
         if (this.system && this.system.id === systemId) {
-          this.hud.setSystem(this.system);
+          this.hud.setSystem(this.system, true);
 
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -1413,7 +1413,7 @@ class ConstellationGame {
 
       // If it's the current system, just center on the planet
       if (this.system && this.system.id === systemId) {
-        this.hud.setSystem(this.system);
+        this.hud.setSystem(this.system, true);
 
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -1425,7 +1425,7 @@ class ConstellationGame {
         // Request the system state and then center on the planet
         this.network.requestSystemState(systemId);
         if (this.system) {
-          this.hud.setSystem(this.system);
+          this.hud.setSystem(this.system, true);
         }
 
         // Store the planet ID to center on after system loads

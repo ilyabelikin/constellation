@@ -20,6 +20,7 @@ import {
   calculateColonyYields,
   getColonyStage,
   TECHNOLOGIES,
+  calculateIceCapCoverage,
 } from "@constellation/shared";
 
 export class DatabaseQueries {
@@ -141,7 +142,7 @@ export class DatabaseQueries {
         const data = JSON.parse(system.generated_data);
         if (data.planets) {
           habitablePlanets += data.planets.filter(
-            (p: any) => p.habitability && p.habitability > 0.5
+            (p: any) => p.habitability && p.habitability >= 0.6
           ).length;
         }
       });
@@ -974,8 +975,21 @@ export class DatabaseQueries {
             // Calculate maximum population based on planet surface area
             // Surface area = 4π * radius²
             const surfaceArea = 4 * Math.PI * planet.radius * planet.radius;
+            
+            // Calculate ice cap coverage to reduce habitable surface area
+            const semiMajorAxis = planet.orbitalElements?.semiMajorAxis || 0;
+            const iceCapCoverage = calculateIceCapCoverage(
+              semiMajorAxis,
+              planet.habitability,
+              planet.id,
+              planet.surfaceType,
+              planet.hasAtmosphere
+            );
+            
+            // Ice caps reduce available habitable surface area proportionally
+            const habitableSurfaceFactor = 1 - iceCapCoverage;
             const maxPopulation = Math.floor(
-              surfaceArea * BASE_POPULATION_DENSITY * planet.habitability
+              surfaceArea * BASE_POPULATION_DENSITY * planet.habitability * habitableSurfaceFactor
             );
 
             // Debug logging for stuck population

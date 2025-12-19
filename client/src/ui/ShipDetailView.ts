@@ -17,6 +17,7 @@ export class ShipDetailView {
   private velocityElement: HTMLElement;
   private deltaVElement: HTMLElement;
   private periodElement: HTMLElement;
+  private currentShipId: string | null = null;
 
   constructor() {
     this.panel = document.getElementById("ship-details-panel")!;
@@ -33,7 +34,13 @@ export class ShipDetailView {
    * Show the ship detail panel with the given information
    */
   show(ship: Ship, currentState: SystemState, system: StarSystem): void {
+    // Prevent unnecessary re-rendering if already showing the same ship
+    if (this.currentShipId === ship.id && !this.panel.classList.contains("hidden")) {
+      return;
+    }
+
     this.panel.classList.remove("hidden");
+    this.currentShipId = ship.id;
 
     this.nameElement.textContent = "Your Ship";
     this.typeElement.textContent = "Light Cruiser";

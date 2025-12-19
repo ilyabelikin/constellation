@@ -156,7 +156,7 @@ export const GAME_COSTS = {
   },
   DYSON_SWARM: {
     energy: 0,
-    alloy: 10,
+    alloy: 8,
     science: 0,
   },
 } as const;
@@ -402,11 +402,11 @@ export const TECHNOLOGIES: Record<string, TechnologyDefinition> = {
     id: "nano_arrays",
     name: "Nano Arrays",
     description:
-      "Advanced nanostructure arrays increase energy collection efficiency in new Dyson Swarms by +10%.",
+      "Advanced nanostructure arrays increase energy collection efficiency of new Dyson Swarms",
     scienceCost: 60,
     researchDays: 30,
     effects: {
-      dysonSwarmEnergyBonus: 0.1, // +10%
+      dysonSwarmEnergyBonus: 0.2, // +20%
     },
   },
   deep_mining: {

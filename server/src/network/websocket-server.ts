@@ -27,6 +27,7 @@ import {
   SOLAR_RADIUS,
   DYSON_SWARM_ENERGY_PER_DAY,
   calculateMaxDysonSwarms,
+  calculateIceCapCoverage,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -2013,7 +2014,7 @@ export class ConstellationWebSocketServer {
 
       // Count habitable planets and colonized habitable planets
       const habitablePlanets = system.planets.filter(
-        (planet) => planet.habitability && planet.habitability >= 0.5
+        (planet) => planet.habitability && planet.habitability >= 0.6
       );
       const habitablePlanetCount = habitablePlanets.length;
 
@@ -2375,6 +2376,9 @@ export class ConstellationWebSocketServer {
       celestialBodyId,
       alloyPerDay: ALLOY_PER_DAY,
     });
+
+    // Update resource flow for this player (mining operation affects flow)
+    this.sendResourceFlowUpdate(client);
   }
 
   private handleLaunchDysonSwarm(
@@ -2555,6 +2559,9 @@ export class ConstellationWebSocketServer {
       count: existingSwarms + 1,
       maxSwarms: maxSwarms,
     });
+
+    // Update resource flow for this player (Dyson swarm affects flow)
+    this.sendResourceFlowUpdate(client);
   }
 
   private handleDebugAddResource(
@@ -2941,6 +2948,10 @@ export class ConstellationWebSocketServer {
         }
       }
     }
+
+    // Broadcast resource flow updates to all clients in this galaxy
+    // (production sources may have changed)
+    this.broadcastResourceFlowUpdates(galaxyId);
   }
 
   private startTimeSaveInterval(): void {
@@ -3017,6 +3028,9 @@ export class ConstellationWebSocketServer {
         }
       }
     }
+
+    // Broadcast resource flow updates to all clients
+    this.broadcastResourceFlowUpdates();
   }
 
   private broadcastTimeUpdate(): void {
@@ -3033,6 +3047,150 @@ export class ConstellationWebSocketServer {
           };
           this.send(client.ws, timeUpdate);
         }
+      }
+    }
+  }
+
+  /**
+   * Send resource flow updates for a specific client
+   * Used when production sources change (mining, swarm, colony)
+   */
+  private sendResourceFlowUpdate(client: ClientConnection): void {
+    if (!client.playerId || !client.currentSystemId) {
+      return;
+    }
+
+    try {
+      const flow = calculatePlayerResourceFlow(this.db, client.playerId);
+      const systemId = client.currentSystemId;
+      const system = this.db.getStarSystem(systemId);
+      if (!system) return;
+
+      const gates = system.gates || [];
+      
+      // Send flow for gates in current system
+      for (const gate of gates) {
+        const gateFlow = flow.gateFlows.get(gate.id);
+        if (gateFlow) {
+          this.send(client.ws, {
+            type: "gateResourceFlow",
+            gateId: gate.id,
+            energyFlow: gateFlow.energy,
+            alloyFlow: gateFlow.alloy,
+            scienceFlow: gateFlow.science,
+            isBlockaded: gateFlow.isBlockaded,
+            blockadeOwnerName: gateFlow.blockadeOwnerName,
+          });
+        }
+      }
+
+      // Also send flow for OTHER gates in tunnels (the gates in connected systems)
+      const tunnelOwnership = this.db.getTunnelOwnershipForSystem(client.playerId, systemId);
+      for (const tunnelOwn of tunnelOwnership) {
+        const gatesInTunnel = this.db.getGatesByTunnel(tunnelOwn.tunnelId);
+        const otherGate = gatesInTunnel.find((g) => g.systemId !== systemId);
+        
+        if (otherGate) {
+          const otherGateFlow = flow.gateFlows.get(otherGate.id);
+          if (otherGateFlow) {
+            this.send(client.ws, {
+              type: "gateResourceFlow",
+              gateId: otherGate.id,
+              energyFlow: otherGateFlow.energy,
+              alloyFlow: otherGateFlow.alloy,
+              scienceFlow: otherGateFlow.science,
+              isBlockaded: otherGateFlow.isBlockaded,
+              blockadeOwnerName: otherGateFlow.blockadeOwnerName,
+            });
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to send resource flow update for player ${client.playerId}:`, err);
+    }
+  }
+
+  /**
+   * Broadcast resource flow updates to all clients (or clients in a specific galaxy)
+   * This ensures resource flow UI is updated when production sources change
+   */
+  private broadcastResourceFlowUpdates(galaxyId?: string): void {
+    // Group clients by player ID to avoid duplicate calculations
+    const playerIds = new Set<string>();
+    for (const client of this.clients.values()) {
+      if (client.playerId && (!galaxyId || client.galaxyId === galaxyId)) {
+        playerIds.add(client.playerId);
+      }
+    }
+
+    // Calculate and send resource flow for each player
+    for (const playerId of playerIds) {
+      try {
+        const flow = calculatePlayerResourceFlow(this.db, playerId);
+        
+        // Get all systems this player might be viewing
+        const systemsToUpdate = new Set<string>();
+        for (const client of this.clients.values()) {
+          if (client.playerId === playerId && client.currentSystemId && (!galaxyId || client.galaxyId === galaxyId)) {
+            systemsToUpdate.add(client.currentSystemId);
+          }
+        }
+
+        // Send resource flow for all gates in systems the player is viewing
+        for (const systemId of systemsToUpdate) {
+          const system = this.db.getStarSystem(systemId);
+          if (!system) continue;
+
+          const gates = this.db.getGatesBySystem(systemId);
+          for (const gate of gates) {
+            const gateFlow = flow.gateFlows.get(gate.id);
+            if (gateFlow) {
+              // Send to all clients for this player viewing this system
+              for (const client of this.clients.values()) {
+                if (client.playerId === playerId && client.currentSystemId === systemId) {
+                  this.send(client.ws, {
+                    type: "gateResourceFlow",
+                    gateId: gate.id,
+                    energyFlow: gateFlow.energy,
+                    alloyFlow: gateFlow.alloy,
+                    scienceFlow: gateFlow.science,
+                    isBlockaded: gateFlow.isBlockaded,
+                    blockadeOwnerName: gateFlow.blockadeOwnerName,
+                  });
+                }
+              }
+            }
+          }
+
+          // Also send flow for gates in connected systems (other end of tunnels)
+          const tunnelOwnership = this.db.getTunnelOwnershipForSystem(playerId, systemId);
+          for (const tunnelOwn of tunnelOwnership) {
+            const gatesInTunnel = this.db.getGatesByTunnel(tunnelOwn.tunnelId);
+            const otherGate = gatesInTunnel.find((g) => g.systemId !== systemId);
+            
+            if (otherGate) {
+              const otherGateFlow = flow.gateFlows.get(otherGate.id);
+              if (otherGateFlow) {
+                // Send to all clients for this player viewing this system
+                for (const client of this.clients.values()) {
+                  if (client.playerId === playerId && client.currentSystemId === systemId) {
+                    this.send(client.ws, {
+                      type: "gateResourceFlow",
+                      gateId: otherGate.id,
+                      energyFlow: otherGateFlow.energy,
+                      alloyFlow: otherGateFlow.alloy,
+                      scienceFlow: otherGateFlow.science,
+                      isBlockaded: otherGateFlow.isBlockaded,
+                      blockadeOwnerName: otherGateFlow.blockadeOwnerName,
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Failed to calculate resource flow for player ${playerId}:`, err);
       }
     }
   }
@@ -3196,8 +3354,21 @@ export class ConstellationWebSocketServer {
 
     // Calculate maximum population for this planet first
     const surfaceArea = 4 * Math.PI * planet.radius * planet.radius;
+    
+    // Calculate ice cap coverage to reduce habitable surface area
+    const semiMajorAxis = planet.orbitalElements?.semiMajorAxis || 0;
+    const iceCapCoverage = calculateIceCapCoverage(
+      semiMajorAxis,
+      planet.habitability,
+      planet.id,
+      planet.surfaceType,
+      planet.hasAtmosphere
+    );
+    
+    // Ice caps reduce available habitable surface area proportionally
+    const habitableSurfaceFactor = 1 - iceCapCoverage;
     const maxPopulation = Math.floor(
-      surfaceArea * BASE_POPULATION_DENSITY * planet.habitability
+      surfaceArea * BASE_POPULATION_DENSITY * planet.habitability * habitableSurfaceFactor
     );
 
     // Initial population should be 5-10% of max, with minimum of 5K
@@ -3347,6 +3518,9 @@ export class ConstellationWebSocketServer {
         player: updatedPlayer,
       });
     }
+
+    // Update resource flow for this player (colony affects flow)
+    this.sendResourceFlowUpdate(client);
   }
 
   private handleRemoveColony(client: ClientConnection, planetId: string): void {

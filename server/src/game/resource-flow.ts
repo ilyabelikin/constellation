@@ -418,15 +418,32 @@ export function calculatePlayerResourceFlow(
       if (flow.tunnelId === tunnelId) {
         flow.isBlockaded = tunnelFlow.isBlockaded;
         if (tunnelFlow.isBlockaded) {
-          const gateAOwner = tunnelFlow.gateAOwnerId;
-          const gateBOwner = tunnelFlow.gateBOwnerId;
-          const blockadeOwner =
-            gateAOwner === gateBOwner ? gateAOwner : undefined;
-          if (blockadeOwner) {
-            const ownerInfo = db.getGateOwnerWithName(gateId);
-            if (ownerInfo) {
-              flow.blockadeOwnerId = ownerInfo.ownerId;
-              flow.blockadeOwnerName = ownerInfo.ownerName;
+          // If tunnel is unpowered, set a clear message
+          if (!tunnel.poweredByPlayerId) {
+            flow.blockadeOwnerName = "Unpowered Tunnel";
+          } else {
+            // Tunnel is powered by a hostile player
+            const gateAOwner = tunnelFlow.gateAOwnerId;
+            const gateBOwner = tunnelFlow.gateBOwnerId;
+            const blockadeOwner =
+              gateAOwner === gateBOwner ? gateAOwner : undefined;
+            if (blockadeOwner) {
+              const ownerInfo = db.getGateOwnerWithName(gateId);
+              if (ownerInfo) {
+                flow.blockadeOwnerId = ownerInfo.ownerId;
+                flow.blockadeOwnerName = ownerInfo.ownerName;
+              }
+            } else {
+              // Hostile player with defenses is blockading
+              const blockader = db.getPlayerById(tunnel.poweredByPlayerId);
+              if (blockader) {
+                const ownerInfo = db.getGateOwnerWithName(gateId);
+                if (ownerInfo && ownerInfo.ownerId === tunnel.poweredByPlayerId) {
+                  flow.blockadeOwnerName = ownerInfo.ownerName;
+                } else {
+                  flow.blockadeOwnerName = "Hostile Player";
+                }
+              }
             }
           }
         }
