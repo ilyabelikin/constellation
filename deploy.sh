@@ -33,6 +33,9 @@ export RESET_DB="$RESET_DB"
 echo "📦 Navigating to project directory..."
 cd /root/constellation
 
+echo "🧹 Discarding local changes to package-lock.json..."
+git checkout -- package-lock.json 2>/dev/null || true
+
 echo "⬇️  Pulling latest code from GitHub..."
 git pull origin main
 
