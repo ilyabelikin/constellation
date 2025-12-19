@@ -3,14 +3,14 @@
 ## Version 0.4.0 - Logistics and War
 
 - **Logistics**: Resources now delivered to the capital world via space-time tunnels, so that if you lose control over a tunnel your supply will be interrupted
-- **Migration**: established worlds now send their population to colonies so that you planes will grow much faster and become productive
-- **Helium-3**: you now can mine helium 3 for cheap and fast but inherently limited energy supply kick-starting your economy
-- **Gate Controll**: You may now fortify and attack gates as well as capture individual gates or take over the tunnels completely
-- **Overcharge**: a civilization that controls the tunnel energy supply may overcharge it exploding both gates and blocking tunnel for 1 year
-- **Tech**: Introduced a few technologies that a civilization now can develop: Nano Arrays, Deep Mining, Sheilds, Gyro Traction Beam
-- **Billions**: fixed a bug that was keeping planets populations in millions instead of billions
-- **Habitability Logic**: fixed bug where lava planets and other inherently uninhabitable types could be marked as highly habitable; now have hard caps based on planet type
-- **Settings**: we now have game settings currently only with option to reverse rotation controls
+- **Migration**: Established worlds now send their population to colonies so that your planets will grow much faster and become productive
+- **Helium-3**: You now can mine helium-3 for cheap and fast but inherently limited energy supply, kick-starting your economy
+- **Gate Control**: You may now fortify and attack gates as well as capture individual gates or take over the tunnels completely
+- **Overcharge**: A civilization that controls the tunnel energy supply may overcharge it, exploding both gates and blocking the tunnel for 1 year
+- **Tech**: Introduced a few technologies that a civilization now can develop: Nano Arrays, Deep Mining, Shields, Gyro Traction Beam
+- **Billions**: Fixed a bug that was keeping planet populations in millions instead of billions
+- **Habitability Logic**: Fixed bug where lava planets and other inherently uninhabitable types could be marked as highly habitable; now have hard caps based on planet type
+- **Settings**: We now have game settings, currently only with the option to reverse rotation controls
 
 ---
 
@@ -24,7 +24,7 @@
 
 ## Version 0.3.2 - Species and Colonies
 
-- **Lobby System**: Game now has a dedicated lobby screen with whats new; options to continue previous game, join one of the active galaxies, or start a new galaxy
+- **Lobby System**: Game now has a dedicated lobby screen with what's new; options to continue previous game, join one of the active galaxies, or start a new galaxy
 - **Species Selection**: A player can select one of the 18 predefined species
 - **Colony System**: Found new colonies on the habitable worlds, become a multi-planetary species
 - **Mining Installation Visuals**: Active mining operations now visible on asteroids with animated ships and mining beams
@@ -34,7 +34,7 @@
 ## Coming Soon
 
 - **Space Lift** - a planetary megastructure
-- **Asteroid Alert** - a disaster when asteroid might whipe out life on a planet and you may or may not prevent it
+- **Asteroid Alert** - a disaster when an asteroid might wipe out life on a planet and you may or may not prevent it
 - **Custom Species** - option to choose your own starting species characteristics and name
 - **Research Stations** - ways to produce more science outside of the habitable planets
 
