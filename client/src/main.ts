@@ -456,7 +456,7 @@ class ConstellationGame {
         Date.now(),
         system
       );
-      const isSystemRefresh = this.system && this.system.id === system.id;
+      const isSystemRefresh = !!(this.system && this.system.id === system.id);
 
       // Store current selection before updating
       const previousSelection = isSystemRefresh
@@ -504,9 +504,12 @@ class ConstellationGame {
         this.scene.loadSystem(system);
         this.hud.hideDetailPanels();
         this.scene.showSystemView();
-        
+
         // Request resource breakdown when entering a new system
         this.network.requestResourceBreakdown();
+
+        // Show the outline when entering a new system
+        this.hud.showOutline();
       } else {
         this.scene.updateSystemData(system);
       }
@@ -719,7 +722,8 @@ class ConstellationGame {
         unexploredGates,
         currentSystemId,
         customPositions,
-        preserveSelection
+        preserveSelection,
+        this.player?.homePlanetId || null
       );
       this.hud.hideOutline();
       // Notify HUD that we're in constellation view (to hide mineable widget)
@@ -778,7 +782,7 @@ class ConstellationGame {
     ) => {
       // Request updated resource breakdown to show the new mining operation
       this.network.requestResourceBreakdown();
-      
+
       setTimeout(() => {
         if (this.hud.onSelectObject) {
           this.hud.onSelectObject(celestialBodyId);
@@ -851,8 +855,7 @@ class ConstellationGame {
       // Refresh gate details if this gate is currently selected
       const selectedId = this.scene.getSelectedObjectId();
       if (selectedId === defense.gateId) {
-        // Force refresh to show updated defense count
-        (this.hud as any).selectedObjectId = null;
+        // Refresh to show updated defense count
         this.hud.updateObjectDetails(defense.gateId);
       }
     };
@@ -878,8 +881,7 @@ class ConstellationGame {
         const selectedId = this.scene.getSelectedObjectId();
 
         if (selectedId === attack.gateId) {
-          // Force refresh by clearing selection first
-          (this.hud as any).selectedObjectId = null;
+          // Refresh to show updated gate status
           this.hud.updateObjectDetails(attack.gateId);
         }
 
@@ -930,12 +932,8 @@ class ConstellationGame {
       // Refresh gate details if this gate is currently selected
       const selectedId = this.scene.getSelectedObjectId();
       if (selectedId === gateId) {
-        // Force refresh by clearing selection first, then re-selecting
-        // This is needed because updateObjectDetails has an early return for same object
-        setTimeout(() => {
-          (this.hud as any).selectedObjectId = null; // Clear the cached selection
-          this.hud.updateObjectDetails(gateId);
-        }, 100);
+        // Refresh to show updated ownership
+        this.hud.updateObjectDetails(gateId);
       }
 
       // Show notification if YOUR gate was overtaken
@@ -969,7 +967,7 @@ class ConstellationGame {
       // Refresh gate details if this gate is currently selected
       const selectedId = this.scene.getSelectedObjectId();
       if (selectedId === gateId) {
-        (this.hud as any).selectedObjectId = null;
+        // Refresh to show updated resource flow
         this.hud.updateObjectDetails(gateId);
       }
     };
@@ -1263,36 +1261,6 @@ class ConstellationGame {
       }
     };
 
-    this.hud.onNavigateSystem = () => {
-      if (this.scene.isInConstellationView()) {
-        const selectedSystemId = this.scene.getConstellationSelectedSystemId();
-
-        if (
-          selectedSystemId &&
-          this.player &&
-          selectedSystemId !== this.player.currentSystemId
-        ) {
-          this.scene.hideConstellationView();
-          this.hud.setConstellationViewState(false);
-          this.network.requestSystemState(selectedSystemId);
-          return;
-        }
-
-        this.scene.hideConstellationView();
-        this.hud.setConstellationViewState(false);
-        if (this.system) {
-          this.hud.setSystem(this.system, true);
-        }
-      }
-
-      this.scene.showSystemView();
-
-      if (this.system) {
-        this.scene.centerOnObject(this.system.star.id);
-        this.hud.updateObjectDetails(this.system.star.id);
-      }
-    };
-
     this.hud.onNavigateConstellation = () => {
       this.network.requestConstellation();
     };
@@ -1376,6 +1344,8 @@ class ConstellationGame {
 
         if (this.system && this.system.id === systemId) {
           this.hud.setSystem(this.system, true);
+          // Show the outline when returning to system view
+          this.hud.showOutline();
 
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
@@ -1386,6 +1356,7 @@ class ConstellationGame {
         } else {
           // Request the new system - the star will be auto-selected when it loads
           // (see lines 406-411 in onSystemData callback)
+          // The outline will be shown automatically when the new system loads
           this.network.requestSystemState(systemId);
         }
       }

@@ -28,7 +28,7 @@ export class CameraController {
   constructor(camera: THREE.PerspectiveCamera) {
     this.camera = camera;
     this.loadSettings();
-    
+
     // Listen for settings changes
     window.addEventListener("settings-changed", ((event: CustomEvent) => {
       this.invertX = event.detail.invertX || false;
@@ -102,7 +102,7 @@ export class CameraController {
         const rotationSpeed = 0.005;
         const xMultiplier = this.invertX ? 1 : -1;
         const yMultiplier = this.invertY ? 1 : -1;
-        
+
         this.cameraTheta += deltaX * rotationSpeed * xMultiplier;
         this.cameraPhi += deltaY * rotationSpeed * yMultiplier;
 
@@ -282,17 +282,42 @@ export class CameraController {
 
   /**
    * Set camera to constellation view position
+   * @param centerPosition - Optional position to center on (defaults to origin for current system)
    */
-  setConstellationView(): void {
-    // Center on origin (current system is at origin in constellation view)
-    this.cameraTarget.set(0, 0, 0);
-    this.cameraDistance = 75; // Twice as close for constellation
+  setConstellationView(centerPosition?: THREE.Vector3): void {
+    // Center on the specified position or origin (current system at origin in constellation view)
+    if (centerPosition) {
+      this.cameraTarget.copy(centerPosition);
+    } else {
+      this.cameraTarget.set(0, 0, 0);
+    }
     this.isTrackingObject = false;
     this.selectedObjectId = null;
 
     // Set a good viewing angle for constellation view (more top-down)
     this.cameraPhi = Math.PI / 2.5; // Slightly above
     this.cameraTheta = 0; // Straight ahead
+
+    // Start camera at intermediate position for a nice short zoom animation
+    const startDistance = 350; // Close enough for quick animation
+    const targetDistance = 120; // Final zoomed-in view of current system area
+
+    // Immediately snap to the starting position
+    const startX =
+      startDistance * Math.sin(this.cameraPhi) * Math.cos(this.cameraTheta);
+    const startY = startDistance * Math.cos(this.cameraPhi);
+    const startZ =
+      startDistance * Math.sin(this.cameraPhi) * Math.sin(this.cameraTheta);
+
+    this.camera.position.set(
+      this.cameraTarget.x + startX,
+      this.cameraTarget.y + startY,
+      this.cameraTarget.z + startZ
+    );
+    this.camera.lookAt(this.cameraTarget);
+
+    // Set target distance for smooth lerp animation
+    this.cameraDistance = targetDistance;
   }
 
   /**
@@ -450,7 +475,7 @@ export class CameraController {
         const rotationSpeed = 0.005;
         const xMultiplier = this.invertX ? 1 : -1;
         const yMultiplier = this.invertY ? 1 : -1;
-        
+
         this.cameraTheta += deltaX * rotationSpeed * xMultiplier;
         this.cameraPhi += deltaY * rotationSpeed * yMultiplier;
 

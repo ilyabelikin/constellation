@@ -28,7 +28,10 @@ import { MiningInstallationRenderer } from "./MiningInstallationRenderer.js";
 import { ColonyEstablishmentRenderer } from "./ColonyEstablishmentRenderer.js";
 import { GateDefenseRenderer } from "./GateDefenseRenderer.js";
 import { GateResourceFlowRenderer } from "./GateResourceFlowRenderer.js";
-import { SOLAR_RADIUS, calculateMaxDysonSwarms } from "../../../shared/src/constants.js";
+import {
+  SOLAR_RADIUS,
+  calculateMaxDysonSwarms,
+} from "../../../shared/src/constants.js";
 
 /**
  * Main scene manager that orchestrates all rendering components
@@ -530,7 +533,7 @@ export class SceneManager {
 
     // Process any defense platforms that arrived before gates were loaded
     this.gateDefenseRenderer.processPendingDefenses();
-    
+
     // Clear any stale pending defenses that don't match current system's gates
     this.gateDefenseRenderer.clearStalePendingDefenses();
   }
@@ -575,7 +578,7 @@ export class SceneManager {
   updateSystemData(system: StarSystem): void {
     this.system = system;
     this.updateStarDimming();
-    
+
     // Clean up destroyed platforms after system state refresh
     // This removes platforms that were destroyed in combat and are no longer in the database
     this.gateDefenseRenderer.cleanupDestroyedPlatforms();
@@ -3141,7 +3144,8 @@ export class SceneManager {
     unexploredGates: UnexploredGate[],
     currentSystemId: string,
     customPositions?: Record<string, { x: number; y: number; z: number }>,
-    preserveSelectedSystemId?: string | null
+    preserveSelectedSystemId?: string | null,
+    homePlanetId?: string | null
   ): string | null {
     // Hide system objects
     this.hideSystemObjects();
@@ -3153,13 +3157,26 @@ export class SceneManager {
       unexploredGates,
       currentSystemId,
       customPositions,
-      preserveSelectedSystemId
+      preserveSelectedSystemId,
+      homePlanetId
     );
     this.isConstellationViewActive = true;
 
     // Position camera for constellation view (only if not preserving - i.e., first open)
     if (!preserveSelectedSystemId) {
-      this.cameraController.setConstellationView();
+      const selectedSystemId = this.constellationView.getSelectedSystemId();
+      if (selectedSystemId) {
+        // Get the position of the selected system and center camera on it
+        const selectedPosition =
+          this.constellationView.getNodePosition(selectedSystemId);
+        if (selectedPosition) {
+          this.cameraController.setConstellationView(selectedPosition);
+        } else {
+          this.cameraController.setConstellationView();
+        }
+      } else {
+        this.cameraController.setConstellationView();
+      }
     }
 
     console.log("Switched to constellation view");

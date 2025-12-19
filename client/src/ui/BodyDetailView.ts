@@ -329,11 +329,6 @@ export class BodyDetailView {
    * Show the celestial body detail panel with the given information
    */
   show(body: any, bodyState: any, currentState: SystemState): void {
-    // Prevent unnecessary re-rendering if already showing the same body
-    if (this.currentBodyId === body.id && !this.panel.classList.contains("hidden")) {
-      return;
-    }
-
     this.panel.classList.remove("hidden");
     this.currentBody = body;
     this.currentBodyId = body.id;

@@ -249,11 +249,6 @@ export class GateDetailView {
       overchargeTimeRemaining?: string | null;
     }
   ): void {
-    // Prevent unnecessary re-rendering if already showing the same gate
-    if (this.currentGateId === gate.id && !this.panel.classList.contains("hidden")) {
-      return;
-    }
-
     this.panel.classList.remove("hidden");
     this.currentGateId = gate.id;
 

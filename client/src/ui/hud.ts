@@ -56,7 +56,6 @@ export class HUDManager {
   // HUD elements
   private navSection: HTMLElement;
   private navHomeButton: HTMLElement;
-  private navSystemButton: HTMLElement;
   private navConstellationButton: HTMLElement;
 
   private timeSection: HTMLElement;
@@ -148,7 +147,6 @@ export class HUDManager {
 
   // Event handler references for cleanup
   private navHomeHandler: () => void;
-  private navSystemHandler: () => void;
   private navConstellationHandler: () => void;
   private timeToggleHandler: () => void;
   private searchButtonHandler: () => void;
@@ -157,7 +155,6 @@ export class HUDManager {
 
   // Callbacks
   public onNavigateHome: (() => void) | null = null;
-  public onNavigateSystem: (() => void) | null = null;
   public onNavigateConstellation: (() => void) | null = null;
   public onTimeToggle: (() => void) | null = null;
   public onSelectObject: ((objectId: string) => void) | null = null;
@@ -213,7 +210,6 @@ export class HUDManager {
     // Navigation
     this.navSection = document.querySelector(".hud-top-left")!;
     this.navHomeButton = document.getElementById("nav-home")!;
-    this.navSystemButton = document.getElementById("nav-system")!;
     this.navConstellationButton = document.getElementById("nav-constellation")!;
 
     // Time controls
@@ -232,8 +228,12 @@ export class HUDManager {
     this.alloyRateDisplay = document.getElementById("alloy-rate")!;
     this.scienceDisplay = document.getElementById("science-display")!;
     this.scienceRateDisplay = document.getElementById("science-rate")!;
-    this.alloyBreakdownTooltip = document.getElementById("alloy-breakdown-tooltip")!;
-    this.alloyBreakdownContent = document.getElementById("alloy-breakdown-content")!;
+    this.alloyBreakdownTooltip = document.getElementById(
+      "alloy-breakdown-tooltip"
+    )!;
+    this.alloyBreakdownContent = document.getElementById(
+      "alloy-breakdown-content"
+    )!;
 
     // Notification toast
     this.notificationToast = document.getElementById("notification-toast")!;
@@ -270,8 +270,12 @@ export class HUDManager {
 
     // Overcharge confirmation modal
     this.overchargeModal = document.getElementById("overcharge-modal")!;
-    this.overchargeConfirmButton = document.getElementById("overcharge-confirm-button")!;
-    this.overchargeCancelButton = document.getElementById("overcharge-cancel-button")!;
+    this.overchargeConfirmButton = document.getElementById(
+      "overcharge-confirm-button"
+    )!;
+    this.overchargeCancelButton = document.getElementById(
+      "overcharge-cancel-button"
+    )!;
 
     // Overcharge modal button handlers
     this.overchargeConfirmButton.addEventListener("click", () => {
@@ -439,12 +443,6 @@ export class HUDManager {
       }
     };
 
-    this.navSystemHandler = () => {
-      if (this.onNavigateSystem) {
-        this.onNavigateSystem();
-      }
-    };
-
     this.navConstellationHandler = () => {
       if (this.onNavigateConstellation) {
         this.onNavigateConstellation();
@@ -485,7 +483,6 @@ export class HUDManager {
 
   private setupEventListeners(): void {
     this.navHomeButton.addEventListener("click", this.navHomeHandler);
-    this.navSystemButton.addEventListener("click", this.navSystemHandler);
     this.navConstellationButton.addEventListener(
       "click",
       this.navConstellationHandler
@@ -525,7 +522,7 @@ export class HUDManager {
         clearTimeout(hideTimeout);
         hideTimeout = null;
       }
-      
+
       if (this.resourceBreakdownData && this.resourceBreakdownData.length > 0) {
         this.showAlloyBreakdown();
       } else {
@@ -565,7 +562,10 @@ export class HUDManager {
   }
 
   private showAlloyBreakdown(): void {
-    if (!this.resourceBreakdownData || this.resourceBreakdownData.length === 0) {
+    if (
+      !this.resourceBreakdownData ||
+      this.resourceBreakdownData.length === 0
+    ) {
       return;
     }
 
@@ -577,25 +577,28 @@ export class HUDManager {
       if (system.alloyPerDay === 0) continue; // Skip systems with no income
 
       const systemDiv = document.createElement("div");
-      systemDiv.style.cssText = "cursor: pointer; padding: 4px 6px; border-radius: 3px; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; gap: 8px;";
-      
+      systemDiv.style.cssText =
+        "cursor: pointer; padding: 4px 6px; border-radius: 3px; transition: background 0.2s; display: flex; justify-content: space-between; align-items: center; gap: 8px;";
+
       systemDiv.innerHTML = `
         <div style="color: #e2e8f0; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
           ⭐ ${system.starName}
         </div>
-        <div style="color: ${system.alloyPerDay >= 0 ? '#10b981' : '#ef4444'}; font-size: 11px; font-weight: bold; white-space: nowrap;">
+        <div style="color: ${
+          system.alloyPerDay >= 0 ? "#10b981" : "#ef4444"
+        }; font-size: 11px; font-weight: bold; white-space: nowrap;">
           ${system.alloyPerDay > 0 ? "+" : ""}${system.alloyPerDay.toFixed(2)}
         </div>
       `;
-      
+
       systemDiv.addEventListener("mouseenter", () => {
         systemDiv.style.background = "rgba(148, 163, 184, 0.15)";
       });
-      
+
       systemDiv.addEventListener("mouseleave", () => {
         systemDiv.style.background = "transparent";
       });
-      
+
       systemDiv.addEventListener("click", () => {
         this.navigateToSystem(system.systemId);
         this.hideAlloyBreakdown();
@@ -628,12 +631,14 @@ export class HUDManager {
     }
   }
 
-  public updateResourceBreakdown(breakdown: Array<{
-    systemId: string;
-    systemName: string;
-    starName: string;
-    alloyPerDay: number;
-  }>): void {
+  public updateResourceBreakdown(
+    breakdown: Array<{
+      systemId: string;
+      systemName: string;
+      starName: string;
+      alloyPerDay: number;
+    }>
+  ): void {
     this.resourceBreakdownData = breakdown;
     // If tooltip is currently visible, update it
     if (this.alloyBreakdownTooltip.style.display === "block") {
@@ -999,7 +1004,7 @@ export class HUDManager {
       // Apply theme FIRST so outline elements are created with the correct colors
       this.applyStarTheme(system.star.color);
       this.populateSystemOutline();
-      
+
       // Restore selection after repopulating outline
       if (this.selectedObjectId) {
         this.updateSelectedInOutline(this.selectedObjectId);
@@ -1519,19 +1524,14 @@ export class HUDManager {
       return;
     }
 
-    // CRITICAL: Check if the same object is already selected FIRST
-    // If it is, do nothing to avoid flickering the UI
-    if (this.selectedObjectId === objectId) {
-      return;
-    }
-
-    // CRITICAL: Hide ALL detail panels before showing a new one
+    // Hide ALL detail panels before showing a new one if selecting a different object
     // This ensures only one detail panel is visible at a time
-    // Even if multiple calls happen rapidly, only the last one will show its panel
-    this.bodyDetailView.hide(false);
-    this.gateDetailView.hide();
-    this.shipDetailView.hide();
-    this.constellationSystemDetailView.hide();
+    if (this.selectedObjectId !== objectId) {
+      this.bodyDetailView.hide(false);
+      this.gateDetailView.hide();
+      this.shipDetailView.hide();
+      this.constellationSystemDetailView.hide();
+    }
 
     // Update the selected object ID
     this.selectedObjectId = objectId;
@@ -1569,17 +1569,17 @@ export class HUDManager {
       // Build tunnel information from tunnelOwnership data
       let tunnelInfo:
         | {
-          gateAOwnerName?: string;
-          gateBOwnerName?: string;
-          gateAStatus?: string;
-          gateBStatus?: string;
-          tunnelPoweredByPlayerId?: string | null;
-          tunnelPoweredByPlayerName?: string | null;
-          tunnelPoweredBySpeciesName?: string | null;
-          tunnelId?: string;
-          canTravel?: boolean;
-          hasTunnelPower?: boolean;
-          overchargeTimeRemaining?: string | null;
+            gateAOwnerName?: string;
+            gateBOwnerName?: string;
+            gateAStatus?: string;
+            gateBStatus?: string;
+            tunnelPoweredByPlayerId?: string | null;
+            tunnelPoweredByPlayerName?: string | null;
+            tunnelPoweredBySpeciesName?: string | null;
+            tunnelId?: string;
+            canTravel?: boolean;
+            hasTunnelPower?: boolean;
+            overchargeTimeRemaining?: string | null;
           }
         | undefined;
 
@@ -1599,7 +1599,8 @@ export class HUDManager {
         // Get species name if tunnel is powered by current player
         let tunnelPoweredBySpeciesName = null;
         if (tunnelOwnershipData.tunnelPoweredByPlayerId === this.player?.id) {
-          tunnelPoweredBySpeciesName = this.speciesNameDisplay.textContent || null;
+          tunnelPoweredBySpeciesName =
+            this.speciesNameDisplay.textContent || null;
         }
 
         tunnelInfo = {
@@ -1610,12 +1611,16 @@ export class HUDManager {
           gateAStatus: tunnelOwnershipData.thisGateStatus,
           gateBStatus: tunnelOwnershipData.otherGateStatus,
           tunnelPoweredByPlayerId: tunnelOwnershipData.tunnelPoweredByPlayerId,
-          tunnelPoweredByPlayerName: tunnelOwnershipData.tunnelPoweredByPlayerName,
+          tunnelPoweredByPlayerName:
+            tunnelOwnershipData.tunnelPoweredByPlayerName,
           tunnelPoweredBySpeciesName: tunnelPoweredBySpeciesName,
           tunnelId: tunnelOwnershipData.tunnelId,
           canTravel: playerOwnsThis || playerOwnsOther,
-          hasTunnelPower: tunnelOwnershipData.tunnelPoweredByPlayerId === this.player?.id,
-          overchargeTimeRemaining: this.calculateOverchargeCooldown(tunnelOwnershipData.overchargedAt),
+          hasTunnelPower:
+            tunnelOwnershipData.tunnelPoweredByPlayerId === this.player?.id,
+          overchargeTimeRemaining: this.calculateOverchargeCooldown(
+            tunnelOwnershipData.overchargedAt
+          ),
         };
       } else {
         // No tunnel ownership data yet - show default values
@@ -1808,7 +1813,6 @@ export class HUDManager {
   dispose(): void {
     // Remove event listeners
     this.navHomeButton.removeEventListener("click", this.navHomeHandler);
-    this.navSystemButton.removeEventListener("click", this.navSystemHandler);
     this.navConstellationButton.removeEventListener(
       "click",
       this.navConstellationHandler
@@ -1817,7 +1821,6 @@ export class HUDManager {
 
     // Clear callbacks
     this.onNavigateHome = null;
-    this.onNavigateSystem = null;
     this.onNavigateConstellation = null;
     this.onTimeToggle = null;
     this.onSelectObject = null;
@@ -2444,7 +2447,9 @@ export class HUDManager {
     }
   }
 
-  private calculateOverchargeCooldown(overchargedAt?: number | null): string | null {
+  private calculateOverchargeCooldown(
+    overchargedAt?: number | null
+  ): string | null {
     if (!overchargedAt || overchargedAt === 0) {
       return null;
     }
@@ -2458,7 +2463,7 @@ export class HUDManager {
 
     const remainingSeconds = COOLDOWN_PERIOD - timeSinceOvercharge;
     const remainingYears = (remainingSeconds / (365 * 86400)).toFixed(1);
-    
+
     return `${remainingYears} years`;
   }
 }

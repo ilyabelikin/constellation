@@ -29,6 +29,10 @@ export class GameStateManager {
 
   constructor() {
     this.startSimulation();
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/ee94a6f1-42d6-44ad-8459-4ef2edbb6497',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'state-manager.ts:constructor',message:'GameStateManager created',data:{systemsCount:0,shipsCount:0,galaxiesCount:0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
   }
   
   /**
@@ -457,5 +461,26 @@ export class GameStateManager {
     if (index !== -1) {
       ships[index] = ship;
     }
+  }
+
+  /**
+   * Get metrics for memory monitoring
+   */
+  getMetrics(): { systemsCount: number; shipsCount: number; galaxiesCount: number; totalShips: number } {
+    let totalShips = 0;
+    for (const ships of this.ships.values()) {
+      totalShips += ships.length;
+    }
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/ee94a6f1-42d6-44ad-8459-4ef2edbb6497',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'state-manager.ts:getMetrics',message:'GameStateManager metrics',data:{systemsCount:this.systems.size,shipsMapSize:this.ships.size,galaxiesCount:this.galaxyTimeState.size,totalShips},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
+
+    return {
+      systemsCount: this.systems.size,
+      shipsCount: this.ships.size,
+      galaxiesCount: this.galaxyTimeState.size,
+      totalShips,
+    };
   }
 }

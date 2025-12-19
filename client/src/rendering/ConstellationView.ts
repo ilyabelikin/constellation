@@ -7,7 +7,10 @@ import {
 } from "@constellation/shared";
 import { MaterialFactory } from "./MaterialFactory.js";
 import { DysonSwarmFactory } from "./DysonSwarmFactory.js";
-import { SOLAR_RADIUS, calculateMaxDysonSwarms } from "../../../shared/src/constants.js";
+import {
+  SOLAR_RADIUS,
+  calculateMaxDysonSwarms,
+} from "../../../shared/src/constants.js";
 
 /**
  * Renders a constellation view showing connected star systems
@@ -18,6 +21,7 @@ export class ConstellationView {
   private connections: THREE.Group = new THREE.Group();
   private currentSystemId: string | null = null;
   private selectedSystemId: string | null = null; // Track selected system (starts as current system)
+  private homePlanetId: string | null = null; // Track home planet for special marking
 
   // Scale factor for visualization (light years to Three.js units)
   private readonly SCALE = 5; // 1 light year = 5 units (very compact view)
@@ -76,7 +80,8 @@ export class ConstellationView {
     unexploredGates: UnexploredGate[],
     currentSystemId: string,
     customPositions?: Record<string, { x: number; y: number; z: number }>,
-    preserveSelectedSystemId?: string | null
+    preserveSelectedSystemId?: string | null,
+    homePlanetId?: string | null
   ): void {
     this.clear();
     this.currentSystemId = currentSystemId;
@@ -84,6 +89,7 @@ export class ConstellationView {
     this.selectedSystemId = preserveSelectedSystemId || currentSystemId;
     this.connectionsList = connectionsList;
     this.nodesList = nodes;
+    this.homePlanetId = homePlanetId || null;
 
     // Populate unexplored gates list EARLY (before creating star nodes)
     // so connection counts in labels are correct from the start
@@ -463,6 +469,20 @@ export class ConstellationView {
       for (let i = 0; i < node.habitablePlanetCount; i++) {
         const x = startX + i * circleSpacing;
         const isColonized = i < node.colonizedHabitablePlanetCount;
+
+        // Check if this is the home planet
+        const planet = node.habitablePlanets?.[i];
+        const isHomePlanet =
+          planet && this.homePlanetId && planet.planetId === this.homePlanetId;
+
+        // Draw orange outer circle for home planet
+        if (isHomePlanet) {
+          context.beginPath();
+          context.arc(x, circleY, circleRadius + 3, 0, Math.PI * 2);
+          context.strokeStyle = "#FF8C00"; // Dark orange
+          context.lineWidth = 2.5;
+          context.stroke();
+        }
 
         if (isColonized) {
           // Filled circle for colonized habitable planets with dark outline

@@ -34,11 +34,6 @@ export class ShipDetailView {
    * Show the ship detail panel with the given information
    */
   show(ship: Ship, currentState: SystemState, system: StarSystem): void {
-    // Prevent unnecessary re-rendering if already showing the same ship
-    if (this.currentShipId === ship.id && !this.panel.classList.contains("hidden")) {
-      return;
-    }
-
     this.panel.classList.remove("hidden");
     this.currentShipId = ship.id;
 
