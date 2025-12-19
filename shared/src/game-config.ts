@@ -112,6 +112,31 @@ export const MINING_INSTALLATION_CONFIG: UnitConfig = {
 };
 
 /**
+ * Helium-3 Extraction Configuration
+ * Rare energy-producing installations on gas giants, moons, and airless bodies
+ * Produces 1 energy per day, requires 5 alloy to build
+ */
+export const HELIUM3_EXTRACTION_CONFIG: UnitConfig = {
+  cost: {
+    energy: 0,
+    alloy: 6,
+    science: 0,
+  },
+  stats: {
+    health: 0, // Not applicable for Helium-3 extraction
+    attack: 0,
+    defense: 0,
+    hitChance: 0,
+  },
+  refundOnDestruction: {
+    energy: false, // No energy cost
+    alloy: false, // Alloy can be recovered from dismantling
+    science: false, // No science cost
+    maintenance: false, // No maintenance for Helium-3 extraction
+  },
+};
+
+/**
  * Starting resources for new players
  */
 export const STARTING_RESOURCES = {

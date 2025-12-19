@@ -304,6 +304,79 @@ export function calculatePlayerResourceFlow(
     }
   }
 
+  // 2.5. Helium-3 operations in distant systems
+  const helium3Ops = db.getHelium3OperationsByPlayer(playerId);
+  for (const op of helium3Ops) {
+    if (op.systemId === homeSystemId) {
+      continue; // Skip home system
+    }
+
+    const path = findGatePath(db, op.systemId, homeSystemId);
+    if (!path || path.length === 0) {
+      continue;
+    }
+
+    const energyProduction = op.energyPerDay > 0 ? op.energyPerDay : 0;
+    totalRemoteEnergy += energyProduction;
+
+    for (const gateId of path) {
+      const gate = db.getGateById(gateId);
+      if (!gate || !gate.tunnelId) continue; // Skip gates without tunnels
+
+      const tunnelId = gate.tunnelId;
+      let tunnelFlow = tunnelFlows.get(tunnelId);
+      if (!tunnelFlow) {
+        const tunnel = db.getTunnelById(tunnelId);
+        const gatesInTunnel = db.getGatesByTunnel(tunnelId);
+
+        const gateA = gatesInTunnel.find(
+          (g: StarGate) => g.systemId === tunnel?.systemAId
+        );
+        const gateB = gatesInTunnel.find(
+          (g: StarGate) => g.systemId === tunnel?.systemBId
+        );
+
+        const gateAOwner = gateA ? db.getGateOwner(gateA.id) : null;
+        const gateBOwner = gateB ? db.getGateOwner(gateB.id) : null;
+
+        const canTravel = gateAOwner === playerId || gateBOwner === playerId;
+        const hasTunnelPower =
+          gateAOwner === playerId && gateBOwner === playerId;
+
+        tunnelFlow = {
+          tunnelId,
+          energy: 0,
+          alloy: 0,
+          science: 0,
+          isBlockaded: false,
+          gateAOwnerId: gateAOwner || undefined,
+          gateBOwnerId: gateBOwner || undefined,
+          poweredByPlayerId: tunnel?.poweredByPlayerId || null,
+          canTravel,
+          hasTunnelPower,
+        };
+        tunnelFlows.set(tunnelId, tunnelFlow);
+      }
+
+      tunnelFlow.energy += energyProduction;
+
+      let flow = gateFlows.get(gateId);
+      if (!flow) {
+        flow = {
+          gateId,
+          tunnelId: gate.tunnelId,
+          energy: 0,
+          alloy: 0,
+          science: 0,
+          isBlockaded: false,
+        };
+        gateFlows.set(gateId, flow);
+      }
+
+      flow.energy += energyProduction;
+    }
+  }
+
   // 3. Megastructures (Dyson swarms) in distant systems
   const megastructures = db.getMegastructuresByPlayer(playerId);
   for (const mega of megastructures) {
@@ -504,6 +577,29 @@ export function calculatePlayerResourceFlow(
 
     if (isBlocked) {
       blockedAlloy += op.alloyPerDay > 0 ? op.alloyPerDay : 0;
+    }
+  }
+
+  for (const op of helium3Ops) {
+    if (op.systemId === homeSystemId) continue;
+
+    const path = findGatePath(db, op.systemId, homeSystemId);
+    if (!path) continue;
+
+    let isBlocked = false;
+    for (const gateId of path) {
+      const gate = db.getGateById(gateId);
+      if (!gate || !gate.tunnelId) continue; // Skip gates without tunnels
+
+      const tunnelFlow = tunnelFlows.get(gate.tunnelId);
+      if (tunnelFlow && tunnelFlow.isBlockaded) {
+        isBlocked = true;
+        break;
+      }
+    }
+
+    if (isBlocked) {
+      blockedEnergy += op.energyPerDay > 0 ? op.energyPerDay : 0;
     }
   }
 

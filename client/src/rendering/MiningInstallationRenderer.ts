@@ -2,17 +2,23 @@ import * as THREE from "three";
 import { MiningOperation } from "@constellation/shared";
 
 /**
- * Manages rendering of mining installations on asteroids
+ * Manages rendering of mining installations on asteroids and moons
  * Shows abstract mining structures with animated ship traffic
  */
 export class MiningInstallationRenderer {
   private scene: THREE.Scene;
   private installations: Map<string, MiningInstallation> = new Map();
   private asteroidMeshes: Map<string, THREE.Mesh>;
+  private moonMeshes: Map<string, THREE.Mesh>;
   
-  constructor(scene: THREE.Scene, asteroidMeshes: Map<string, THREE.Mesh>) {
+  constructor(
+    scene: THREE.Scene, 
+    asteroidMeshes: Map<string, THREE.Mesh>,
+    moonMeshes: Map<string, THREE.Mesh>
+  ) {
     this.scene = scene;
     this.asteroidMeshes = asteroidMeshes;
+    this.moonMeshes = moonMeshes;
   }
 
   /**
@@ -33,11 +39,14 @@ export class MiningInstallationRenderer {
 
     // Add or update installations for active operations
     for (const operation of miningOperations) {
-      const asteroidMesh = this.asteroidMeshes.get(operation.celestialBodyId);
-      if (!asteroidMesh) continue;
+      // Check both asteroids and moons
+      const bodyMesh = 
+        this.asteroidMeshes.get(operation.celestialBodyId) ||
+        this.moonMeshes.get(operation.celestialBodyId);
+      if (!bodyMesh) continue;
 
       if (!this.installations.has(operation.celestialBodyId)) {
-        this.addInstallation(operation.celestialBodyId, asteroidMesh);
+        this.addInstallation(operation.celestialBodyId, bodyMesh);
       }
 
       // Update animation

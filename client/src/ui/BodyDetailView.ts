@@ -9,6 +9,9 @@ import {
   formatLargeNumber,
   BASE_POPULATION_DENSITY,
   MINING_INSTALLATION_CONFIG,
+  HELIUM3_EXTRACTION_CONFIG,
+  HELIUM3_ENERGY,
+  DYSON_SWARM_ENERGY,
   formatCost,
   GAME_COSTS,
   calculateMaxDysonSwarms,
@@ -49,6 +52,13 @@ export class BodyDetailView {
   private mineButton: HTMLButtonElement | null;
   private currentSystem: StarSystem | null = null;
   public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
+
+  // Helium-3 elements
+  private helium3Section: HTMLElement | null;
+  private helium3Status: HTMLElement | null;
+  private helium3Rate: HTMLElement | null;
+  private helium3Button: HTMLButtonElement | null;
+  public onEstablishHelium3: ((celestialBodyId: string) => void) | null = null;
 
   // Dyson Swarm elements
   private dysonSection: HTMLElement | null;
@@ -112,14 +122,37 @@ export class BodyDetailView {
       "body-mine-button"
     ) as HTMLButtonElement;
 
+    // Helium-3 elements
+    this.helium3Section = document.getElementById("body-helium3-section");
+    this.helium3Status = document.getElementById("body-helium3-status");
+    this.helium3Rate = document.getElementById("body-helium3-rate");
+    this.helium3Button = document.getElementById(
+      "body-helium3-button"
+    ) as HTMLButtonElement;
+
     // Bind mine button click and set initial text from config
     if (this.mineButton) {
       // Set button text from config using shared formatCost function
-      this.mineButton.textContent = `⛏ Establish Mining ${formatCost(MINING_INSTALLATION_CONFIG.cost)}`;
-      
+      this.mineButton.textContent = `⛏ Establish Mining ${formatCost(
+        MINING_INSTALLATION_CONFIG.cost
+      )}`;
+
       this.mineButton.addEventListener("click", () => {
         if (this.currentBody && this.onEstablishMining) {
           this.onEstablishMining(this.currentBody.id);
+        }
+      });
+    }
+
+    // Bind Helium-3 button click and set initial text from config
+    if (this.helium3Button) {
+      this.helium3Button.textContent = `⚡ Establish Helium-3 Extraction ${formatCost(
+        HELIUM3_EXTRACTION_CONFIG.cost
+      )} → +${HELIUM3_ENERGY} ⚡`;
+
+      this.helium3Button.addEventListener("click", () => {
+        if (this.currentBody && this.onEstablishHelium3) {
+          this.onEstablishHelium3(this.currentBody.id);
         }
       });
     }
@@ -451,7 +484,9 @@ export class BodyDetailView {
 
       if (speciesId && this.speciesElement) {
         // Try to get species from cache
-        const species = this.speciesGetter ? this.speciesGetter(speciesId) : null;
+        const species = this.speciesGetter
+          ? this.speciesGetter(speciesId)
+          : null;
 
         if (species) {
           // Species data is cached, display it
@@ -505,7 +540,9 @@ export class BodyDetailView {
                 existingOperation.alloyPerDay.toFixed(2);
             }
             if (this.miningRemaining) {
-              const remaining = existingOperation.totalAlloyLimit - existingOperation.alloyMined;
+              const remaining =
+                existingOperation.totalAlloyLimit -
+                existingOperation.alloyMined;
               this.miningRemaining.textContent = remaining.toFixed(1);
             }
           }
@@ -529,6 +566,45 @@ export class BodyDetailView {
       }
     }
 
+    // Show/hide Helium-3 section for planets and moons with Helium-3
+    if ((body.type === "planet" || body.type === "moon") && body.hasHelium3) {
+      if (this.helium3Section) {
+        this.helium3Section.style.display = "block";
+
+        // Check if there's already a Helium-3 operation on this body
+        const existingOperation = this.currentSystem?.helium3Operations?.find(
+          (op: any) => op.celestialBodyId === body.id
+        );
+
+        if (existingOperation) {
+          // Show Helium-3 status, hide button
+          if (this.helium3Status) {
+            this.helium3Status.style.display = "block";
+            if (this.helium3Rate) {
+              this.helium3Rate.textContent =
+                existingOperation.energyPerDay.toFixed(2);
+            }
+          }
+          if (this.helium3Button) {
+            this.helium3Button.style.display = "none";
+          }
+        } else {
+          // Hide Helium-3 status, show button
+          if (this.helium3Status) {
+            this.helium3Status.style.display = "none";
+          }
+          if (this.helium3Button) {
+            this.helium3Button.style.display = "block";
+          }
+        }
+      }
+    } else {
+      // Hide Helium-3 section for bodies without Helium-3
+      if (this.helium3Section) {
+        this.helium3Section.style.display = "none";
+      }
+    }
+
     // Show/hide Dyson Swarm section for stars
     if (body.type === "star") {
       if (this.dysonSection) {
@@ -546,9 +622,12 @@ export class BodyDetailView {
           ) || [];
 
         const swarmCount = dysonSwarms.length;
-        
+
         // Calculate total energy from all swarms (1 energy per swarm base, may vary with tech)
-        const totalEnergy = dysonSwarms.reduce((sum: number, ms: any) => sum + (ms.resourcePerDay || 0), 0);
+        const totalEnergy = dysonSwarms.reduce(
+          (sum: number, ms: any) => sum + (ms.resourcePerDay || 0),
+          0
+        );
 
         // Always show swarm status for stars
         if (this.dysonStatus) {
@@ -568,7 +647,9 @@ export class BodyDetailView {
             this.dysonButton.style.display = "none";
           } else {
             this.dysonButton.style.display = "block";
-            this.dysonButton.textContent = `☀ Launch Dyson Swarm ${formatCost(GAME_COSTS.DYSON_SWARM)}`;
+            this.dysonButton.textContent = `☀ Launch Dyson Swarm ${formatCost(
+              GAME_COSTS.DYSON_SWARM
+            )} → +${DYSON_SWARM_ENERGY} ⚡`;
           }
         }
       }
@@ -605,7 +686,7 @@ export class BodyDetailView {
             if (this.colonyPopulation) {
               // Calculate max population for this planet
               const surfaceArea = 4 * Math.PI * body.radius * body.radius;
-              
+
               // Calculate ice cap coverage to reduce habitable surface area
               const semiMajorAxis = body.orbitalElements?.semiMajorAxis || 0;
               const iceCapCoverage = calculateIceCapCoverage(
@@ -615,13 +696,16 @@ export class BodyDetailView {
                 body.surfaceType,
                 body.hasAtmosphere
               );
-              
+
               // Ice caps reduce available habitable surface area proportionally
               const habitableSurfaceFactor = 1 - iceCapCoverage;
               const maxPopulation = Math.floor(
-                surfaceArea * BASE_POPULATION_DENSITY * (body.habitability || 0) * habitableSurfaceFactor
+                surfaceArea *
+                  BASE_POPULATION_DENSITY *
+                  (body.habitability || 0) *
+                  habitableSurfaceFactor
               );
-              
+
               this.colonyPopulation.textContent = `${formatLargeNumber(
                 existingColony.population
               )}/${formatLargeNumber(maxPopulation)}`;
@@ -671,7 +755,9 @@ export class BodyDetailView {
           if (this.colonizeButton) {
             this.colonizeButton.style.display = "block";
             // Update button text with costs from config
-            this.colonizeButton.textContent = `🏙 Establish Colony ${formatCost(GAME_COSTS.COLONY_ESTABLISHMENT)}`;
+            this.colonizeButton.textContent = `🏙 Establish Colony ${formatCost(
+              GAME_COSTS.COLONY_ESTABLISHMENT
+            )}`;
           }
           // Hide remove colony button when no colony
           if (this.removeColonyButton) {

@@ -236,6 +236,9 @@ export class DatabaseQueries {
     // Load mining operations for this system
     const miningOperations = this.getMiningOperationsBySystem(row.id);
 
+    // Load Helium-3 operations for this system
+    const helium3Operations = this.getHelium3OperationsBySystem(row.id);
+
     // Load megastructures for this system
     const megastructures = this.getMegastructuresBySystem(row.id);
 
@@ -257,6 +260,7 @@ export class DatabaseQueries {
       companionStars: data.companionStars, // Load companion stars
       gates,
       miningOperations,
+      helium3Operations,
       megastructures,
       colonies,
       nativeCivilizations,
@@ -634,6 +638,92 @@ export class DatabaseQueries {
     };
   }
 
+  // Helium-3 operations
+  createHelium3Operation(
+    id: string,
+    playerId: string,
+    systemId: string,
+    celestialBodyId: string,
+    energyPerDay: number,
+    establishedAt: number
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT INTO helium3_operations (id, player_id, system_id, celestial_body_id, energy_per_day, established_at, last_yield_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    );
+    stmt.run(
+      id,
+      playerId,
+      systemId,
+      celestialBodyId,
+      energyPerDay,
+      establishedAt,
+      establishedAt
+    );
+  }
+
+  getHelium3OperationsByPlayer(playerId: string): any[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM helium3_operations WHERE player_id = ?"
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      energyPerDay: row.energy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    }));
+  }
+
+  getHelium3OperationsBySystem(systemId: string): any[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM helium3_operations WHERE system_id = ?"
+    );
+    const rows = stmt.all(systemId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      energyPerDay: row.energy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    }));
+  }
+
+  getHelium3OperationByCelestialBody(celestialBodyId: string): any | null {
+    const stmt = this.db.prepare(
+      "SELECT * FROM helium3_operations WHERE celestial_body_id = ?"
+    );
+    const row = stmt.get(celestialBodyId) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      energyPerDay: row.energy_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+    };
+  }
+
+  updateHelium3OperationYield(operationId: string, lastYieldAt: number): void {
+    const stmt = this.db.prepare(
+      "UPDATE helium3_operations SET last_yield_at = ? WHERE id = ?"
+    );
+    stmt.run(lastYieldAt, operationId);
+  }
+
+  deleteHelium3Operation(operationId: string): void {
+    const stmt = this.db.prepare(
+      "DELETE FROM helium3_operations WHERE id = ?"
+    );
+    stmt.run(operationId);
+  }
+
   updateMiningOperationYield(
     miningOperationId: string,
     lastYieldAt: number,
@@ -746,6 +836,34 @@ export class DatabaseQueries {
       console.log(
         `Refunded 1 energy to player ${op.playerId} for exhausted mining operation ${op.id}`
       );
+    }
+  }
+
+  processHelium3Yields(currentTime: number): void {
+    // Get all Helium-3 operations
+    const stmt = this.db.prepare("SELECT * FROM helium3_operations");
+    const rows = stmt.all() as any[];
+
+    for (const row of rows) {
+      const timeSinceLastYield = currentTime - row.last_yield_at;
+      const daysElapsed = timeSinceLastYield / (24 * 60 * 60);
+
+      if (daysElapsed >= 1) {
+        // Award resources for full days
+        const fullDays = Math.floor(daysElapsed);
+        const energyToAdd = row.energy_per_day * fullDays;
+
+        // Add energy to player (Helium-3 doesn't have storage limits)
+        this.addPlayerEnergy(row.player_id, energyToAdd);
+
+        // Update last yield time
+        const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+        this.updateHelium3OperationYield(row.id, newLastYieldAt);
+
+        console.log(
+          `Helium-3 operation ${row.id} produced ${energyToAdd} energy for player ${row.player_id}`
+        );
+      }
     }
   }
 

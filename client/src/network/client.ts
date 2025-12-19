@@ -726,6 +726,10 @@ export class NetworkClient {
     this.send({ type: "establishMining", celestialBodyId });
   }
 
+  establishHelium3Extraction(celestialBodyId: string): void {
+    this.send({ type: "establishHelium3Extraction", celestialBodyId });
+  }
+
   launchDysonSwarm(starId: string): void {
     this.send({ type: "launchDysonSwarm", starId });
   }

@@ -55,6 +55,10 @@ export type ClientMessage =
       celestialBodyId: string;
     }
   | {
+      type: "establishHelium3Extraction";
+      celestialBodyId: string;
+    }
+  | {
       type: "launchDysonSwarm";
       starId: string;
     }
@@ -300,6 +304,12 @@ export type ServerMessage =
       miningOperationId: string;
       celestialBodyId: string;
       alloyPerDay: number;
+    }
+  | {
+      type: "helium3Established";
+      helium3OperationId: string;
+      celestialBodyId: string;
+      energyPerDay: number;
     }
   | {
       type: "dysonSwarmLaunched";

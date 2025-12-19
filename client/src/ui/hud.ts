@@ -88,10 +88,17 @@ export class HUDManager {
   // Mineable objects widget
   private mineableObjectsWidget: HTMLElement;
   private mineableCounter: HTMLElement;
+  // Helium-3 objects widget
+  private helium3ObjectsWidget: HTMLElement;
+  private helium3Counter: HTMLElement;
   private mineableObjects: Array<{ id: string; name: string; type: string }> =
     [];
   private currentMineableIndex: number = 0;
   private isCyclingMineable: boolean = false;
+  private helium3Objects: Array<{ id: string; name: string; type: string }> =
+    [];
+  private currentHelium3Index: number = 0;
+  private isCyclingHelium3: boolean = false;
 
   private systemOutline: HTMLElement;
   private outlineList: HTMLElement;
@@ -191,6 +198,7 @@ export class HUDManager {
       ) => void)
     | null = null;
   public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
+  public onEstablishHelium3: ((celestialBodyId: string) => void) | null = null;
   public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
   public onEstablishColony:
     | ((
@@ -244,6 +252,12 @@ export class HUDManager {
       "mineable-objects-widget"
     )!;
     this.mineableCounter = document.getElementById("mineable-counter")!;
+
+    // Helium-3 objects widget
+    this.helium3ObjectsWidget = document.getElementById(
+      "helium3-objects-widget"
+    )!;
+    this.helium3Counter = document.getElementById("helium3-counter")!;
 
     // System outline
     this.systemOutline = document.getElementById("system-outline")!;
@@ -508,6 +522,17 @@ export class HUDManager {
     this.mineableObjectsWidget.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this.cycleToPreviousMineableObject();
+    });
+
+    // Helium-3 objects widget click handlers
+    this.helium3ObjectsWidget.addEventListener("click", (e) => {
+      console.log("[Helium-3 Badge] Click event fired", e);
+      this.cycleToNextHelium3Object();
+    });
+
+    this.helium3ObjectsWidget.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      this.cycleToPreviousHelium3Object();
     });
 
     // Alloy rate breakdown tooltip
@@ -1021,6 +1046,8 @@ export class HUDManager {
 
     // Update mineable objects widget
     this.updateMineableObjectsWidget();
+    // Update Helium-3 objects widget
+    this.updateHelium3ObjectsWidget();
 
     // Enable transitions after elements are rendered (next frame)
     // This prevents the green flash on initial load
@@ -1037,13 +1064,39 @@ export class HUDManager {
     this.systemOutline.classList.add("hidden");
     // Also hide detail panels during transitions
     this.hideDetailPanels();
-    // Hide mineable objects widget
+    
+    // Immediately hide mineable objects widget (no animation)
+    this.mineableObjectsWidget.classList.remove("animate-in", "animate-out");
     this.mineableObjectsWidget.classList.add("hidden");
     this.mineableObjects = [];
     this.currentMineableIndex = 0;
     this.isCyclingMineable = false;
+    
+    // Immediately hide Helium-3 objects widget (no animation)
+    this.helium3ObjectsWidget.classList.remove("animate-in", "animate-out");
+    this.helium3ObjectsWidget.classList.add("hidden");
+    this.helium3Objects = [];
+    this.currentHelium3Index = 0;
+    this.isCyclingHelium3 = false;
+    
     // Reset theme to default green when leaving system view
     this.applyStarTheme("#0f0");
+  }
+
+  /**
+   * Clear system reference and hide all widgets (for returning to lobby)
+   */
+  clearSystem(): void {
+    this.system = null;
+    this.player = null;
+    
+    // Call update methods which will see !this.system and hide widgets properly
+    this.updateMineableObjectsWidget();
+    this.updateHelium3ObjectsWidget();
+    
+    // Hide outline and detail panels
+    this.systemOutline.classList.add("hidden");
+    this.hideDetailPanels();
   }
 
   /**
@@ -1051,13 +1104,17 @@ export class HUDManager {
    */
   setConstellationViewState(isInConstellation: boolean): void {
     this.isInConstellationView = isInConstellation;
-    // If entering constellation view, hide mineable widget
+    // If entering constellation view, immediately hide both widgets
     if (isInConstellation) {
+      this.mineableObjectsWidget.classList.remove("animate-in", "animate-out");
       this.mineableObjectsWidget.classList.add("hidden");
+      this.helium3ObjectsWidget.classList.remove("animate-in", "animate-out");
+      this.helium3ObjectsWidget.classList.add("hidden");
     }
-    // If exiting constellation view, update mineable widget based on current system
+    // If exiting constellation view, update widgets based on current system
     else {
       this.updateMineableObjectsWidget();
+      this.updateHelium3ObjectsWidget();
     }
   }
 
@@ -1731,6 +1788,8 @@ export class HUDManager {
     this.currentState = state;
     // Update mineable objects widget when state changes (e.g., mining operations established)
     this.updateMineableObjectsWidget();
+    // Update Helium-3 objects widget when state changes
+    this.updateHelium3ObjectsWidget();
   }
 
   /**
@@ -1857,6 +1916,12 @@ export class HUDManager {
     this.bodyDetailView.onEstablishMining = (celestialBodyId: string) => {
       if (this.onEstablishMining) {
         this.onEstablishMining(celestialBodyId);
+      }
+    };
+
+    this.bodyDetailView.onEstablishHelium3 = (celestialBodyId: string) => {
+      if (this.onEstablishHelium3) {
+        this.onEstablishHelium3(celestialBodyId);
       }
     };
 
@@ -2297,16 +2362,94 @@ export class HUDManager {
   }
 
   /**
+   * Get all Helium-3 objects in the current system
+   */
+  private getHelium3ObjectsInSystem(): Array<{
+    id: string;
+    name: string;
+    type: string;
+  }> {
+    if (!this.system) return [];
+
+    const helium3Objects: Array<{ id: string; name: string; type: string }> = [];
+
+    // Check all planets
+    if (this.system.planets) {
+      for (const planet of this.system.planets) {
+        if (planet.hasHelium3) {
+          // Check if it's already extracting Helium-3
+          const alreadyExtracting = this.system.helium3Operations?.some(
+            (op) => op.celestialBodyId === planet.id
+          );
+          if (!alreadyExtracting) {
+            helium3Objects.push({
+              id: planet.id,
+              name: planet.name,
+              type: "planet",
+            });
+          }
+        }
+      }
+    }
+
+    // Check all moons
+    if (this.system.moons) {
+      for (const moon of this.system.moons) {
+        if (moon.hasHelium3) {
+          // Check if it's already extracting Helium-3
+          const alreadyExtracting = this.system.helium3Operations?.some(
+            (op) => op.celestialBodyId === moon.id
+          );
+          if (!alreadyExtracting) {
+            helium3Objects.push({
+              id: moon.id,
+              name: moon.name,
+              type: "moon",
+            });
+          }
+        }
+      }
+    }
+
+    return helium3Objects;
+  }
+
+  /**
    * Update the mineable objects widget based on the current system
    */
   updateMineableObjectsWidget(): void {
-    // Don't show mineable widget in constellation view
-    if (this.isInConstellationView) {
+    // Don't show mineable widget in constellation view or lobby
+    if (this.isInConstellationView || !this.system) {
+      this.mineableObjectsWidget.classList.remove("animate-in", "animate-out");
       this.mineableObjectsWidget.classList.add("hidden");
       return;
     }
 
     const newMineableObjects = this.getMineableObjectsInSystem();
+    
+    // CRITICAL: If no mineable objects exist, hide with animation if widget was visible
+    if (newMineableObjects.length === 0) {
+      const wasVisible = !this.mineableObjectsWidget.classList.contains("hidden");
+      
+      this.mineableObjects = [];
+      this.currentMineableIndex = 0;
+      this.isCyclingMineable = false;
+      
+      if (wasVisible) {
+        // Animate out before hiding
+        this.mineableObjectsWidget.classList.remove("animate-in");
+        this.mineableObjectsWidget.classList.add("animate-out");
+        setTimeout(() => {
+          this.mineableObjectsWidget.classList.add("hidden");
+          this.mineableObjectsWidget.classList.remove("animate-out");
+        }, 300); // Duration of exit animation
+      } else {
+        // Already hidden, just ensure it stays hidden
+        this.mineableObjectsWidget.classList.remove("animate-in", "animate-out");
+        this.mineableObjectsWidget.classList.add("hidden");
+      }
+      return;
+    }
 
     // Check if the list of mineable objects has actually changed
     const listChanged =
@@ -2344,34 +2487,21 @@ export class HUDManager {
       }
     }
 
-    if (this.mineableObjects.length > 0) {
-      // Check if this is the first time showing (was hidden before)
-      const wasHidden = this.mineableObjectsWidget.classList.contains("hidden");
+    // At this point, we know mineableObjects.length > 0 (early return above handles empty case)
+    // Check if this is the first time showing (was hidden before)
+    const wasHidden = this.mineableObjectsWidget.classList.contains("hidden");
 
-      this.mineableObjectsWidget.classList.remove("hidden");
-      this.updateMineableCounter();
+    // Update counter BEFORE showing widget to prevent "0" flash
+    this.updateMineableCounter();
+    this.mineableObjectsWidget.classList.remove("hidden");
 
-      // Add animation class if badge was just revealed
-      if (wasHidden) {
-        this.mineableObjectsWidget.classList.add("animate-in");
-        // Remove animation class after it completes so it can be reused
-        setTimeout(() => {
-          this.mineableObjectsWidget.classList.remove("animate-in");
-        }, 1400); // 900ms delay + 500ms animation
-      }
-    } else {
-      // Animate out before hiding
-      const isVisible =
-        !this.mineableObjectsWidget.classList.contains("hidden");
-      if (isVisible) {
-        this.mineableObjectsWidget.classList.add("animate-out");
-        setTimeout(() => {
-          this.mineableObjectsWidget.classList.add("hidden");
-          this.mineableObjectsWidget.classList.remove("animate-out");
-        }, 300); // Duration of exit animation
-      } else {
-        this.mineableObjectsWidget.classList.add("hidden");
-      }
+    // Add animation class if badge was just revealed
+    if (wasHidden) {
+      this.mineableObjectsWidget.classList.add("animate-in");
+      // Remove animation class after it completes so it can be reused
+      setTimeout(() => {
+        this.mineableObjectsWidget.classList.remove("animate-in");
+      }, 1400); // 900ms delay + 500ms animation
     }
   }
 
@@ -2379,6 +2509,11 @@ export class HUDManager {
    * Update the counter display on the mineable objects widget
    */
   private updateMineableCounter(): void {
+    // Safety check: never show counter if list is empty
+    if (this.mineableObjects.length === 0) {
+      return;
+    }
+    
     if (this.isCyclingMineable && this.mineableObjects.length > 0) {
       // Show "X/Y" format when cycling
       this.mineableCounter.textContent = `${this.currentMineableIndex + 1}/${
@@ -2447,6 +2582,155 @@ export class HUDManager {
 
     // Select the object
     const selectedObject = this.mineableObjects[this.currentMineableIndex];
+    if (this.onSelectObject) {
+      this.onSelectObject(selectedObject.id);
+    }
+  }
+
+  /**
+   * Update the Helium-3 objects widget based on the current system
+   */
+  updateHelium3ObjectsWidget(): void {
+    // Don't show Helium-3 widget in constellation view or lobby
+    if (this.isInConstellationView || !this.system) {
+      this.helium3ObjectsWidget.classList.remove("animate-in", "animate-out");
+      this.helium3ObjectsWidget.classList.add("hidden");
+      return;
+    }
+
+    const newHelium3Objects = this.getHelium3ObjectsInSystem();
+    
+    // CRITICAL: If no Helium-3 objects exist, hide with animation if widget was visible
+    if (newHelium3Objects.length === 0) {
+      const wasVisible = !this.helium3ObjectsWidget.classList.contains("hidden");
+      
+      this.helium3Objects = [];
+      this.currentHelium3Index = 0;
+      this.isCyclingHelium3 = false;
+      
+      if (wasVisible) {
+        // Animate out before hiding
+        this.helium3ObjectsWidget.classList.remove("animate-in");
+        this.helium3ObjectsWidget.classList.add("animate-out");
+        setTimeout(() => {
+          this.helium3ObjectsWidget.classList.add("hidden");
+          this.helium3ObjectsWidget.classList.remove("animate-out");
+        }, 300); // Duration of exit animation
+      } else {
+        // Already hidden, just ensure it stays hidden
+        this.helium3ObjectsWidget.classList.remove("animate-in", "animate-out");
+        this.helium3ObjectsWidget.classList.add("hidden");
+      }
+      return;
+    }
+
+    // Check if the list has changed
+    const listChanged =
+      newHelium3Objects.length !== this.helium3Objects.length ||
+      !newHelium3Objects.every(
+        (obj, i) => obj.id === this.helium3Objects[i]?.id
+      );
+
+    if (listChanged) {
+      this.helium3Objects = newHelium3Objects;
+
+      if (this.isCyclingHelium3) {
+        this.currentHelium3Index = Math.min(
+          this.currentHelium3Index,
+          Math.max(0, this.helium3Objects.length - 1)
+        );
+
+        if (this.helium3Objects.length === 0) {
+          this.currentHelium3Index = 0;
+          this.isCyclingHelium3 = false;
+        }
+      } else {
+        this.currentHelium3Index = 0;
+      }
+    }
+
+    // At this point, we know helium3Objects.length > 0 (early return above handles empty case)
+    const wasHidden = this.helium3ObjectsWidget.classList.contains("hidden");
+
+    // Update counter BEFORE showing widget to prevent "0" flash
+    this.updateHelium3Counter();
+    this.helium3ObjectsWidget.classList.remove("hidden");
+
+    if (wasHidden) {
+      this.helium3ObjectsWidget.classList.add("animate-in");
+      setTimeout(() => {
+        this.helium3ObjectsWidget.classList.remove("animate-in");
+      }, 1400);
+    }
+  }
+
+  /**
+   * Update the counter display on the Helium-3 objects widget
+   */
+  private updateHelium3Counter(): void {
+    // Safety check: never show counter if list is empty
+    if (this.helium3Objects.length === 0) {
+      return;
+    }
+    
+    if (this.isCyclingHelium3 && this.helium3Objects.length > 0) {
+      this.helium3Counter.textContent = `${this.currentHelium3Index + 1}/${
+        this.helium3Objects.length
+      }`;
+    } else {
+      this.helium3Counter.textContent = this.helium3Objects.length.toString();
+    }
+  }
+
+  /**
+   * Cycle to the next Helium-3 object
+   */
+  private cycleToNextHelium3Object(): void {
+    if (this.helium3Objects.length === 0) {
+      console.warn("[Helium-3 Badge] No Helium-3 objects available");
+      return;
+    }
+
+    if (!this.isCyclingHelium3) {
+      this.isCyclingHelium3 = true;
+      this.currentHelium3Index = 0;
+    } else {
+      this.currentHelium3Index =
+        (this.currentHelium3Index + 1) % this.helium3Objects.length;
+    }
+
+    this.updateHelium3Counter();
+
+    const selectedObject = this.helium3Objects[this.currentHelium3Index];
+    console.log(
+      `[Helium-3 Badge] Selecting Helium-3 object ${
+        this.currentHelium3Index + 1
+      }/${this.helium3Objects.length}:`,
+      selectedObject
+    );
+    if (this.onSelectObject) {
+      this.onSelectObject(selectedObject.id);
+    }
+  }
+
+  /**
+   * Cycle to the previous Helium-3 object
+   */
+  private cycleToPreviousHelium3Object(): void {
+    if (this.helium3Objects.length === 0) return;
+
+    if (!this.isCyclingHelium3) {
+      this.isCyclingHelium3 = true;
+      this.currentHelium3Index = 0;
+    } else {
+      this.currentHelium3Index =
+        (this.currentHelium3Index - 1 + this.helium3Objects.length) %
+        this.helium3Objects.length;
+    }
+
+    this.updateHelium3Counter();
+
+    const selectedObject = this.helium3Objects[this.currentHelium3Index];
     if (this.onSelectObject) {
       this.onSelectObject(selectedObject.id);
     }

@@ -143,6 +143,18 @@ export function initializeDatabase(dbPath: string): Database.Database {
       FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS helium3_operations (
+      id TEXT PRIMARY KEY,
+      player_id TEXT NOT NULL,
+      system_id TEXT NOT NULL,
+      celestial_body_id TEXT NOT NULL,
+      energy_per_day REAL NOT NULL,
+      established_at INTEGER NOT NULL,
+      last_yield_at INTEGER NOT NULL,
+      FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+      FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS megastructures (
       id TEXT PRIMARY KEY,
       player_id TEXT NOT NULL,
@@ -223,6 +235,8 @@ export function initializeDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_player_stances_to ON player_stances(to_player_id);
     CREATE INDEX IF NOT EXISTS idx_mining_operations_player ON mining_operations(player_id);
     CREATE INDEX IF NOT EXISTS idx_mining_operations_system ON mining_operations(system_id);
+    CREATE INDEX IF NOT EXISTS idx_helium3_operations_player ON helium3_operations(player_id);
+    CREATE INDEX IF NOT EXISTS idx_helium3_operations_system ON helium3_operations(system_id);
     CREATE INDEX IF NOT EXISTS idx_megastructures_player ON megastructures(player_id);
     CREATE INDEX IF NOT EXISTS idx_megastructures_system ON megastructures(system_id);
     CREATE INDEX IF NOT EXISTS idx_megastructures_type ON megastructures(type);

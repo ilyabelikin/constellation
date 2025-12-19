@@ -61,6 +61,16 @@ Score outside zone: 0.0 - 0.6 (decreases with distance)
 - With atmosphere: +20% bonus (capped at 1.0)
 - Without atmosphere: -50% penalty
 
+**4. Uninhabitable Planet Type Caps**
+
+Certain planet types have hard maximum habitability caps regardless of location or atmosphere, because their fundamental nature makes them hostile to complex life:
+- **Lava**: Max 15% (molten surface, only extreme thermophiles possible)
+- **Gas Giant**: Max 0% (no solid surface)
+- **Ice Giant**: Max 0% (no solid surface)
+- **Barren**: Max 10% (no atmosphere, extreme radiation)
+
+This prevents illogical situations like a lava planet in a habitable zone being marked as highly habitable.
+
 ### Life Generation
 
 Life generation uses two-stage probability:

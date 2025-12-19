@@ -28,8 +28,9 @@ export const STATE_UPDATE_RATE = 5; // Hz (send state updates to clients)
 export const MAX_ALLOY_STOCKPILE = 500; // Maximum alloy that can be stored
 export const MAX_SCIENCE_STOCKPILE = 500; // Maximum science that can be stored
 
-// Megastructure constants
-export const DYSON_SWARM_ENERGY_PER_DAY = 1; // Energy generated per day per swarm (not per panel!)
+// Megastructure and energy production constants
+export const DYSON_SWARM_ENERGY = 1; // Energy added to pool per swarm (not per panel!)
+export const HELIUM3_ENERGY = 2; // Energy added to pool per Helium-3 extractor
 export const DYSON_PANEL_SIZE = 0.02; // Panel size in solar radii (constant across all stars)
 export const DYSON_ORBIT_DISTANCE_MULTIPLIER = 1.08; // Orbit radius as multiplier of star radius
 export const PANELS_PER_SWARM = 3; // Number of panels launched per swarm deployment

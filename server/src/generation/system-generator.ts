@@ -461,6 +461,20 @@ export function generatePlanet(
     finalHabitability *= 0.5;
   }
 
+  // Apply hard caps for inherently uninhabitable planet types
+  // These planet types cannot be truly habitable regardless of location
+  // because their fundamental nature makes them hostile to complex life
+  const uninhabitableCaps: { [key: string]: number } = {
+    'Lava': 0.15,        // Molten surface - only extreme thermophiles possible
+    'Gas Giant': 0.0,    // No solid surface
+    'Ice Giant': 0.0,    // No solid surface
+    'Barren': 0.10,      // No atmosphere, extreme conditions
+  };
+
+  if (uninhabitableCaps[planetType.name] !== undefined) {
+    finalHabitability = Math.min(finalHabitability, uninhabitableCaps[planetType.name]);
+  }
+
   // Clamp to 0-1 range
   finalHabitability = Math.max(0, Math.min(1, finalHabitability));
 
@@ -531,6 +545,28 @@ export function generatePlanet(
     if (ringChance < 0.4) {
       planet.rings = generateRings(ringRng, radius, planetType.color);
     }
+  }
+
+  // Determine if planet has Helium-3 deposits
+  // Helium-3 is found in:
+  // 1. Gas giants and ice giants (in upper atmospheres) - 30% chance
+  // 2. Barren/rocky planets with no atmosphere close to star - 20% chance (solar wind exposure)
+  let hasHelium3 = false;
+  if (massInEarthMasses > 10) {
+    // Gas giants and ice giants
+    hasHelium3 = rng.next() < 0.3; // 30% chance - rare to keep it valuable
+  } else if (!hasAtmosphere && distanceAU < 1.5) {
+    // Airless worlds close to star (strong solar wind)
+    hasHelium3 = rng.next() < 0.2; // 20% chance - rarer
+  }
+  planet.hasHelium3 = hasHelium3;
+
+  if (hasHelium3) {
+    console.log(
+      `Planet ${planetName}: Has Helium-3 deposits (Type: ${
+        planetType.name
+      }, Distance: ${distanceAU.toFixed(2)} AU, Atmosphere: ${hasAtmosphere})`
+    );
   }
 
   return planet;
@@ -753,6 +789,18 @@ function generateMoon(
     silica: "#8b7355", // rocky brown
   };
 
+  // Determine if moon has Helium-3 deposits
+  // Moons with no trapped atmosphere are exposed to solar wind and can accumulate Helium-3
+  // Larger moons (>1000km radius) are less likely to have Helium-3 due to potential thin atmospheres
+  // Small airless moons are ideal (like our Moon)
+  let hasHelium3 = false;
+  if (radius < 2_000_000) {
+    // Moons under 2000km radius
+    // Higher chance for smaller moons (better solar wind exposure)
+    const sizeBonus = radius < 1_000_000 ? 0.15 : 0.1; // Extra chance for small moons
+    hasHelium3 = rng.next() < sizeBonus; // 10-15% chance - rare
+  }
+
   return {
     id: uuidv4(),
     name,
@@ -766,6 +814,7 @@ function generateMoon(
     rotationRate,
     isTumbling, // New property to indicate chaotic rotation
     color: colors[composition],
+    hasHelium3, // Helium-3 availability
   };
 }
 

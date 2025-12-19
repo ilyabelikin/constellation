@@ -73,7 +73,7 @@ export class GateDetailView {
     this.blockadeRow = document.getElementById("gate-detail-blockade-row")!;
     this.blockadeInfoElement = document.getElementById(
       "gate-detail-blockade-info"
-    )!
+    )!;
     this.travelButton = document.getElementById(
       "gate-travel-button"
     )! as HTMLButtonElement;
@@ -280,39 +280,53 @@ export class GateDetailView {
       // Gate B (other side) owner with defense count
       const gateBColor = this.getStatusColor(tunnelInfo.gateBStatus);
       const gateBOwnerText = tunnelInfo.gateBOwnerName || "Uncontrolled";
-      const gateBDefenseText = destinationDefenseCount > 0 ? `, 🛡️ ${destinationDefenseCount}` : "";
+      const gateBDefenseText =
+        destinationDefenseCount > 0 ? `, 🛡️ ${destinationDefenseCount}` : "";
       this.gateBOwnerElement.textContent = gateBOwnerText + gateBDefenseText;
       this.gateBOwnerElement.style.color = gateBColor;
 
       // Tunnel power status - show which player powers the tunnel
       // Power is independent of gate control
       // Use neutral color - colors are ONLY for gate ownership
-      if (tunnelInfo.tunnelPoweredByPlayerId && tunnelInfo.tunnelPoweredByPlayerName) {
+      if (
+        tunnelInfo.tunnelPoweredByPlayerId &&
+        tunnelInfo.tunnelPoweredByPlayerName
+      ) {
         // Check if it's the current player
         if (tunnelInfo.hasTunnelPower) {
           // Check if player can afford overcharge (10 energy + 10 science)
-          const canAffordOvercharge = player && player.energy >= 10 && player.science >= 10;
-          const isOnCooldown = tunnelInfo.overchargeTimeRemaining !== null && tunnelInfo.overchargeTimeRemaining !== undefined;
+          const canAffordOvercharge =
+            player && player.energy >= 10 && player.science >= 10;
+          const isOnCooldown =
+            tunnelInfo.overchargeTimeRemaining !== null &&
+            tunnelInfo.overchargeTimeRemaining !== undefined;
           const overchargeDisabled = !canAffordOvercharge || isOnCooldown;
-          const overchargeTooltip = !canAffordOvercharge 
-            ? "Requires 10 Energy + 10 Science" 
+          const overchargeTooltip = !canAffordOvercharge
+            ? "Requires 10 Energy + 10 Science"
             : isOnCooldown
-              ? `Cooldown: ${tunnelInfo.overchargeTimeRemaining}`
-              : "Overcharge tunnel (10 Energy + 10 Science)";
-          
-          const speciesName = tunnelInfo.tunnelPoweredBySpeciesName || "Your Species";
+            ? `Cooldown: ${tunnelInfo.overchargeTimeRemaining}`
+            : "Overcharge tunnel (10 Energy + 10 Science)";
+
+          const speciesName =
+            tunnelInfo.tunnelPoweredBySpeciesName || "Your Species";
           this.tunnelPowerElement.innerHTML = `${speciesName}
             <button id="power-off-tunnel-btn" style="margin-left: 8px; padding: 2px 6px; font-size: 0.75em; cursor: pointer; background: #ef4444; color: white; border: none; border-radius: 3px;">✕ Power Off</button>
             <button id="overcharge-tunnel-btn" 
-              style="margin-left: 4px; padding: 2px 6px; font-size: 0.75em; cursor: ${overchargeDisabled ? 'not-allowed' : 'pointer'}; background: ${overchargeDisabled ? '#6b7280' : '#dc2626'}; color: white; border: none; border-radius: 3px; font-weight: bold; opacity: ${overchargeDisabled ? '0.5' : '1'};"
+              style="margin-left: 4px; padding: 2px 6px; font-size: 0.75em; cursor: ${
+                overchargeDisabled ? "not-allowed" : "pointer"
+              }; background: ${
+            overchargeDisabled ? "#6b7280" : "#dc2626"
+          }; color: white; border: none; border-radius: 3px; font-weight: bold; opacity: ${
+            overchargeDisabled ? "0.5" : "1"
+          };"
               title="${overchargeTooltip}"
-              ${overchargeDisabled ? 'disabled' : ''}>💥 Overcharge</button>`;
+              ${overchargeDisabled ? "disabled" : ""}>💥 Overcharge</button>`;
         } else {
           this.tunnelPowerElement.textContent = `⚡ Powered by ${tunnelInfo.tunnelPoweredByPlayerName}`;
         }
         // Always use neutral white/light color for tunnel power text
         this.tunnelPowerElement.style.color = "#e5e7eb";
-        
+
         // Add event listeners if it's the player's tunnel
         if (tunnelInfo.hasTunnelPower) {
           const powerOffBtn = document.getElementById("power-off-tunnel-btn");
@@ -324,9 +338,15 @@ export class GateDetailView {
               }
             };
           }
-          
-          const overchargeBtn = document.getElementById("overcharge-tunnel-btn");
-          if (overchargeBtn && tunnelInfo.tunnelId && !overchargeBtn.hasAttribute('disabled')) {
+
+          const overchargeBtn = document.getElementById(
+            "overcharge-tunnel-btn"
+          );
+          if (
+            overchargeBtn &&
+            tunnelInfo.tunnelId &&
+            !overchargeBtn.hasAttribute("disabled")
+          ) {
             const tunnelId = tunnelInfo.tunnelId;
             overchargeBtn.onclick = () => {
               if (this.onOverchargeTunnel) {
@@ -337,14 +357,16 @@ export class GateDetailView {
         }
       } else {
         // Unpowered - check if tunnel was previously opened or never opened
-        const bothGatesHaveOwners = 
-          tunnelInfo.gateAOwnerName && tunnelInfo.gateAOwnerName !== "Uncontrolled" &&
-          tunnelInfo.gateBOwnerName && tunnelInfo.gateBOwnerName !== "Uncontrolled";
-        
-        const playerOwnsEitherGate = 
-          tunnelInfo.gateAStatus === "owned_by_self" || 
+        const bothGatesHaveOwners =
+          tunnelInfo.gateAOwnerName &&
+          tunnelInfo.gateAOwnerName !== "Uncontrolled" &&
+          tunnelInfo.gateBOwnerName &&
+          tunnelInfo.gateBOwnerName !== "Uncontrolled";
+
+        const playerOwnsEitherGate =
+          tunnelInfo.gateAStatus === "owned_by_self" ||
           tunnelInfo.gateBStatus === "owned_by_self";
-        
+
         if (bothGatesHaveOwners) {
           // Tunnel was opened before but is now powered off
           if (playerOwnsEitherGate && tunnelInfo.tunnelId) {
@@ -352,7 +374,7 @@ export class GateDetailView {
             this.tunnelPowerElement.innerHTML = `⚪ Deactivated 
               <button id="power-on-tunnel-btn" style="margin-left: 8px; padding: 2px 6px; font-size: 0.75em; cursor: pointer; background: #10b981; color: white; border: none; border-radius: 3px;">⚡ Power On</button>`;
             this.tunnelPowerElement.style.color = "#9ca3af";
-            
+
             // Add event listener for power on button
             setTimeout(() => {
               const powerOnBtn = document.getElementById("power-on-tunnel-btn");
@@ -416,12 +438,12 @@ export class GateDetailView {
       const isUnexplored = !(
         player?.exploredGateIds?.includes(gate.id) ?? false
       );
-      
+
       // If tunnel is deactivated (not powered), show "Open" button for reactivation
       // If tunnel is powered and explored, show "Travel"
       // If tunnel is powered but unexplored by player, show "Open"
-      const buttonLabel = (isUnexplored || !isTunnelPowered) ? "Open" : "Travel";
-      
+      const buttonLabel = isUnexplored || !isTunnelPowered ? "Open" : "Travel";
+
       // Update travel/open button text with cost
       this.travelButton.style.display = "block";
       if (travelCost > 0) {
@@ -435,9 +457,9 @@ export class GateDetailView {
       this.travelButton.disabled = !hasEnoughEnergy;
 
       if (!hasEnoughEnergy && travelCost > 0) {
-        this.travelButton.title = `Requires ${travelCost} Energy (you have ${
-          playerEnergy.toFixed(2)
-        })`;
+        this.travelButton.title = `Requires ${travelCost} Energy (you have ${playerEnergy.toFixed(
+          2
+        )})`;
       } else {
         this.travelButton.title = "";
       }
@@ -457,16 +479,18 @@ export class GateDetailView {
       this.fortifyButton.style.display = "block";
       const fortifyCost = DEFENSE_PLATFORM_CONFIG.cost;
       const canFortify =
-        playerEnergy >= fortifyCost.energy && 
-        playerAlloy >= fortifyCost.alloy && 
+        playerEnergy >= fortifyCost.energy &&
+        playerAlloy >= fortifyCost.alloy &&
         playerScience >= fortifyCost.science;
       this.fortifyButton.disabled = !canFortify;
       // Update button text with actual costs using formatCost
       this.fortifyButton.textContent = `🛡️ Fortify ${formatCost(fortifyCost)}`;
       if (!canFortify) {
-        this.fortifyButton.title = `Requires ${formatCost(fortifyCost, { showParentheses: false })} (you have ${
-          playerEnergy.toFixed(2)
-        } ⚡, ${playerAlloy.toFixed(2)} ⛏, ${playerScience.toFixed(2)} 🔬)`;
+        this.fortifyButton.title = `Requires ${formatCost(fortifyCost, {
+          showParentheses: false,
+        })} (you have ${playerEnergy.toFixed(2)} ⚡, ${playerAlloy.toFixed(
+          2
+        )} ⛏, ${playerScience.toFixed(2)} 🔬)`;
       } else {
         this.fortifyButton.title =
           "Build a defense platform to protect this gate";
@@ -488,16 +512,18 @@ export class GateDetailView {
       this.attackButton.style.display = "block";
       const attackCost = ATTACK_SHIP_CONFIG.cost;
       const hasResources =
-        playerEnergy >= attackCost.energy && 
-        playerAlloy >= attackCost.alloy && 
+        playerEnergy >= attackCost.energy &&
+        playerAlloy >= attackCost.alloy &&
         playerScience >= attackCost.science;
       this.attackButton.disabled = !hasResources;
       // Update button text with actual costs using formatCost
       this.attackButton.textContent = `⚔️ Attack ${formatCost(attackCost)}`;
       if (!hasResources) {
-        this.attackButton.title = `Requires ${formatCost(attackCost, { showParentheses: false })} (you have ${
-          playerEnergy.toFixed(2)
-        } ⚡, ${playerAlloy.toFixed(2)} ⛏, ${playerScience.toFixed(2)} 🔬)`;
+        this.attackButton.title = `Requires ${formatCost(attackCost, {
+          showParentheses: false,
+        })} (you have ${playerEnergy.toFixed(2)} ⚡, ${playerAlloy.toFixed(
+          2
+        )} ⛏, ${playerScience.toFixed(2)} 🔬)`;
       } else {
         this.attackButton.title = `Destroy ${
           tunnelInfo?.gateAOwnerName || "enemy"
@@ -556,7 +582,9 @@ export class GateDetailView {
         // Update cooldown time display
         const updateCooldownDisplay = () => {
           // Get current game time from the getter (respects time scale and pause)
-          const now = this.currentTimeGetter ? this.currentTimeGetter() : currentState.currentTime;
+          const now = this.currentTimeGetter
+            ? this.currentTimeGetter()
+            : currentState.currentTime;
           const remainingSeconds = COOLDOWN_PERIOD - (now - lastOvertakenAt);
 
           if (remainingSeconds <= 0) {
@@ -603,17 +631,21 @@ export class GateDetailView {
         // CAPTURE BUTTON - only requires this gate to be undefended
         this.captureButton.style.display = "block";
         const captureCost = GAME_COSTS.GATE_CAPTURE;
-        const hasCaptureResources = 
-          playerEnergy >= captureCost.energy && 
-          playerAlloy >= captureCost.alloy && 
+        const hasCaptureResources =
+          playerEnergy >= captureCost.energy &&
+          playerAlloy >= captureCost.alloy &&
           playerScience >= captureCost.science;
         this.captureButton.disabled = !hasCaptureResources;
         // Update button text with costs from config
-        this.captureButton.textContent = `🚩 Capture Gate ${formatCost(captureCost)}`;
+        this.captureButton.textContent = `🚩 Capture Gate ${formatCost(
+          captureCost
+        )}`;
         if (!hasCaptureResources) {
-          this.captureButton.title = `Requires ${formatCost(captureCost, { showParentheses: false })} (you have ${
-            playerEnergy.toFixed(2)
-          } ⚡, ${playerAlloy.toFixed(2)} ⛏, ${playerScience.toFixed(2)} 🔬)`;
+          this.captureButton.title = `Requires ${formatCost(captureCost, {
+            showParentheses: false,
+          })} (you have ${playerEnergy.toFixed(2)} ⚡, ${playerAlloy.toFixed(
+            2
+          )} ⛏, ${playerScience.toFixed(2)} 🔬)`;
         } else {
           this.captureButton.title =
             "Capture this gate only (destination gate stays with current owner)";
@@ -630,16 +662,20 @@ export class GateDetailView {
           this.overtakeButton.style.display = "block";
           const overtakeCost = GAME_COSTS.TUNNEL_OVERTAKE;
           const hasOvertakeResources =
-            playerEnergy >= overtakeCost.energy && 
-            playerAlloy >= overtakeCost.alloy && 
+            playerEnergy >= overtakeCost.energy &&
+            playerAlloy >= overtakeCost.alloy &&
             playerScience >= overtakeCost.science;
           this.overtakeButton.disabled = !hasOvertakeResources;
           // Update button text with costs from config
-          this.overtakeButton.textContent = `🏳️ Overtake Tunnel ${formatCost(overtakeCost)}`;
+          this.overtakeButton.textContent = `🏳️ Overtake Tunnel ${formatCost(
+            overtakeCost
+          )}`;
           if (!hasOvertakeResources) {
-            this.overtakeButton.title = `Requires ${formatCost(overtakeCost, { showParentheses: false })} (you have ${
-              playerEnergy.toFixed(2)
-            } ⚡, ${playerAlloy.toFixed(2)} ⛏, ${playerScience.toFixed(2)} 🔬)`;
+            this.overtakeButton.title = `Requires ${formatCost(overtakeCost, {
+              showParentheses: false,
+            })} (you have ${playerEnergy.toFixed(2)} ⚡, ${playerAlloy.toFixed(
+              2
+            )} ⛏, ${playerScience.toFixed(2)} 🔬)`;
           } else {
             this.overtakeButton.title =
               "Overtake entire tunnel: take both gates and start powering it with your species";
@@ -659,10 +695,11 @@ export class GateDetailView {
 
     // Display resource flow information
     if (resourceFlow) {
-      const hasFlow = resourceFlow.energyFlow > 0 ||
+      const hasFlow =
+        resourceFlow.energyFlow > 0 ||
         resourceFlow.alloyFlow > 0 ||
         resourceFlow.scienceFlow > 0;
-      
+
       if (hasFlow) {
         this.blockadeRow.style.display = "flex";
         const flowingResources = [];
@@ -676,7 +713,7 @@ export class GateDetailView {
           flowingResources.push(`${resourceFlow.scienceFlow.toFixed(2)} 🔬`);
         }
         const flowText = flowingResources.join(", ");
-        
+
         if (resourceFlow.isBlockaded) {
           // Show blocked resources
           this.blockadeRow.style.color = "#ff6b6b"; // Red for blockade

@@ -45,6 +45,16 @@ class ConstellationApp {
 
     // Start with lobby
     this.lobby = new LobbyManager();
+    
+    // CRITICAL: Ensure notification widgets are hidden on startup
+    const mineableWidget = document.getElementById("mineable-objects-widget");
+    const helium3Widget = document.getElementById("helium3-objects-widget");
+    if (mineableWidget && !mineableWidget.classList.contains("hidden")) {
+      mineableWidget.classList.add("hidden");
+    }
+    if (helium3Widget && !helium3Widget.classList.contains("hidden")) {
+      helium3Widget.classList.add("hidden");
+    }
 
     // Setup lobby network callbacks
     this.setupLobbyNetworkHandlers();
@@ -178,10 +188,21 @@ class ConstellationApp {
       await this.network.connect(wsUrl);
       console.log("Connected to server from lobby");
 
+      // Ensure HUD system is cleared so widgets hide properly
+      if (this.game) {
+        this.game.hud.clearSystem();
+      }
+
       // Show lobby after connection
       this.lobby.show();
     } catch (error) {
       console.error("Failed to connect to server:", error);
+      
+      // Ensure HUD system is cleared so widgets hide properly
+      if (this.game) {
+        this.game.hud.clearSystem();
+      }
+      
       this.lobby.showError(
         "Failed to connect to server. Please refresh the page."
       );
@@ -1143,6 +1164,10 @@ class ConstellationGame {
 
     this.hud.onEstablishMining = (celestialBodyId) => {
       this.network.establishMining(celestialBodyId);
+    };
+
+    this.hud.onEstablishHelium3 = (celestialBodyId) => {
+      this.network.establishHelium3Extraction(celestialBodyId);
     };
 
     this.hud.onLaunchDysonSwarm = (starId) => {

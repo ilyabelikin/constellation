@@ -25,6 +25,7 @@ import {
 } from "./materials/planetColorUtils";
 import { getDesertAtmosphereColor } from "./materials/DesertAtmosphereGlowMaterial";
 import { MiningInstallationRenderer } from "./MiningInstallationRenderer.js";
+import { Helium3ExtractorRenderer } from "./Helium3ExtractorRenderer.js";
 import { ColonyEstablishmentRenderer } from "./ColonyEstablishmentRenderer.js";
 import { GateDefenseRenderer } from "./GateDefenseRenderer.js";
 import { GateResourceFlowRenderer } from "./GateResourceFlowRenderer.js";
@@ -52,6 +53,7 @@ export class SceneManager {
   private constellationView: ConstellationView;
   private dysonSwarmFactory: DysonSwarmFactory;
   private miningInstallationRenderer: MiningInstallationRenderer;
+  private helium3ExtractorRenderer: Helium3ExtractorRenderer;
   private colonyEstablishmentRenderer: ColonyEstablishmentRenderer;
   private gateDefenseRenderer: GateDefenseRenderer;
   private gateResourceFlowRenderer: GateResourceFlowRenderer;
@@ -240,10 +242,18 @@ export class SceneManager {
     // Initialize Dyson swarm factory
     this.dysonSwarmFactory = new DysonSwarmFactory();
 
-    // Initialize mining installation renderer
+    // Initialize mining installation renderer (handles both asteroids and moons)
     this.miningInstallationRenderer = new MiningInstallationRenderer(
       this.scene,
-      this.asteroids
+      this.asteroids,
+      this.moons
+    );
+
+    // Initialize Helium-3 extractor renderer
+    this.helium3ExtractorRenderer = new Helium3ExtractorRenderer(
+      this.scene,
+      this.bodies, // Uses bodies map which includes both planets and moons
+      this.camera // Pass camera so extractors can face it
     );
 
     // Initialize colony establishment renderer
@@ -449,6 +459,7 @@ export class SceneManager {
       const moonMesh = this.celestialBodyFactory.createMoon(moon);
       this.scene.add(moonMesh);
       this.moons.set(moon.id, moonMesh);
+      this.bodies.set(moon.id, moonMesh); // Also add to bodies map for Helium-3 renderer
 
       // Create moon orbit line (initially hidden)
       const moonOrbitLine = this.celestialBodyFactory.createOrbitLine(moon);
@@ -940,6 +951,9 @@ export class SceneManager {
 
     // Dispose mining installations
     this.miningInstallationRenderer.dispose();
+
+    // Dispose Helium-3 extractors
+    this.helium3ExtractorRenderer.dispose();
 
     // Dispose and remove all moons
     for (const mesh of this.moons.values()) {
@@ -1885,6 +1899,8 @@ export class SceneManager {
         }
         // Show mining installations after gate travel
         this.miningInstallationRenderer.setVisible(true);
+        // Show Helium-3 extractors after gate travel
+        this.helium3ExtractorRenderer.setVisible(true);
         // Show planet orbit lines for planets orbiting the primary star only
         if (this.system) {
           for (const planet of this.system.planets) {
@@ -2208,6 +2224,14 @@ export class SceneManager {
     if (this.system && this.system.miningOperations) {
       this.miningInstallationRenderer.update(
         this.system.miningOperations,
+        deltaTime
+      );
+    }
+
+    // Update Helium-3 extractors
+    if (this.system && this.system.helium3Operations) {
+      this.helium3ExtractorRenderer.update(
+        this.system.helium3Operations,
         deltaTime
       );
     }
@@ -3006,6 +3030,8 @@ export class SceneManager {
     }
     // Hide mining installations during gate travel
     this.miningInstallationRenderer.setVisible(false);
+    // Hide Helium-3 extractors during gate travel
+    this.helium3ExtractorRenderer.setVisible(false);
     for (const satelliteData of this.satellites.values()) {
       for (const satellite of satelliteData.meshes) {
         satellite.visible = false;
@@ -3276,6 +3302,8 @@ export class SceneManager {
     }
     // Hide mining installations in constellation view
     this.miningInstallationRenderer.setVisible(false);
+    // Hide Helium-3 extractors in constellation view
+    this.helium3ExtractorRenderer.setVisible(false);
     // Hide gate defenses and attacks in constellation view
     this.gateDefenseRenderer.setVisible(false);
     for (const satelliteData of this.satellites.values()) {

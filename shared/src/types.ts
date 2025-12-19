@@ -100,6 +100,8 @@ export interface CelestialBodyType {
   moons?: CelestialBodyType[]; // moons orbiting this planet
   // Ring system properties (for gas giants)
   rings?: PlanetaryRing[];
+  // Helium-3 mining properties
+  hasHelium3?: boolean; // whether body has mineable Helium-3 deposits
 }
 
 export interface PlanetaryRing {
@@ -191,6 +193,16 @@ export interface MiningOperation {
   lastYieldAt: number; // timestamp of last resource generation
   totalAlloyLimit: number; // total amount of alloy that can be mined (15-100)
   alloyMined: number; // amount of alloy already mined
+}
+
+export interface Helium3Operation {
+  id: string;
+  playerId: string;
+  systemId: string;
+  celestialBodyId: string; // planet or moon with Helium-3
+  energyPerDay: number; // amount of energy added to pool (field name kept for compatibility)
+  establishedAt: number; // timestamp when extraction was established
+  lastYieldAt: number; // timestamp (unused, kept for compatibility)
 }
 
 // Species trait types
@@ -335,6 +347,7 @@ export interface StarSystem {
   gates: StarGate[];
   companionStars?: CelestialBodyType[]; // For binary/trinary systems
   miningOperations?: MiningOperation[]; // Active mining operations in this system
+  helium3Operations?: Helium3Operation[]; // Active Helium-3 mining operations in this system
   megastructures?: Megastructure[]; // Megastructures in this system
   colonies?: Colony[]; // Player colonies in this system
   nativeCivilizations?: NativeCivilization[]; // Native alien civilizations

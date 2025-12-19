@@ -18,6 +18,7 @@ import {
   ATTACK_SHIP_CONFIG,
   DEFENSE_PLATFORM_CONFIG,
   MINING_INSTALLATION_CONFIG,
+  HELIUM3_EXTRACTION_CONFIG,
   COMBAT_CONFIG,
   GAME_COSTS,
   STARTING_RESOURCES,
@@ -25,7 +26,8 @@ import {
   getColonyStage,
   TECHNOLOGIES,
   SOLAR_RADIUS,
-  DYSON_SWARM_ENERGY_PER_DAY,
+  DYSON_SWARM_ENERGY,
+  HELIUM3_ENERGY,
   calculateMaxDysonSwarms,
   calculateIceCapCoverage,
 } from "@constellation/shared";
@@ -215,6 +217,9 @@ export class ConstellationWebSocketServer {
           break;
         case "establishMining":
           this.handleEstablishMining(client, message.celestialBodyId);
+          break;
+        case "establishHelium3Extraction":
+          this.handleEstablishHelium3Extraction(client, message.celestialBodyId);
           break;
         case "launchDysonSwarm":
           this.handleLaunchDysonSwarm(client, message.starId);
@@ -2395,6 +2400,211 @@ export class ConstellationWebSocketServer {
     this.sendResourceFlowUpdate(client);
   }
 
+  private handleEstablishHelium3Extraction(
+    client: ClientConnection,
+    celestialBodyId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Check if player has enough resources
+    const cost = HELIUM3_EXTRACTION_CONFIG.cost;
+    if (player.energy < cost.energy) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to establish Helium-3 extraction (requires ${cost.energy} energy)`
+      );
+      return;
+    }
+    if (player.alloy < cost.alloy) {
+      this.sendError(
+        client.ws,
+        `Not enough alloy to establish Helium-3 extraction (requires ${cost.alloy} alloy)`
+      );
+      return;
+    }
+    if (player.science < cost.science) {
+      this.sendError(
+        client.ws,
+        `Not enough science to establish Helium-3 extraction (requires ${cost.science} science)`
+      );
+      return;
+    }
+
+    // Get the system the player is currently in
+    const system = this.db.getStarSystem(player.currentSystemId);
+    if (!system) {
+      this.sendError(client.ws, "Current system not found");
+      return;
+    }
+
+    // Find the celestial body in the system
+    let celestialBody = null;
+
+    // Check in planets
+    for (const planet of system.planets) {
+      if (planet.id === celestialBodyId) {
+        celestialBody = planet;
+        break;
+      }
+    }
+
+    // Check in moons
+    if (!celestialBody) {
+      for (const moon of system.moons) {
+        if (moon.id === celestialBodyId) {
+          celestialBody = moon;
+          break;
+        }
+      }
+    }
+
+    if (!celestialBody) {
+      this.sendError(client.ws, "Celestial body not found");
+      return;
+    }
+
+    // Check if it has Helium-3
+    if (!celestialBody.hasHelium3) {
+      this.sendError(
+        client.ws,
+        "This celestial body does not have Helium-3 deposits"
+      );
+      return;
+    }
+
+    // Check if there's already a Helium-3 operation on this body
+    const existingOperation =
+      this.db.getHelium3OperationByCelestialBody(celestialBodyId);
+    if (existingOperation) {
+      this.sendError(
+        client.ws,
+        "Helium-3 extraction already exists on this body"
+      );
+      return;
+    }
+
+    // Get current galaxy time for timestamp
+    const galaxy = this.db.getGalaxyById(player.galaxyId);
+    if (!galaxy) {
+      this.sendError(client.ws, "Galaxy not found");
+      return;
+    }
+    const currentTime = galaxy.currentTime || 0;
+
+    // Deduct resources
+    const energySuccess = this.db.deductPlayerEnergy(
+      client.playerId,
+      cost.energy
+    );
+    if (!energySuccess) {
+      this.sendError(client.ws, "Failed to deduct energy");
+      return;
+    }
+    const alloySuccess = this.db.deductPlayerAlloy(client.playerId, cost.alloy);
+    if (!alloySuccess) {
+      // Refund energy if alloy deduction fails
+      this.db.addPlayerEnergy(client.playerId, cost.energy);
+      this.sendError(client.ws, "Failed to deduct alloy");
+      return;
+    }
+    const scienceSuccess = this.db.deductPlayerScience(
+      client.playerId,
+      cost.science
+    );
+    if (!scienceSuccess) {
+      // Refund energy and alloy if science deduction fails
+      this.db.addPlayerEnergy(client.playerId, cost.energy);
+      this.db.addPlayerAlloy(client.playerId, cost.alloy);
+      this.sendError(client.ws, "Failed to deduct science");
+      return;
+    }
+
+    // Add energy immediately (Helium-3 extractors provide instant permanent energy boost)
+    const energyAmount = HELIUM3_ENERGY;
+    this.db.addPlayerEnergy(client.playerId, energyAmount);
+
+    // Create Helium-3 extraction operation
+    const helium3OperationId = uuidv4();
+
+    this.db.createHelium3Operation(
+      helium3OperationId,
+      client.playerId,
+      system.id,
+      celestialBodyId,
+      energyAmount,
+      currentTime
+    );
+
+    console.log(
+      `Player ${player.name} established Helium-3 extraction on ${celestialBody.name} in system ${system.id} (+${energyAmount} energy)`
+    );
+
+    // Send updated player data with new alloy amount FIRST
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Reload the system in game state with updated Helium-3 operations
+    const updatedSystem = this.db.getStarSystem(system.id);
+    if (updatedSystem) {
+      // Update the system in the game state manager so future state updates include the new operation
+      this.gameState.loadSystem(updatedSystem);
+
+      // Send updated system data to the client who established extraction
+      const gateOwnership = this.db.getGateOwnershipForSystem(
+        client.playerId,
+        updatedSystem.id
+      );
+      this.send(client.ws, {
+        type: "systemData",
+        system: updatedSystem,
+        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
+      });
+
+      // Also broadcast updated system data to all other clients viewing this system
+      for (const otherClient of this.clients.values()) {
+        if (
+          otherClient.currentSystemId === system.id &&
+          otherClient.playerId !== client.playerId
+        ) {
+          const otherGateOwnership = otherClient.playerId
+            ? this.db.getGateOwnershipForSystem(
+                otherClient.playerId,
+                updatedSystem.id
+              )
+            : [];
+          this.send(otherClient.ws, {
+            type: "systemData",
+            system: updatedSystem,
+            gateOwnership:
+              otherGateOwnership.length > 0 ? otherGateOwnership : undefined,
+          });
+        }
+      }
+    }
+
+    // Send success message LAST so client can re-select the body after updates
+    this.send(client.ws, {
+      type: "helium3Established",
+      helium3OperationId,
+      celestialBodyId,
+      energyPerDay: energyAmount, // Keep field name for compatibility
+    });
+
+    // Update resource flow for this player (Helium-3 operation affects flow)
+    this.sendResourceFlowUpdate(client);
+  }
+
   private handleLaunchDysonSwarm(
     client: ClientConnection,
     starId: string
@@ -2484,15 +2694,15 @@ export class ConstellationWebSocketServer {
     deductStmt.run(dysonSwarmCost, client.playerId);
 
     // Add energy immediately (Dyson Swarms provide instant permanent energy boost)
-    // Each swarm generates DYSON_SWARM_ENERGY_PER_DAY (1 energy per swarm)
-    let energyPerSwarm = DYSON_SWARM_ENERGY_PER_DAY;
+    // Each swarm adds DYSON_SWARM_ENERGY to the player's energy pool
+    let energyPerSwarm = DYSON_SWARM_ENERGY;
 
     // Apply Nano Arrays technology bonus (+10% energy)
     const completedTechs = this.db.getCompletedTechnologies(client.playerId);
     if (completedTechs.includes("nano_arrays")) {
       energyPerSwarm = energyPerSwarm * 1.1; // +10% bonus
       console.log(
-        `Nano Arrays tech applied: ${energyPerSwarm} energy/day (was ${DYSON_SWARM_ENERGY_PER_DAY})`
+        `Nano Arrays tech applied: ${energyPerSwarm} energy (was ${DYSON_SWARM_ENERGY})`
       );
     }
 
@@ -2516,7 +2726,7 @@ export class ConstellationWebSocketServer {
     console.log(
       `Player ${player.name} launched Dyson Swarm #${
         existingSwarms + 1
-      }/${maxSwarms} on ${targetStar.name} in system ${system.id} (+${energyPerSwarm} energy/day)`
+      }/${maxSwarms} on ${targetStar.name} in system ${system.id} (+${energyPerSwarm} energy)`
     );
 
     // Send updated player data with new alloy amount FIRST
@@ -2900,6 +3110,7 @@ export class ConstellationWebSocketServer {
     this.db.processMiningYields(currentTime);
 
     // Process megastructure yields based on current time
+    // Note: Dyson Swarms and Helium-3 extractors provide instant energy (not processed here)
     this.db.processMegastructureYields(currentTime);
 
     // Process colony yields based on current time (population growth, resource generation)

@@ -435,7 +435,7 @@
         }
 
         .hidden {
-            display: none;
+            display: none !important;
         }
 
         /* Hide game HUD elements when auth modal is visible */
@@ -602,19 +602,38 @@
 
         /* Badges container and badge styles */
         #badges-container {
+            position: fixed;
+            top: 38px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 15;
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: center;
             pointer-events: none; /* Allow clicks to pass through empty space */
         }
 
         #badges-container > * {
             pointer-events: auto; /* But enable clicks on badges themselves */
+            flex-shrink: 0; /* Prevent badges from shrinking */
+            position: relative; /* Ensure badges don't overlap */
         }
 
         .badge {
-            padding: 8px 12px;
+            padding: 6px 8px;
             cursor: pointer;
             user-select: none;
-            min-width: 60px;
+            min-width: 40px;
             transition: transform 0.2s ease, box-shadow 0.2s ease;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .badge:not(.hidden) {
+            display: inline-flex;
         }
 
         .badge:hover {
@@ -624,6 +643,13 @@
 
         .badge:active {
             transform: translateY(0);
+        }
+
+        .badge-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
         }
 
         .badge-icon {
@@ -961,18 +987,25 @@
     </div>
 
     <!-- Badges Area (top middle of screen) -->
-    <div id="badges-container" style="position: fixed; top: 38px; left: 50%; transform: translateX(-50%); z-index: 15; display: flex; gap: 10px; align-items: center;">
+    <div id="badges-container">
         <!-- Mineable Objects Badge -->
         <div id="mineable-objects-widget" class="hud badge hidden">
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+            <div class="badge-content">
                 <div class="badge-icon">⛏</div>
                 <div id="mineable-counter" class="badge-counter">0</div>
+            </div>
+        </div>
+        <!-- Helium-3 Available Badge -->
+        <div id="helium3-objects-widget" class="hud badge hidden">
+            <div class="badge-content">
+                <div class="badge-icon">⚡</div>
+                <div id="helium3-counter" class="badge-counter">0</div>
             </div>
         </div>
         <!-- 
         Example: Add more badges here following the same pattern:
         <div id="your-badge-widget" class="hud badge hidden">
-            <div style="display: flex; flex-direction: column; align-items: center; gap: 4px;">
+            <div class="badge-content">
                 <div class="badge-icon">🚀</div>
                 <div class="badge-counter">0</div>
             </div>
@@ -1033,6 +1066,14 @@
             </div>
             <button class="hud-button" id="body-mine-button" style="width: 100%;">
                 ⛏ Establish Mining
+            </button>
+        </div>
+        <div id="body-helium3-section" style="display: none; margin-top: 1rem;">
+            <div id="body-helium3-status" class="detail-value" style="display: none; color: #60a5fa; margin-bottom: 0.5rem;">
+                ⚡ Helium-3: +<span id="body-helium3-rate">-</span> energy
+            </div>
+            <button class="hud-button" id="body-helium3-button" style="width: 100%;">
+                ⚡ Establish Helium-3 Extraction
             </button>
         </div>
         <div id="body-dyson-section" style="display: none; margin-top: 1rem;">
