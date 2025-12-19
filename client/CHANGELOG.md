@@ -4,7 +4,7 @@
 
 - **Logistics**: Resources now delivered to the capital world via space-time tunnels, so that if you lose control over a tunnel your supply will be interrupted
 - **Migration**: established worlds now send their population to colonies so that you planes will grow much faster and become productive
-- **Helium-3**: you now can mine helium 3 for cheap and fast but limited energy supply
+- **Helium-3**: you now can mine helium 3 for cheap and fast but inherently limited energy supply kick-starting your economy
 - **Gate Controll**: You may now fortify and attack gates as well as capture individual gates or take over the tunnels completely
 - **Overcharge**: a civilization that controls the tunnel energy supply may overcharge it exploding both gates and blocking tunnel for 1 year
 - **Tech**: Introduced a few technologies that a civilization now can develop: Nano Arrays, Deep Mining, Sheilds, Gyro Traction Beam
