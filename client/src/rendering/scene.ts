@@ -3145,7 +3145,8 @@ export class SceneManager {
     currentSystemId: string,
     customPositions?: Record<string, { x: number; y: number; z: number }>,
     preserveSelectedSystemId?: string | null,
-    homePlanetId?: string | null
+    homePlanetId?: string | null,
+    homeSystemId?: string | null
   ): string | null {
     // Hide system objects
     this.hideSystemObjects();
@@ -3158,7 +3159,8 @@ export class SceneManager {
       currentSystemId,
       customPositions,
       preserveSelectedSystemId,
-      homePlanetId
+      homePlanetId,
+      homeSystemId
     );
     this.isConstellationViewActive = true;
 

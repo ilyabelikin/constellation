@@ -723,7 +723,8 @@ class ConstellationGame {
         currentSystemId,
         customPositions,
         preserveSelection,
-        this.player?.homePlanetId || null
+        this.player?.homePlanetId || null,
+        this.player?.homeSystemId || null
       );
       this.hud.hideOutline();
       // Notify HUD that we're in constellation view (to hide mineable widget)

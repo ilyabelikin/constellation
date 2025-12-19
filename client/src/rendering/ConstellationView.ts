@@ -22,6 +22,7 @@ export class ConstellationView {
   private currentSystemId: string | null = null;
   private selectedSystemId: string | null = null; // Track selected system (starts as current system)
   private homePlanetId: string | null = null; // Track home planet for special marking
+  private homeSystemId: string | null = null; // Track home system for pathfinding
 
   // Scale factor for visualization (light years to Three.js units)
   private readonly SCALE = 5; // 1 light year = 5 units (very compact view)
@@ -64,6 +65,10 @@ export class ConstellationView {
     }
   > = new Map(); // Key is swarmKey (systemId-starId-swarmIndex)
 
+  // Path to home animation
+  private pathToHomePulses: THREE.Mesh[] = [];
+  private pathToHomeLines: THREE.Line[] = [];
+
   constructor(scene: THREE.Scene) {
     this.scene = scene;
     this.connections.name = "constellationConnections";
@@ -81,7 +86,8 @@ export class ConstellationView {
     currentSystemId: string,
     customPositions?: Record<string, { x: number; y: number; z: number }>,
     preserveSelectedSystemId?: string | null,
-    homePlanetId?: string | null
+    homePlanetId?: string | null,
+    homeSystemId?: string | null
   ): void {
     this.clear();
     this.currentSystemId = currentSystemId;
@@ -90,6 +96,7 @@ export class ConstellationView {
     this.connectionsList = connectionsList;
     this.nodesList = nodes;
     this.homePlanetId = homePlanetId || null;
+    this.homeSystemId = homeSystemId || null;
 
     // Populate unexplored gates list EARLY (before creating star nodes)
     // so connection counts in labels are correct from the start
@@ -857,6 +864,9 @@ export class ConstellationView {
           .add(starGroup.position);
       }
     }
+
+    // Update path to home pulse animations
+    this.updatePathToHomePulses(deltaTime);
   }
 
   /**
@@ -986,6 +996,9 @@ export class ConstellationView {
       }
     }
     this.dysonSatellites.clear();
+
+    // Clear path to home animation
+    this.clearPathToHomeAnimation();
 
     this.currentSystemId = null;
     this.mysteryPositions.clear();
@@ -1615,6 +1628,20 @@ export class ConstellationView {
 
     // Update unexplored gates to only show for selected system
     this.updateUnexploredGatesVisibility();
+
+    // Create path to home animation if this is not the home system
+    if (systemId !== this.homeSystemId && this.homeSystemId) {
+      const path = this.findPathToHome(systemId);
+      if (path) {
+        this.createPathToHomeAnimation(path);
+      } else {
+        // No path found, clear any existing animation
+        this.clearPathToHomeAnimation();
+      }
+    } else {
+      // Selected home system, clear animation
+      this.clearPathToHomeAnimation();
+    }
   }
 
   /**
@@ -1872,6 +1899,265 @@ export class ConstellationView {
   updateStarAnimations(time: number): void {
     for (const material of this.starMaterials) {
       material.uniforms.time.value = time;
+    }
+  }
+
+  /**
+   * Find the shortest path from a system to the home system using BFS
+   * Returns an array of system IDs representing the path (including start and end)
+   */
+  private findPathToHome(fromSystemId: string): string[] | null {
+    if (!this.homeSystemId || fromSystemId === this.homeSystemId) {
+      return null;
+    }
+
+    // Build adjacency list from connections (only explored connections)
+    const adjacencyList = new Map<string, string[]>();
+    for (const connection of this.connectionsList) {
+      if (connection.isExplored) {
+        // Add bidirectional edges
+        if (!adjacencyList.has(connection.fromSystemId)) {
+          adjacencyList.set(connection.fromSystemId, []);
+        }
+        if (!adjacencyList.has(connection.toSystemId)) {
+          adjacencyList.set(connection.toSystemId, []);
+        }
+        adjacencyList.get(connection.fromSystemId)!.push(connection.toSystemId);
+        adjacencyList.get(connection.toSystemId)!.push(connection.fromSystemId);
+      }
+    }
+
+    // BFS to find shortest path
+    const queue: { systemId: string; path: string[] }[] = [
+      { systemId: fromSystemId, path: [fromSystemId] },
+    ];
+    const visited = new Set<string>([fromSystemId]);
+
+    while (queue.length > 0) {
+      const { systemId, path } = queue.shift()!;
+
+      // Check if we reached home
+      if (systemId === this.homeSystemId) {
+        return path;
+      }
+
+      // Explore neighbors
+      const neighbors = adjacencyList.get(systemId) || [];
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push({
+            systemId: neighbor,
+            path: [...path, neighbor],
+          });
+        }
+      }
+    }
+
+    // No path found
+    return null;
+  }
+
+  /**
+   * Create animated pulses along the path to home
+   */
+  private createPathToHomeAnimation(path: string[]): void {
+    // Clear existing path animation
+    this.clearPathToHomeAnimation();
+
+    if (path.length < 2) return;
+
+    // Create highlighted connection lines along the path
+    for (let i = 0; i < path.length - 1; i++) {
+      const fromNode = this.nodes.get(path[i]);
+      const toNode = this.nodes.get(path[i + 1]);
+
+      if (fromNode && toNode) {
+        const fromPos = fromNode.position;
+        const toPos = toNode.position;
+
+        // Create a glowing line along the path
+        const points = [fromPos, toPos];
+        const geometry = new THREE.BufferGeometry().setFromPoints(points);
+        const material = new THREE.LineBasicMaterial({
+          color: 0xfbbf24, // Orange color for path (same as owned pathways)
+          linewidth: 3,
+          transparent: true,
+          opacity: 0.4,
+        });
+        const line = new THREE.Line(geometry, material);
+        this.pathToHomeLines.push(line);
+        this.scene.add(line);
+      }
+    }
+
+    // Calculate total path length
+    let totalPathLength = 0;
+    const segmentLengths: number[] = [];
+    for (let i = 0; i < path.length - 1; i++) {
+      const fromNode = this.nodes.get(path[i]);
+      const toNode = this.nodes.get(path[i + 1]);
+      if (fromNode && toNode) {
+        const segmentLength = fromNode.position.distanceTo(toNode.position);
+        segmentLengths.push(segmentLength);
+        totalPathLength += segmentLength;
+      }
+    }
+
+    // Create particles uniformly distributed by distance along the entire path
+    const particleSpacing = 5.0; // Uniform spacing in world units
+    const numParticles = Math.floor(totalPathLength / particleSpacing);
+
+    for (let i = 0; i < numParticles; i++) {
+      // Calculate distance along path for this particle
+      const targetDistance = (i / numParticles) * totalPathLength;
+
+      // Find which segment this distance falls into
+      let accumulatedDistance = 0;
+      let segmentIndex = 0;
+      let progressInSegment = 0;
+
+      for (let j = 0; j < segmentLengths.length; j++) {
+        const segmentLength = segmentLengths[j];
+        if (accumulatedDistance + segmentLength >= targetDistance) {
+          // This is the segment
+          segmentIndex = j;
+          progressInSegment = (targetDistance - accumulatedDistance) / segmentLength;
+          break;
+        }
+        accumulatedDistance += segmentLength;
+      }
+
+      const fromNode = this.nodes.get(path[segmentIndex]);
+      const toNode = this.nodes.get(path[segmentIndex + 1]);
+
+      if (!fromNode || !toNode) continue;
+
+      const fromPos = fromNode.position;
+      const toPos = toNode.position;
+
+      // Create smaller particle
+      const geometry = new THREE.SphereGeometry(0.5, 12, 12);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0xfbbf24, // Orange color (same as owned pathways)
+        transparent: true,
+        opacity: 0.9,
+      });
+      const particle = new THREE.Mesh(geometry, material);
+
+      // Store animation data
+      particle.userData = {
+        type: "pathToHomePulse",
+        path: path,
+        segmentIndex: segmentIndex,
+        progress: progressInSegment,
+        speed: 7.5 / segmentLengths[segmentIndex], // Normalize speed for current segment
+      };
+
+      // Position particle along the path
+      particle.position.lerpVectors(fromPos, toPos, progressInSegment);
+
+      this.pathToHomePulses.push(particle);
+      this.scene.add(particle);
+
+      // Add subtle glow
+      const glowGeometry = new THREE.SphereGeometry(0.8, 12, 12);
+      const glowMaterial = new THREE.MeshBasicMaterial({
+        color: 0xfbbf24, // Orange glow
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.BackSide,
+      });
+      const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+      particle.add(glow);
+    }
+  }
+
+  /**
+   * Clear the path to home animation
+   */
+  private clearPathToHomeAnimation(): void {
+    // Remove pulse particles
+    for (const pulse of this.pathToHomePulses) {
+      pulse.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          if (child.material instanceof THREE.Material) {
+            child.material.dispose();
+          }
+        }
+      });
+      this.scene.remove(pulse);
+    }
+    this.pathToHomePulses = [];
+
+    // Remove path lines
+    for (const line of this.pathToHomeLines) {
+      line.geometry.dispose();
+      if (line.material instanceof THREE.Material) {
+        line.material.dispose();
+      }
+      this.scene.remove(line);
+    }
+    this.pathToHomeLines = [];
+  }
+
+  /**
+   * Update path to home pulse animations
+   */
+  private updatePathToHomePulses(deltaTime: number): void {
+    for (const particle of this.pathToHomePulses) {
+      const userData = particle.userData;
+      const path: string[] = userData.path;
+      const speed = userData.speed;
+      let segmentIndex = userData.segmentIndex;
+      let progress = userData.progress;
+
+      if (!path || path.length < 2) continue;
+
+      // Update progress along current segment
+      progress += speed * deltaTime;
+
+      // If we've completed this segment, move to the next one
+      if (progress >= 1.0) {
+        segmentIndex++;
+        progress = 0;
+
+        // If we've reached the end of the path, loop back to the start
+        if (segmentIndex >= path.length - 1) {
+          segmentIndex = 0;
+          progress = 0;
+        }
+
+        userData.segmentIndex = segmentIndex;
+        userData.progress = progress;
+
+        // Update speed for new segment
+        const fromNode = this.nodes.get(path[segmentIndex]);
+        const toNode = this.nodes.get(path[segmentIndex + 1]);
+        if (fromNode && toNode) {
+          const segmentLength = fromNode.position.distanceTo(toNode.position);
+          userData.speed = 7.5 / segmentLength; // Normalize speed (half of original 15.0)
+        }
+      } else {
+        userData.progress = progress;
+      }
+
+      // Update particle position
+      const fromNode = this.nodes.get(path[segmentIndex]);
+      const toNode = this.nodes.get(path[segmentIndex + 1]);
+
+      if (fromNode && toNode) {
+        const fromPos = fromNode.position;
+        const toPos = toNode.position;
+
+        // Interpolate position along current segment
+        particle.position.lerpVectors(fromPos, toPos, progress);
+
+        // Gentle pulsing scale effect
+        const scale = 1 + Math.sin(progress * Math.PI * 2) * 0.2;
+        particle.scale.set(scale, scale, scale);
+      }
     }
   }
 }
