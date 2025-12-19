@@ -988,7 +988,11 @@ export class HUDManager {
     }
   }
 
-  setSystem(system: StarSystem, isRefresh: boolean = false): void {
+  setSystem(
+    system: StarSystem,
+    isRefresh: boolean = false,
+    fromConstellationView: boolean = false
+  ): void {
     const isSystemChange = this.system?.id !== system.id;
     this.system = system;
 
@@ -996,7 +1000,8 @@ export class HUDManager {
     this.bodyDetailView.setCurrentSystem(system);
 
     // Only hide panels and repopulate outline when actually changing systems
-    if (isSystemChange || !isRefresh) {
+    // OR when coming from constellation view (to ensure theme is applied)
+    if (isSystemChange || !isRefresh || fromConstellationView) {
       // CRITICAL: Hide all panels when changing systems
       // This prevents detail panels from the previous system from remaining visible
       this.hideDetailPanels();

@@ -1245,7 +1245,7 @@ class ConstellationGame {
           this.scene.hideConstellationView();
           this.hud.setConstellationViewState(false);
           if (this.system) {
-            this.hud.setSystem(this.system, true);
+            this.hud.setSystem(this.system, true, true); // true = isRefresh, true = fromConstellationView
           }
         }
 
@@ -1304,7 +1304,7 @@ class ConstellationGame {
           this.scene.hideConstellationView();
           this.hud.setConstellationViewState(false);
           if (this.system) {
-            this.hud.setSystem(this.system, true);
+            this.hud.setSystem(this.system, true, true); // true = isRefresh, true = fromConstellationView
           }
         }
 
@@ -1344,7 +1344,7 @@ class ConstellationGame {
         this.hud.setConstellationViewState(false);
 
         if (this.system && this.system.id === systemId) {
-          this.hud.setSystem(this.system, true);
+          this.hud.setSystem(this.system, true, true); // true = isRefresh, true = fromConstellationView
           // Show the outline when returning to system view
           this.hud.showOutline();
 
@@ -1385,7 +1385,7 @@ class ConstellationGame {
 
       // If it's the current system, just center on the planet
       if (this.system && this.system.id === systemId) {
-        this.hud.setSystem(this.system, true);
+        this.hud.setSystem(this.system, true, true); // true = isRefresh, true = fromConstellationView
 
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
@@ -1397,7 +1397,7 @@ class ConstellationGame {
         // Request the system state and then center on the planet
         this.network.requestSystemState(systemId);
         if (this.system) {
-          this.hud.setSystem(this.system, true);
+          this.hud.setSystem(this.system, true, true); // true = isRefresh, true = fromConstellationView
         }
 
         // Store the planet ID to center on after system loads

@@ -2022,9 +2022,14 @@ export class ConstellationWebSocketServer {
       );
 
       // Count habitable planets and colonized habitable planets
-      const habitablePlanets = system.planets.filter(
-        (planet) => planet.habitability && planet.habitability >= 0.6
-      );
+      const habitablePlanets = system.planets
+        .filter((planet) => planet.habitability && planet.habitability >= 0.6)
+        .sort((a, b) => {
+          // Sort by distance from star (semi-major axis) to match planet ordering
+          const aAxis = a.orbitalElements?.semiMajorAxis || 0;
+          const bAxis = b.orbitalElements?.semiMajorAxis || 0;
+          return aAxis - bAxis;
+        });
       const habitablePlanetCount = habitablePlanets.length;
 
       // Count colonized habitable planets (check if planet has a colony)

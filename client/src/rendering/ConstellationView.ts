@@ -416,7 +416,7 @@ export class ConstellationView {
     const lineHeight = nameFontSize * 1.2;
     const statsHeight = statsFontSize * 1.2;
     const padding = 20;
-    const circleHeight = node.habitablePlanetCount > 0 ? 30 : 0; // Add space for circles if there are habitable planets
+    const circleHeight = node.habitablePlanetCount > 0 ? 45 : 0; // Add space for circles if there are habitable planets (includes circle position below stats + radius + outline)
     const canvasHeight = Math.ceil(
       lines.length * lineHeight + statsHeight + circleHeight + padding * 2
     );
@@ -475,10 +475,12 @@ export class ConstellationView {
 
       for (let i = 0; i < node.habitablePlanetCount; i++) {
         const x = startX + i * circleSpacing;
-        const isColonized = i < node.colonizedHabitablePlanetCount;
+        
+        // Get planet info and check colonization status
+        const planet = node.habitablePlanets?.[i];
+        const isColonized = planet?.isColonized || false;
 
         // Check if this is the home planet
-        const planet = node.habitablePlanets?.[i];
         const isHomePlanet =
           planet && this.homePlanetId && planet.planetId === this.homePlanetId;
 

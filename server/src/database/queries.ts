@@ -2800,6 +2800,15 @@ export class DatabaseQueries {
         systems.push(system);
       }
     }
+    
+    // Ensure current system is always included (safety check)
+    if (!systems.some(s => s.id === currentSystemId)) {
+      const currentSystem = this.getStarSystem(currentSystemId);
+      if (currentSystem) {
+        console.warn(`Current system ${currentSystemId} was not in systemIds, adding it now`);
+        systems.push(currentSystem);
+      }
+    }
 
     // Get custom constellation positions for this player (need this early for return statements)
     const customPositions = this.getConstellationPositions(playerId);
