@@ -783,18 +783,72 @@ class ConstellationGame {
       playerId,
       playerName,
       starsDiscovered,
-      currentStance
+      currentRelationship
     ) => {
       this.hud.updatePlayerProfileStats(
         playerId,
         playerName,
         starsDiscovered,
-        currentStance
+        currentRelationship
       );
     };
 
-    this.network.onStanceUpdated = (targetPlayerId, stance) => {
-      console.log("Stance updated for player", targetPlayerId, "to", stance);
+    this.network.onRelationshipChanged = (otherPlayerId, otherPlayerName, relationship) => {
+      console.log("Relationship changed with player", otherPlayerName, "to", relationship);
+      this.hud.showNotification(
+        `Relationship with ${otherPlayerName} is now: ${relationship === "at_war" ? "At War ⚔" : relationship === "friendly" ? "Friendly ✓" : "Neutral"}`
+      );
+      // Update the profile if it's currently open - clear any proposals since relationship changed
+      this.hud.updatePlayerRelationshipStatus(otherPlayerId, relationship, null, null);
+      // Refresh constellation view to update gate colors
+      this.network.requestConstellation();
+    };
+
+    this.network.onRelationshipProposalReceived = (proposal) => {
+      console.log("Received relationship proposal from", proposal.fromPlayerName);
+      this.hud.showNotification(
+        `📨 ${proposal.fromPlayerName} proposes a friendly relationship!`
+      );
+      // Update the profile if it's currently open for this player
+      this.hud.updatePlayerRelationshipStatus(
+        proposal.fromPlayerId,
+        "neutral",
+        proposal,
+        undefined
+      );
+    };
+
+    this.network.onRelationshipProposalSent = (proposal) => {
+      console.log("Sent relationship proposal to", proposal.toPlayerName);
+      this.hud.showNotification(
+        `Friendly relationship proposal sent to ${proposal.toPlayerName}`
+      );
+      // Update the profile if it's currently open for this player
+      this.hud.updatePlayerRelationshipStatus(
+        proposal.toPlayerId,
+        "neutral",
+        undefined,
+        proposal
+      );
+    };
+
+    this.network.onProposalAccepted = (playerId, playerName) => {
+      console.log("Proposal accepted by", playerName);
+      this.hud.showNotification(
+        `✓ ${playerName} accepted your friendly relationship proposal!`
+      );
+    };
+
+    this.network.onProposalRejected = (playerId, playerName) => {
+      console.log("Proposal rejected by", playerName);
+      this.hud.showNotification(
+        `✗ ${playerName} rejected your friendly relationship proposal`
+      );
+    };
+
+    this.network.onRelationshipStatus = (relationships, incomingProposals, outgoingProposals) => {
+      console.log("Relationship status received", relationships, incomingProposals, outgoingProposals);
+      // This can be used to update a diplomacy screen if we add one later
     };
 
     this.network.onMiningEstablished = (
@@ -1158,8 +1212,16 @@ class ConstellationGame {
       }
     };
 
-    this.hud.onSetPlayerStance = (targetPlayerId, stance) => {
-      this.network.setPlayerStance(targetPlayerId, stance);
+    this.hud.onProposeRelationship = (targetPlayerId, relationshipType) => {
+      this.network.proposeRelationship(targetPlayerId, relationshipType);
+    };
+
+    this.hud.onRespondToProposal = (proposalId, accept) => {
+      this.network.respondToProposal(proposalId, accept);
+    };
+
+    this.hud.onDeclareWar = (targetPlayerId) => {
+      this.network.declareWar(targetPlayerId);
     };
 
     this.hud.onEstablishMining = (celestialBodyId) => {

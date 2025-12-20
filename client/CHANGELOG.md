@@ -1,8 +1,9 @@
 # What's New in Constellation
 
-## Version 0.4.1 - Way home
+## Version 0.4.1 - Diplomacy
 
-- **Way home**: Fixed a bug where path-to-home animation wouldn't show when opening constellation view after traveling to a non-home system
+- **Diplomacy**: You can now declare war or establish peace.
+- **Way home**: Fixed a bug where the path-to-home animation wouldn't show when opening the constellation view after traveling to a non-home system.
 
 ## Version 0.4.0 - Logistics and War
 

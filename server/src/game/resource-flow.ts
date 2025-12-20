@@ -465,11 +465,12 @@ export function calculatePlayerResourceFlow(
       continue;
     }
 
-    // If tunnel is powered by a hostile player, it's a blockade
+    // If tunnel is powered by a non-friendly player, it's a blockade (cold war)
     const tunnelOwner = tunnel.poweredByPlayerId;
     if (tunnelOwner && tunnelOwner !== playerId) {
-      const stance = db.getPlayerStance(playerId, tunnelOwner);
-      if (stance === "aggressive") {
+      const relationship = db.getPlayerRelationship(playerId, tunnelOwner);
+      // Block resources unless relationship is friendly (neutral = cold war, at_war = hot war)
+      if (relationship !== "friendly") {
         // Check if any gate in the tunnel has defenses
         const gatesInTunnel = db.getGatesByTunnel(tunnelId);
         const hasDefenses = gatesInTunnel.some((gate: StarGate) => {

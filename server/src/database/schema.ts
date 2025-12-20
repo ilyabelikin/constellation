@@ -1136,5 +1136,90 @@ export function initializeDatabase(dbPath: string): Database.Database {
     console.error("Error during tunnels migration:", error);
   }
 
+  // Migration: Replace player_stances with player_relationships (mutual system)
+  try {
+    const relationshipsTableExists = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='player_relationships'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (relationshipsTableExists.length === 0) {
+      console.log(
+        "Migrating database: Creating player_relationships and relationship_proposals tables"
+      );
+
+      // Create new mutual relationships table
+      db.exec(`
+        CREATE TABLE player_relationships (
+          player1_id TEXT NOT NULL,
+          player2_id TEXT NOT NULL,
+          relationship TEXT NOT NULL CHECK (relationship IN ('neutral', 'friendly', 'at_war')),
+          updated_at INTEGER NOT NULL,
+          PRIMARY KEY (player1_id, player2_id),
+          FOREIGN KEY (player1_id) REFERENCES players(id) ON DELETE CASCADE,
+          FOREIGN KEY (player2_id) REFERENCES players(id) ON DELETE CASCADE,
+          CHECK (player1_id < player2_id)
+        );
+        CREATE INDEX idx_player_relationships_player1 ON player_relationships(player1_id);
+        CREATE INDEX idx_player_relationships_player2 ON player_relationships(player2_id);
+      `);
+
+      // Create proposals table
+      db.exec(`
+        CREATE TABLE relationship_proposals (
+          id TEXT PRIMARY KEY,
+          from_player_id TEXT NOT NULL,
+          to_player_id TEXT NOT NULL,
+          proposal_type TEXT NOT NULL CHECK (proposal_type IN ('friendly')),
+          created_at INTEGER NOT NULL,
+          FOREIGN KEY (from_player_id) REFERENCES players(id) ON DELETE CASCADE,
+          FOREIGN KEY (to_player_id) REFERENCES players(id) ON DELETE CASCADE,
+          UNIQUE (from_player_id, to_player_id)
+        );
+        CREATE INDEX idx_relationship_proposals_to ON relationship_proposals(to_player_id);
+      `);
+
+      // Migrate existing stances to relationships (best effort - convert aggressive to at_war, friendly to neutral with pending proposals)
+      // Note: Since old system was one-directional, we can't perfectly migrate, so we'll just set all to neutral
+      const existingStances = db
+        .prepare("SELECT DISTINCT from_player_id, to_player_id FROM player_stances")
+        .all() as Array<{ from_player_id: string; to_player_id: string }>;
+
+      const insertRelationship = db.prepare(
+        "INSERT OR IGNORE INTO player_relationships (player1_id, player2_id, relationship, updated_at) VALUES (?, ?, ?, ?)"
+      );
+
+      const processedPairs = new Set<string>();
+
+      for (const stance of existingStances) {
+        const player1 =
+          stance.from_player_id < stance.to_player_id
+            ? stance.from_player_id
+            : stance.to_player_id;
+        const player2 =
+          stance.from_player_id < stance.to_player_id
+            ? stance.to_player_id
+            : stance.from_player_id;
+        const pairKey = `${player1}:${player2}`;
+
+        if (!processedPairs.has(pairKey)) {
+          // Set all to neutral by default (can't accurately migrate one-directional stances)
+          insertRelationship.run(player1, player2, "neutral", Date.now());
+          processedPairs.add(pairKey);
+        }
+      }
+
+      // Drop old player_stances table
+      db.exec(`DROP TABLE IF EXISTS player_stances;`);
+
+      console.log(
+        "Player relationships migration complete - old stances set to neutral"
+      );
+    }
+  } catch (error) {
+    console.error("Error during player relationships migration:", error);
+  }
+
   return db;
 }

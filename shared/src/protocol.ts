@@ -46,9 +46,21 @@ export type ClientMessage =
   | { type: "searchObjects"; query: string }
   | { type: "requestPlayerStats"; playerId: string }
   | {
-      type: "setPlayerStance";
+      type: "proposeRelationship";
       targetPlayerId: string;
-      stance: "neutral" | "friendly" | "aggressive";
+      relationshipType: "friendly";
+    }
+  | {
+      type: "respondToProposal";
+      proposalId: string;
+      accept: boolean;
+    }
+  | {
+      type: "declareWar";
+      targetPlayerId: string;
+    }
+  | {
+      type: "requestRelationshipStatus";
     }
   | {
       type: "establishMining";
@@ -292,12 +304,65 @@ export type ServerMessage =
       playerId: string;
       playerName: string;
       starsDiscovered: number;
-      currentStance?: "neutral" | "friendly" | "aggressive";
+      currentRelationship?: "neutral" | "friendly" | "at_war";
     }
   | {
-      type: "stanceUpdated";
-      targetPlayerId: string;
-      stance: "neutral" | "friendly" | "aggressive";
+      type: "relationshipChanged";
+      otherPlayerId: string;
+      otherPlayerName: string;
+      relationship: "neutral" | "friendly" | "at_war";
+    }
+  | {
+      type: "relationshipProposalReceived";
+      proposal: {
+        id: string;
+        fromPlayerId: string;
+        fromPlayerName: string;
+        proposalType: "friendly";
+        createdAt: number;
+      };
+    }
+  | {
+      type: "relationshipProposalSent";
+      proposal: {
+        id: string;
+        toPlayerId: string;
+        toPlayerName: string;
+        proposalType: "friendly";
+        createdAt: number;
+      };
+    }
+  | {
+      type: "proposalAccepted";
+      playerId: string;
+      playerName: string;
+    }
+  | {
+      type: "proposalRejected";
+      playerId: string;
+      playerName: string;
+    }
+  | {
+      type: "relationshipStatus";
+      relationships: Array<{
+        playerId: string;
+        playerName: string;
+        relationship: "neutral" | "friendly" | "at_war";
+      }>;
+      incomingProposals: Array<{
+        id: string;
+        fromPlayerId: string;
+        fromPlayerName: string;
+        proposalType: "friendly";
+        createdAt: number;
+      }>;
+      outgoingProposals: Array<{
+        id: string;
+        toPlayerId: string;
+        toPlayerName: string;
+        proposalType: "friendly";
+        createdAt: number;
+      }>;
     }
   | {
       type: "miningEstablished";

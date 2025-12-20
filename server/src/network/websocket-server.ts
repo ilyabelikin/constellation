@@ -208,12 +208,21 @@ export class ConstellationWebSocketServer {
         case "requestPlayerStats":
           this.handleRequestPlayerStats(client, message.playerId);
           break;
-        case "setPlayerStance":
-          this.handleSetPlayerStance(
+        case "proposeRelationship":
+          this.handleProposeRelationship(
             client,
             message.targetPlayerId,
-            message.stance
+            message.relationshipType
           );
+          break;
+        case "respondToProposal":
+          this.handleRespondToProposal(client, message.proposalId, message.accept);
+          break;
+        case "declareWar":
+          this.handleDeclareWar(client, message.targetPlayerId);
+          break;
+        case "requestRelationshipStatus":
+          this.handleRequestRelationshipStatus(client);
           break;
         case "establishMining":
           this.handleEstablishMining(client, message.celestialBodyId);
@@ -399,6 +408,24 @@ export class ConstellationWebSocketServer {
       // Send galaxy players info to the reconnecting player
       console.log(`[DEBUG] Sending galaxy players info to reconnecting player in handleAuthenticate: ${player.name}`);
       this.sendGalaxyPlayersInfo(client, player);
+
+      // Check for and send any pending relationship proposals
+      const incomingProposals = this.db.getIncomingProposals(player.id);
+      if (incomingProposals.length > 0) {
+        console.log(`Player ${player.name} has ${incomingProposals.length} pending proposal(s)`);
+        for (const proposal of incomingProposals) {
+          this.send(client.ws, {
+            type: "relationshipProposalReceived",
+            proposal: {
+              id: proposal.id,
+              fromPlayerId: proposal.fromPlayerId,
+              fromPlayerName: proposal.fromPlayerName,
+              proposalType: proposal.proposalType,
+              createdAt: proposal.createdAt,
+            },
+          });
+        }
+      }
     } else {
       this.send(client.ws, { type: "authenticated", uuid, playerId: null });
       client.uuid = uuid;
@@ -1719,12 +1746,12 @@ export class ConstellationWebSocketServer {
     let isExitGateBlocked = false;
     
     if (exitGateOwner && exitGateOwner !== player.id && exitGateDefenseCount > 0) {
-      // Exit gate is owned by another player and has defenses
-      const stance = this.db.getPlayerStance(player.id, exitGateOwner);
-      if (stance === "aggressive") {
+      // Exit gate is owned by another player and has defenses (blocked unless friendly)
+      const relationship = this.db.getPlayerRelationship(player.id, exitGateOwner);
+      if (relationship !== "friendly") {
         isExitGateBlocked = true;
         console.log(
-          `Exit gate ${exitGate.id} is blocked by enemy defenses (${exitGateDefenseCount} platforms)`
+          `Exit gate ${exitGate.id} is blocked by defenses (${exitGateDefenseCount} platforms) - not friendly`
         );
       }
     }
@@ -2137,26 +2164,58 @@ export class ConstellationWebSocketServer {
 
     const starsDiscovered = this.db.getPlayerStarsDiscoveredCount(playerId);
 
-    // Get current player's stance towards this player
-    const currentStance = this.db.getPlayerStance(client.playerId, playerId);
+    // Get current relationship with this player
+    const currentRelationship = this.db.getPlayerRelationship(client.playerId, playerId);
 
     this.send(client.ws, {
       type: "playerStats",
       playerId: targetPlayer.id,
       playerName: targetPlayer.name,
       starsDiscovered,
-      currentStance,
+      currentRelationship,
     });
 
+    // Check for pending proposals between these two players
+    const incomingProposal = this.db.getRelationshipProposal(playerId, client.playerId);
+    const outgoingProposal = this.db.getRelationshipProposal(client.playerId, playerId);
+
+    // Send incoming proposal if exists
+    if (incomingProposal) {
+      this.send(client.ws, {
+        type: "relationshipProposalReceived",
+        proposal: {
+          id: incomingProposal.id,
+          fromPlayerId: playerId,
+          fromPlayerName: targetPlayer.name,
+          proposalType: incomingProposal.proposalType,
+          createdAt: incomingProposal.createdAt,
+        },
+      });
+    }
+
+    // Send outgoing proposal if exists
+    if (outgoingProposal) {
+      this.send(client.ws, {
+        type: "relationshipProposalSent",
+        proposal: {
+          id: outgoingProposal.id,
+          toPlayerId: playerId,
+          toPlayerName: targetPlayer.name,
+          proposalType: outgoingProposal.proposalType,
+          createdAt: outgoingProposal.createdAt,
+        },
+      });
+    }
+
     console.log(
-      `Sent player stats for ${targetPlayer.name}: ${starsDiscovered} stars discovered, stance: ${currentStance}`
+      `Sent player stats for ${targetPlayer.name}: ${starsDiscovered} stars discovered, relationship: ${currentRelationship}, incoming: ${!!incomingProposal}, outgoing: ${!!outgoingProposal}`
     );
   }
 
-  private handleSetPlayerStance(
+  private handleProposeRelationship(
     client: ClientConnection,
     targetPlayerId: string,
-    stance: "neutral" | "friendly" | "aggressive"
+    relationshipType: "friendly"
   ): void {
     if (!client.playerId) {
       this.sendError(client.ws, "Not authenticated");
@@ -2175,28 +2234,363 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    // Don't allow setting stance towards yourself
+    // Don't allow proposing to yourself
     if (client.playerId === targetPlayerId) {
-      this.sendError(client.ws, "Cannot set stance towards yourself");
+      this.sendError(client.ws, "Cannot propose relationship to yourself");
       return;
     }
 
-    // Set the stance
-    this.db.setPlayerStance(client.playerId, targetPlayerId, stance);
+    // Check current relationship status
+    const currentRelationship = this.db.getPlayerRelationship(
+      client.playerId,
+      targetPlayerId
+    );
+    if (currentRelationship === "at_war") {
+      this.sendError(client.ws, "Cannot propose friendly relationship while at war");
+      return;
+    }
+    if (currentRelationship === "friendly") {
+      this.sendError(client.ws, "Already in a friendly relationship");
+      return;
+    }
 
-    console.log(
-      `Player ${player.name} set stance towards ${targetPlayer.name} to ${stance}`
+    // Check if there's already a pending proposal
+    const existingProposal = this.db.getRelationshipProposal(
+      client.playerId,
+      targetPlayerId
+    );
+    if (existingProposal) {
+      this.sendError(client.ws, "You already have a pending proposal to this player");
+      return;
+    }
+
+    // Check if target player has proposed to us (mutual proposal = instant accept)
+    const reverseProposal = this.db.getRelationshipProposal(
+      targetPlayerId,
+      client.playerId
+    );
+    if (reverseProposal) {
+      // Auto-accept mutual proposals
+      this.db.deleteRelationshipProposal(reverseProposal.id);
+      this.db.setPlayerRelationship(client.playerId, targetPlayerId, "friendly");
+
+      console.log(
+        `Players ${player.name} and ${targetPlayer.name} established mutual friendly relationship`
+      );
+
+      // Notify both players
+      this.send(client.ws, {
+        type: "relationshipChanged",
+        otherPlayerId: targetPlayerId,
+        otherPlayerName: targetPlayer.name,
+        relationship: "friendly",
+      });
+
+      const targetClient = this.getClientByPlayerId(targetPlayerId);
+      if (targetClient) {
+        this.send(targetClient.ws, {
+          type: "relationshipChanged",
+          otherPlayerId: client.playerId,
+          otherPlayerName: player.name,
+          relationship: "friendly",
+        });
+      }
+
+      this.handleRequestConstellation(client);
+      if (targetClient) {
+        this.handleRequestConstellation(targetClient);
+      }
+      return;
+    }
+
+    // Check if player has enough science
+    const cost = 50;
+    if (player.science < cost) {
+      this.sendError(
+        client.ws,
+        `Not enough science to propose friendly relationship (requires ${cost} science)`
+      );
+      return;
+    }
+
+    // Deduct science cost
+    this.db.updatePlayerResources(
+      client.playerId,
+      player.energy,
+      player.alloy,
+      player.science - cost
     );
 
-    // Send confirmation back to client
-    this.send(client.ws, {
-      type: "stanceUpdated",
+    // Create proposal
+    const proposalId = this.db.createRelationshipProposal(
+      client.playerId,
       targetPlayerId,
-      stance,
+      relationshipType
+    );
+
+    console.log(
+      `Player ${player.name} proposed ${relationshipType} relationship to ${targetPlayer.name}`
+    );
+
+    // Send confirmation to proposer
+    this.send(client.ws, {
+      type: "relationshipProposalSent",
+      proposal: {
+        id: proposalId,
+        toPlayerId: targetPlayerId,
+        toPlayerName: targetPlayer.name,
+        proposalType: relationshipType,
+        createdAt: Date.now(),
+      },
     });
 
-    // Request constellation data to be refreshed (gates will show new colors)
+    // Notify target player
+    const targetClient = this.getClientByPlayerId(targetPlayerId);
+    if (targetClient) {
+      this.send(targetClient.ws, {
+        type: "relationshipProposalReceived",
+        proposal: {
+          id: proposalId,
+          fromPlayerId: client.playerId,
+          fromPlayerName: player.name,
+          proposalType: relationshipType,
+          createdAt: Date.now(),
+        },
+      });
+    }
+
+    // Update player data to reflect science change
+    this.send(client.ws, {
+      type: "playerData",
+      player: this.db.getPlayerById(client.playerId)!,
+    });
+  }
+
+  private handleRespondToProposal(
+    client: ClientConnection,
+    proposalId: string,
+    accept: boolean
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Get all incoming proposals and find this one
+    const incomingProposals = this.db.getIncomingProposals(client.playerId);
+    const proposal = incomingProposals.find((p) => p.id === proposalId);
+
+    if (!proposal) {
+      this.sendError(client.ws, "Proposal not found or not addressed to you");
+      return;
+    }
+
+    const proposer = this.db.getPlayerById(proposal.fromPlayerId);
+    if (!proposer) {
+      this.sendError(client.ws, "Proposer player not found");
+      return;
+    }
+
+    // Delete the proposal
+    this.db.deleteRelationshipProposal(proposalId);
+
+    if (accept) {
+      // Establish friendly relationship
+      this.db.setPlayerRelationship(client.playerId, proposal.fromPlayerId, "friendly");
+
+      console.log(
+        `Player ${player.name} accepted ${proposal.proposalType} proposal from ${proposer.name}`
+      );
+
+      // Notify both players
+      this.send(client.ws, {
+        type: "relationshipChanged",
+        otherPlayerId: proposal.fromPlayerId,
+        otherPlayerName: proposer.name,
+        relationship: "friendly",
+      });
+
+      const proposerClient = this.getClientByPlayerId(proposal.fromPlayerId);
+      if (proposerClient) {
+        this.send(proposerClient.ws, {
+          type: "proposalAccepted",
+          playerId: client.playerId,
+          playerName: player.name,
+        });
+        this.send(proposerClient.ws, {
+          type: "relationshipChanged",
+          otherPlayerId: client.playerId,
+          otherPlayerName: player.name,
+          relationship: "friendly",
+        });
+      }
+
+      // Update constellation view for both
+      this.handleRequestConstellation(client);
+      if (proposerClient) {
+        this.handleRequestConstellation(proposerClient);
+      }
+    } else {
+      // Rejected
+      console.log(
+        `Player ${player.name} rejected ${proposal.proposalType} proposal from ${proposer.name}`
+      );
+
+      // Notify proposer of rejection
+      const proposerClient = this.getClientByPlayerId(proposal.fromPlayerId);
+      if (proposerClient) {
+        this.send(proposerClient.ws, {
+          type: "proposalRejected",
+          playerId: client.playerId,
+          playerName: player.name,
+        });
+      }
+    }
+  }
+
+  private handleDeclareWar(
+    client: ClientConnection,
+    targetPlayerId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    const targetPlayer = this.db.getPlayerById(targetPlayerId);
+    if (!targetPlayer) {
+      this.sendError(client.ws, "Target player not found");
+      return;
+    }
+
+    // Don't allow declaring war on yourself
+    if (client.playerId === targetPlayerId) {
+      this.sendError(client.ws, "Cannot declare war on yourself");
+      return;
+    }
+
+    // Check current relationship status
+    const currentRelationship = this.db.getPlayerRelationship(
+      client.playerId,
+      targetPlayerId
+    );
+    if (currentRelationship === "at_war") {
+      this.sendError(client.ws, "Already at war with this player");
+      return;
+    }
+
+    // Check if player has enough science
+    const cost = 25;
+    if (player.science < cost) {
+      this.sendError(
+        client.ws,
+        `Not enough science to declare war (requires ${cost} science)`
+      );
+      return;
+    }
+
+    // Deduct science cost
+    this.db.updatePlayerResources(
+      client.playerId,
+      player.energy,
+      player.alloy,
+      player.science - cost
+    );
+
+    // Delete any pending proposals between these players
+    this.db.deleteProposalsBetweenPlayers(client.playerId, targetPlayerId);
+
+    // Set relationship to at_war
+    this.db.setPlayerRelationship(client.playerId, targetPlayerId, "at_war");
+
+    console.log(`Player ${player.name} declared war on ${targetPlayer.name}`);
+
+    // Notify both players
+    this.send(client.ws, {
+      type: "relationshipChanged",
+      otherPlayerId: targetPlayerId,
+      otherPlayerName: targetPlayer.name,
+      relationship: "at_war",
+    });
+
+    const targetClient = this.getClientByPlayerId(targetPlayerId);
+    if (targetClient) {
+      this.send(targetClient.ws, {
+        type: "relationshipChanged",
+        otherPlayerId: client.playerId,
+        otherPlayerName: player.name,
+        relationship: "at_war",
+      });
+    }
+
+    // Update constellation view for both
     this.handleRequestConstellation(client);
+    if (targetClient) {
+      this.handleRequestConstellation(targetClient);
+    }
+
+    // Update player data to reflect science change
+    this.send(client.ws, {
+      type: "playerData",
+      player: this.db.getPlayerById(client.playerId)!,
+    });
+  }
+
+  private handleRequestRelationshipStatus(client: ClientConnection): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const allRelationships = this.db.getAllPlayerRelationships(client.playerId);
+    const incomingProposals = this.db.getIncomingProposals(client.playerId);
+    const outgoingProposals = this.db.getOutgoingProposals(client.playerId);
+
+    // Convert relationships map to array with player names
+    const relationshipsArray: Array<{
+      playerId: string;
+      playerName: string;
+      relationship: "neutral" | "friendly" | "at_war";
+    }> = [];
+
+    for (const [playerId, relationship] of allRelationships) {
+      const otherPlayer = this.db.getPlayerById(playerId);
+      if (otherPlayer) {
+        relationshipsArray.push({
+          playerId,
+          playerName: otherPlayer.name,
+          relationship,
+        });
+      }
+    }
+
+    this.send(client.ws, {
+      type: "relationshipStatus",
+      relationships: relationshipsArray,
+      incomingProposals,
+      outgoingProposals,
+    });
+  }
+
+  private getClientByPlayerId(playerId: string): ClientConnection | undefined {
+    for (const [ws, client] of this.clients.entries()) {
+      if (client.playerId === playerId) {
+        return client;
+      }
+    }
+    return undefined;
   }
 
   private handleEstablishMining(
@@ -4043,12 +4437,12 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    // Check stance towards gate owner
-    const stance = this.db.getPlayerStance(client.playerId, gateOwnerId);
-    if (stance !== "aggressive") {
+    // Check relationship with gate owner - cannot attack friendly players
+    const relationship = this.db.getPlayerRelationship(client.playerId, gateOwnerId);
+    if (relationship === "friendly") {
       this.sendError(
         client.ws,
-        "You must have an aggressive stance towards the gate owner to attack"
+        "You cannot attack gates owned by friendly civilizations. Declare war first."
       );
       return;
     }

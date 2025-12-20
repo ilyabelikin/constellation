@@ -2019,41 +2019,153 @@ export class DatabaseQueries {
     return rows.map((row) => row.gate_id);
   }
 
-  // Player stance operations
-  setPlayerStance(
-    fromPlayerId: string,
-    toPlayerId: string,
-    stance: "neutral" | "friendly" | "aggressive"
+  // Player relationship operations (mutual)
+  setPlayerRelationship(
+    player1Id: string,
+    player2Id: string,
+    relationship: "neutral" | "friendly" | "at_war"
   ): void {
+    // Ensure player1_id < player2_id
+    const [playerId1, playerId2] =
+      player1Id < player2Id ? [player1Id, player2Id] : [player2Id, player1Id];
+
     const stmt = this.db.prepare(
-      "INSERT OR REPLACE INTO player_stances (from_player_id, to_player_id, stance, updated_at) VALUES (?, ?, ?, ?)"
+      "INSERT OR REPLACE INTO player_relationships (player1_id, player2_id, relationship, updated_at) VALUES (?, ?, ?, ?)"
     );
-    stmt.run(fromPlayerId, toPlayerId, stance, Date.now());
+    stmt.run(playerId1, playerId2, relationship, Date.now());
   }
 
+  getPlayerRelationship(
+    player1Id: string,
+    player2Id: string
+  ): "neutral" | "friendly" | "at_war" {
+    // Ensure player1_id < player2_id
+    const [playerId1, playerId2] =
+      player1Id < player2Id ? [player1Id, player2Id] : [player2Id, player1Id];
+
+    const stmt = this.db.prepare(
+      "SELECT relationship FROM player_relationships WHERE player1_id = ? AND player2_id = ?"
+    );
+    const row = stmt.get(playerId1, playerId2) as any;
+    return row ? row.relationship : "neutral"; // Default to neutral if no relationship set
+  }
+
+  getAllPlayerRelationships(
+    playerId: string
+  ): Map<string, "neutral" | "friendly" | "at_war"> {
+    const stmt = this.db.prepare(
+      `SELECT 
+        CASE WHEN player1_id = ? THEN player2_id ELSE player1_id END as other_player_id,
+        relationship 
+       FROM player_relationships 
+       WHERE player1_id = ? OR player2_id = ?`
+    );
+    const rows = stmt.all(playerId, playerId, playerId) as any[];
+    const relationships = new Map<string, "neutral" | "friendly" | "at_war">();
+    for (const row of rows) {
+      relationships.set(row.other_player_id, row.relationship);
+    }
+    return relationships;
+  }
+
+  // Relationship proposal operations
+  createRelationshipProposal(
+    fromPlayerId: string,
+    toPlayerId: string,
+    proposalType: "friendly"
+  ): string {
+    const proposalId = `proposal_${fromPlayerId}_${toPlayerId}_${Date.now()}`;
+    const stmt = this.db.prepare(
+      "INSERT INTO relationship_proposals (id, from_player_id, to_player_id, proposal_type, created_at) VALUES (?, ?, ?, ?, ?)"
+    );
+    stmt.run(proposalId, fromPlayerId, toPlayerId, proposalType, Date.now());
+    return proposalId;
+  }
+
+  getRelationshipProposal(
+    fromPlayerId: string,
+    toPlayerId: string
+  ): { id: string; proposalType: "friendly"; createdAt: number } | null {
+    const stmt = this.db.prepare(
+      "SELECT id, proposal_type, created_at FROM relationship_proposals WHERE from_player_id = ? AND to_player_id = ?"
+    );
+    const row = stmt.get(fromPlayerId, toPlayerId) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      proposalType: row.proposal_type,
+      createdAt: row.created_at,
+    };
+  }
+
+  getIncomingProposals(playerId: string): Array<{
+    id: string;
+    fromPlayerId: string;
+    fromPlayerName: string;
+    proposalType: "friendly";
+    createdAt: number;
+  }> {
+    const stmt = this.db.prepare(
+      `SELECT rp.id, rp.from_player_id, p.name as from_player_name, rp.proposal_type, rp.created_at 
+       FROM relationship_proposals rp
+       INNER JOIN players p ON rp.from_player_id = p.id
+       WHERE rp.to_player_id = ?`
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      fromPlayerId: row.from_player_id,
+      fromPlayerName: row.from_player_name,
+      proposalType: row.proposal_type,
+      createdAt: row.created_at,
+    }));
+  }
+
+  getOutgoingProposals(playerId: string): Array<{
+    id: string;
+    toPlayerId: string;
+    toPlayerName: string;
+    proposalType: "friendly";
+    createdAt: number;
+  }> {
+    const stmt = this.db.prepare(
+      `SELECT rp.id, rp.to_player_id, p.name as to_player_name, rp.proposal_type, rp.created_at 
+       FROM relationship_proposals rp
+       INNER JOIN players p ON rp.to_player_id = p.id
+       WHERE rp.from_player_id = ?`
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      toPlayerId: row.to_player_id,
+      toPlayerName: row.to_player_name,
+      proposalType: row.proposal_type,
+      createdAt: row.created_at,
+    }));
+  }
+
+  deleteRelationshipProposal(proposalId: string): void {
+    const stmt = this.db.prepare(
+      "DELETE FROM relationship_proposals WHERE id = ?"
+    );
+    stmt.run(proposalId);
+  }
+
+  deleteProposalsBetweenPlayers(player1Id: string, player2Id: string): void {
+    const stmt = this.db.prepare(
+      "DELETE FROM relationship_proposals WHERE (from_player_id = ? AND to_player_id = ?) OR (from_player_id = ? AND to_player_id = ?)"
+    );
+    stmt.run(player1Id, player2Id, player2Id, player1Id);
+  }
+
+  // Legacy compatibility methods (map to new relationship system)
   getPlayerStance(
     fromPlayerId: string,
     toPlayerId: string
   ): "neutral" | "friendly" | "aggressive" {
-    const stmt = this.db.prepare(
-      "SELECT stance FROM player_stances WHERE from_player_id = ? AND to_player_id = ?"
-    );
-    const row = stmt.get(fromPlayerId, toPlayerId) as any;
-    return row ? row.stance : "neutral"; // Default to neutral if no stance set
-  }
-
-  getAllPlayerStances(
-    playerId: string
-  ): Map<string, "neutral" | "friendly" | "aggressive"> {
-    const stmt = this.db.prepare(
-      "SELECT to_player_id, stance FROM player_stances WHERE from_player_id = ?"
-    );
-    const rows = stmt.all(playerId) as any[];
-    const stances = new Map<string, "neutral" | "friendly" | "aggressive">();
-    for (const row of rows) {
-      stances.set(row.to_player_id, row.stance);
-    }
-    return stances;
+    const relationship = this.getPlayerRelationship(fromPlayerId, toPlayerId);
+    // Map at_war to aggressive for backwards compatibility
+    return relationship === "at_war" ? "aggressive" : relationship;
   }
 
   getConnectedSystems(playerId: string): string[] {

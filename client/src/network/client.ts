@@ -145,13 +145,61 @@ export class NetworkClient {
         playerId: string,
         playerName: string,
         starsDiscovered: number,
-        currentStance?: "neutral" | "friendly" | "aggressive"
+        currentRelationship?: "neutral" | "friendly" | "at_war"
       ) => void)
     | null = null;
-  public onStanceUpdated:
+  public onRelationshipChanged:
     | ((
-        targetPlayerId: string,
-        stance: "neutral" | "friendly" | "aggressive"
+        otherPlayerId: string,
+        otherPlayerName: string,
+        relationship: "neutral" | "friendly" | "at_war"
+      ) => void)
+    | null = null;
+  public onRelationshipProposalReceived:
+    | ((proposal: {
+        id: string;
+        fromPlayerId: string;
+        fromPlayerName: string;
+        proposalType: "friendly";
+        createdAt: number;
+      }) => void)
+    | null = null;
+  public onRelationshipProposalSent:
+    | ((proposal: {
+        id: string;
+        toPlayerId: string;
+        toPlayerName: string;
+        proposalType: "friendly";
+        createdAt: number;
+      }) => void)
+    | null = null;
+  public onProposalAccepted:
+    | ((playerId: string, playerName: string) => void)
+    | null = null;
+  public onProposalRejected:
+    | ((playerId: string, playerName: string) => void)
+    | null = null;
+  public onRelationshipStatus:
+    | ((
+        relationships: Array<{
+          playerId: string;
+          playerName: string;
+          relationship: "neutral" | "friendly" | "at_war";
+        }>,
+        incomingProposals: Array<{
+          id: string;
+          fromPlayerId: string;
+          fromPlayerName: string;
+          proposalType: "friendly";
+          createdAt: number;
+        }>,
+        outgoingProposals: Array<{
+          id: string;
+          toPlayerId: string;
+          toPlayerName: string;
+          proposalType: "friendly";
+          createdAt: number;
+        }>
       ) => void)
     | null = null;
   public onMiningEstablished:
@@ -480,13 +528,46 @@ export class NetworkClient {
               message.playerId,
               message.playerName,
               message.starsDiscovered,
-              message.currentStance
+              message.currentRelationship
             );
           }
           break;
-        case "stanceUpdated":
-          if (this.onStanceUpdated) {
-            this.onStanceUpdated(message.targetPlayerId, message.stance);
+        case "relationshipChanged":
+          if (this.onRelationshipChanged) {
+            this.onRelationshipChanged(
+              message.otherPlayerId,
+              message.otherPlayerName,
+              message.relationship
+            );
+          }
+          break;
+        case "relationshipProposalReceived":
+          if (this.onRelationshipProposalReceived) {
+            this.onRelationshipProposalReceived(message.proposal);
+          }
+          break;
+        case "relationshipProposalSent":
+          if (this.onRelationshipProposalSent) {
+            this.onRelationshipProposalSent(message.proposal);
+          }
+          break;
+        case "proposalAccepted":
+          if (this.onProposalAccepted) {
+            this.onProposalAccepted(message.playerId, message.playerName);
+          }
+          break;
+        case "proposalRejected":
+          if (this.onProposalRejected) {
+            this.onProposalRejected(message.playerId, message.playerName);
+          }
+          break;
+        case "relationshipStatus":
+          if (this.onRelationshipStatus) {
+            this.onRelationshipStatus(
+              message.relationships,
+              message.incomingProposals,
+              message.outgoingProposals
+            );
           }
           break;
         case "miningEstablished":
@@ -715,11 +796,23 @@ export class NetworkClient {
     this.send({ type: "requestPlayerStats", playerId });
   }
 
-  setPlayerStance(
+  proposeRelationship(
     targetPlayerId: string,
-    stance: "neutral" | "friendly" | "aggressive"
+    relationshipType: "friendly"
   ): void {
-    this.send({ type: "setPlayerStance", targetPlayerId, stance });
+    this.send({ type: "proposeRelationship", targetPlayerId, relationshipType });
+  }
+
+  respondToProposal(proposalId: string, accept: boolean): void {
+    this.send({ type: "respondToProposal", proposalId, accept });
+  }
+
+  declareWar(targetPlayerId: string): void {
+    this.send({ type: "declareWar", targetPlayerId });
+  }
+
+  requestRelationshipStatus(): void {
+    this.send({ type: "requestRelationshipStatus" });
   }
 
   establishMining(celestialBodyId: string): void {

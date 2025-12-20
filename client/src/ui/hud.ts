@@ -125,8 +125,18 @@ export class HUDManager {
   private playerProfileName: HTMLElement;
   private playerProfileStars: HTMLElement;
   private playerProfileCloseButton: HTMLElement;
-  private stanceButtons: NodeListOf<HTMLButtonElement>;
+  private relationshipStatusDisplay: HTMLElement;
+  private incomingProposalNotice: HTMLElement;
+  private outgoingProposalNotice: HTMLElement;
+  private relationshipActions: HTMLElement;
+  private proposeFriendlyButton: HTMLElement;
+  private declareWarButton: HTMLElement;
+  private acceptProposalButton: HTMLElement;
+  private rejectProposalButton: HTMLElement;
   private currentProfilePlayerId: string | null = null;
+  private currentProfileRelationship: "neutral" | "friendly" | "at_war" = "neutral";
+  private currentIncomingProposal: { id: string; fromPlayerId: string } | null = null;
+  private currentOutgoingProposal: { id: string; toPlayerId: string } | null = null;
 
   // Species info modal elements
   private speciesInfoModal: HTMLElement;
@@ -191,12 +201,13 @@ export class HUDManager {
           }
         | undefined)
     | null = null;
-  public onSetPlayerStance:
-    | ((
-        targetPlayerId: string,
-        stance: "neutral" | "friendly" | "aggressive"
-      ) => void)
+  public onProposeRelationship:
+    | ((targetPlayerId: string, relationshipType: "friendly") => void)
     | null = null;
+  public onRespondToProposal:
+    | ((proposalId: string, accept: boolean) => void)
+    | null = null;
+  public onDeclareWar: ((targetPlayerId: string) => void) | null = null;
   public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
   public onEstablishHelium3: ((celestialBodyId: string) => void) | null = null;
   public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
@@ -314,6 +325,14 @@ export class HUDManager {
     this.playerProfileCloseButton = document.getElementById(
       "player-profile-close-button"
     )!;
+    this.relationshipStatusDisplay = document.getElementById("relationship-status-display")!;
+    this.incomingProposalNotice = document.getElementById("incoming-proposal-notice")!;
+    this.outgoingProposalNotice = document.getElementById("outgoing-proposal-notice")!;
+    this.relationshipActions = document.getElementById("relationship-actions")!;
+    this.proposeFriendlyButton = document.getElementById("propose-friendly-button")!;
+    this.declareWarButton = document.getElementById("declare-war-button")!;
+    this.acceptProposalButton = document.getElementById("accept-proposal-button")!;
+    this.rejectProposalButton = document.getElementById("reject-proposal-button")!;
 
     // Species info modal elements
     this.speciesInfoModal = document.getElementById("species-info-modal")!;
@@ -341,7 +360,6 @@ export class HUDManager {
     this.speciesInfoCloseButton = document.getElementById(
       "species-info-close-button"
     )!;
-    this.stanceButtons = document.querySelectorAll(".stance-button")!;
 
     // Player profile close button handler
     this.playerProfileCloseButton.addEventListener("click", () => {
@@ -355,18 +373,29 @@ export class HUDManager {
       }
     });
 
-    // Stance button handlers
-    this.stanceButtons.forEach((button) => {
-      button.addEventListener("click", () => {
-        const stance = button.getAttribute("data-stance") as
-          | "neutral"
-          | "friendly"
-          | "aggressive";
-        if (stance && this.currentProfilePlayerId && this.onSetPlayerStance) {
-          this.onSetPlayerStance(this.currentProfilePlayerId, stance);
-          this.updateStanceButtonHighlight(stance);
-        }
-      });
+    // Relationship action button handlers
+    this.proposeFriendlyButton.addEventListener("click", () => {
+      if (this.currentProfilePlayerId && this.onProposeRelationship) {
+        this.onProposeRelationship(this.currentProfilePlayerId, "friendly");
+      }
+    });
+
+    this.declareWarButton.addEventListener("click", () => {
+      if (this.currentProfilePlayerId && this.onDeclareWar) {
+        this.onDeclareWar(this.currentProfilePlayerId);
+      }
+    });
+
+    this.acceptProposalButton.addEventListener("click", () => {
+      if (this.currentIncomingProposal && this.onRespondToProposal) {
+        this.onRespondToProposal(this.currentIncomingProposal.id, true);
+      }
+    });
+
+    this.rejectProposalButton.addEventListener("click", () => {
+      if (this.currentIncomingProposal && this.onRespondToProposal) {
+        this.onRespondToProposal(this.currentIncomingProposal.id, false);
+      }
     });
 
     // Species button handler
@@ -2094,7 +2123,7 @@ export class HUDManager {
     playerId: string,
     playerName: string,
     starsDiscovered: number,
-    currentStance?: "neutral" | "friendly" | "aggressive"
+    currentRelationship?: "neutral" | "friendly" | "at_war"
   ): void {
     // Update the modal if it's currently showing this player
     if (
@@ -2103,26 +2132,83 @@ export class HUDManager {
     ) {
       this.playerProfileStars.textContent = starsDiscovered.toString();
 
-      // Update stance button highlight
-      if (currentStance) {
-        this.updateStanceButtonHighlight(currentStance);
+      // Update relationship display
+      if (currentRelationship) {
+        this.currentProfileRelationship = currentRelationship;
+        this.updateRelationshipDisplay();
       }
     }
   }
 
-  private updateStanceButtonHighlight(
-    stance: "neutral" | "friendly" | "aggressive"
+  updatePlayerRelationshipStatus(
+    playerId: string,
+    relationship: "neutral" | "friendly" | "at_war",
+    incomingProposal?: { id: string; fromPlayerId: string } | null,
+    outgoingProposal?: { id: string; toPlayerId: string } | null
   ): void {
-    this.stanceButtons.forEach((button) => {
-      const buttonStance = button.getAttribute("data-stance");
-      if (buttonStance === stance) {
-        button.style.border = "2px solid #fff";
-        button.style.fontWeight = "bold";
-      } else {
-        button.style.border = "1px solid rgba(255, 255, 255, 0.2)";
-        button.style.fontWeight = "normal";
-      }
-    });
+    // Update stored proposal state
+    if (incomingProposal !== undefined) {
+      this.currentIncomingProposal = incomingProposal || null;
+    }
+    if (outgoingProposal !== undefined) {
+      this.currentOutgoingProposal = outgoingProposal || null;
+    }
+
+    // Update the modal if it's currently showing this player
+    if (
+      !this.playerProfileModal.classList.contains("hidden") &&
+      this.currentProfilePlayerId === playerId
+    ) {
+      this.currentProfileRelationship = relationship;
+      this.updateRelationshipDisplay();
+    }
+  }
+
+  private updateRelationshipDisplay(): void {
+    // Update relationship status text
+    const relationshipLabels = {
+      neutral: "Neutral",
+      friendly: "Friendly ✓",
+      at_war: "At War ⚔",
+    };
+    this.relationshipStatusDisplay.textContent = 
+      relationshipLabels[this.currentProfileRelationship];
+    this.relationshipStatusDisplay.style.color = 
+      this.currentProfileRelationship === "friendly" ? "#10b981" :
+      this.currentProfileRelationship === "at_war" ? "#ef4444" : "#9ca3af";
+
+    // Show/hide incoming proposal notice
+    if (this.currentIncomingProposal) {
+      this.incomingProposalNotice.style.display = "block";
+    } else {
+      this.incomingProposalNotice.style.display = "none";
+    }
+
+    // Show/hide outgoing proposal notice
+    if (this.currentOutgoingProposal) {
+      this.outgoingProposalNotice.style.display = "block";
+    } else {
+      this.outgoingProposalNotice.style.display = "none";
+    }
+
+    // Update action buttons visibility and state
+    const canProposerelationship = 
+      this.currentProfileRelationship === "neutral" && 
+      !this.currentIncomingProposal && 
+      !this.currentOutgoingProposal;
+    
+    const canDeclareWar = 
+      this.currentProfileRelationship !== "at_war";
+
+    this.proposeFriendlyButton.style.display = canProposerelationship ? "block" : "none";
+    this.declareWarButton.style.display = canDeclareWar ? "block" : "none";
+
+    // Hide actions section if no actions available
+    if (!canProposerelationship && !canDeclareWar) {
+      this.relationshipActions.style.display = "none";
+    } else {
+      this.relationshipActions.style.display = "block";
+    }
   }
 
   setNetworkClient(networkClient: any): void {
