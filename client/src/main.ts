@@ -164,6 +164,7 @@ class ConstellationApp {
 
     // Ignore game data while in lobby (player/system data sent during reconnection)
     this.network.onPlayerData = null;
+    this.network.onPlayerIncomeUpdate = null;
     this.network.onSystemData = null;
     this.network.onShipData = null;
   }
@@ -474,6 +475,17 @@ class ConstellationGame {
         );
         this.network.requestSystemState(player.currentSystemId);
         this.isContinuingExistingGame = false; // Reset flag
+      }
+    };
+
+    this.network.onPlayerIncomeUpdate = (energyPerDay, alloyPerDay, sciencePerDay) => {
+      if (this.player) {
+        // Update player's income rates with net values (accounting for blockades)
+        this.player.energyPerDay = energyPerDay;
+        this.player.alloyPerDay = alloyPerDay;
+        this.player.sciencePerDay = sciencePerDay;
+        // Refresh HUD to show updated rates
+        this.hud.setPlayer(this.player);
       }
     };
 

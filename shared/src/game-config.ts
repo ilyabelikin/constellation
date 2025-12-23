@@ -149,11 +149,6 @@ export const STARTING_RESOURCES = {
  * Other game costs
  */
 export const GAME_COSTS = {
-  GATE_EXPLORATION: {
-    energy: 1,
-    alloy: 0,
-    science: 0,
-  },
   COLONY_ESTABLISHMENT: {
     energy: 3,
     alloy: 15,

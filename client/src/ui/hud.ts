@@ -1030,14 +1030,7 @@ export class HUDManager {
       overchargedAt?: number | null;
     }>
   ): void {
-    console.log(
-      `[HUD] Updating tunnel ownership with ${tunnelOwnerships.length} entries:`,
-      tunnelOwnerships
-    );
     for (const ownership of tunnelOwnerships) {
-      console.log(
-        `[HUD] Storing tunnel ownership for gate ${ownership.gateId}: This=${ownership.thisGateOwnerName}, Other=${ownership.otherGateOwnerName}`
-      );
       this.tunnelOwnership.set(ownership.gateId, ownership);
     }
   }
@@ -1647,12 +1640,6 @@ export class HUDManager {
       const destinationDefenseCount =
         tunnelOwnershipData?.otherGateDefenseCount ?? 0;
 
-      console.log(
-        `[HUD] Defense counts for gate ${gate.id}:`,
-        `this=${defenseCount}`,
-        `destination=${destinationDefenseCount}`
-      );
-
       const resourceFlow = this.onGetGateResourceFlow
         ? this.onGetGateResourceFlow(gate.id)
         : undefined;
@@ -1673,11 +1660,6 @@ export class HUDManager {
             overchargeTimeRemaining?: string | null;
           }
         | undefined;
-
-      console.log(
-        `[HUD] Tunnel ownership for gate ${gate.id}:`,
-        tunnelOwnershipData
-      );
 
       // ALWAYS create tunnelInfo so the section is always shown
       if (tunnelOwnershipData) {
@@ -1715,9 +1697,6 @@ export class HUDManager {
         };
       } else {
         // No tunnel ownership data yet - show default values
-        console.warn(
-          `[HUD] No tunnel ownership for gate ${gate.id} - showing defaults`
-        );
         tunnelInfo = {
           gateAOwnerName: "Uncontrolled",
           gateBOwnerName: "Uncontrolled",
@@ -1733,16 +1712,6 @@ export class HUDManager {
         };
       }
 
-      console.log(
-        `[HUD] Showing gate ${gate.name} (${gate.id}), ownerInfo:`,
-        ownerInfo,
-        `defenseCount: ${defenseCount}`,
-        `destinationDefenseCount: ${destinationDefenseCount}`,
-        `resourceFlow:`,
-        resourceFlow,
-        `tunnelInfo:`,
-        tunnelInfo
-      );
       this.gateDetailView.show(
         gate,
         this.player,

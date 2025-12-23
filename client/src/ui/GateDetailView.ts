@@ -38,6 +38,13 @@ export class GateDetailView {
   private currentGateId: string | null = null;
   private isDebugMode: boolean = false;
   private currentTimeGetter: (() => number) | null = null;
+  // Track tunnel power state to avoid unnecessary button recreation
+  private lastTunnelPowerState: {
+    tunnelId?: string;
+    hasTunnelPower?: boolean;
+    tunnelPoweredByPlayerId?: string | null;
+    playerOwnsEitherGate?: boolean;
+  } = {};
   public onTravelClick?: (gateId: string) => void;
   public onFortifyClick?: (gateId: string) => void;
   public onAttackClick?: (gateId: string) => void;
@@ -102,7 +109,6 @@ export class GateDetailView {
     // Check if debug mode is enabled (check for debug_mode parameter in URL)
     const urlParams = new URLSearchParams(window.location.search);
     this.isDebugMode = urlParams.has("debug_mode");
-    console.log(`[GateDetailView] Debug mode: ${this.isDebugMode}`);
 
     // Setup button click handlers
     this.travelButton.addEventListener("click", () => {
@@ -285,119 +291,243 @@ export class GateDetailView {
       this.gateBOwnerElement.textContent = gateBOwnerText + gateBDefenseText;
       this.gateBOwnerElement.style.color = gateBColor;
 
-      // Tunnel power status - show which player powers the tunnel
-      // Power is independent of gate control
-      // Use neutral color - colors are ONLY for gate ownership
-      if (
-        tunnelInfo.tunnelPoweredByPlayerId &&
-        tunnelInfo.tunnelPoweredByPlayerName
-      ) {
-        // Check if it's the current player
-        if (tunnelInfo.hasTunnelPower) {
-          // Check if player can afford overcharge (10 energy + 10 science)
-          const canAffordOvercharge =
-            player && player.energy >= 10 && player.science >= 10;
-          const isOnCooldown =
-            tunnelInfo.overchargeTimeRemaining !== null &&
-            tunnelInfo.overchargeTimeRemaining !== undefined;
-          const overchargeDisabled = !canAffordOvercharge || isOnCooldown;
-          const overchargeTooltip = !canAffordOvercharge
-            ? "Requires 10 Energy + 10 Science"
-            : isOnCooldown
-            ? `Cooldown: ${tunnelInfo.overchargeTimeRemaining}`
-            : "Overcharge tunnel (10 Energy + 10 Science)";
+      // Check if tunnel power state has changed to avoid unnecessary button recreation
+      const playerOwnsEitherGate =
+        tunnelInfo.gateAStatus === "owned_by_self" ||
+        tunnelInfo.gateBStatus === "owned_by_self";
 
-          const speciesName =
-            tunnelInfo.tunnelPoweredBySpeciesName || "Your Species";
-          this.tunnelPowerElement.innerHTML = `${speciesName}
+      const tunnelPowerStateChanged =
+        this.lastTunnelPowerState.tunnelId !== tunnelInfo.tunnelId ||
+        this.lastTunnelPowerState.hasTunnelPower !==
+          tunnelInfo.hasTunnelPower ||
+        this.lastTunnelPowerState.tunnelPoweredByPlayerId !==
+          tunnelInfo.tunnelPoweredByPlayerId ||
+        this.lastTunnelPowerState.playerOwnsEitherGate !== playerOwnsEitherGate;
+
+      // Update last tunnel power state
+      this.lastTunnelPowerState = {
+        tunnelId: tunnelInfo.tunnelId,
+        hasTunnelPower: tunnelInfo.hasTunnelPower,
+        tunnelPoweredByPlayerId: tunnelInfo.tunnelPoweredByPlayerId,
+        playerOwnsEitherGate: playerOwnsEitherGate,
+      };
+
+      // Only recreate buttons if tunnel power state has changed
+      // This prevents constant recreation during frequent state updates
+      if (tunnelPowerStateChanged) {
+        console.log(
+          "[GateDetailView] Tunnel power state changed, recreating buttons"
+        );
+
+        // Tunnel power status - show which player powers the tunnel
+        // Power is independent of gate control
+        // Use neutral color - colors are ONLY for gate ownership
+        if (
+          tunnelInfo.tunnelPoweredByPlayerId &&
+          tunnelInfo.tunnelPoweredByPlayerName
+        ) {
+          // Check if it's the current player
+          if (tunnelInfo.hasTunnelPower) {
+            // Check if player can afford overcharge (10 energy + 10 science)
+            const canAffordOvercharge =
+              player && player.energy >= 10 && player.science >= 10;
+            const isOnCooldown =
+              tunnelInfo.overchargeTimeRemaining !== null &&
+              tunnelInfo.overchargeTimeRemaining !== undefined;
+            const overchargeDisabled = !canAffordOvercharge || isOnCooldown;
+            const overchargeTooltip = !canAffordOvercharge
+              ? "Requires 10 Energy + 10 Science"
+              : isOnCooldown
+              ? `Cooldown: ${tunnelInfo.overchargeTimeRemaining}`
+              : "Overcharge tunnel (10 Energy + 10 Science)";
+
+            const speciesName =
+              tunnelInfo.tunnelPoweredBySpeciesName || "Your Species";
+            this.tunnelPowerElement.innerHTML = `${speciesName}
             <button id="power-off-tunnel-btn" style="margin-left: 8px; padding: 2px 6px; font-size: 0.75em; cursor: pointer; background: #ef4444; color: white; border: none; border-radius: 3px;">✕ Power Off</button>
             <button id="overcharge-tunnel-btn" 
               style="margin-left: 4px; padding: 2px 6px; font-size: 0.75em; cursor: ${
                 overchargeDisabled ? "not-allowed" : "pointer"
               }; background: ${
-            overchargeDisabled ? "#6b7280" : "#dc2626"
-          }; color: white; border: none; border-radius: 3px; font-weight: bold; opacity: ${
-            overchargeDisabled ? "0.5" : "1"
-          };"
+              overchargeDisabled ? "#6b7280" : "#dc2626"
+            }; color: white; border: none; border-radius: 3px; font-weight: bold; opacity: ${
+              overchargeDisabled ? "0.5" : "1"
+            };"
               title="${overchargeTooltip}"
               ${overchargeDisabled ? "disabled" : ""}>💥 Overcharge</button>`;
-        } else {
-          this.tunnelPowerElement.textContent = `⚡ Powered by ${tunnelInfo.tunnelPoweredByPlayerName}`;
-        }
-        // Always use neutral white/light color for tunnel power text
-        this.tunnelPowerElement.style.color = "#e5e7eb";
-
-        // Add event listeners if it's the player's tunnel
-        if (tunnelInfo.hasTunnelPower) {
-          const powerOffBtn = document.getElementById("power-off-tunnel-btn");
-          if (powerOffBtn && tunnelInfo.tunnelId) {
-            const tunnelId = tunnelInfo.tunnelId;
-            powerOffBtn.onclick = () => {
-              if (this.onPowerOffTunnel) {
-                this.onPowerOffTunnel(tunnelId);
-              }
-            };
+          } else {
+            this.tunnelPowerElement.textContent = `⚡ Powered by ${tunnelInfo.tunnelPoweredByPlayerName}`;
           }
+          // Always use neutral white/light color for tunnel power text
+          this.tunnelPowerElement.style.color = "#e5e7eb";
 
-          const overchargeBtn = document.getElementById(
-            "overcharge-tunnel-btn"
-          );
-          if (
-            overchargeBtn &&
-            tunnelInfo.tunnelId &&
-            !overchargeBtn.hasAttribute("disabled")
-          ) {
-            const tunnelId = tunnelInfo.tunnelId;
-            overchargeBtn.onclick = () => {
-              if (this.onOverchargeTunnel) {
-                this.onOverchargeTunnel(tunnelId);
-              }
-            };
-          }
-        }
-      } else {
-        // Unpowered - check if tunnel was previously opened or never opened
-        const bothGatesHaveOwners =
-          tunnelInfo.gateAOwnerName &&
-          tunnelInfo.gateAOwnerName !== "Uncontrolled" &&
-          tunnelInfo.gateBOwnerName &&
-          tunnelInfo.gateBOwnerName !== "Uncontrolled";
-
-        const playerOwnsEitherGate =
-          tunnelInfo.gateAStatus === "owned_by_self" ||
-          tunnelInfo.gateBStatus === "owned_by_self";
-
-        if (bothGatesHaveOwners) {
-          // Tunnel was opened before but is now powered off
-          if (playerOwnsEitherGate && tunnelInfo.tunnelId) {
-            // Player owns at least one gate - show power on button
-            this.tunnelPowerElement.innerHTML = `⚪ Deactivated 
-              <button id="power-on-tunnel-btn" style="margin-left: 8px; padding: 2px 6px; font-size: 0.75em; cursor: pointer; background: #10b981; color: white; border: none; border-radius: 3px;">⚡ Power On</button>`;
-            this.tunnelPowerElement.style.color = "#9ca3af";
-
-            // Add event listener for power on button
+          // Add event listeners if it's the player's tunnel
+          if (tunnelInfo.hasTunnelPower) {
             setTimeout(() => {
-              const powerOnBtn = document.getElementById("power-on-tunnel-btn");
-              if (powerOnBtn && tunnelInfo.tunnelId) {
+              const powerOffBtn = document.getElementById(
+                "power-off-tunnel-btn"
+              );
+              if (powerOffBtn && tunnelInfo.tunnelId) {
                 const tunnelId = tunnelInfo.tunnelId;
-                powerOnBtn.onclick = () => {
-                  if (this.onPowerOnTunnel) {
-                    this.onPowerOnTunnel(tunnelId);
+                // Remove any existing listeners by cloning and replacing
+                const newPowerOffBtn = powerOffBtn.cloneNode(true);
+                powerOffBtn.parentNode?.replaceChild(
+                  newPowerOffBtn,
+                  powerOffBtn
+                );
+
+                (newPowerOffBtn as HTMLButtonElement).addEventListener(
+                  "click",
+                  (event) => {
+                    console.log(
+                      "[GateDetailView] Power Off button CLICKED (before checks)",
+                      tunnelId,
+                      "callback exists:",
+                      !!this.onPowerOffTunnel,
+                      "disabled:",
+                      (newPowerOffBtn as HTMLButtonElement).disabled
+                    );
+                    event.stopPropagation(); // Prevent event bubbling
+                    event.preventDefault(); // Prevent any default behavior
+                    if (
+                      this.onPowerOffTunnel &&
+                      !(newPowerOffBtn as HTMLButtonElement).disabled
+                    ) {
+                      console.log(
+                        "[GateDetailView] Power Off button clicked for tunnel:",
+                        tunnelId
+                      );
+                      // Temporarily disable to prevent double-clicks
+                      (newPowerOffBtn as HTMLButtonElement).disabled = true;
+                      this.onPowerOffTunnel(tunnelId);
+                      // Re-enable after a short delay
+                      setTimeout(() => {
+                        (newPowerOffBtn as HTMLButtonElement).disabled = false;
+                      }, 1000);
+                    } else {
+                      console.error(
+                        "[GateDetailView] Power Off button clicked but blocked:",
+                        {
+                          hasCallback: !!this.onPowerOffTunnel,
+                          isDisabled: (newPowerOffBtn as HTMLButtonElement)
+                            .disabled,
+                        }
+                      );
+                    }
                   }
-                };
+                );
+              }
+
+              const overchargeBtn = document.getElementById(
+                "overcharge-tunnel-btn"
+              );
+              if (
+                overchargeBtn &&
+                tunnelInfo.tunnelId &&
+                !overchargeBtn.hasAttribute("disabled")
+              ) {
+                const tunnelId = tunnelInfo.tunnelId;
+                // Remove any existing listeners by cloning and replacing
+                const newOverchargeBtn = overchargeBtn.cloneNode(true);
+                overchargeBtn.parentNode?.replaceChild(
+                  newOverchargeBtn,
+                  overchargeBtn
+                );
+
+                (newOverchargeBtn as HTMLButtonElement).addEventListener(
+                  "click",
+                  (event) => {
+                    event.stopPropagation(); // Prevent event bubbling
+                    event.preventDefault(); // Prevent any default behavior
+                    if (
+                      this.onOverchargeTunnel &&
+                      !(newOverchargeBtn as HTMLButtonElement).disabled
+                    ) {
+                      console.log(
+                        "[GateDetailView] Overcharge button clicked for tunnel:",
+                        tunnelId
+                      );
+                      // Temporarily disable to prevent double-clicks
+                      (newOverchargeBtn as HTMLButtonElement).disabled = true;
+                      this.onOverchargeTunnel(tunnelId);
+                      // Re-enable after a short delay
+                      setTimeout(() => {
+                        (newOverchargeBtn as HTMLButtonElement).disabled =
+                          false;
+                      }, 2000);
+                    }
+                  }
+                );
               }
             }, 0);
-          } else {
-            // Someone else owns the gates
-            this.tunnelPowerElement.textContent = `⚪ Deactivated (Open to activate)`;
-            this.tunnelPowerElement.style.color = "#9ca3af";
           }
         } else {
-          // Tunnel never opened - first time
-          this.tunnelPowerElement.textContent = `⚪ Unpowered (Travel through to open)`;
-          this.tunnelPowerElement.style.color = "#9ca3af";
+          // Unpowered - check if tunnel was previously opened or never opened
+          const bothGatesHaveOwners =
+            tunnelInfo.gateAOwnerName &&
+            tunnelInfo.gateAOwnerName !== "Uncontrolled" &&
+            tunnelInfo.gateBOwnerName &&
+            tunnelInfo.gateBOwnerName !== "Uncontrolled";
+
+          if (bothGatesHaveOwners) {
+            // Tunnel was opened before but is now powered off
+            if (playerOwnsEitherGate && tunnelInfo.tunnelId) {
+              // Player owns at least one gate - show power on button
+              this.tunnelPowerElement.innerHTML = `⚪ Deactivated 
+              <button id="power-on-tunnel-btn" style="margin-left: 8px; padding: 2px 6px; font-size: 0.75em; cursor: pointer; background: #10b981; color: white; border: none; border-radius: 3px;">⚡ Power On</button>`;
+              this.tunnelPowerElement.style.color = "#9ca3af";
+
+              // Add event listener for power on button
+              setTimeout(() => {
+                const powerOnBtn = document.getElementById(
+                  "power-on-tunnel-btn"
+                );
+                if (powerOnBtn && tunnelInfo.tunnelId) {
+                  const tunnelId = tunnelInfo.tunnelId;
+                  // Remove any existing listeners by cloning and replacing
+                  const newPowerOnBtn = powerOnBtn.cloneNode(true);
+                  powerOnBtn.parentNode?.replaceChild(
+                    newPowerOnBtn,
+                    powerOnBtn
+                  );
+
+                  (newPowerOnBtn as HTMLButtonElement).addEventListener(
+                    "click",
+                    (event) => {
+                      event.stopPropagation(); // Prevent event bubbling
+                      event.preventDefault(); // Prevent any default behavior
+                      if (
+                        this.onPowerOnTunnel &&
+                        !(newPowerOnBtn as HTMLButtonElement).disabled
+                      ) {
+                        console.log(
+                          "[GateDetailView] Power On button clicked for tunnel:",
+                          tunnelId
+                        );
+                        // Temporarily disable to prevent double-clicks
+                        (newPowerOnBtn as HTMLButtonElement).disabled = true;
+                        this.onPowerOnTunnel(tunnelId);
+                        // Re-enable after a short delay
+                        setTimeout(() => {
+                          (newPowerOnBtn as HTMLButtonElement).disabled = false;
+                        }, 1000);
+                      }
+                    }
+                  );
+                }
+              }, 0);
+            } else {
+              // Someone else owns the gates
+              this.tunnelPowerElement.textContent = `⚪ Deactivated (Open to activate)`;
+              this.tunnelPowerElement.style.color = "#9ca3af";
+            }
+          } else {
+            // Tunnel never opened - first time
+            this.tunnelPowerElement.textContent = `⚪ Unpowered (Travel through to open)`;
+            this.tunnelPowerElement.style.color = "#9ca3af";
+          }
         }
-      }
+      } // End of if (tunnelPowerStateChanged)
     } else {
       this.tunnelControlRow.style.display = "none";
     }
@@ -415,12 +545,29 @@ export class GateDetailView {
       travelCost = 0;
     } else if (!isExploredBySelf) {
       // Truly unexplored - no owner, not explored by us
+      // Opening a tunnel costs 1 energy (tunnel has gates at both ends)
       this.nameElement.textContent = "???";
-      travelCost = 1;
+      travelCost = GAME_COSTS.TUNNEL_POWER_ON.energy;
     } else {
       // Explored by us
       this.nameElement.textContent = gate.name;
       travelCost = 0;
+    }
+
+    // Check if tunnel is deactivated (powered off) - applies regardless of exploration
+    // Reopening/activating a deactivated tunnel costs 1 energy
+    const isTunnelPowered = tunnelInfo && tunnelInfo.tunnelPoweredByPlayerId;
+    const bothGatesHaveOwners =
+      tunnelInfo &&
+      tunnelInfo.gateAOwnerName &&
+      tunnelInfo.gateAOwnerName !== "Uncontrolled" &&
+      tunnelInfo.gateBOwnerName &&
+      tunnelInfo.gateBOwnerName !== "Uncontrolled";
+
+    // If tunnel was previously opened (both gates have owners) but is now powered off,
+    // it costs energy to reactivate it
+    if (!isTunnelPowered && bothGatesHaveOwners && isExploredBySelf) {
+      travelCost = GAME_COSTS.TUNNEL_POWER_ON.energy;
     }
 
     // Check if travel is blocked by defended aggressive gate
@@ -467,14 +614,7 @@ export class GateDetailView {
 
     // Military buttons: Fortify and Attack
     // Show Fortify button if player owns the gate
-    console.log(
-      `[GateDetailView] Gate ${gate.name}, gateStatus=${gateStatus}, ownerInfo:`,
-      ownerInfo
-    );
     const playerOwnsGate = gateStatus === "owned_by_self";
-    console.log(
-      `[GateDetailView] playerOwnsGate=${playerOwnsGate} (checking if gateStatus === "owned_by_self")`
-    );
     if (playerOwnsGate) {
       this.fortifyButton.style.display = "block";
       const fortifyCost = DEFENSE_PLATFORM_CONFIG.cost;
@@ -549,10 +689,6 @@ export class GateDetailView {
     const isOtherPlayerGate = ownerInfo && ownerInfo.ownerId !== player?.id;
     const isUndefended = defenseCount === 0;
     const isDestinationUndefended = destinationDefenseCount === 0;
-
-    console.log(
-      `[GateDetailView] Capture/Overtake check: isOtherPlayerGate=${isOtherPlayerGate}, isUndefended=${isUndefended}, isDestinationUndefended=${isDestinationUndefended}, gateStatus=${gateStatus}, defenseCount=${defenseCount}`
-    );
 
     // Capture/Overtake buttons ONLY show if:
     // 1. Gate is owned by another player (not you)
@@ -735,23 +871,12 @@ export class GateDetailView {
 
     // Show Debug Connect button for unexplored gates (only in debug mode)
     const isUnexplored = !isExploredBySelf && !ownerInfo;
-    console.log(
-      `[GateDetailView] Debug check - debugMode: ${this.isDebugMode}, isExploredBySelf: ${isExploredBySelf}, ownerInfo:`,
-      ownerInfo,
-      `isUnexplored: ${isUnexplored}`
-    );
     if (this.isDebugMode && isUnexplored) {
       this.debugConnectButton.style.display = "block";
       this.debugConnectButton.title =
         "Connect this gate to another civilization's unexplored gate";
-      console.log(
-        `[GateDetailView] Showing debug connect button for gate ${gate.id}`
-      );
     } else {
       this.debugConnectButton.style.display = "none";
-      console.log(
-        `[GateDetailView] Hiding debug connect button - debugMode: ${this.isDebugMode}, isUnexplored: ${isUnexplored}`
-      );
     }
 
     // Defense counts are now displayed inline with gate ownership in tunnel control section
@@ -813,6 +938,8 @@ export class GateDetailView {
       clearInterval(this.cooldownUpdateInterval);
       this.cooldownUpdateInterval = null;
     }
+    // Reset tunnel power state so buttons are recreated when showing a new gate
+    this.lastTunnelPowerState = {};
   }
 
   private formatDistance(distance: number): string {

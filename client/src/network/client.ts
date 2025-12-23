@@ -27,6 +27,7 @@ export class NetworkClient {
     | ((uuid: string, playerId: string | null) => void)
     | null = null;
   public onPlayerData: ((player: Player) => void) | null = null;
+  public onPlayerIncomeUpdate: ((energyPerDay: number, alloyPerDay: number, sciencePerDay: number) => void) | null = null;
   public onSystemData:
     | ((
         system: StarSystem,
@@ -365,6 +366,16 @@ export class NetworkClient {
         case "playerData":
           if (this.onPlayerData) {
             this.onPlayerData(message.player);
+          }
+          break;
+
+        case "playerIncomeUpdate":
+          if (this.onPlayerIncomeUpdate) {
+            this.onPlayerIncomeUpdate(
+              message.energyPerDay,
+              message.alloyPerDay,
+              message.sciencePerDay
+            );
           }
           break;
 
@@ -950,6 +961,7 @@ export class NetworkClient {
     // Clear all callbacks
     this.onAuthenticated = null;
     this.onPlayerData = null;
+    this.onPlayerIncomeUpdate = null;
     this.onSystemData = null;
     this.onStateUpdate = null;
     this.onTimeUpdate = null;

@@ -33,7 +33,7 @@ import {
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
-import { calculatePlayerResourceFlow } from "../game/resource-flow.js";
+import { calculatePlayerResourceFlow, findGatePath } from "../game/resource-flow.js";
 import {
   generateGalaxy,
   generateStarterSystem,
@@ -276,6 +276,7 @@ export class ConstellationWebSocketServer {
           this.handleOvertakeTunnel(client, message.tunnelId);
           break;
         case "powerOffTunnel":
+          console.log(`[Server] Received powerOffTunnel for tunnel: ${message.tunnelId}`);
           this.handlePowerOffTunnel(client, message.tunnelId);
           break;
         case "powerOnTunnel":
@@ -1579,43 +1580,55 @@ export class ConstellationWebSocketServer {
     const gateHasOwner = this.db.getGateOwner(gateId) !== null;
     const exitGateHasOwner = this.db.getGateOwner(exitGate.id) !== null;
 
-    // Energy is required ONLY if you're the first person to open the gate
-    // If another player already opened it, it's maintained by their energy
+    // Check if tunnel is powered
+    const entryGate = this.db.getGateById(gateId);
+    const tunnel = entryGate?.tunnelId ? this.db.getTunnelById(entryGate.tunnelId) : null;
+    const isTunnelPowered = tunnel && tunnel.poweredByPlayerId !== null;
+
+    // Energy is required if:
+    // 1. You're the first person to open the tunnel (gates are unowned), OR
+    // 2. The tunnel was opened before but is now powered off (gates have owners but tunnel is unpowered)
+    // Opening a tunnel costs 1 energy total (tunnel has gates at both ends)
     const needsEnergyForGate = isGateUnexplored && !gateHasOwner;
     const needsEnergyForExitGate = isExitGateUnexplored && !exitGateHasOwner;
-    const needsEnergy = needsEnergyForGate || needsEnergyForExitGate;
+    const needsEnergyForReactivation = !isTunnelPowered && gateHasOwner && exitGateHasOwner;
+    const needsEnergy = needsEnergyForGate || needsEnergyForExitGate || needsEnergyForReactivation;
 
-    // Check energy requirement for opening a new gate
+    // Check energy requirement for opening a new tunnel
     if (needsEnergy) {
-      const ENERGY_COST = 1;
+      const OPENING_TUNNEL_COST = GAME_COSTS.TUNNEL_POWER_ON.energy;
       const resources = this.db.getPlayerResources(player.id);
 
-      if (!resources || resources.energy < ENERGY_COST) {
+      if (!resources || resources.energy < OPENING_TUNNEL_COST) {
         this.sendError(
           client.ws,
-          `Not enough energy to open the gate (requires ${ENERGY_COST} energy)`
+          `Not enough energy to open the tunnel (requires ${OPENING_TUNNEL_COST} energy)`
         );
         return;
       }
 
-      // Deduct energy
-      const success = this.db.deductPlayerEnergy(player.id, ENERGY_COST);
+      // Deduct energy (single cost for opening the tunnel, which has gates at both ends)
+      const success = this.db.deductPlayerEnergy(player.id, OPENING_TUNNEL_COST);
       if (!success) {
         this.sendError(client.ws, "Failed to deduct energy");
         return;
       }
 
-      if (needsEnergyForGate && needsEnergyForExitGate) {
+      if (needsEnergyForReactivation) {
         console.log(
-          `Player ${player.name} spent ${ENERGY_COST} energy to open both gates for the first time`
+          `Player ${player.name} spent ${OPENING_TUNNEL_COST} energy to reactivate tunnel (was powered off)`
+        );
+      } else if (needsEnergyForGate && needsEnergyForExitGate) {
+        console.log(
+          `Player ${player.name} spent ${OPENING_TUNNEL_COST} energy to open tunnel (both gates)`
         );
       } else if (needsEnergyForGate) {
         console.log(
-          `Player ${player.name} spent ${ENERGY_COST} energy to open the entry gate (exit gate maintained by another player)`
+          `Player ${player.name} spent ${OPENING_TUNNEL_COST} energy to open tunnel (entry gate, exit gate maintained by another player)`
         );
       } else {
         console.log(
-          `Player ${player.name} spent ${ENERGY_COST} energy to open the exit gate (entry gate maintained by another player)`
+          `Player ${player.name} spent ${OPENING_TUNNEL_COST} energy to open tunnel (exit gate, entry gate maintained by another player)`
         );
       }
     } else if (gateHasOwner || exitGateHasOwner) {
@@ -1655,29 +1668,23 @@ export class ConstellationWebSocketServer {
 
     // Auto-power tunnel if player is opening it for the first time
     // This only happens when the tunnel is not yet powered
+    // Tunnel is powered automatically when opened (no extra charge - already paid OPENING_TUNNEL cost)
     // Re-fetch the gate to get the updated tunnelId (it was just created/updated above)
     const updatedGate = this.db.getGateById(gateId);
     console.log(`[DEBUG] Checking auto-power: gate.tunnelId=${updatedGate?.tunnelId}`);
     if (updatedGate?.tunnelId) {
       const tunnel = this.db.getTunnelById(updatedGate.tunnelId);
       console.log(`[DEBUG] Tunnel: ${tunnel ? `id=${tunnel.id}, poweredBy=${tunnel.poweredByPlayerId}, cost=${tunnel.powerCostEnergy}` : 'null'}`);
-      if (tunnel && !tunnel.poweredByPlayerId) {
-        // Check if player has enough energy to open/power tunnel
-        const OPEN_ENERGY_COST = GAME_COSTS.TUNNEL_POWER_ON.energy;
-        console.log(`[DEBUG] Player energy: ${player.energy}, required: ${OPEN_ENERGY_COST}`);
-        if (player.energy >= OPEN_ENERGY_COST) {
-          this.db.deductPlayerEnergy(player.id, OPEN_ENERGY_COST);
-          this.db.setTunnelPower(updatedGate.tunnelId, player.id, OPEN_ENERGY_COST);
-          console.log(
-            `Player ${player.name} auto-powered tunnel ${updatedGate.tunnelId} (${OPEN_ENERGY_COST} energy)`
-          );
-        } else {
-          console.log(
-            `Player ${player.name} cannot auto-power tunnel - insufficient energy`
-          );
-        }
+      if (tunnel && !tunnel.poweredByPlayerId && needsEnergy) {
+        // Auto-power tunnel when opening it (no extra charge - opening cost already covers this)
+        // Use the TUNNEL_POWER_ON cost as the power cost since that's what was paid
+        const powerCostEnergy = GAME_COSTS.TUNNEL_POWER_ON.energy;
+        this.db.setTunnelPower(updatedGate.tunnelId, player.id, powerCostEnergy);
+        console.log(
+          `Player ${player.name} auto-powered tunnel ${updatedGate.tunnelId} (included in opening cost)`
+        );
       } else {
-        console.log(`[DEBUG] Skip auto-power: tunnel=${tunnel ? 'exists' : 'null'}, poweredBy=${tunnel?.poweredByPlayerId}`);
+        console.log(`[DEBUG] Skip auto-power: tunnel=${tunnel ? 'exists' : 'null'}, poweredBy=${tunnel?.poweredByPlayerId}, needsEnergy=${needsEnergy}`);
       }
     }
 
@@ -3768,20 +3775,47 @@ export class ConstellationWebSocketServer {
           const gates = this.db.getGatesBySystem(systemId);
           for (const gate of gates) {
             const gateFlow = flow.gateFlows.get(gate.id);
+            
+            // Always send gate flow info, even if there's no resource flowing
+            // This ensures blockade status is updated even when resources are completely blocked
+            let isBlockaded = false;
+            let blockadeOwnerName: string | undefined = undefined;
+            let energyFlow = 0;
+            let alloyFlow = 0;
+            let scienceFlow = 0;
+            
             if (gateFlow) {
-              // Send to all clients for this player viewing this system
-              for (const client of this.clients.values()) {
-                if (client.playerId === playerId && client.currentSystemId === systemId) {
-                  this.send(client.ws, {
-                    type: "gateResourceFlow",
-                    gateId: gate.id,
-                    energyFlow: gateFlow.energy,
-                    alloyFlow: gateFlow.alloy,
-                    scienceFlow: gateFlow.science,
-                    isBlockaded: gateFlow.isBlockaded,
-                    blockadeOwnerName: gateFlow.blockadeOwnerName,
-                  });
+              // Gate has resource flow data
+              energyFlow = gateFlow.energy;
+              alloyFlow = gateFlow.alloy;
+              scienceFlow = gateFlow.science;
+              isBlockaded = gateFlow.isBlockaded;
+              blockadeOwnerName = gateFlow.blockadeOwnerName;
+            } else if (gate.tunnelId) {
+              // No flow data, but check if tunnel is blockaded
+              const tunnelFlow = flow.tunnelFlows.get(gate.tunnelId);
+              if (tunnelFlow && tunnelFlow.isBlockaded) {
+                isBlockaded = true;
+                // Get the tunnel to check power status
+                const tunnel = this.db.getTunnelById(gate.tunnelId);
+                if (tunnel && !tunnel.poweredByPlayerId) {
+                  blockadeOwnerName = "Unpowered Tunnel";
                 }
+              }
+            }
+            
+            // Send to all clients for this player viewing this system
+            for (const client of this.clients.values()) {
+              if (client.playerId === playerId && client.currentSystemId === systemId) {
+                this.send(client.ws, {
+                  type: "gateResourceFlow",
+                  gateId: gate.id,
+                  energyFlow,
+                  alloyFlow,
+                  scienceFlow,
+                  isBlockaded,
+                  blockadeOwnerName,
+                });
               }
             }
           }
@@ -3810,6 +3844,25 @@ export class ConstellationWebSocketServer {
                   }
                 }
               }
+            }
+          }
+        }
+
+        // Send updated player income rates (net of blockades) to all clients for this player
+        const player = this.db.getPlayerById(playerId);
+        if (player) {
+          const netEnergyPerDay = flow.totalEnergy - flow.blockedEnergy;
+          const netAlloyPerDay = (player.alloyPerDay || 0) - flow.blockedAlloy;
+          const netSciencePerDay = (player.sciencePerDay || 0) - flow.blockedScience;
+
+          for (const client of this.clients.values()) {
+            if (client.playerId === playerId && (!galaxyId || client.galaxyId === galaxyId)) {
+              this.send(client.ws, {
+                type: "playerIncomeUpdate",
+                energyPerDay: netEnergyPerDay,
+                alloyPerDay: netAlloyPerDay,
+                sciencePerDay: netSciencePerDay,
+              });
             }
           }
         }
@@ -5265,16 +5318,24 @@ export class ConstellationWebSocketServer {
         }
       }
     }
+
+    // Explicitly broadcast resource flow updates to ensure flow changes are reflected
+    // Taking over tunnel power may change whether resources flow or are blockaded
+    this.broadcastResourceFlowUpdates(player.galaxyId);
   }
 
   private handlePowerOffTunnel(client: ClientConnection, tunnelId: string): void {
+    console.log(`[handlePowerOffTunnel] START for tunnel ${tunnelId}, player ${client.playerId}`);
+    
     if (!client.playerId) {
+      console.log(`[handlePowerOffTunnel] ERROR: Not authenticated`);
       this.sendError(client.ws, "Not authenticated");
       return;
     }
 
     const player = this.db.getPlayerById(client.playerId);
     if (!player) {
+      console.log(`[handlePowerOffTunnel] ERROR: Player not found`);
       this.sendError(client.ws, "Player not found");
       return;
     }
@@ -5282,12 +5343,16 @@ export class ConstellationWebSocketServer {
     // Get the tunnel
     const tunnel = this.db.getTunnelById(tunnelId);
     if (!tunnel) {
+      console.log(`[handlePowerOffTunnel] ERROR: Tunnel not found: ${tunnelId}`);
       this.sendError(client.ws, "Tunnel not found");
       return;
     }
 
+    console.log(`[handlePowerOffTunnel] Tunnel found, powered by: ${tunnel.poweredByPlayerId}, current player: ${client.playerId}`);
+
     // Check if player is currently powering this tunnel
     if (tunnel.poweredByPlayerId !== client.playerId) {
+      console.log(`[handlePowerOffTunnel] ERROR: Player is not powering this tunnel`);
       this.sendError(client.ws, "You are not currently powering this tunnel");
       return;
     }
@@ -5323,6 +5388,10 @@ export class ConstellationWebSocketServer {
         }
       }
     }
+
+    // Explicitly broadcast resource flow updates to ensure blockade status is updated
+    // This ensures the UI immediately reflects that resources are now blocked
+    this.broadcastResourceFlowUpdates(player.galaxyId);
   }
 
   private handlePowerOnTunnel(client: ClientConnection, tunnelId: string): void {
@@ -5402,6 +5471,10 @@ export class ConstellationWebSocketServer {
         }
       }
     }
+
+    // Explicitly broadcast resource flow updates to ensure flow is restored
+    // This ensures the UI immediately reflects that resources are now flowing
+    this.broadcastResourceFlowUpdates(player.galaxyId);
   }
 
   private handleOverchargeTunnel(client: ClientConnection, tunnelId: string): void {
@@ -5548,6 +5621,10 @@ export class ConstellationWebSocketServer {
         }
       }
     }
+
+    // Explicitly broadcast resource flow updates to ensure blockade status is updated
+    // Overcharge powers off the tunnel, so resources should now be blocked
+    this.broadcastResourceFlowUpdates(player.galaxyId);
   }
 
   private handleDebugConnectGate(
@@ -5818,6 +5895,9 @@ export class ConstellationWebSocketServer {
       return;
     }
 
+    // Calculate resource flow to get blockade information
+    const flow = calculatePlayerResourceFlow(this.db, client.playerId);
+
     // Get all mining operations for this player
     const miningOps = this.db.getMiningOperationsByPlayer(client.playerId);
     
@@ -5832,8 +5912,30 @@ export class ConstellationWebSocketServer {
       alloyPerDay: number;
     }>();
 
+    // Helper function to check if a system is blockaded
+    const isSystemBlockaded = (systemId: string): boolean => {
+      if (systemId === player.homeSystemId) return false; // Home system is never blockaded
+      
+      const path = findGatePath(this.db, systemId, player.homeSystemId);
+      if (!path) return true; // No path = blockaded
+      
+      // Check if any tunnel in the path is blockaded
+      for (const gateId of path) {
+        const gate = this.db.getGateById(gateId);
+        if (!gate || !gate.tunnelId) continue;
+        const tunnelFlow = flow.tunnelFlows.get(gate.tunnelId);
+        if (tunnelFlow && tunnelFlow.isBlockaded) {
+          return true;
+        }
+      }
+      return false;
+    };
+
     // Process mining operations
     for (const op of miningOps) {
+      // Skip blockaded systems
+      if (isSystemBlockaded(op.systemId)) continue;
+      
       if (!systemMap.has(op.systemId)) {
         const system = this.db.getStarSystem(op.systemId);
         if (!system) continue;
@@ -5852,6 +5954,9 @@ export class ConstellationWebSocketServer {
 
     // Process colonies
     for (const colony of colonies) {
+      // Skip blockaded systems (only for positive production)
+      if (colony.alloyPerDay > 0 && isSystemBlockaded(colony.systemId)) continue;
+      
       if (!systemMap.has(colony.systemId)) {
         const system = this.db.getStarSystem(colony.systemId);
         if (!system) continue;

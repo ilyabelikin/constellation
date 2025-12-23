@@ -22,6 +22,7 @@ import {
   TECHNOLOGIES,
   calculateIceCapCoverage,
 } from "@constellation/shared";
+import { calculatePlayerResourceFlow, findGatePath } from "../game/resource-flow.js";
 
 export class DatabaseQueries {
   private db: Database.Database;
@@ -421,21 +422,16 @@ export class DatabaseQueries {
       0
     );
 
-    // Calculate resource flow and blockades
-    // Note: Resource flow calculation has been moved to a separate method to avoid circular dependencies
-    // For now, we don't calculate blockades in this method
-    let blockedEnergy = 0;
-    let blockedAlloy = 0;
-    let blockedScience = 0;
-
     // Calculate science consumption from active research
     const currentResearch = this.getCurrentResearch(row.id);
     const researchCostPerDay = currentResearch && currentResearch.status === "in_progress" ? 2 : 0; // 60 science / 30 days = 2 per day
 
-    // Total income minus blockades and maintenance costs
-    const energyPerDay = energyFromMegastructures - blockedEnergy;
-    const alloyPerDay = alloyFromMining + alloyFromColonies - blockedAlloy - alloyCostFromDefenses;
-    const sciencePerDay = scienceFromColonies - blockedScience - researchCostPerDay;
+    // Total income minus maintenance costs
+    // Note: We calculate GROSS income here. Blockades are calculated separately in calculatePlayerResourceFlow
+    // to avoid circular dependencies (calculatePlayerResourceFlow calls getPlayerById)
+    const energyPerDay = energyFromMegastructures;
+    const alloyPerDay = alloyFromMining + alloyFromColonies - alloyCostFromDefenses;
+    const sciencePerDay = scienceFromColonies - researchCostPerDay;
 
     return {
       id: row.id,
@@ -756,6 +752,35 @@ export class DatabaseQueries {
         const player = this.getPlayerById(row.player_id);
         if (!player) continue;
 
+        // Check if resources from this system are blockaded
+        let isBlockaded = false;
+        if (row.system_id !== player.homeSystemId) {
+          const path = findGatePath(this, row.system_id, player.homeSystemId);
+          if (!path) {
+            isBlockaded = true; // No path to capital
+          } else {
+            // Check if any tunnel in path is blockaded
+            const flow = calculatePlayerResourceFlow(this, row.player_id);
+            for (const gateId of path) {
+              const gate = this.getGateById(gateId);
+              if (!gate || !gate.tunnelId) continue;
+              const tunnelFlow = flow.tunnelFlows.get(gate.tunnelId);
+              if (tunnelFlow && tunnelFlow.isBlockaded) {
+                isBlockaded = true;
+                break;
+              }
+            }
+          }
+        }
+
+        // If blockaded, update the yield time but don't add resources
+        if (isBlockaded) {
+          const fullDays = Math.floor(daysElapsed);
+          const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+          this.updateMiningOperationYield(row.id, newLastYieldAt, row.alloy_mined || 0);
+          continue;
+        }
+
         const currentAlloy = player.alloy || 0;
         const storageAvailable = MAX_ALLOY_STOCKPILE - currentAlloy;
 
@@ -1013,11 +1038,37 @@ export class DatabaseQueries {
         const fullDays = Math.floor(daysElapsed);
         const resourceToAdd = (row.resource_per_day || 0) * fullDays;
 
-        // Add resources based on type
-        if (row.resource_type === "energy" && resourceToAdd > 0) {
-          this.addPlayerEnergy(row.player_id, resourceToAdd);
-        } else if (row.resource_type === "alloy" && resourceToAdd > 0) {
-          this.addPlayerAlloy(row.player_id, resourceToAdd);
+        // Check if resources from this system are blockaded
+        let isBlockaded = false;
+        if (resourceToAdd > 0) {
+          const player = this.getPlayerById(row.player_id);
+          if (player && row.system_id !== player.homeSystemId) {
+            const path = findGatePath(this, row.system_id, player.homeSystemId);
+            if (!path) {
+              isBlockaded = true; // No path to capital
+            } else {
+              // Check if any tunnel in path is blockaded
+              const flow = calculatePlayerResourceFlow(this, row.player_id);
+              for (const gateId of path) {
+                const gate = this.getGateById(gateId);
+                if (!gate || !gate.tunnelId) continue;
+                const tunnelFlow = flow.tunnelFlows.get(gate.tunnelId);
+                if (tunnelFlow && tunnelFlow.isBlockaded) {
+                  isBlockaded = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // Add resources based on type (only if not blockaded)
+        if (!isBlockaded) {
+          if (row.resource_type === "energy" && resourceToAdd > 0) {
+            this.addPlayerEnergy(row.player_id, resourceToAdd);
+          } else if (row.resource_type === "alloy" && resourceToAdd > 0) {
+            this.addPlayerAlloy(row.player_id, resourceToAdd);
+          }
         }
 
         // Update last yield time
@@ -1051,7 +1102,29 @@ export class DatabaseQueries {
         // Get current player resources to prevent going negative
         const player = this.getPlayerById(row.player_id);
         if (player) {
-          if (scienceToAdd > 0) {
+          // Check if resources from this system are blockaded (only for positive resource production)
+          let isBlockaded = false;
+          if (row.system_id !== player.homeSystemId && (scienceToAdd > 0 || alloyToAdd > 0)) {
+            const path = findGatePath(this, row.system_id, player.homeSystemId);
+            if (!path) {
+              isBlockaded = true; // No path to capital
+            } else {
+              // Check if any tunnel in path is blockaded
+              const flow = calculatePlayerResourceFlow(this, row.player_id);
+              for (const gateId of path) {
+                const gate = this.getGateById(gateId);
+                if (!gate || !gate.tunnelId) continue;
+                const tunnelFlow = flow.tunnelFlows.get(gate.tunnelId);
+                if (tunnelFlow && tunnelFlow.isBlockaded) {
+                  isBlockaded = true;
+                  break;
+                }
+              }
+            }
+          }
+
+          // Only add positive resources if not blockaded; negative resources (consumption) always apply
+          if (scienceToAdd > 0 && !isBlockaded) {
             this.addPlayerScience(row.player_id, scienceToAdd);
           } else if (scienceToAdd < 0) {
             // Consuming science - don't let it go below 0
@@ -1061,7 +1134,7 @@ export class DatabaseQueries {
             );
             this.addPlayerScience(row.player_id, -scienceToConsume);
           }
-          if (alloyToAdd > 0) {
+          if (alloyToAdd > 0 && !isBlockaded) {
             // Apply "Deep Mining" tech bonus if researched (only for positive alloy production from colonies)
             const techBonuses = this.getPlayerTechBonuses(row.player_id);
             if (techBonuses.colonyAlloyBonus) {

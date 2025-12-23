@@ -56,6 +56,58 @@ export interface PlayerResourceFlow {
 }
 
 /**
+ * Helper function to add resource flow to a gate AND its partner gate in the same tunnel
+ * This ensures both ends of a tunnel show the same resource flow
+ */
+function addGateFlow(
+  db: DatabaseQueries,
+  gateFlows: Map<string, GateResourceFlow>,
+  gateId: string,
+  tunnelId: string,
+  energyDelta: number,
+  alloyDelta: number,
+  scienceDelta: number
+): void {
+  // Add flow to this gate
+  let flow = gateFlows.get(gateId);
+  if (!flow) {
+    flow = {
+      gateId,
+      tunnelId,
+      energy: 0,
+      alloy: 0,
+      science: 0,
+      isBlockaded: false,
+    };
+    gateFlows.set(gateId, flow);
+  }
+  flow.energy += energyDelta;
+  flow.alloy += alloyDelta;
+  flow.science += scienceDelta;
+  
+  // Also add flow to the OTHER gate in the same tunnel
+  const gatesInTunnel = db.getGatesByTunnel(tunnelId);
+  const otherGate = gatesInTunnel.find(g => g.id !== gateId);
+  if (otherGate) {
+    let otherFlow = gateFlows.get(otherGate.id);
+    if (!otherFlow) {
+      otherFlow = {
+        gateId: otherGate.id,
+        tunnelId,
+        energy: 0,
+        alloy: 0,
+        science: 0,
+        isBlockaded: false,
+      };
+      gateFlows.set(otherGate.id, otherFlow);
+    }
+    otherFlow.energy += energyDelta;
+    otherFlow.alloy += alloyDelta;
+    otherFlow.science += scienceDelta;
+  }
+}
+
+/**
  * Finds the shortest path from one system to another through gates
  * Returns array of gate IDs in the path, or null if no path exists
  */
@@ -211,23 +263,16 @@ export function calculatePlayerResourceFlow(
       tunnelFlow.alloy += alloyProduction;
       tunnelFlow.science += scienceProduction;
 
-      // Also track by gate for backward compatibility
-      let flow = gateFlows.get(gateId);
-      if (!flow) {
-        flow = {
-          gateId,
-          tunnelId: gate.tunnelId || "", // Default to empty string for type safety
-          energy: 0,
-          alloy: 0,
-          science: 0,
-          isBlockaded: false,
-        };
-        gateFlows.set(gateId, flow);
-      }
-
-      flow.energy += energyProduction;
-      flow.alloy += alloyProduction;
-      flow.science += scienceProduction;
+      // Add flow to this gate AND the other gate in the same tunnel
+      addGateFlow(
+        db,
+        gateFlows,
+        gateId,
+        gate.tunnelId,
+        energyProduction,
+        alloyProduction,
+        scienceProduction
+      );
     }
   }
 
@@ -287,20 +332,8 @@ export function calculatePlayerResourceFlow(
 
       tunnelFlow.alloy += alloyProduction;
 
-      let flow = gateFlows.get(gateId);
-      if (!flow) {
-        flow = {
-          gateId,
-          tunnelId: gate.tunnelId,
-          energy: 0,
-          alloy: 0,
-          science: 0,
-          isBlockaded: false,
-        };
-        gateFlows.set(gateId, flow);
-      }
-
-      flow.alloy += alloyProduction;
+      // Add flow to this gate AND the other gate in the same tunnel
+      addGateFlow(db, gateFlows, gateId, gate.tunnelId, 0, alloyProduction, 0);
     }
   }
 
@@ -360,20 +393,8 @@ export function calculatePlayerResourceFlow(
 
       tunnelFlow.energy += energyProduction;
 
-      let flow = gateFlows.get(gateId);
-      if (!flow) {
-        flow = {
-          gateId,
-          tunnelId: gate.tunnelId,
-          energy: 0,
-          alloy: 0,
-          science: 0,
-          isBlockaded: false,
-        };
-        gateFlows.set(gateId, flow);
-      }
-
-      flow.energy += energyProduction;
+      // Add flow to this gate AND the other gate in the same tunnel
+      addGateFlow(db, gateFlows, gateId, gate.tunnelId, energyProduction, 0, 0);
     }
   }
 
@@ -433,20 +454,8 @@ export function calculatePlayerResourceFlow(
 
       tunnelFlow.energy += energyProduction;
 
-      let flow = gateFlows.get(gateId);
-      if (!flow) {
-        flow = {
-          gateId,
-          tunnelId: gate.tunnelId,
-          energy: 0,
-          alloy: 0,
-          science: 0,
-          isBlockaded: false,
-        };
-        gateFlows.set(gateId, flow);
-      }
-
-      flow.energy += energyProduction;
+      // Add flow to this gate AND the other gate in the same tunnel
+      addGateFlow(db, gateFlows, gateId, gate.tunnelId, energyProduction, 0, 0);
     }
   }
 
@@ -462,12 +471,11 @@ export function calculatePlayerResourceFlow(
     if (!tunnel.poweredByPlayerId) {
       tunnelFlow.isBlockaded = true;
       tunnelFlow.blockadeSpeciesId = undefined; // No specific species blockading
-      continue;
-    }
-
-    // If tunnel is powered by a non-friendly player, it's a blockade (cold war)
-    const tunnelOwner = tunnel.poweredByPlayerId;
-    if (tunnelOwner && tunnelOwner !== playerId) {
+      // Don't continue - we need to mark the gates as blockaded below
+    } else {
+      // If tunnel is powered by a non-friendly player, it's a blockade (cold war)
+      const tunnelOwner = tunnel.poweredByPlayerId;
+      if (tunnelOwner && tunnelOwner !== playerId) {
       const relationship = db.getPlayerRelationship(playerId, tunnelOwner);
       // Block resources unless relationship is friendly (neutral = cold war, at_war = hot war)
       if (relationship !== "friendly") {
@@ -486,6 +494,7 @@ export function calculatePlayerResourceFlow(
         }
       }
     }
+    } // end else (tunnel is powered)
 
     // Mark associated gates as blockaded
     for (const [gateId, flow] of gateFlows.entries()) {

@@ -446,6 +446,12 @@ export type ServerMessage =
       }[];
     }
   | {
+      type: "playerIncomeUpdate";
+      energyPerDay: number;
+      alloyPerDay: number;
+      sciencePerDay: number;
+    }
+  | {
       type: "techTreeData";
       completedTechs: string[]; // IDs of completed technologies
       currentResearch: {
