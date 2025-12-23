@@ -3934,34 +3934,32 @@ export class ConstellationWebSocketServer {
     }
 
     // Check if player has enough resources to establish colony
-    const COLONY_ENERGY_COST = 5;
-    const COLONY_ALLOY_COST = 5;
-    const COLONY_SCIENCE_COST = 5;
+    const COLONY_COST = GAME_COSTS.COLONY_ESTABLISHMENT;
 
-    if (player.energy < COLONY_ENERGY_COST) {
+    if (player.energy < COLONY_COST.energy) {
       this.sendError(
         client.ws,
-        `Not enough energy to establish colony (requires ${COLONY_ENERGY_COST} energy, have ${
+        `Not enough energy to establish colony (requires ${COLONY_COST.energy} energy, have ${
           Math.floor(player.energy * 100) / 100
         })`
       );
       return;
     }
 
-    if (player.alloy < COLONY_ALLOY_COST) {
+    if (player.alloy < COLONY_COST.alloy) {
       this.sendError(
         client.ws,
-        `Not enough alloy to establish colony (requires ${COLONY_ALLOY_COST} alloy, have ${
+        `Not enough alloy to establish colony (requires ${COLONY_COST.alloy} alloy, have ${
           Math.floor(player.alloy * 100) / 100
         })`
       );
       return;
     }
 
-    if (player.science < COLONY_SCIENCE_COST) {
+    if (player.science < COLONY_COST.science) {
       this.sendError(
         client.ws,
-        `Not enough science to establish colony (requires ${COLONY_SCIENCE_COST} science, have ${
+        `Not enough science to establish colony (requires ${COLONY_COST.science} science, have ${
           Math.floor(player.science * 100) / 100
         })`
       );
@@ -3971,9 +3969,9 @@ export class ConstellationWebSocketServer {
     // Deduct resources
     this.db.updatePlayerResources(
       player.id,
-      player.energy - COLONY_ENERGY_COST,
-      player.alloy - COLONY_ALLOY_COST,
-      player.science - COLONY_SCIENCE_COST
+      player.energy - COLONY_COST.energy,
+      player.alloy - COLONY_COST.alloy,
+      player.science - COLONY_COST.science
     );
 
     // Calculate maximum population for this planet first
@@ -5685,7 +5683,29 @@ export class ConstellationWebSocketServer {
     this.db.markGateExploredSingle(targetPlayer.id, gateId);
     this.db.markGateExploredSingle(targetPlayer.id, targetGate.id);
 
-    // Note: Tunnel power is now managed separately via tunnel overtake/power actions
+    // Set gate ownership: each player owns their respective gate
+    // This ensures gates show as "Controlled" instead of "Uncontrolled"
+    this.db.setGateOwnership(gateId, player.id);
+    this.db.setGateOwnership(targetGate.id, targetPlayer.id);
+
+    // Auto-power tunnel when first connecting civilizations
+    // The initiating player powers the tunnel automatically
+    const tunnel = this.db.getTunnelById(tunnelId);
+    if (tunnel && !tunnel.poweredByPlayerId) {
+      // Check if player has enough energy to power tunnel
+      const OPEN_ENERGY_COST = GAME_COSTS.TUNNEL_POWER_ON.energy;
+      if (player.energy >= OPEN_ENERGY_COST) {
+        this.db.deductPlayerEnergy(player.id, OPEN_ENERGY_COST);
+        this.db.setTunnelPower(tunnelId, player.id, OPEN_ENERGY_COST);
+        console.log(
+          `[Debug] Player ${player.name} auto-powered tunnel ${tunnelId} (${OPEN_ENERGY_COST} energy)`
+        );
+      } else {
+        console.log(
+          `[Debug] Player ${player.name} cannot auto-power tunnel - insufficient energy`
+        );
+      }
+    }
 
     console.log(
       `[Debug] Connected gate ${gate.name} (${gate.systemId}) to ${targetGate.name} (${targetGate.systemId}), linking civilizations: ${player.name} <-> ${targetPlayer.name}`
@@ -5712,6 +5732,9 @@ export class ConstellationWebSocketServer {
         system.id
       );
 
+      // Get updated player data with new explored gates
+      const updatedPlayer = this.db.getPlayerById(player.id);
+
       this.send(client.ws, {
         type: "systemData",
         system,
@@ -5719,42 +5742,66 @@ export class ConstellationWebSocketServer {
         tunnelOwnership:
           tunnelOwnership.length > 0 ? tunnelOwnership : undefined,
       });
+
+      // Send updated player data so client knows about newly explored gates
+      if (updatedPlayer) {
+        this.send(client.ws, {
+          type: "playerData",
+          player: updatedPlayer,
+        });
+      }
     }
 
-    // Also notify the target player if they're online and in the connected system
+    // Also notify the target player if they're online
+    // Send update regardless of where they are (system view or constellation view)
     const targetClient = Array.from(this.clients.values()).find(
       (c) => c.playerId === targetPlayer.id
     );
-    if (targetClient && targetPlayer.currentSystemId === targetGate.systemId) {
-      const targetSystem = this.db.getStarSystem(targetPlayer.currentSystemId);
-      if (targetSystem) {
-        this.gameState.loadSystem(targetSystem);
+    if (targetClient) {
+      // Send notification message
+      this.send(targetClient.ws, {
+        type: "error",
+        message: `${player.name}'s civilization has connected to your gate!`,
+      });
 
-        const targetGateOwnership = this.db.getGateOwnershipForSystem(
-          targetPlayer.id,
-          targetSystem.id
-        );
+      // If they're in the connected system, send full system update
+      if (targetPlayer.currentSystemId === targetGate.systemId) {
+        const targetSystem = this.db.getStarSystem(targetPlayer.currentSystemId);
+        if (targetSystem) {
+          this.gameState.loadSystem(targetSystem);
 
-        const targetTunnelOwnership = this.db.getTunnelOwnershipForSystem(
-          targetPlayer.id,
-          targetSystem.id
-        );
+          const targetGateOwnership = this.db.getGateOwnershipForSystem(
+            targetPlayer.id,
+            targetSystem.id
+          );
 
-        this.send(targetClient.ws, {
-          type: "systemData",
-          system: targetSystem,
-          gateOwnership:
-            targetGateOwnership.length > 0 ? targetGateOwnership : undefined,
-          tunnelOwnership:
-            targetTunnelOwnership.length > 0
-              ? targetTunnelOwnership
-              : undefined,
-        });
+          const targetTunnelOwnership = this.db.getTunnelOwnershipForSystem(
+            targetPlayer.id,
+            targetSystem.id
+          );
 
-        this.send(targetClient.ws, {
-          type: "error",
-          message: `${player.name}'s civilization has connected to your gate!`,
-        });
+          // Get updated player data with new explored gates
+          const updatedTargetPlayer = this.db.getPlayerById(targetPlayer.id);
+
+          this.send(targetClient.ws, {
+            type: "systemData",
+            system: targetSystem,
+            gateOwnership:
+              targetGateOwnership.length > 0 ? targetGateOwnership : undefined,
+            tunnelOwnership:
+              targetTunnelOwnership.length > 0
+                ? targetTunnelOwnership
+                : undefined,
+          });
+
+          // Send updated player data so client knows about newly explored gates
+          if (updatedTargetPlayer) {
+            this.send(targetClient.ws, {
+              type: "playerData",
+              player: updatedTargetPlayer,
+            });
+          }
+        }
       }
     }
   }

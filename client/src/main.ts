@@ -447,6 +447,12 @@ class ConstellationGame {
 
       if (player.exploredGateIds) {
         this.scene.setExploredGates(player.exploredGateIds);
+        
+        // Refresh the outline to update gate names when new gates are explored
+        // This is important when another civilization connects to our gates
+        if (this.system) {
+          this.hud.setSystem(this.system, true); // true = isRefresh, keeps selection
+        }
       }
 
       this.scene.setCurrentPlayerId(player.id);
