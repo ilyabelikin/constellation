@@ -1179,6 +1179,23 @@ export class SceneManager {
       }
     }
 
+    // Clean up removed ships from scene and interpolator
+    const currentShipIds = new Set(state.ships.map((s) => s.id));
+    for (const [shipId, mesh] of this.ships.entries()) {
+      if (!currentShipIds.has(shipId)) {
+        this.scene.remove(mesh);
+        mesh.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            this.disposeMesh(child);
+          } else if (child instanceof THREE.Light) {
+            child.dispose();
+          }
+        });
+        this.ships.delete(shipId);
+        this.timeInterpolator.removeBody(shipId);
+      }
+    }
+
     // Update gate positions (gates orbit like planets)
     for (const gateState of state.gates) {
       const newPosition = new THREE.Vector3(
@@ -1927,7 +1944,8 @@ export class SceneManager {
 
     // Get interpolation factor for smooth orbital motion
     // Match server update rate: 5Hz = 0.2s per update
-    const lerpFactor = this.timeInterpolator.getLerpFactor(0.2);
+    // We use a larger buffer (0.4s) to handle network jitter and server processing spikes
+    const lerpFactor = this.timeInterpolator.getLerpFactor(0.4);
 
     // Collect all star positions for planet lighting
     const starLightPositions: THREE.Vector3[] = [];

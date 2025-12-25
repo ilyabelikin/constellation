@@ -67,10 +67,6 @@ export class ConstellationWebSocketServer {
     this.gameState = gameState;
     this.wss = new WebSocketServer({ port: WEBSOCKET_PORT });
 
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/ee94a6f1-42d6-44ad-8459-4ef2edbb6497',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket-server.ts:constructor',message:'WebSocket server created',data:{port:WEBSOCKET_PORT,clientsCount:0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-    // #endregion
-
     // Register callback for when in-game days elapse (integrated with game state updates)
     this.gameState.setDayElapsedCallback((galaxyId, currentTime, daysElapsed) => {
       this.handleDayElapsed(galaxyId, currentTime, daysElapsed);
@@ -95,10 +91,6 @@ export class ConstellationWebSocketServer {
     };
 
     this.clients.set(ws, client);
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/ee94a6f1-42d6-44ad-8459-4ef2edbb6497',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket-server.ts:handleConnection',message:'New client connected',data:{clientsCount:this.clients.size,clientMapSize:this.clients.size},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-    // #endregion
     
     console.log("New client connected");
 
@@ -3430,10 +3422,6 @@ export class ConstellationWebSocketServer {
   private handleDisconnect(ws: WebSocket): void {
     const client = this.clients.get(ws);
     const wasDeleted = this.clients.delete(ws);
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/ee94a6f1-42d6-44ad-8459-4ef2edbb6497',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket-server.ts:handleDisconnect',message:'Client disconnected',data:{wasDeleted,clientsCount:this.clients.size,clientId:client?.playerId,galaxyId:client?.galaxyId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-    // #endregion
     
     console.log("Client disconnected");
     this.checkPlayerCountAndPause();

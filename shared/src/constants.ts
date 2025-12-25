@@ -1,6 +1,6 @@
 // Version
-export const GAME_VERSION = "0.4.1";
-export const VERSION_NAME = "Diplomacy";
+export const GAME_VERSION = "0.4.2";
+export const VERSION_NAME = "Lights On";
 
 // Physical constants (SI units: meters, kilograms, seconds)
 export const GRAVITATIONAL_CONSTANT = 6.6743e-11; // m³/(kg·s²)

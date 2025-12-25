@@ -40,7 +40,20 @@ export function calculateMeanAnomaly(
 ): number {
   const n = calculateMeanMotion(elements.semiMajorAxis, parentMass);
   const timeSinceEpoch = currentTime - elements.epoch;
-  return elements.meanAnomalyAtEpoch + n * timeSinceEpoch;
+
+  // Calculate period to normalize time and maintain precision
+  // For highly elliptical or parabolic/hyperbolic orbits, this might need care,
+  // but for closed orbits (e < 1) it works perfectly.
+  const period = (2 * Math.PI) / n;
+  const normalizedTimeSinceEpoch = timeSinceEpoch % period;
+
+  const M = elements.meanAnomalyAtEpoch + n * normalizedTimeSinceEpoch;
+
+  // Normalize to [0, 2π] to maintain precision for trigonometric functions
+  // and Kepler solver, especially after long game runtimes
+  return M % (2 * Math.PI);
+  // and Kepler solver, especially after long game runtimes
+  return M % (2 * Math.PI);
 }
 
 /**
@@ -339,4 +352,3 @@ export function calculateOrbitalElements(
     epoch,
   };
 }
-

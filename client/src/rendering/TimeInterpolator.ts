@@ -75,16 +75,20 @@ export class TimeInterpolator {
       this.bodyCurrentPositions.set(bodyId, position.clone());
       this.bodyVelocities.set(bodyId, new THREE.Vector3(0, 0, 0));
     } else {
-      // Key fix: Use the OLD TARGET as PREVIOUS, not the current interpolated position
-      // This prevents backward jumps when new server updates arrive
+      // Use the CURRENT interpolated position as PREVIOUS for the next segment
+      // This ensures a smooth transition even if the previous interpolation
+      // hadn't finished or had already overshot (dead reckoning)
+      const currentPos =
+        this.bodyCurrentPositions.get(bodyId) ||
+        this.bodyTargetPositions.get(bodyId)!;
+      this.bodyPreviousPositions.set(bodyId, currentPos.clone());
+
       const oldTarget = this.bodyTargetPositions.get(bodyId)!;
-      this.bodyPreviousPositions.set(bodyId, oldTarget.clone());
-      
       // Calculate velocity for dead reckoning (extrapolation)
       // This allows smooth motion even when lerp factor exceeds 1.0
       const velocity = new THREE.Vector3().subVectors(position, oldTarget);
       this.bodyVelocities.set(bodyId, velocity);
-      
+
       this.bodyTargetPositions.set(bodyId, position);
     }
   }
@@ -105,20 +109,22 @@ export class TimeInterpolator {
 
     if (prevPos && targetPos) {
       const result = new THREE.Vector3();
-      
+
       if (lerpFactor <= 1.0) {
         // Normal interpolation between previous and target
         result.lerpVectors(prevPos, targetPos, lerpFactor);
       } else if (velocity) {
         // Dead reckoning: extrapolate beyond target using velocity
-        // Only extrapolate slightly (up to 10% beyond) to avoid excessive drift
-        const extrapolationFactor = Math.min(lerpFactor - 1.0, 0.1);
-        result.copy(targetPos).add(velocity.clone().multiplyScalar(extrapolationFactor));
+        // Allow up to 50% extrapolation to handle jitter
+        const extrapolationFactor = Math.min(lerpFactor - 1.0, 0.5);
+        result
+          .copy(targetPos)
+          .add(velocity.clone().multiplyScalar(extrapolationFactor));
       } else {
         // Fallback: stick at target
         result.copy(targetPos);
       }
-      
+
       // Store the current interpolated position
       this.bodyCurrentPositions.set(bodyId, result.clone());
       return result;
@@ -131,12 +137,24 @@ export class TimeInterpolator {
    * Gets the interpolation factor based on time since last update
    * @param interpolationDuration - Duration to interpolate over (in seconds)
    */
-  getLerpFactor(interpolationDuration: number = 0.2): number {
+  getLerpFactor(interpolationDuration: number = 0.4): number {
     const currentRealTime = performance.now() / 1000;
     const timeSinceUpdate = currentRealTime - this.lastUpdateRealTime;
-    // Allow slight extrapolation (up to 1.1) for dead reckoning
-    // This prevents objects from appearing to "stick" when updates are delayed
-    return Math.min(timeSinceUpdate / interpolationDuration, 1.1);
+    const lerpFactor = timeSinceUpdate / interpolationDuration;
+
+    // Allow more extrapolation (up to 1.5) for dead reckoning
+    // This handles longer server pauses without "sticking" too soon
+    return Math.min(lerpFactor, 1.5);
+  }
+
+  /**
+   * Removes a body from all position maps
+   */
+  removeBody(bodyId: string): void {
+    this.bodyPreviousPositions.delete(bodyId);
+    this.bodyTargetPositions.delete(bodyId);
+    this.bodyCurrentPositions.delete(bodyId);
+    this.bodyVelocities.delete(bodyId);
   }
 
   /**

@@ -1,10 +1,11 @@
 # What's New in Constellation
 
-## Version 0.4.2 - Lights on
+## Version 0.4.2 - Lights On
 
-- **Cities**: improved citites on settled worlds to light up based on population dynamicaly.
-- **Starvation**: the settelemnts deprived of necessary resources will loose population.
+- **Cities**: Improved cities on settled worlds to light up based on population dynamically.
+- **Starvation**: Settlements deprived of necessary resources will lose population.
 - **Depopulation**: Colonies with 0 population now automatically die out, refund energy (3 ⚡) only (alloy and science are lost), and can be re-colonized.
+- **No jitter**: Fixed a long-standing issue with jitter of planets and moons... things are smoother now.
 
 ## Version 0.4.1 - Diplomacy
 

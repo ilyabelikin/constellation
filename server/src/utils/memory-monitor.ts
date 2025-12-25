@@ -107,21 +107,6 @@ export class MemoryMonitor {
       }
     }
 
-    // #region agent log
-    fetch(this.logEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        location: 'memory-monitor.ts:logSnapshot',
-        message: 'Memory snapshot',
-        data,
-        timestamp: Date.now(),
-        sessionId: this.sessionId,
-        hypothesisId: 'MEMORY_TRACKING',
-      })
-    }).catch(() => {});
-    // #endregion
-
     // Also log to console for immediate visibility
     console.log(
       `[Memory] Heap: ${data.heapUsedMB}/${data.heapTotalMB} MB | ` +
@@ -157,27 +142,6 @@ export class MemoryMonitor {
 
     const growthRate = ((avgLast - avgFirst) / avgFirst) * 100;
     const timeDiff = (lastBatch[0].timestamp - firstBatch[0].timestamp) / 1000 / 60; // minutes
-
-    // #region agent log
-    fetch(this.logEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        location: 'memory-monitor.ts:analyzeGrowth',
-        message: 'Memory growth analysis',
-        data: {
-          avgFirstMB: (avgFirst / 1024 / 1024).toFixed(2),
-          avgLastMB: (avgLast / 1024 / 1024).toFixed(2),
-          growthPercent: growthRate.toFixed(2),
-          timeMinutes: timeDiff.toFixed(2),
-          snapshotCount: this.snapshots.length,
-        },
-        timestamp: Date.now(),
-        sessionId: this.sessionId,
-        hypothesisId: 'MEMORY_GROWTH_ANALYSIS',
-      })
-    }).catch(() => {});
-    // #endregion
 
     let isLeaking = false;
     let recommendation = "";
@@ -257,4 +221,6 @@ export class MemoryMonitor {
 
 // Export singleton instance
 export const memoryMonitor = new MemoryMonitor();
+
+
 

@@ -18,28 +18,35 @@ export class GameStateManager {
   private systems: Map<string, StarSystem> = new Map();
   private ships: Map<string, Ship[]> = new Map(); // systemId -> ships
   private currentGalaxyId: string | null = null;
-  private galaxyTimeState: Map<string, {
-    currentTime: number;
-    isPaused: boolean;
-    timeScale: number;
-    lastUpdateTime: number;
-    lastProcessedDay: number; // Track which day we last processed yields for
-  }> = new Map();
-  private onDayElapsed: ((galaxyId: string, currentTime: number, daysElapsed: number) => void) | null = null;
+  private galaxyTimeState: Map<
+    string,
+    {
+      currentTime: number;
+      isPaused: boolean;
+      timeScale: number;
+      lastUpdateTime: number;
+      lastProcessedDay: number; // Track which day we last processed yields for
+    }
+  > = new Map();
+  private onDayElapsed:
+    | ((galaxyId: string, currentTime: number, daysElapsed: number) => void)
+    | null = null;
 
   constructor() {
     this.startSimulation();
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/ee94a6f1-42d6-44ad-8459-4ef2edbb6497',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'state-manager.ts:constructor',message:'GameStateManager created',data:{systemsCount:0,shipsCount:0,galaxiesCount:0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-    // #endregion
   }
-  
+
   /**
    * Register a callback to be notified when in-game days elapse
    * This is how the websocket server will be notified to process yields
    */
-  setDayElapsedCallback(callback: (galaxyId: string, currentTime: number, daysElapsed: number) => void): void {
+  setDayElapsedCallback(
+    callback: (
+      galaxyId: string,
+      currentTime: number,
+      daysElapsed: number
+    ) => void
+  ): void {
     this.onDayElapsed = callback;
   }
 
@@ -52,7 +59,7 @@ export class GameStateManager {
   private update(): void {
     const now = Date.now();
     const SECONDS_PER_DAY = 24 * 60 * 60;
-    
+
     // Update time for all active galaxies, not just the "current" one
     for (const [galaxyId, timeState] of this.galaxyTimeState.entries()) {
       if (timeState.isPaused) {
@@ -65,14 +72,21 @@ export class GameStateManager {
 
       timeState.currentTime += deltaGameTime;
       timeState.lastUpdateTime = now;
-      
+
       // Check if we've crossed into a new in-game day
       const currentDay = Math.floor(timeState.currentTime / SECONDS_PER_DAY);
       if (currentDay > timeState.lastProcessedDay) {
         const daysElapsed = currentDay - timeState.lastProcessedDay;
         // Notify the websocket server that days have passed so it can process yields
         if (this.onDayElapsed) {
-          this.onDayElapsed(galaxyId, timeState.currentTime, daysElapsed);
+          // Use setImmediate to process day transitions in the next event loop tick
+          // This prevents blocking the simulation loop for heavy database/yield processing
+          const callback = this.onDayElapsed;
+          const currentGalaxyId = galaxyId;
+          const currentTime = timeState.currentTime;
+          setImmediate(() => {
+            callback(currentGalaxyId, currentTime, daysElapsed);
+          });
         }
         timeState.lastProcessedDay = currentDay;
       }
@@ -96,7 +110,12 @@ export class GameStateManager {
     this.ships.set(ship.systemId, ships);
   }
 
-  loadGalaxy(galaxyId: string, currentTime: number = 0, isPaused: boolean = true, timeScale: number = TIME_SCALE_DEFAULT): void {
+  loadGalaxy(
+    galaxyId: string,
+    currentTime: number = 0,
+    isPaused: boolean = true,
+    timeScale: number = TIME_SCALE_DEFAULT
+  ): void {
     this.currentGalaxyId = galaxyId;
     if (!this.galaxyTimeState.has(galaxyId)) {
       const SECONDS_PER_DAY = 24 * 60 * 60;
@@ -181,14 +200,19 @@ export class GameStateManager {
         let parentMass = system.star.mass;
         let parentPosition: Vector3 = { x: 0, y: 0, z: 0 };
         let parentVelocity: Vector3 = { x: 0, y: 0, z: 0 };
-        const isOrbitingCompanion = planet.parentId && planet.parentId !== system.star.id && companionStarsMap.has(planet.parentId);
+        const isOrbitingCompanion =
+          planet.parentId &&
+          planet.parentId !== system.star.id &&
+          companionStarsMap.has(planet.parentId);
 
         if (isOrbitingCompanion && planet.parentId) {
           // Planet orbits a companion star
           const companionStar = companionStarsMap.get(planet.parentId);
           if (companionStar) {
             parentMass = companionStar.mass;
-            const companionState = companionStarStates.find((cs) => cs.id === planet.parentId);
+            const companionState = companionStarStates.find(
+              (cs) => cs.id === planet.parentId
+            );
             if (companionState) {
               parentPosition = companionState.position;
               parentVelocity = companionState.velocity;
@@ -250,7 +274,7 @@ export class GameStateManager {
           );
 
           // Add parent planet's position to get moon's absolute position
-          moonStates.push({
+          const moonState = {
             id: moon.id,
             position: {
               x: state.position.x + parentPlanet.position.x,
@@ -262,7 +286,9 @@ export class GameStateManager {
               y: state.velocity.y + parentPlanet.velocity.y,
               z: state.velocity.z + parentPlanet.velocity.z,
             },
-          });
+          };
+
+          moonStates.push(moonState);
         }
       }
     }
@@ -422,7 +448,9 @@ export class GameStateManager {
     return timeState ? timeState.currentTime : 0;
   }
 
-  getGalaxyState(galaxyId: string): { currentTime: number; isPaused: boolean; timeScale: number } | null {
+  getGalaxyState(
+    galaxyId: string
+  ): { currentTime: number; isPaused: boolean; timeScale: number } | null {
     const timeState = this.galaxyTimeState.get(galaxyId);
     if (!timeState) return null;
     return {
@@ -445,7 +473,9 @@ export class GameStateManager {
     return this.currentGalaxyId;
   }
 
-  getGalaxyTimeState(galaxyId: string): { currentTime: number; isPaused: boolean; timeScale: number } | null {
+  getGalaxyTimeState(
+    galaxyId: string
+  ): { currentTime: number; isPaused: boolean; timeScale: number } | null {
     const timeState = this.galaxyTimeState.get(galaxyId);
     if (!timeState) return null;
     return {
@@ -466,15 +496,16 @@ export class GameStateManager {
   /**
    * Get metrics for memory monitoring
    */
-  getMetrics(): { systemsCount: number; shipsCount: number; galaxiesCount: number; totalShips: number } {
+  getMetrics(): {
+    systemsCount: number;
+    shipsCount: number;
+    galaxiesCount: number;
+    totalShips: number;
+  } {
     let totalShips = 0;
     for (const ships of this.ships.values()) {
       totalShips += ships.length;
     }
-
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/ee94a6f1-42d6-44ad-8459-4ef2edbb6497',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'state-manager.ts:getMetrics',message:'GameStateManager metrics',data:{systemsCount:this.systems.size,shipsMapSize:this.ships.size,galaxiesCount:this.galaxyTimeState.size,totalShips},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-    // #endregion
 
     return {
       systemsCount: this.systems.size,
