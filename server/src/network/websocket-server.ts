@@ -3515,7 +3515,7 @@ export class ConstellationWebSocketServer {
     this.db.processMegastructureYields(currentTime);
 
     // Process colony yields based on current time (population growth, resource generation)
-    const updatedColonies = this.db.processColonyYields(currentTime);
+    const { updatedColonies, abandonedColonies, starvingColonies } = this.db.processColonyYields(currentTime);
 
     // Process population migration between colonies
     const migratedColonies = this.db.processPopulationMigration(currentTime);
@@ -3531,6 +3531,54 @@ export class ConstellationWebSocketServer {
           this.send(client.ws, {
             type: "colonyUpdated",
             colony,
+          });
+        }
+      }
+    }
+    
+    // Notify clients about starving colonies
+    for (const starving of starvingColonies) {
+      for (const client of this.clients.values()) {
+        // Notify the owner
+        if (client.playerId === starving.playerId && client.galaxyId === galaxyId) {
+          this.send(client.ws, {
+            type: "colonyStarving",
+            planetId: starving.planetId,
+            planetName: starving.planetName,
+            starvationSeverity: starving.starvationSeverity,
+            scienceDeficit: starving.scienceDeficit,
+            alloyDeficit: starving.alloyDeficit,
+          });
+        }
+      }
+    }
+    
+    // Notify clients about abandoned colonies (0 population)
+    for (const abandoned of abandonedColonies) {
+      for (const client of this.clients.values()) {
+        // Notify the owner
+        if (client.playerId === abandoned.playerId && client.galaxyId === galaxyId) {
+          this.send(client.ws, {
+            type: "colonyAbandoned",
+            planetId: abandoned.planetId,
+            planetName: abandoned.planetName,
+          });
+          
+          // Send updated player data (resources have been refunded)
+          const updatedPlayer = this.db.getPlayerById(abandoned.playerId);
+          if (updatedPlayer) {
+            this.send(client.ws, {
+              type: "playerData",
+              player: updatedPlayer,
+            });
+          }
+        }
+        
+        // Also notify anyone viewing the system
+        if (client.currentSystemId === abandoned.systemId && client.galaxyId === galaxyId) {
+          this.send(client.ws, {
+            type: "colonyRemoved",
+            planetId: abandoned.planetId,
           });
         }
       }

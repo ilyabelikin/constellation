@@ -182,7 +182,8 @@ export function createIcePlanetMaterial(
     uniform float time;
     uniform float planetSeed;
     uniform float rotation;
-
+    uniform float population; // Dynamic population from colony data
+    
     varying vec2 vUv;
     varying vec3 vNormal;
     varying vec3 vWorldNormal;
@@ -482,8 +483,86 @@ export function createIcePlanetMaterial(
         specular += vec3(1.0) * spec3 * sunlit3 * lightIntensity3 * 0.6;
       }
       
+      // ICE WORLD CITY LIGHTS - Underground/dome settlements
+      // Rare colonies sheltered from extreme cold
+      vec3 iceLights = vec3(0.0);
+      
+      if (population > 10000.0 && !isPolarCap) {
+        // Calculate brightness based on population (logarithmic scale)
+        float logPop = log(population / 10000.0) / log(150000.0);
+        float cityBrightness = clamp(logPop, 0.0, 1.0);
+        
+        // Only show on night side
+        vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+        vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+        vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+        
+        float lit1 = max(dot(vWorldNormal, lightDir1), 0.0) * lightIntensity1;
+        float lit2 = max(dot(vWorldNormal, lightDir2), 0.0) * lightIntensity2;
+        float lit3 = max(dot(vWorldNormal, lightDir3), 0.0) * lightIntensity3;
+        float totalLit = clamp(lit1 + lit2 + lit3, 0.0, 1.0);
+        
+        float nightSide = 1.0 - totalLit;
+        float nightFactor = smoothstep(0.2, 0.8, nightSide);
+        
+        if (nightFactor > 0.1) {
+          // Prefer equatorial regions (warmer)
+          float latitude = abs(vUv.y - 0.5) * 2.0;
+          float latitudeFactor = 1.0 - smoothstep(0.0, 0.5, latitude);
+          
+          vec3 seedOffset = vec3(
+            fract(planetSeed * 0.1031),
+            fract(planetSeed * 0.1030),
+            fract(planetSeed * 0.0973)
+          ) * 100.0;
+          
+          // Underground/dome cities - very clustered (harsh conditions)
+          vec3 cityPos = samplePos * 5.0 + seedOffset * 0.7;
+          float cityNoise = turbulence3D(cityPos, 3);
+          float cityCluster = smoothstep(0.6, 0.8, cityNoise); // Very selective locations
+          
+          // Research stations and outposts
+          vec3 stationPos = samplePos * 10.0 + seedOffset * 1.1;
+          float stationNoise = turbulence3D(stationPos, 3);
+          float stations = smoothstep(0.58, 0.75, stationNoise);
+          
+          float urbanization = (cityCluster * 1.0 + stations * 0.25) * latitudeFactor;
+          urbanization = clamp(urbanization, 0.0, 1.0);
+          
+          // Very sparse lights (extreme environment)
+          vec3 lightPos1 = samplePos * 18.0 + seedOffset * 1.4;
+          vec3 lightPos2 = samplePos * 24.0 + seedOffset * 1.8;
+          
+          float noise1 = turbulence3D(lightPos1, 3);
+          float noise2 = turbulence3D(lightPos2, 3);
+          
+          float lightField = noise1 * 0.55 + noise2 * 0.45;
+          lightField = clamp(lightField, 0.0, 1.0);
+          
+          float baseDensity = cityBrightness * 0.18 * urbanization; // Very sparse
+          float threshold = 0.58 - baseDensity;
+          float hasLight = smoothstep(threshold - 0.08, threshold + 0.08, lightField);
+          
+          float brightnessNoise = turbulence3D(samplePos * 26.0 + seedOffset * 2.3, 3);
+          float brightness = brightnessNoise * brightnessNoise * hasLight;
+          brightness *= (0.4 + cityCluster * 0.6);
+          
+          float lightIntensity = smoothstep(0.35, 0.70, lightField) * hasLight * brightness;
+          
+          // Cool white lights (representing dome/shelter lighting piercing through ice)
+          vec3 lightColor = mix(
+            vec3(0.85, 0.95, 1.0),  // Cool blue-white (research stations)
+            vec3(0.95, 0.98, 1.0),  // Bright cool white (major domed cities)
+            brightness
+          );
+          
+          // Lights are dimmer and sparser
+          iceLights = lightColor * lightIntensity * nightFactor * cityBrightness * 1.3;
+        }
+      }
+      
       // Combine everything
-      vec3 finalColor = colorModulation * intensity * lighting + specular;
+      vec3 finalColor = colorModulation * intensity * lighting + specular + iceLights;
       
       gl_FragColor = vec4(finalColor, 1.0);
     }
@@ -501,6 +580,7 @@ export function createIcePlanetMaterial(
       time: { value: 0 },
       planetSeed: { value: planetSeed },
       rotation: { value: 0 },
+      population: { value: 0.0 }, // Dynamic population from colony data
     },
     vertexShader,
     fragmentShader,

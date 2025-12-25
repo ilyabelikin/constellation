@@ -149,7 +149,7 @@ export class MaterialFactory {
       );
     }
 
-    // All other planets use custom shader
+    // All other planets use custom shader (fallback for unhandled surface types)
     return new THREE.ShaderMaterial({
       uniforms: {
         baseColor: { value: new THREE.Color(color) },
@@ -169,6 +169,7 @@ export class MaterialFactory {
           value: habitability !== undefined ? habitability : 0.5,
         }, // 0-1 habitability score
         time: { value: 0.0 }, // Time for animations
+        population: { value: 0.0 }, // Dynamic population from colony data (for potential future use)
       },
       lights: false, // Disable Three.js lighting system (we do custom lighting)
       vertexShader: `

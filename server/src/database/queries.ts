@@ -21,6 +21,7 @@ import {
   getColonyStage,
   TECHNOLOGIES,
   calculateIceCapCoverage,
+  GAME_COSTS,
 } from "@constellation/shared";
 import { calculatePlayerResourceFlow, findGatePath } from "../game/resource-flow.js";
 
@@ -1081,13 +1082,50 @@ export class DatabaseQueries {
   /**
    * Process colony resource yields and population growth based on current game time
    */
-  processColonyYields(currentTime: number): Colony[] {
+  processColonyYields(currentTime: number): { 
+    updatedColonies: Colony[], 
+    abandonedColonies: Array<{ planetId: string, playerId: string, planetName: string, systemId: string }>,
+    starvingColonies: Array<{ planetId: string, playerId: string, planetName: string, starvationSeverity: number, scienceDeficit: number, alloyDeficit: number }> 
+  } {
     // Get all colonies
     const stmt = this.db.prepare("SELECT * FROM colonies");
     const rows = stmt.all() as any[];
     const updatedColonies: Colony[] = [];
+    const abandonedColonies: Array<{ planetId: string, playerId: string, planetName: string, systemId: string }> = [];
+    const starvingColonies: Array<{ planetId: string, playerId: string, planetName: string, starvationSeverity: number, scienceDeficit: number, alloyDeficit: number }> = [];
 
     for (const row of rows) {
+      // Check for dead colonies (0 population) and handle them
+      if (row.population <= 0) {
+        console.log(
+          `Colony ${row.planet_name} has died (0 population). Refunding energy only (alloy and science lost).`
+        );
+        
+        // Refund only the energy cost (alloy and science are lost)
+        const player = this.getPlayerById(row.player_id);
+        if (player) {
+          this.updatePlayerResources(
+            player.id,
+            player.energy + GAME_COSTS.COLONY_ESTABLISHMENT.energy,
+            player.alloy, // No change to alloy
+            player.science // No change to science
+          );
+        }
+        
+        // Delete the colony
+        this.deleteColony(row.id);
+        
+        // Track for notification
+        abandonedColonies.push({
+          planetId: row.planet_id,
+          playerId: row.player_id,
+          planetName: row.planet_name,
+          systemId: row.system_id,
+        });
+        
+        continue; // Skip processing this colony further
+      }
+      
       const timeSinceLastYield = currentTime - row.last_yield_at;
       const daysElapsed = timeSinceLastYield / (24 * 60 * 60);
 
@@ -1101,6 +1139,11 @@ export class DatabaseQueries {
         // Add or subtract resources from player (no energy from colonies)
         // Get current player resources to prevent going negative
         const player = this.getPlayerById(row.player_id);
+        
+        // Track resource starvation for population loss
+        let isStarving = false;
+        let starvationSeverity = 0; // 0-1, how badly the colony is starving
+        
         if (player) {
           // Check if resources from this system are blockaded (only for positive resource production)
           let isBlockaded = false;
@@ -1123,17 +1166,32 @@ export class DatabaseQueries {
             }
           }
 
+          // Track resource needs for starvation calculation
+          const scienceNeeded = scienceToAdd < 0 ? Math.abs(scienceToAdd) : 0;
+          const alloyNeeded = alloyToAdd < 0 ? Math.abs(alloyToAdd) : 0;
+          let scienceReceived = 0;
+          let alloyReceived = 0;
+          let scienceDeficitPercent = 0;
+          let alloyDeficitPercent = 0;
+
           // Only add positive resources if not blockaded; negative resources (consumption) always apply
           if (scienceToAdd > 0 && !isBlockaded) {
             this.addPlayerScience(row.player_id, scienceToAdd);
           } else if (scienceToAdd < 0) {
-            // Consuming science - don't let it go below 0
-            const scienceToConsume = Math.min(
-              Math.abs(scienceToAdd),
-              player.science
-            );
-            this.addPlayerScience(row.player_id, -scienceToConsume);
+            // Colony is consuming science - check if resources can be provided
+            
+            // If colony is in home system or not blockaded, try to consume from player
+            if (row.system_id === player.homeSystemId || !isBlockaded) {
+              const scienceToConsume = Math.min(
+                Math.abs(scienceToAdd),
+                player.science
+              );
+              this.addPlayerScience(row.player_id, -scienceToConsume);
+              scienceReceived = scienceToConsume;
+            }
+            // If blockaded and not home system, colony gets nothing
           }
+          
           if (alloyToAdd > 0 && !isBlockaded) {
             // Apply "Deep Mining" tech bonus if researched (only for positive alloy production from colonies)
             const techBonuses = this.getPlayerTechBonuses(row.player_id);
@@ -1142,9 +1200,48 @@ export class DatabaseQueries {
             }
             this.addPlayerAlloy(row.player_id, alloyToAdd);
           } else if (alloyToAdd < 0) {
-            // Consuming alloy - don't let it go below 0
-            const alloyToConsume = Math.min(Math.abs(alloyToAdd), player.alloy);
-            this.addPlayerAlloy(row.player_id, -alloyToConsume);
+            // Colony is consuming alloy - check if resources can be provided
+            
+            // If colony is in home system or not blockaded, try to consume from player
+            if (row.system_id === player.homeSystemId || !isBlockaded) {
+              const alloyToConsume = Math.min(Math.abs(alloyToAdd), player.alloy);
+              this.addPlayerAlloy(row.player_id, -alloyToConsume);
+              alloyReceived = alloyToConsume;
+            }
+            // If blockaded and not home system, colony gets nothing
+          }
+          
+          // Calculate starvation severity
+          // A colony is starving if it's consuming resources but not receiving them
+          if (scienceNeeded > 0 || alloyNeeded > 0) {
+            // Calculate what percentage of needed resources were received
+            if (scienceNeeded > 0) {
+              scienceDeficitPercent = (scienceNeeded - scienceReceived) / scienceNeeded;
+            }
+            if (alloyNeeded > 0) {
+              alloyDeficitPercent = (alloyNeeded - alloyReceived) / alloyNeeded;
+            }
+            
+            // Starvation severity is the worse of the two deficits
+            starvationSeverity = Math.max(scienceDeficitPercent, alloyDeficitPercent);
+            
+            // Colony is starving if it's missing more than 10% of needed resources
+            if (starvationSeverity > 0.1) {
+              isStarving = true;
+              console.log(
+                `Colony ${row.planet_name} is starving! Science deficit: ${(scienceDeficitPercent * 100).toFixed(1)}%, Alloy deficit: ${(alloyDeficitPercent * 100).toFixed(1)}% (severity: ${(starvationSeverity * 100).toFixed(1)}%)`
+              );
+              
+              // Track this colony for starvation notification
+              starvingColonies.push({
+                planetId: row.planet_id,
+                playerId: row.player_id,
+                planetName: row.planet_name,
+                starvationSeverity: starvationSeverity,
+                scienceDeficit: scienceDeficitPercent,
+                alloyDeficit: alloyDeficitPercent,
+              });
+            }
           }
         }
 
@@ -1192,6 +1289,37 @@ export class DatabaseQueries {
 
             // Calculate population growth for each day
             for (let day = 0; day < fullDays; day++) {
+              // STARVATION CHECK: If colony is starving, population decreases rapidly
+              if (isStarving) {
+                // Population loss is severe and scales with starvation severity
+                // Base loss: 5% per day, up to 15% per day for complete resource cutoff
+                const baseDeathRate = 0.05; // 5% base death rate
+                const maxDeathRate = 0.15; // 15% maximum death rate
+                const deathRate = baseDeathRate + (maxDeathRate - baseDeathRate) * starvationSeverity;
+                
+                // Apply population loss
+                newPopulation = Math.floor(newPopulation * (1 - deathRate));
+                
+                // Log starvation deaths
+                if (day === 0) {
+                  console.log(
+                    `Colony ${row.planet_name} losing ${(deathRate * 100).toFixed(1)}% population per day due to starvation (severity: ${(starvationSeverity * 100).toFixed(1)}%)`
+                  );
+                }
+                
+                // Ensure population doesn't go below 0
+                if (newPopulation <= 0) {
+                  newPopulation = 0;
+                  console.log(
+                    `Colony ${row.planet_name} has died from starvation!`
+                  );
+                  break; // Colony is dead
+                }
+                
+                continue; // Skip normal growth calculations
+              }
+              
+              // Normal growth only if not starving
               // Stop growing if we've reached the planet's maximum capacity
               if (newPopulation >= maxPopulation) {
                 break;
@@ -1334,7 +1462,7 @@ export class DatabaseQueries {
       }
     }
     
-    return updatedColonies;
+    return { updatedColonies, abandonedColonies, starvingColonies };
   }
 
   /**

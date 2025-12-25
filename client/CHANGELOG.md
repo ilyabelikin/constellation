@@ -1,5 +1,11 @@
 # What's New in Constellation
 
+## Version 0.4.2 - Lights on
+
+- **Cities**: improved citites on settled worlds to light up based on population dynamicaly.
+- **Starvation**: the settelemnts deprived of necessary resources will loose population.
+- **Depopulation**: Colonies with 0 population now automatically die out, refund energy (3 ⚡) only (alloy and science are lost), and can be re-colonized.
+
 ## Version 0.4.1 - Diplomacy
 
 - **Diplomacy**: You can now declare war or establish peace.
@@ -36,9 +42,9 @@
 
 ---
 
-## Coming Soon
+## Ideas we considering
 
-- **Space Lift** - a planetary megastructure
+- **Space Lift** - a planetary megastructure incresing planet outputs
 - **Asteroid Alert** - a disaster when an asteroid might wipe out life on a planet and you may or may not prevent it
 - **Custom Species** - option to choose your own starting species characteristics and name
 - **Research Stations** - ways to produce more science outside of the habitable planets

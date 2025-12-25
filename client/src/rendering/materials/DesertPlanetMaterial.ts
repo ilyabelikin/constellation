@@ -164,6 +164,7 @@ export function createDesertPlanetMaterial(
     uniform float hasAtmosphere; // 1.0 if has atmosphere, 0.0 if airless
     uniform float orbitalDistance;
     uniform float habitability;
+    uniform float population; // Dynamic population from colony data
 
     varying vec2 vUv;
     varying vec3 vNormal;
@@ -533,7 +534,100 @@ export function createDesertPlanetMaterial(
         }
       }
       
-      vec3 finalColor = colorModulation * intensity * lighting + specular;
+      // DESERT CITY LIGHTS - Settlements in arid regions
+      // Clustered around oases and rocky outcrops for shelter
+      vec3 desertLights = vec3(0.0);
+      
+      if (population > 10000.0 && !isWater) {
+        // Calculate brightness based on population (logarithmic scale)
+        float logPop = log(population / 10000.0) / log(150000.0);
+        float cityBrightness = clamp(logPop, 0.0, 1.0);
+        
+        // Only show on night side - check all light sources
+        vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+        vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+        vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+        
+        float lit1 = max(dot(vWorldNormal, lightDir1), 0.0) * lightIntensity1;
+        float lit2 = max(dot(vWorldNormal, lightDir2), 0.0) * lightIntensity2;
+        float lit3 = max(dot(vWorldNormal, lightDir3), 0.0) * lightIntensity3;
+        float totalLit = clamp(lit1 + lit2 + lit3, 0.0, 1.0);
+        
+        float nightSide = 1.0 - totalLit;
+        float nightFactor = smoothstep(0.2, 0.8, nightSide);
+        
+        if (nightFactor > 0.1) {
+          // Latitude factor - settlements prefer temperate zones
+          float latitude = abs(vUv.y - 0.5) * 2.0;
+          float latitudeFactor = 1.0 - smoothstep(0.0, 0.65, latitude);
+          
+          // Create seed-based offset for settlement distribution
+          vec3 seedOffset = vec3(
+            fract(planetSeed * 0.1031),
+            fract(planetSeed * 0.1030),
+            fract(planetSeed * 0.0973)
+          ) * 100.0;
+          
+          // Settlements cluster near oases (water areas)
+          // Use oasis noise pattern to influence city placement
+          vec3 oasisCheckPos = samplePos * 3.5 + seedOffset * 0.4;
+          float oasisProximity = turbulence3D(oasisCheckPos, 4);
+          float nearOasis = smoothstep(0.45, 0.65, oasisProximity); // Favor areas near oases
+          
+          // Rocky outcrops provide shelter - settlements cluster there too
+          float rockProximity = smoothstep(0.6, 0.8, rockNoise);
+          
+          // Settlement zones - prefer oases and rocky shelter
+          float settlementZone = max(nearOasis, rockProximity * 0.7);
+          
+          // Major settlements (cities)
+          vec3 cityPos = samplePos * 4.5 + seedOffset * 0.6;
+          float cityNoise = turbulence3D(cityPos, 3);
+          float cityCluster = smoothstep(0.55, 0.75, cityNoise) * settlementZone;
+          
+          // Smaller outposts and villages
+          vec3 outpostPos = samplePos * 9.0 + seedOffset * 0.9;
+          float outpostNoise = turbulence3D(outpostPos, 4);
+          float outposts = smoothstep(0.5, 0.7, outpostNoise) * settlementZone;
+          
+          // Combine: major cities + outposts, modulated by latitude
+          float urbanization = (cityCluster * 0.9 + outposts * 0.3) * latitudeFactor;
+          urbanization = clamp(urbanization, 0.0, 1.0);
+          
+          // Light placement - more sparse than terrestrial (harsh environment)
+          vec3 lightPos1 = samplePos * 16.0 + seedOffset * 1.3;
+          vec3 lightPos2 = samplePos * 21.0 + seedOffset * 1.6;
+          
+          float noise1 = turbulence3D(lightPos1, 3);
+          float noise2 = turbulence3D(lightPos2, 3);
+          
+          float lightField = noise1 * 0.6 + noise2 * 0.4;
+          lightField = clamp(lightField, 0.0, 1.0);
+          
+          // Lights appear where there's urbanization
+          float baseDensity = cityBrightness * 0.22 * urbanization; // Sparser than terrestrial
+          float threshold = 0.52 - baseDensity;
+          float hasLight = smoothstep(threshold - 0.1, threshold + 0.1, lightField);
+          
+          float brightnessNoise = turbulence3D(samplePos * 24.0 + seedOffset * 2.2, 3);
+          float brightness = brightnessNoise * brightnessNoise * hasLight;
+          brightness *= (0.35 + cityCluster * 0.65); // Cities are brighter
+          
+          float lightIntensity = smoothstep(0.3, 0.7, lightField) * hasLight * brightness;
+          
+          // Warm desert city lights - amber/orange tones (desert nights are cold, lights are warm)
+          vec3 lightColor = mix(
+            vec3(1.0, 0.70, 0.40),  // Warm amber-orange (small settlements)
+            vec3(1.0, 0.88, 0.72),  // Bright warm yellow-white (major cities)
+            brightness
+          );
+          
+          // Desert lights similar brightness to terrestrial
+          desertLights = lightColor * lightIntensity * nightFactor * cityBrightness * 1.6;
+        }
+      }
+      
+      vec3 finalColor = colorModulation * intensity * lighting + specular + desertLights;
       gl_FragColor = vec4(finalColor, 1.0);
     }
   `;
@@ -553,6 +647,7 @@ export function createDesertPlanetMaterial(
       hasAtmosphere: { value: hasAtmosphere ? 1.0 : 0.0 },
       orbitalDistance: { value: orbitalDistance },
       habitability: { value: habitability },
+      population: { value: 0.0 }, // Dynamic population from colony data
     },
     vertexShader,
     fragmentShader,

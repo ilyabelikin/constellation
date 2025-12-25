@@ -2108,6 +2108,19 @@ export class SceneManager {
             mesh.material.uniforms.lightIntensity3.value =
               starLightIntensities[2];
           }
+
+          // Update population uniform for dynamic city lights
+          if (mesh.material.uniforms.population && this.system?.colonies) {
+            // Find colony on this planet
+            const colony = this.system.colonies.find(
+              (c) => c.planetId === bodyId
+            );
+            if (colony) {
+              mesh.material.uniforms.population.value = colony.population;
+            } else {
+              mesh.material.uniforms.population.value = 0;
+            }
+          }
         }
 
         // For MeshPhongMaterial (ice planets) and MeshStandardMaterial (terrestrial), rotate the texture

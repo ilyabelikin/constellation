@@ -942,6 +942,44 @@ class ConstellationGame {
       }
     };
 
+    this.network.onColonyStarving = (planetId, planetName, starvationSeverity, scienceDeficit, alloyDeficit) => {
+      // Show notification to player about starvation
+      let deficitMsg = "";
+      if (scienceDeficit > 0.1 && alloyDeficit > 0.1) {
+        deficitMsg = `Missing ${(scienceDeficit * 100).toFixed(0)}% science and ${(alloyDeficit * 100).toFixed(0)}% alloy`;
+      } else if (scienceDeficit > 0.1) {
+        deficitMsg = `Missing ${(scienceDeficit * 100).toFixed(0)}% science`;
+      } else if (alloyDeficit > 0.1) {
+        deficitMsg = `Missing ${(alloyDeficit * 100).toFixed(0)}% alloy`;
+      }
+      
+      this.hud.showNotification(
+        `🚨 Colony Starving: ${planetName} - ${deficitMsg}. Population is declining rapidly! Check blockades or resource production.`,
+        8000
+      );
+    };
+
+    this.network.onColonyAbandoned = (planetId, planetName) => {
+      // Show notification to player
+      this.hud.showNotification(
+        `⚠️ Colony Abandoned: ${planetName} - The colony has died out (0 population). Energy refunded, but alloy and science are lost.`,
+        5000
+      );
+
+      // Remove the colony from the current system state
+      if (this.system && this.system.colonies) {
+        this.system.colonies = this.system.colonies.filter(
+          (c) => c.planetId !== planetId
+        );
+      }
+
+      // Refresh the UI if this planet is currently selected
+      const selectedId = this.scene.getSelectedObjectId();
+      if (selectedId === planetId) {
+        this.hud.updateObjectDetails(planetId);
+      }
+    };
+
     this.network.onGateDefenseBuilt = (defense) => {
       // Add defense platform to the scene (if gate is in current system)
       this.scene.addGateDefense(defense);

@@ -25,6 +25,7 @@ export function createOceanicPlanetMaterial(
       rotation: { value: 0.0 },
       planetSeed: { value: seed },
       orbitalDistance: { value: normalizedDistance },
+      population: { value: 0.0 }, // Dynamic population from colony data
     },
     lights: false,
     vertexShader: `
@@ -56,6 +57,7 @@ export function createOceanicPlanetMaterial(
       uniform float rotation;
       uniform float planetSeed;
       uniform float orbitalDistance;
+      uniform float population; // Dynamic population from colony data
       varying vec3 vNormal;
       varying vec3 vPosition;
       varying vec3 vWorldPosition;
@@ -221,12 +223,93 @@ export function createOceanicPlanetMaterial(
           specular += variedBaseColor * spec3 * 0.4 * lightIntensity3;
         }
         
+        // OCEAN CITY LIGHTS - Floating cities/platforms on water
+        // Dimmer than land-based cities, representing offshore settlements
+        vec3 oceanLights = vec3(0.0);
+        
+        if (population > 10000.0) {
+          // Calculate brightness based on population (logarithmic scale)
+          float logPop = log(population / 10000.0) / log(150000.0);
+          float cityBrightness = clamp(logPop, 0.0, 1.0);
+          
+          // Only show on night side - check all light sources
+          vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+          vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+          vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+          
+          float lit1 = max(dot(vWorldNormal, lightDir1), 0.0) * lightIntensity1;
+          float lit2 = max(dot(vWorldNormal, lightDir2), 0.0) * lightIntensity2;
+          float lit3 = max(dot(vWorldNormal, lightDir3), 0.0) * lightIntensity3;
+          float totalLit = clamp(lit1 + lit2 + lit3, 0.0, 1.0);
+          
+          float nightSide = 1.0 - totalLit;
+          float nightFactor = smoothstep(0.2, 0.8, nightSide);
+          
+          if (nightFactor > 0.1) {
+            // Latitude factor - more activity at equator
+            float latitude = abs(vUv.y - 0.5) * 2.0;
+            float latitudeFactor = 1.0 - smoothstep(0.0, 0.7, latitude);
+            
+            // Create seed-based offset for light distribution
+            vec3 seedOffset = vec3(
+              fract(planetSeed * 0.1031),
+              fract(planetSeed * 0.1030),
+              fract(planetSeed * 0.0973)
+            ) * 100.0;
+            
+            // Floating cities and platforms - more sparse than land cities
+            vec3 cityPos = samplePos * 4.0 + seedOffset * 0.6;
+            float cityNoise = turbulence3D(cityPos, 3);
+            float cityCluster = smoothstep(0.55, 0.75, cityNoise); // Sparse clusters
+            
+            // Platform distribution - scattered settlements
+            vec3 platformPos = samplePos * 8.0 + seedOffset;
+            float platformNoise = turbulence3D(platformPos, 4);
+            float platforms = smoothstep(0.5, 0.7, platformNoise);
+            
+            // Combine: major cities + smaller platforms
+            float urbanization = (cityCluster * 0.8 + platforms * 0.2) * latitudeFactor;
+            urbanization = clamp(urbanization, 0.0, 1.0);
+            
+            // Light placement - more clustered than terrestrial
+            vec3 lightPos1 = samplePos * 15.0 + seedOffset * 1.2;
+            vec3 lightPos2 = samplePos * 20.0 + seedOffset * 1.5;
+            
+            float noise1 = turbulence3D(lightPos1, 3);
+            float noise2 = turbulence3D(lightPos2, 3);
+            
+            float lightField = noise1 * 0.6 + noise2 * 0.4;
+            lightField = clamp(lightField, 0.0, 1.0);
+            
+            // Lights appear where there's urbanization
+            float baseDensity = cityBrightness * 0.2 * urbanization; // Sparser than land
+            float threshold = 0.55 - baseDensity; // Higher threshold = fewer lights
+            float hasLight = smoothstep(threshold - 0.1, threshold + 0.1, lightField);
+            
+            float brightnessNoise = turbulence3D(samplePos * 22.0 + seedOffset * 2.0, 3);
+            float brightness = brightnessNoise * brightnessNoise * hasLight;
+            brightness *= (0.4 + cityCluster * 0.6); // Cities are brighter
+            
+            float lightIntensity = smoothstep(0.3, 0.7, lightField) * hasLight * brightness;
+            
+            // Warm city light color similar to terrestrial cities
+            // Ocean cities use same warm tones but slightly cooler (more yellow-white vs orange)
+            vec3 lightColor = mix(
+              vec3(1.0, 0.75, 0.45),  // Warm amber-yellow (smaller platforms)
+              vec3(1.0, 0.92, 0.80),  // Bright warm white-yellow (major floating cities)
+              brightness
+            );
+            
+            // Ocean lights are slightly dimmer than terrestrial (0.8x brightness)
+            oceanLights = lightColor * lightIntensity * nightFactor * cityBrightness * 1.4;
+          }
+        }
+        
         // Apply color modulation and lighting
-        vec3 finalColor = colorModulation * intensity * (lighting + emissive) + specular;
+        vec3 finalColor = colorModulation * intensity * (lighting + emissive) + specular + oceanLights;
         
         gl_FragColor = vec4(finalColor, 1.0);
       }
     `,
   });
 }
-

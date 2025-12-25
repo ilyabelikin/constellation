@@ -9,7 +9,7 @@ export function createTerrestrialPlanetMaterial(
   planetSeed: number,
   orbitalDistance: number,
   habitability: number,
-  civilizationLevel: number = 0 // 0-7 scale (0=none, 1=primitive, 2=agricultural, etc.)
+  civilizationLevel: number = 0 // 0-7 scale (0=none, 1=primitive, 2=agricultural, etc.) - DEPRECATED, use population uniform instead
 ): THREE.ShaderMaterial {
   const color = new THREE.Color(baseColor);
 
@@ -101,7 +101,8 @@ export function createTerrestrialPlanetMaterial(
     uniform float planetSeed;
     uniform float orbitalDistance;
     uniform float habitability;
-    uniform float civilizationLevel;
+    uniform float civilizationLevel; // DEPRECATED - kept for compatibility with native civs
+    uniform float population; // Dynamic population from colony data
 
     varying vec2 vUv;
     varying vec3 vNormal;
@@ -412,12 +413,29 @@ export function createTerrestrialPlanetMaterial(
         }
       }
 
-      // CITY LIGHTS - Procedural civilization lights
+      // CITY LIGHTS - Procedural civilization lights based on population
       vec3 cityLights = vec3(0.0);
       
-      if (civilizationLevel > 1.0 && isLand && !isIceCap) {
-        // Calculate brightness based on civilization level
-        float cityBrightness = (civilizationLevel - 1.0) / 6.0; // 0 to 1.0
+      // Use population if available (from player colonies), otherwise fall back to civilizationLevel (for native civs)
+      float effectivePopulation = population > 0.0 ? population : 0.0;
+      float effectiveCivLevel = civilizationLevel;
+      
+      // Convert population to light brightness (0.0 to 1.0)
+      // Use logarithmic scale: small colonies have few lights, large cities have many
+      // Population ranges: 10K (small outpost) to 15B (ecumenopolis)
+      float cityBrightness = 0.0;
+      
+      if (effectivePopulation > 10000.0) {
+        // Logarithmic scale: log10(population / 10000) / log10(1500000) = brightness
+        // 10K pop = 0.0, 100K = 0.25, 1M = 0.5, 10M = 0.75, 150M+ = 1.0
+        float logPop = log(effectivePopulation / 10000.0) / log(150000.0);
+        cityBrightness = clamp(logPop, 0.0, 1.0);
+      } else if (effectiveCivLevel > 1.0) {
+        // Fall back to civilization level for native civilizations
+        cityBrightness = (effectiveCivLevel - 1.0) / 6.0; // 0 to 1.0
+      }
+      
+      if (cityBrightness > 0.0 && isLand && !isIceCap) {
         
         // Only show on night side - check all light sources
         vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
@@ -562,7 +580,8 @@ export function createTerrestrialPlanetMaterial(
       planetSeed: { value: planetSeed },
       orbitalDistance: { value: orbitalDistance },
       habitability: { value: habitability },
-      civilizationLevel: { value: civilizationLevel },
+      civilizationLevel: { value: civilizationLevel }, // For native civilizations
+      population: { value: 0.0 }, // Will be updated from colony data
     },
     vertexShader,
     fragmentShader,

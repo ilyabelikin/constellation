@@ -397,6 +397,19 @@ export type ServerMessage =
       planetId: string;
     }
   | {
+      type: "colonyAbandoned";
+      planetId: string;
+      planetName: string;
+    }
+  | {
+      type: "colonyStarving";
+      planetId: string;
+      planetName: string;
+      starvationSeverity: number;
+      scienceDeficit: number;
+      alloyDeficit: number;
+    }
+  | {
       type: "speciesInfo";
       species: Species;
     }

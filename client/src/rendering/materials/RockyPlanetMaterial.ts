@@ -208,6 +208,7 @@ function buildFragmentShader(): string {
     uniform float planetSeed;
     uniform float orbitalDistance;
     uniform float weatheringLevel;
+    uniform float population; // Dynamic population from colony data
     
     varying vec3 vNormal;
     varying vec3 vPosition;
@@ -426,7 +427,92 @@ function buildFragmentShader(): string {
       // Slight emissive for visibility on dark side
       float emissive = 0.1;
       
-      vec3 finalColor = colorModulation * intensity * (lighting + emissive);
+      // ROCKY WORLD CITY LIGHTS - Underground cavern settlements
+      // Built in natural cave systems and crater bottoms for protection
+      vec3 rockyLights = vec3(0.0);
+      
+      if (population > 10000.0) {
+        // Calculate brightness based on population (logarithmic scale)
+        float logPop = log(population / 10000.0) / log(150000.0);
+        float cityBrightness = clamp(logPop, 0.0, 1.0);
+        
+        // Only show on night side
+        vec3 lightDir1 = normalize(lightPosition1 - vWorldPosition);
+        vec3 lightDir2 = normalize(lightPosition2 - vWorldPosition);
+        vec3 lightDir3 = normalize(lightPosition3 - vWorldPosition);
+        
+        float lit1 = max(dot(vWorldNormal, lightDir1), 0.0) * lightIntensity1;
+        float lit2 = max(dot(vWorldNormal, lightDir2), 0.0) * lightIntensity2;
+        float lit3 = max(dot(vWorldNormal, lightDir3), 0.0) * lightIntensity3;
+        float totalLit = clamp(lit1 + lit2 + lit3, 0.0, 1.0);
+        
+        float nightSide = 1.0 - totalLit;
+        float nightFactor = smoothstep(0.2, 0.8, nightSide);
+        
+        if (nightFactor > 0.1) {
+          // Prefer temperate latitudes
+          float latitude = abs(vUv.y - 0.5) * 2.0;
+          float latitudeFactor = 1.0 - smoothstep(0.0, 0.6, latitude);
+          
+          vec3 seedOffset = vec3(
+            fract(planetSeed * 0.1031),
+            fract(planetSeed * 0.1030),
+            fract(planetSeed * 0.0973)
+          ) * 100.0;
+          
+          // Settlements in crater bottoms (sheltered)
+          // Use crater locations from earlier calculations
+          float craterScaleMultiplier = 1.5 + seededRandom(planetSeed * 1.5) * 3.0;
+          float settlementCraters = craters3D(samplePos, 0.8 * craterScaleMultiplier);
+          float inCrater = smoothstep(-0.1, -0.05, settlementCraters); // Prefer crater bowls
+          
+          // Underground cavern cities
+          vec3 cavernPos = samplePos * 6.0 + seedOffset * 0.8;
+          float cavernNoise = turbulence3D(cavernPos, 4);
+          float cavernSystem = smoothstep(0.55, 0.75, cavernNoise);
+          
+          // Mining outposts near mineral-rich areas
+          vec3 minePos = samplePos * 9.0 + seedOffset * 1.0;
+          float mineNoise = turbulence3D(minePos, 3);
+          float miningZones = smoothstep(0.5, 0.7, mineNoise);
+          
+          // Combine: crater settlements + cavern cities + mining outposts
+          float urbanization = (inCrater * 0.6 + cavernSystem * 0.9 + miningZones * 0.3) * latitudeFactor;
+          urbanization = clamp(urbanization, 0.0, 1.0);
+          
+          // Sparse lights (harsh airless environment)
+          vec3 lightPos1 = samplePos * 17.0 + seedOffset * 1.3;
+          vec3 lightPos2 = samplePos * 22.0 + seedOffset * 1.7;
+          
+          float noise1 = turbulence3D(lightPos1, 3);
+          float noise2 = turbulence3D(lightPos2, 3);
+          
+          float lightField = noise1 * 0.6 + noise2 * 0.4;
+          lightField = clamp(lightField, 0.0, 1.0);
+          
+          float baseDensity = cityBrightness * 0.2 * urbanization; // Sparse
+          float threshold = 0.55 - baseDensity;
+          float hasLight = smoothstep(threshold - 0.1, threshold + 0.1, lightField);
+          
+          float brightnessNoise = turbulence3D(samplePos * 25.0 + seedOffset * 2.1, 3);
+          float brightness = brightnessNoise * brightnessNoise * hasLight;
+          brightness *= (0.35 + cavernSystem * 0.65);
+          
+          float lightIntensity = smoothstep(0.3, 0.7, lightField) * hasLight * brightness;
+          
+          // Industrial orange-yellow lights (mining/industrial colonies)
+          vec3 lightColor = mix(
+            vec3(1.0, 0.65, 0.35),  // Industrial orange (mining outposts)
+            vec3(1.0, 0.85, 0.65),  // Warm yellow-orange (cavern cities)
+            brightness
+          );
+          
+          // Similar brightness to other colony types
+          rockyLights = lightColor * lightIntensity * nightFactor * cityBrightness * 1.5;
+        }
+      }
+      
+      vec3 finalColor = colorModulation * intensity * (lighting + emissive) + rockyLights;
       
       gl_FragColor = vec4(finalColor, 1.0);
     }
@@ -459,6 +545,7 @@ export function createRockyPlanetMaterial(
       planetSeed: { value: planetSeed },
       orbitalDistance: { value: orbitalDistance },
       weatheringLevel: { value: weatheringLevel },
+      population: { value: 0.0 }, // Dynamic population from colony data
     },
     vertexShader: buildVertexShader(),
     fragmentShader: buildFragmentShader(),

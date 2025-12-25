@@ -311,7 +311,8 @@ export function getColonyStage(
 /**
  * Calculate colony resource yields based on population, specialization, and habitability
  * Uses a tiered system:
- * - Outpost (0-50M): Consumes resources, peaks at 25M (-0.5 science, -0.3 alloy for balanced)
+ * - Outpost (0-50M): Heavy resource consumption from the start, making colonies expensive to establish
+ *   Starts at 70% of peak consumption immediately, peaks around 10M pop (balanced: -1.0 science, -0.8 alloy)
  * - Settlement (50M-100M): Transitioning to self-sufficiency, gradually becomes positive
  * - Colony+ (100M+): Produces resources, grows logarithmically with population
  */
@@ -379,16 +380,22 @@ export function calculateColonyYields(
     }
   } else {
     // CONSUMPTION PHASE: Outpost (0-50M) drains resources from home world
-    // Bell curve peaks at 25M (middle of outpost phase)
-    // At peak: -0.5 science, -0.3 alloy (balanced specialization)
+    // Aggressive consumption model: starts high immediately and sustains throughout establishment
+    // Consumption is most intense during early establishment, then gradually tapers as self-sufficiency grows
     const normalizedPop = population / OUTPOST_THRESHOLD; // 0 to 1
-    const consumptionCurve = Math.sin(normalizedPop * Math.PI); // Peaks at 0.5 (25M), returns to 0 at 1.0 (50M)
 
-    // Peak consumption rates at 25M population
+    // Use a curve that starts high (70% of peak at pop=0) and peaks at 20% progress (10M pop)
+    // Then gradually decreases toward 0 at 50M as the colony becomes self-sufficient
+    // Formula: baseConsumption + curveComponent
+    const baseConsumptionFactor = 0.7; // 70% consumption from the start
+    const curveComponent = 0.3 * Math.sin(normalizedPop * Math.PI); // Additional 30% that peaks mid-phase
+    const consumptionCurve = baseConsumptionFactor + curveComponent;
+
+    // Increased peak consumption rates - colonies are expensive to establish and maintain
     const peakConsumption = {
-      research: { science: -0.6, alloy: -0.2 }, // Research outposts consume more science
-      industrial: { science: -0.2, alloy: -0.4 }, // Industrial outposts consume more alloy
-      balanced: { science: -0.5, alloy: -0.3 }, // Balanced as specified
+      research: { science: -1.2, alloy: -0.6 }, // Research outposts consume significantly more science
+      industrial: { science: -0.6, alloy: -1.0 }, // Industrial outposts consume significantly more alloy
+      balanced: { science: -1.0, alloy: -0.8 }, // Balanced consumes both heavily
     };
 
     const rates = peakConsumption[specialization] || peakConsumption.balanced;

@@ -222,6 +222,8 @@ export class NetworkClient {
   public onColonyEstablished: ((colony: any) => void) | null = null;
   public onColonyUpdated: ((colony: any) => void) | null = null;
   public onColonyRemoved: ((planetId: string) => void) | null = null;
+  public onColonyAbandoned: ((planetId: string, planetName: string) => void) | null = null;
+  public onColonyStarving: ((planetId: string, planetName: string, starvationSeverity: number, scienceDeficit: number, alloyDeficit: number) => void) | null = null;
   public onSpeciesInfo: ((species: any) => void) | null = null;
   public onGateDefenseBuilt: ((defense: any) => void) | null = null;
   public onGateAttackStarted: ((attack: any) => void) | null = null;
@@ -614,6 +616,16 @@ export class NetworkClient {
         case "colonyRemoved":
           if (this.onColonyRemoved) {
             this.onColonyRemoved(message.planetId);
+          }
+          break;
+        case "colonyAbandoned":
+          if (this.onColonyAbandoned) {
+            this.onColonyAbandoned(message.planetId, message.planetName);
+          }
+          break;
+        case "colonyStarving":
+          if (this.onColonyStarving) {
+            this.onColonyStarving(message.planetId, message.planetName, message.starvationSeverity, message.scienceDeficit, message.alloyDeficit);
           }
           break;
         case "speciesInfo":
