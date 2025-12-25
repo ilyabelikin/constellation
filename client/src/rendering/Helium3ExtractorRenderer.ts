@@ -122,12 +122,69 @@ class Helium3Extractor {
 
     // Position group at body location
     this.group.position.copy(bodyMesh.position);
+    this.group.quaternion.copy(bodyMesh.quaternion);
     this.scene.add(this.group);
 
     const bodyRadius = this.getBodyRadius();
     this.createDome(bodyRadius);
     this.createEnergyParticles(bodyRadius);
     this.createPulseLight(bodyRadius);
+  }
+
+  /**
+   * Calculate the actual surface distance in a given local direction,
+   * taking into account the body's shape (elliptical, rugged, etc.)
+   */
+  private getSurfaceDistance(localDir: THREE.Vector3): number {
+    const body = this.bodyMesh.userData.body;
+    const type = this.bodyMesh.userData.type;
+    const boundingRadius = this.getBodyRadius();
+
+    if (!body) return boundingRadius;
+
+    if (type === "moon") {
+      if (body.shape === "elliptical") {
+        // Elliptical moons use scale(1.3, 0.9, 1.0)
+        const baseRadius = boundingRadius / 1.3;
+        return Math.sqrt(
+          Math.pow(1.3 * baseRadius * localDir.x, 2) +
+            Math.pow(0.9 * baseRadius * localDir.y, 2) +
+            Math.pow(1.0 * baseRadius * localDir.z, 2)
+        );
+      } else if (body.shape === "rugged") {
+        // Rugged moons use noise-based displacement 0.8-1.0
+        const nx = localDir.x;
+        const ny = localDir.y;
+        const nz = localDir.z;
+        const noise =
+          Math.sin(nx * 4.0 + ny * 2.5) *
+          Math.cos(ny * 3.2 + nz * 4.8) *
+          Math.sin(nz * 3.0 + nx * 3.8);
+        return boundingRadius * (0.8 + noise * 0.2);
+      }
+    } else if (type === "asteroid") {
+      if (body.shape === "elliptical") {
+        // Elliptical asteroids use scale(1.5, 0.8, 1.0)
+        const baseRadius = boundingRadius / 1.5;
+        return Math.sqrt(
+          Math.pow(1.5 * baseRadius * localDir.x, 2) +
+            Math.pow(0.8 * baseRadius * localDir.y, 2) +
+            Math.pow(1.0 * baseRadius * localDir.z, 2)
+        );
+      } else if (body.shape === "rugged" || !body.shape) {
+        // Rugged asteroids use noise-based displacement 0.7-1.0
+        const nx = localDir.x;
+        const ny = localDir.y;
+        const nz = localDir.z;
+        const noise =
+          Math.sin(nx * 5.3 + ny * 3.7) *
+          Math.cos(ny * 4.1 + nz * 6.2) *
+          Math.sin(nz * 3.9 + nx * 5.1);
+        return boundingRadius * (0.7 + noise * 0.3);
+      }
+    }
+
+    return boundingRadius;
   }
 
   /**
@@ -169,25 +226,33 @@ class Helium3Extractor {
     // Get direction from body to camera
     const bodyWorldPos = new THREE.Vector3();
     this.bodyMesh.getWorldPosition(bodyWorldPos);
-    
+
     const cameraWorldPos = new THREE.Vector3();
     this.camera.getWorldPosition(cameraWorldPos);
-    
-    // Direction from body center to camera
-    const toCamera = new THREE.Vector3()
+
+    // Direction from body center to camera in world space
+    const toCameraWorld = new THREE.Vector3()
       .subVectors(cameraWorldPos, bodyWorldPos)
       .normalize();
+
+    // Transform world direction to local space of the body to account for rotation and shape
+    const localDir = toCameraWorld
+      .clone()
+      .applyQuaternion(this.bodyMesh.quaternion.clone().invert());
+
+    // Get actual surface distance in this direction, accounting for shape/ruggedness
+    const surfaceDistance = this.getSurfaceDistance(localDir);
 
     // Embed sphere partially into surface
     // Move sphere center inward by embed amount
     const embedDepth = domeRadius * this.DOME_EMBED_RATIO;
-    const embedDistance = bodyRadius - embedDepth;
+    const finalDistance = surfaceDistance - embedDepth;
 
-    // Position dome on the side facing the camera
+    // Position dome on the side facing the camera (in local space)
     this.dome.position.set(
-      toCamera.x * embedDistance,
-      toCamera.y * embedDistance,
-      toCamera.z * embedDistance
+      localDir.x * finalDistance,
+      localDir.y * finalDistance,
+      localDir.z * finalDistance
     );
 
     this.group.add(this.dome);
