@@ -1,6 +1,6 @@
 {
   "name": "@constellation/server",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Authoritative server for Constellation",
   "type": "module",
   "main": "./dist/index.js",
