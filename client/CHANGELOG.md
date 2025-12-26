@@ -2,7 +2,7 @@
 
 ## Version 0.4.4 - Elevator
 
-- **Wheeeee**: you now can build a space elevator and increse your alloy output as well as get some energy from a planet.
+- **Wheeeee**: you now can build a space elevator and increase your alloy output as well as get some energy from a planet.
 
 ## Version 0.4.3 - Supremacy
 
