@@ -873,6 +873,10 @@ export class NetworkClient {
     this.send({ type: "launchDysonSwarm", starId });
   }
 
+  buildSpaceElevator(planetId: string): void {
+    this.send({ type: "buildSpaceElevator", planetId });
+  }
+
   establishColony(
     planetId: string,
     specialization: "balanced" | "research" | "industrial"

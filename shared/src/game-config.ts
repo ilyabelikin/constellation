@@ -184,6 +184,27 @@ export const GAME_COSTS = {
     alloy: 8,
     science: 0,
   },
+  SPACE_ELEVATOR: {
+    energy: 0,
+    alloy: 30,
+    science: 30,
+  },
+} as const;
+
+/**
+ * Space Elevator Configuration
+ * Increases alloy output by 50% and provides a one-time 3 energy bonus
+ * Requires > 1B population
+ */
+export const SPACE_ELEVATOR_CONFIG = {
+  cost: GAME_COSTS.SPACE_ELEVATOR,
+  effects: {
+    alloyMultiplier: 1.5,
+    oneTimeEnergyBonus: 3,
+  },
+  requirements: {
+    minPopulation: 1000000000, // 1B
+  },
 } as const;
 
 /**
@@ -324,10 +345,13 @@ export function getColonyStage(
 export function calculateColonyYields(
   population: number,
   specialization: "balanced" | "research" | "industrial",
-  habitabilityBonus: number
+  habitabilityBonus: number,
+  modifiers?: { alloyMultiplier?: number }
 ): { sciencePerDay: number; alloyPerDay: number } {
   const OUTPOST_THRESHOLD = 50000000; // 50M - Outposts drain resources below this
   const PRODUCTION_THRESHOLD = 100000000; // 100M - Significant production starts here
+
+  let result: { sciencePerDay: number; alloyPerDay: number };
 
   if (population >= PRODUCTION_THRESHOLD) {
     // PRODUCTION PHASE: Colony produces resources after reaching 100M population
@@ -338,25 +362,28 @@ export function calculateColonyYields(
 
     switch (specialization) {
       case "research":
-        return {
+        result = {
           sciencePerDay:
             (0.05 + productionMultiplier * 0.15) * habitabilityBonus,
           alloyPerDay:
             (0.005 + productionMultiplier * 0.015) * habitabilityBonus,
         };
+        break;
       case "industrial":
-        return {
+        result = {
           sciencePerDay:
             (0.01 + productionMultiplier * 0.03) * habitabilityBonus,
           alloyPerDay: (0.04 + productionMultiplier * 0.12) * habitabilityBonus,
         };
+        break;
       default: // balanced
-        return {
+        result = {
           sciencePerDay:
             (0.03 + productionMultiplier * 0.09) * habitabilityBonus,
           alloyPerDay:
             (0.015 + productionMultiplier * 0.045) * habitabilityBonus,
         };
+        break;
     }
   } else if (population >= OUTPOST_THRESHOLD) {
     // TRANSITION PHASE: Settlement (50M-100M) gradually becomes productive
@@ -368,20 +395,23 @@ export function calculateColonyYields(
 
     switch (specialization) {
       case "research":
-        return {
+        result = {
           sciencePerDay: 0.015 * transitionMultiplier * habitabilityBonus,
           alloyPerDay: 0.002 * transitionMultiplier * habitabilityBonus,
         };
+        break;
       case "industrial":
-        return {
+        result = {
           sciencePerDay: 0.003 * transitionMultiplier * habitabilityBonus,
           alloyPerDay: 0.012 * transitionMultiplier * habitabilityBonus,
         };
+        break;
       default: // balanced
-        return {
+        result = {
           sciencePerDay: 0.009 * transitionMultiplier * habitabilityBonus,
           alloyPerDay: 0.005 * transitionMultiplier * habitabilityBonus,
         };
+        break;
     }
   } else {
     // CONSUMPTION PHASE: Outpost (0-50M) drains resources from home world
@@ -404,11 +434,18 @@ export function calculateColonyYields(
     };
 
     const rates = peakConsumption[specialization] || peakConsumption.balanced;
-    return {
+    result = {
       sciencePerDay: rates.science * consumptionCurve * habitabilityBonus,
       alloyPerDay: rates.alloy * consumptionCurve * habitabilityBonus,
     };
   }
+
+  // Apply modifiers
+  if (modifiers?.alloyMultiplier && result.alloyPerDay > 0) {
+    result.alloyPerDay *= modifiers.alloyMultiplier;
+  }
+
+  return result;
 }
 
 /**

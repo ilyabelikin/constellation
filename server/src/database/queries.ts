@@ -22,6 +22,7 @@ import {
   TECHNOLOGIES,
   calculateIceCapCoverage,
   GAME_COSTS,
+  SPACE_ELEVATOR_CONFIG,
 } from "@constellation/shared";
 import { calculatePlayerResourceFlow, findGatePath } from "../game/resource-flow.js";
 
@@ -1075,6 +1076,24 @@ export class DatabaseQueries {
     return row.count;
   }
 
+  hasSpaceElevatorOnPlanet(planetId: string): boolean {
+    const stmt = this.db.prepare(
+      "SELECT COUNT(*) as count FROM megastructures WHERE type = 'space_elevator' AND celestial_body_id = ?"
+    );
+    const row = stmt.get(planetId) as any;
+    return row.count > 0;
+  }
+
+  getSpaceElevatorsInGalaxy(galaxyId: string): Set<string> {
+    const stmt = this.db.prepare(`
+      SELECT m.celestial_body_id FROM megastructures m
+      JOIN players p ON m.player_id = p.id
+      WHERE m.type = 'space_elevator' AND p.galaxy_id = ?
+    `);
+    const rows = stmt.all(galaxyId) as any[];
+    return new Set(rows.map((row) => row.celestial_body_id));
+  }
+
   updateMegastructureYield(megastructureId: string, lastYieldAt: number): void {
     const stmt = this.db.prepare(
       "UPDATE megastructures SET last_yield_at = ? WHERE id = ?"
@@ -1173,6 +1192,9 @@ export class DatabaseQueries {
     const updatedColonies: Colony[] = [];
     const abandonedColonies: Array<{ planetId: string, playerId: string, planetName: string, systemId: string }> = [];
     const starvingColonies: Array<{ planetId: string, playerId: string, planetName: string, starvationSeverity: number, scienceDeficit: number, alloyDeficit: number }> = [];
+
+    // Get all space elevators in this galaxy to apply alloy production bonus
+    const spaceElevatorPlanets = this.getSpaceElevatorsInGalaxy(galaxyId);
 
     for (const row of rows) {
       // Check for dead colonies (0 population) and handle them
@@ -1479,10 +1501,14 @@ export class DatabaseQueries {
             // We recalculate on stage changes or threshold crossing to ensure yields stay accurate
             if (stageChanged || crossedThreshold || newPopulation !== row.population) {
               const habitabilityBonus = planet.habitability || 0.5;
+              const hasSpaceElevator = spaceElevatorPlanets.has(row.planet_id);
+              const alloyMultiplier = hasSpaceElevator ? SPACE_ELEVATOR_CONFIG.effects.alloyMultiplier : 1.0;
+
               const yields = calculateColonyYields(
                 newPopulation,
                 row.specialization,
-                habitabilityBonus
+                habitabilityBonus,
+                { alloyMultiplier }
               );
               sciencePerDay = yields.sciencePerDay;
               alloyPerDay = yields.alloyPerDay;
@@ -1680,10 +1706,14 @@ export class DatabaseQueries {
             
             // Recalculate yields for target colony since population changed
             const habitabilityBonus = bestTarget.planet.habitability || 0.5;
+            const hasSpaceElevator = this.hasSpaceElevatorOnPlanet(bestTarget.colony.planetId);
+            const alloyMultiplier = hasSpaceElevator ? SPACE_ELEVATOR_CONFIG.effects.alloyMultiplier : 1.0;
+
             const yields = calculateColonyYields(
               newTargetPopulation,
               bestTarget.colony.specialization,
-              habitabilityBonus
+              habitabilityBonus,
+              { alloyMultiplier }
             );
 
             // Check if target colony should advance to next stage
@@ -3694,6 +3724,17 @@ export class DatabaseQueries {
       "UPDATE colonies SET last_yield_at = ? WHERE id = ?"
     );
     stmt.run(lastYieldAt, colonyId);
+  }
+
+  updateColonyYields(
+    colonyId: string,
+    sciencePerDay: number,
+    alloyPerDay: number
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE colonies SET science_per_day = ?, alloy_per_day = ? WHERE id = ?"
+    );
+    stmt.run(sciencePerDay, alloyPerDay, colonyId);
   }
 
   /**

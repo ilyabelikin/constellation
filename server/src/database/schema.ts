@@ -159,7 +159,7 @@ export function initializeDatabase(dbPath: string): Database.Database {
       id TEXT PRIMARY KEY,
       player_id TEXT NOT NULL,
       system_id TEXT NOT NULL,
-      type TEXT NOT NULL CHECK (type IN ('dyson_swarm')),
+      type TEXT NOT NULL CHECK (type IN ('dyson_swarm', 'space_elevator')),
       celestial_body_id TEXT,
       resource_type TEXT,
       resource_per_day REAL,
@@ -520,7 +520,7 @@ export function initializeDatabase(dbPath: string): Database.Database {
           id TEXT PRIMARY KEY,
           player_id TEXT NOT NULL,
           system_id TEXT NOT NULL,
-          type TEXT NOT NULL CHECK (type IN ('dyson_swarm')),
+          type TEXT NOT NULL CHECK (type IN ('dyson_swarm', 'space_elevator')),
           celestial_body_id TEXT,
           resource_type TEXT,
           resource_per_day REAL,
@@ -1219,6 +1219,44 @@ export function initializeDatabase(dbPath: string): Database.Database {
     }
   } catch (error) {
     console.error("Error during player relationships migration:", error);
+  }
+
+  // Migration: Update megastructures table CHECK constraint to include space_elevator
+  try {
+    const tableInfo = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='megastructures'").get() as { sql: string };
+    if (tableInfo && !tableInfo.sql.includes("space_elevator")) {
+      console.log("Migrating megastructures table to include space_elevator in CHECK constraint...");
+      db.transaction(() => {
+        db.exec("ALTER TABLE megastructures RENAME TO megastructures_old");
+        db.exec(`
+          CREATE TABLE megastructures (
+            id TEXT PRIMARY KEY,
+            player_id TEXT NOT NULL,
+            system_id TEXT NOT NULL,
+            type TEXT NOT NULL CHECK (type IN ('dyson_swarm', 'space_elevator')),
+            celestial_body_id TEXT,
+            resource_type TEXT,
+            resource_per_day REAL,
+            established_at INTEGER NOT NULL,
+            last_yield_at INTEGER NOT NULL,
+            metadata TEXT,
+            FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+            FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+          )
+        `);
+        db.exec(`
+          INSERT INTO megastructures (id, player_id, system_id, type, celestial_body_id, resource_type, resource_per_day, established_at, last_yield_at, metadata)
+          SELECT id, player_id, system_id, type, celestial_body_id, resource_type, resource_per_day, established_at, last_yield_at, metadata FROM megastructures_old
+        `);
+        db.exec("DROP TABLE megastructures_old");
+        db.exec("CREATE INDEX idx_megastructures_player ON megastructures(player_id)");
+        db.exec("CREATE INDEX idx_megastructures_system ON megastructures(system_id)");
+        db.exec("CREATE INDEX idx_megastructures_type ON megastructures(type)");
+      })();
+      console.log("Megastructures migration complete.");
+    }
+  } catch (error) {
+    console.error("Error migrating megastructures table:", error);
   }
 
   return db;

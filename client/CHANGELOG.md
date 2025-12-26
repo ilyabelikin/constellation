@@ -1,5 +1,9 @@
 # What's New in Constellation
 
+## Version 0.4.4 - Elevator
+
+- **Wheeeee**: you now can build a space elevator and increse your alloy output as well as get some energy from a planet.
+
 ## Version 0.4.3 - Supremacy
 
 - **Invasions**: you may invade a planet if you have contoll of the tunnels leading to it and the resources for the attack.
@@ -48,12 +52,11 @@
 
 ---
 
-## Ideas we considering
+## Ideas we are considering
 
-- **Space Lift** - a planetary megastructure incresing planet outputs
-- **Asteroid Alert** - a disaster when an asteroid might wipe out life on a planet and you may or may not prevent it
-- **Custom Species** - option to choose your own starting species characteristics and name
-- **Research Stations** - ways to produce more science outside of the habitable planets
+- **Asteroid Alert** - a disaster when an asteroid might wipe out life on a planet and you may or may not prevent it.
+- **Custom Species** - option to choose your own starting species characteristics and name.
+- **Research Stations** - ways to produce more science outside of the habitable planets.
 
 ---
 

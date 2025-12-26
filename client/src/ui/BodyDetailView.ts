@@ -14,6 +14,7 @@ import {
   DYSON_SWARM_ENERGY,
   formatCost,
   GAME_COSTS,
+  SPACE_ELEVATOR_CONFIG,
   calculateMaxDysonSwarms,
   SOLAR_RADIUS,
   calculateIceCapCoverage,
@@ -68,6 +69,12 @@ export class BodyDetailView {
   private dysonEnergy: HTMLElement | null;
   private dysonButton: HTMLButtonElement | null;
   public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
+
+  // Space Elevator elements
+  private elevatorSection: HTMLElement | null;
+  private elevatorStatus: HTMLElement | null;
+  private elevatorButton: HTMLButtonElement | null;
+  public onBuildSpaceElevator: ((planetId: string) => void) | null = null;
 
   // Colony elements
   private colonySection: HTMLElement | null;
@@ -173,11 +180,31 @@ export class BodyDetailView {
       "body-dyson-button"
     ) as HTMLButtonElement;
 
+    // Space Elevator elements
+    this.elevatorSection = document.getElementById("body-elevator-section");
+    this.elevatorStatus = document.getElementById("body-elevator-status");
+    this.elevatorButton = document.getElementById(
+      "body-elevator-button"
+    ) as HTMLButtonElement;
+
     // Bind dyson button click
     if (this.dysonButton) {
       this.dysonButton.addEventListener("click", () => {
         if (this.currentBody && this.onLaunchDysonSwarm) {
           this.onLaunchDysonSwarm(this.currentBody.id);
+        }
+      });
+    }
+
+    // Bind space elevator button click
+    if (this.elevatorButton) {
+      this.elevatorButton.textContent = `🏗️ Build Space Elevator ${formatCost(
+        SPACE_ELEVATOR_CONFIG.cost
+      )} → +${SPACE_ELEVATOR_CONFIG.effects.oneTimeEnergyBonus} ⚡ (One-time), +50% ⛏`;
+
+      this.elevatorButton.addEventListener("click", () => {
+        if (this.currentBody && this.onBuildSpaceElevator) {
+          this.onBuildSpaceElevator(this.currentBody.id);
         }
       });
     }
@@ -716,6 +743,59 @@ export class BodyDetailView {
       // Hide dyson section for non-stars
       if (this.dysonSection) {
         this.dysonSection.style.display = "none";
+      }
+    }
+
+    // Show/hide Space Elevator section for colonized planets
+    if (body.type === "planet") {
+      const colony = this.currentSystem?.colonies?.find(
+        (c: any) => c.planetId === body.id
+      );
+
+      if (colony && colony.playerId === this.currentPlayerId) {
+        if (this.elevatorSection) {
+          this.elevatorSection.style.display = "block";
+
+          // Check if space elevator already exists
+          const existingElevator = this.currentSystem?.megastructures?.find(
+            (ms: any) => ms.type === "space_elevator" && ms.celestialBodyId === body.id
+          );
+
+          if (existingElevator) {
+            if (this.elevatorStatus) {
+              this.elevatorStatus.style.display = "block";
+            }
+            if (this.elevatorButton) {
+              this.elevatorButton.style.display = "none";
+            }
+          } else {
+            if (this.elevatorStatus) {
+              this.elevatorStatus.style.display = "none";
+            }
+            if (this.elevatorButton) {
+              // Only enable if population is > 1B
+              const canBuild = colony.population >= SPACE_ELEVATOR_CONFIG.requirements.minPopulation;
+              this.elevatorButton.style.display = "block";
+              this.elevatorButton.disabled = !canBuild;
+              
+              if (!canBuild) {
+                this.elevatorButton.title = `Requires ${formatLargeNumber(SPACE_ELEVATOR_CONFIG.requirements.minPopulation)} population`;
+                this.elevatorButton.style.opacity = "0.5";
+              } else {
+                this.elevatorButton.title = "";
+                this.elevatorButton.style.opacity = "1";
+              }
+            }
+          }
+        }
+      } else {
+        if (this.elevatorSection) {
+          this.elevatorSection.style.display = "none";
+        }
+      }
+    } else {
+      if (this.elevatorSection) {
+        this.elevatorSection.style.display = "none";
       }
     }
 

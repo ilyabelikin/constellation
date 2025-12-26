@@ -30,6 +30,8 @@ import {
   HELIUM3_ENERGY,
   calculateMaxDysonSwarms,
   calculateIceCapCoverage,
+  formatCost,
+  SPACE_ELEVATOR_CONFIG,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -227,6 +229,9 @@ export class ConstellationWebSocketServer {
           break;
         case "launchDysonSwarm":
           this.handleLaunchDysonSwarm(client, message.starId);
+          break;
+        case "buildSpaceElevator":
+          this.handleBuildSpaceElevator(client, message.planetId);
           break;
         case "debugAddResource":
           this.handleDebugAddResource(
@@ -3175,6 +3180,146 @@ export class ConstellationWebSocketServer {
     this.sendResourceFlowUpdate(client);
   }
 
+  private handleBuildSpaceElevator(
+    client: ClientConnection,
+    planetId: string
+  ): void {
+    if (!client.playerId || !client.galaxyId || !client.currentSystemId) {
+      this.sendError(client.ws, "Not joined to a galaxy");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) return;
+
+    const system = this.db.getStarSystem(client.currentSystemId);
+    if (!system) return;
+
+    // Check if planet exists and is colonized by player
+    const colony = this.db.getColonyByPlanetId(planetId);
+    if (!colony || colony.playerId !== client.playerId) {
+      this.sendError(
+        client.ws,
+        "You must have a colony on this planet to build a space elevator"
+      );
+      return;
+    }
+
+    // Check population requirement (> 1B)
+    if (colony.population < SPACE_ELEVATOR_CONFIG.requirements.minPopulation) {
+      this.sendError(
+        client.ws,
+        `Population must be over ${
+          SPACE_ELEVATOR_CONFIG.requirements.minPopulation / 1000000000
+        }B to build a space elevator`
+      );
+      return;
+    }
+
+    // Check if space elevator already exists
+    if (this.db.hasSpaceElevatorOnPlanet(planetId)) {
+      this.sendError(
+        client.ws,
+        "Space elevator already built on this planet"
+      );
+      return;
+    }
+
+    // Check resources
+    const cost = SPACE_ELEVATOR_CONFIG.cost;
+    if (player.alloy < cost.alloy || player.science < cost.science) {
+      this.sendError(
+        client.ws,
+        `Insufficient resources to build space elevator. Cost: ${formatCost(
+          cost
+        )}`
+      );
+      return;
+    }
+
+    // Deduct resources and add energy bonus
+    this.db.updatePlayerResources(
+      player.id,
+      player.energy + SPACE_ELEVATOR_CONFIG.effects.oneTimeEnergyBonus, // Add energy bonus
+      player.alloy - cost.alloy,
+      player.science - cost.science
+    );
+
+    // Create Space Elevator megastructure (no daily yield)
+    const currentTime = this.gameState.getGalaxyTime(client.galaxyId);
+    const megastructureId = uuidv4();
+
+    this.db.createMegastructure(
+      megastructureId,
+      client.playerId,
+      system.id,
+      "space_elevator",
+      planetId,
+      "energy",
+      0, // No daily production
+      currentTime,
+      null
+    );
+
+    // Recalculate and update colony yields (now with 50% alloy bonus)
+    const planet = system.planets.find((p) => p.id === planetId);
+    const habitabilityBonus = planet?.habitability || 0.5;
+    const yields = calculateColonyYields(
+      colony.population,
+      colony.specialization,
+      habitabilityBonus,
+      { alloyMultiplier: SPACE_ELEVATOR_CONFIG.effects.alloyMultiplier }
+    );
+
+    this.db.updateColonyYields(
+      colony.id,
+      yields.sciencePerDay,
+      yields.alloyPerDay
+    );
+
+    console.log(
+      `Player ${player.name} built Space Elevator on ${colony.planetName} in system ${system.id}`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Reload the system in game state with updated megastructures
+    const updatedSystem = this.db.getStarSystem(system.id);
+    if (updatedSystem) {
+      this.gameState.loadSystem(updatedSystem);
+
+      // Send updated system data to the client who built it
+      const gateOwnership = this.db.getGateOwnershipForSystem(
+        client.playerId,
+        updatedSystem.id
+      );
+      this.sendSystemData(client, updatedSystem, gateOwnership);
+
+      // Also broadcast updated system data to all other clients viewing this system
+      for (const otherClient of this.clients.values()) {
+        if (
+          otherClient.currentSystemId === system.id &&
+          otherClient.playerId !== client.playerId
+        ) {
+          const otherGateOwnership = otherClient.playerId
+            ? this.db.getGateOwnershipForSystem(
+                otherClient.playerId,
+                updatedSystem.id
+              )
+            : [];
+          this.sendSystemData(otherClient, updatedSystem, otherGateOwnership);
+        }
+      }
+    }
+
+    // Update resource flow for this player
+    this.sendResourceFlowUpdate(client);
+  }
+
   private handleDebugAddResource(
     client: ClientConnection,
     resourceType: "energy" | "alloy" | "science",
@@ -4424,10 +4569,14 @@ export class ConstellationWebSocketServer {
     
     // Recalculate yields based on new owner/species
     // (In this game yields depend on habitability and specialization)
+    const hasSpaceElevator = this.db.hasSpaceElevatorOnPlanet(planet.id);
+    const alloyMultiplier = hasSpaceElevator ? SPACE_ELEVATOR_CONFIG.effects.alloyMultiplier : 1.0;
+
     const yields = calculateColonyYields(
       survivingPopulation,
       existingColony.specialization,
-      planet.habitability || 0.5
+      planet.habitability || 0.5,
+      { alloyMultiplier }
     );
 
     const updatedColony = {
@@ -4703,12 +4852,15 @@ export class ConstellationWebSocketServer {
     }
 
     const habitabilityBonus = planet.habitability || 0.5;
+    const hasSpaceElevator = this.db.hasSpaceElevatorOnPlanet(colony.planetId);
+    const alloyMultiplier = hasSpaceElevator ? SPACE_ELEVATOR_CONFIG.effects.alloyMultiplier : 1.0;
 
     // Calculate yields using the new population-based formula
     const yields = calculateColonyYields(
       colony.population,
       specialization,
-      habitabilityBonus
+      habitabilityBonus,
+      { alloyMultiplier }
     );
 
     colony.specialization = specialization;

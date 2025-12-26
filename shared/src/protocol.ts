@@ -75,6 +75,10 @@ export type ClientMessage =
       starId: string;
     }
   | {
+      type: "buildSpaceElevator";
+      planetId: string;
+    }
+  | {
       type: "debugAddResource";
       resourceType: "energy" | "alloy" | "science";
       amount: number;

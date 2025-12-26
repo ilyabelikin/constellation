@@ -317,6 +317,7 @@ export interface NativeCivilization {
 
 export const MegastructureType = {
   DYSON_SWARM: "dyson_swarm",
+  SPACE_ELEVATOR: "space_elevator",
 } as const;
 
 export type MegastructureTypeName =

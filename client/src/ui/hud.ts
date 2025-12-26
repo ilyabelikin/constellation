@@ -217,6 +217,7 @@ export class HUDManager {
   public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
   public onEstablishHelium3: ((celestialBodyId: string) => void) | null = null;
   public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
+  public onBuildSpaceElevator: ((planetId: string) => void) | null = null;
   public onEstablishColony:
     | ((
         planetId: string,
@@ -1967,6 +1968,12 @@ export class HUDManager {
     this.bodyDetailView.onLaunchDysonSwarm = (starId: string) => {
       if (this.onLaunchDysonSwarm) {
         this.onLaunchDysonSwarm(starId);
+      }
+    };
+
+    this.bodyDetailView.onBuildSpaceElevator = (planetId: string) => {
+      if (this.onBuildSpaceElevator) {
+        this.onBuildSpaceElevator(planetId);
       }
     };
 

@@ -1364,6 +1364,10 @@ class ConstellationGame {
       this.network.launchDysonSwarm(starId);
     };
 
+    this.hud.onBuildSpaceElevator = (planetId) => {
+      this.network.buildSpaceElevator(planetId);
+    };
+
     this.hud.onEstablishColony = (planetId, specialization) => {
       this.network.establishColony(planetId, specialization);
     };
