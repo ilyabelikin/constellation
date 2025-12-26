@@ -1354,10 +1354,10 @@ export class ConstellationWebSocketServer {
       const myExploredSystems = this.db.getExploredSystemsByPlayer(player.id);
       const constellationSize = myExploredSystems.size;
 
-      // Calculate probability: base 5% chance, increasing by 2% per explored system, capped at 50%
-      const BASE_CHANCE = 0.05;
-      const CHANCE_PER_SYSTEM = 0.02;
-      const MAX_CHANCE = 0.5;
+      // Calculate probability: base 10% chance, increasing by 5% per explored system, capped at 70%
+      const BASE_CHANCE = 0.1;
+      const CHANCE_PER_SYSTEM = 0.05;
+      const MAX_CHANCE = 0.7;
       const connectionProbability = Math.min(
         BASE_CHANCE + constellationSize * CHANCE_PER_SYSTEM,
         MAX_CHANCE
