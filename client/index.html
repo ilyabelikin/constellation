@@ -701,6 +701,38 @@
             animation: badgeSlideOut 0.3s ease-in forwards;
         }
 
+        /* Space Elevator Tooltip */
+        .elevator-status-container {
+            position: relative;
+            display: inline-block;
+            color: #ff9800;
+            cursor: help;
+        }
+
+        .elevator-tooltip {
+            visibility: hidden;
+            width: 180px;
+            background-color: rgba(0, 20, 0, 0.95);
+            color: #fff;
+            text-align: left;
+            border: 1px solid #ff9800;
+            border-radius: 6px;
+            padding: 8px;
+            position: absolute;
+            z-index: 100;
+            bottom: 125%;
+            left: 0;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 11px;
+            pointer-events: none;
+        }
+
+        .elevator-status-container:hover .elevator-tooltip {
+            visibility: visible;
+            opacity: 1;
+        }
+
         /* Tech button progress indicator */
         .tech-progress-indicator {
             position: relative;
@@ -1138,12 +1170,17 @@
             </button>
         </div>
         <div id="body-elevator-section" style="display: none; margin-top: 1rem;">
-            <div id="body-elevator-status" class="detail-value" style="display: none; color: #10b981; margin-bottom: 0.5rem;">
-                🏗️ Space Elevator Active<br>
-                <span style="font-size: 0.9em; opacity: 0.8;">
-                    +50% Alloy Production<br>
-                    +3 Energy (Received)
-                </span>
+            <div id="body-elevator-status" class="detail-value" style="display: none; margin-bottom: 0.5rem;">
+                <div class="elevator-status-container">
+                    Space Elevator
+                    <div class="elevator-tooltip">
+                        🏗️ Space Elevator Active<br>
+                        <span style="opacity: 0.8;">
+                            +50% Alloy Production<br>
+                            +3 Energy (Received)
+                        </span>
+                    </div>
+                </div>
             </div>
             <button class="hud-button" id="body-elevator-button" style="width: 100%;">
                 🏗️ Build Space Elevator
@@ -1152,10 +1189,7 @@
         <div id="body-colony-section" style="display: none; margin-top: 1rem;">
             <div id="body-colony-status" class="detail-value" style="display: none; margin-bottom: 0.5rem;">
                 <div style="color: #a78bfa; margin-bottom: 0.5rem;">
-                    🏙 Colony: <span id="body-colony-stage">-</span> (<span id="body-colony-population">-</span>)
-                </div>
-                <div style="font-size: 12px; color: #94a3b8; margin-bottom: 0.5rem;">
-                    Specialization: <span id="body-colony-specialization">-</span>
+                    🏙 <span id="body-colony-stage">-</span> (<span id="body-colony-population">-</span>)
                 </div>
                 <div style="font-size: 11px; color: #64748b;">
                     <span id="body-colony-science">-</span> ⚗️/d | <span id="body-colony-alloy">-</span> ⛏/d
@@ -1167,7 +1201,7 @@
                 </div>
             </div>
             <button class="hud-button" id="body-colonize-button" style="width: 100%;">
-                🏙 Establish Colony
+                🏙 Colonize
             </button>
             <button class="hud-button" id="body-invade-button" style="width: 100%; display: none; background: #900;">
                 ⚔️ Invade Colony

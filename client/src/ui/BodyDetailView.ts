@@ -81,7 +81,6 @@ export class BodyDetailView {
   private colonyStatus: HTMLElement | null;
   private colonyStage: HTMLElement | null;
   private colonyPopulation: HTMLElement | null;
-  private colonySpecialization: HTMLElement | null;
   private colonyScience: HTMLElement | null;
   private colonyAlloy: HTMLElement | null;
   private colonizeButton: HTMLButtonElement | null;
@@ -214,9 +213,6 @@ export class BodyDetailView {
     this.colonyStatus = document.getElementById("body-colony-status");
     this.colonyStage = document.getElementById("body-colony-stage");
     this.colonyPopulation = document.getElementById("body-colony-population");
-    this.colonySpecialization = document.getElementById(
-      "body-colony-specialization"
-    );
     this.colonyScience = document.getElementById("body-colony-science");
     this.colonyAlloy = document.getElementById("body-colony-alloy");
     this.colonizeButton = document.getElementById(
@@ -849,11 +845,6 @@ export class BodyDetailView {
                 existingColony.population
               )}/${formatLargeNumber(maxPopulation)}`;
             }
-            if (this.colonySpecialization) {
-              this.colonySpecialization.textContent =
-                existingColony.specialization.charAt(0).toUpperCase() +
-                existingColony.specialization.slice(1);
-            }
             if (this.colonyScience) {
               this.colonyScience.textContent =
                 existingColony.sciencePerDay.toFixed(2);
@@ -921,7 +912,7 @@ export class BodyDetailView {
           if (this.colonizeButton) {
             this.colonizeButton.style.display = "block";
             // Update button text with costs from config
-            this.colonizeButton.textContent = `🏙 Establish Colony ${formatCost(
+            this.colonizeButton.textContent = `🏙 Colonize ${formatCost(
               GAME_COSTS.COLONY_ESTABLISHMENT
             )}`;
           }
