@@ -158,7 +158,12 @@ export class HUDManager {
   private isTimeToggleLoading = false;
   private lastButtonState: { isPaused: boolean; isLoading: boolean } | null =
     null;
-  private metPlayers: { id: string; name: string }[] = [];
+  private metPlayers: {
+    id: string;
+    name: string;
+    speciesId: string;
+    speciesName: string;
+  }[] = [];
   private networkClient: any = null; // Reference to network client for requesting stats
   private shouldShowSpeciesModal = false; // Track whether to show species modal on next response
   private isInConstellationView = false; // Track if we're in constellation view (to hide mineable widget)
@@ -466,6 +471,12 @@ export class HUDManager {
     this.gateDetailView.onPowerOnTunnel = (tunnelId: string) => {
       if (this.onTunnelPowerOn) {
         this.onTunnelPowerOn(tunnelId);
+      }
+    };
+    
+    this.gateDetailView.onTunnelOvertake = (tunnelId: string) => {
+      if (this.onTunnelOvertake) {
+        this.onTunnelOvertake(tunnelId);
       }
     };
 
@@ -860,6 +871,24 @@ export class HUDManager {
   showError(message: string): void {
     // Use notification system instead of old lobby error message
     this.showNotification(message, 5000);
+  }
+
+  showGameOver(reason: string, onAction: () => void): void {
+    const modal = document.getElementById("game-over-modal");
+    const message = document.getElementById("game-over-message");
+    const button = document.getElementById("game-over-ok-button");
+
+    if (modal && message && button) {
+      message.textContent = reason;
+      modal.classList.remove("hidden");
+      modal.style.display = "flex";
+
+      button.onclick = () => {
+        modal.classList.add("hidden");
+        modal.style.display = "none";
+        onAction();
+      };
+    }
   }
 
   clearError(): void {
@@ -2036,7 +2065,12 @@ export class HUDManager {
   }
 
   updatePlayersDisplay(
-    metPlayers: { id: string; name: string }[],
+    metPlayers: {
+      id: string;
+      name: string;
+      speciesId: string;
+      speciesName: string;
+    }[],
     totalPlayers: number
   ): void {
     this.metPlayers = metPlayers;
@@ -2221,9 +2255,21 @@ export class HUDManager {
   /**
    * Helper to get a player by ID from current player or met players
    */
-  public getPlayerById(playerId: string): { id: string; name: string } | null {
+  public getPlayerById(playerId: string): {
+    id: string;
+    name: string;
+    speciesId?: string;
+    speciesName?: string;
+  } | null {
     if (this.player && this.player.id === playerId) {
-      return { id: this.player.id, name: this.player.name };
+      // Need to get my own species name from display name or cache
+      const speciesName = this.speciesNameDisplay.textContent || "Unknown";
+      return {
+        id: this.player.id,
+        name: this.player.name,
+        speciesId: this.player.speciesId,
+        speciesName: speciesName !== "Species" ? speciesName : "Unknown",
+      };
     }
     return this.metPlayers.find((p) => p.id === playerId) || null;
   }

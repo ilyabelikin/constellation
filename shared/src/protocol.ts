@@ -302,7 +302,7 @@ export type ServerMessage =
     }
   | {
       type: "galaxyPlayers";
-      metPlayers: { id: string; name: string }[];
+      metPlayers: { id: string; name: string; speciesId: string; speciesName: string }[];
       totalPlayers: number;
     }
   | {
@@ -509,7 +509,8 @@ export type ServerMessage =
       technologyId: string;
       progressDays: number;
       scienceInvested: number;
-    };
+    }
+  | { type: "gameOver"; reason: string };
 
 export interface SearchResult {
   objectId: string;

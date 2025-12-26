@@ -1,6 +1,6 @@
 {
   "name": "constellation-v2",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Multiplayer space exploration game with realistic orbital mechanics",
   "private": true,
   "workspaces": [

@@ -325,6 +325,17 @@ export class DatabaseQueries {
     stmt.run(playerId);
   }
 
+  updatePlayerCapital(
+    playerId: string,
+    homeSystemId: string,
+    homePlanetId: string
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE players SET home_system_id = ?, home_planet_id = ? WHERE id = ?"
+    );
+    stmt.run(homeSystemId, homePlanetId, playerId);
+  }
+
   getPlayerByUuid(uuid: string): Player | null {
     const stmt = this.db.prepare("SELECT * FROM players WHERE uuid = ?");
     const row = stmt.get(uuid) as any;
@@ -532,23 +543,63 @@ export class DatabaseQueries {
 
   addPlayerEnergy(playerId: string, amount: number): void {
     const stmt = this.db.prepare(
-      "UPDATE players SET energy = energy + ? WHERE id = ?"
+      "UPDATE players SET energy = MAX(0, energy + ?) WHERE id = ?"
     );
     stmt.run(amount, playerId);
   }
 
   addPlayerAlloy(playerId: string, amount: number): void {
-    // Cap alloy at maximum stockpile
+    if (amount <= 0) {
+      // For deductions, just subtract but keep >= 0
+      const stmt = this.db.prepare(
+        "UPDATE players SET alloy = MAX(0, alloy + ?) WHERE id = ?"
+      );
+      stmt.run(amount, playerId);
+      return;
+    }
+
+    // For additions, cap at MAX_ALLOY_STOCKPILE
+    // If already above cap, don't add anything
     const stmt = this.db.prepare(
-      `UPDATE players SET alloy = MIN(alloy + ?, ${MAX_ALLOY_STOCKPILE}) WHERE id = ?`
+      `UPDATE players SET alloy = CASE 
+        WHEN alloy >= ${MAX_ALLOY_STOCKPILE} THEN alloy 
+        ELSE MIN(alloy + ?, ${MAX_ALLOY_STOCKPILE}) 
+      END WHERE id = ?`
     );
     stmt.run(amount, playerId);
   }
 
   addPlayerScience(playerId: string, amount: number): void {
-    // Cap science at maximum stockpile
+    if (amount <= 0) {
+      // For deductions, just subtract but keep >= 0
+      const stmt = this.db.prepare(
+        "UPDATE players SET science = MAX(0, science + ?) WHERE id = ?"
+      );
+      stmt.run(amount, playerId);
+      return;
+    }
+
+    // For additions, cap at MAX_SCIENCE_STOCKPILE
+    // If already above cap, don't add anything
     const stmt = this.db.prepare(
-      `UPDATE players SET science = MIN(science + ?, ${MAX_SCIENCE_STOCKPILE}) WHERE id = ?`
+      `UPDATE players SET science = CASE 
+        WHEN science >= ${MAX_SCIENCE_STOCKPILE} THEN science 
+        ELSE MIN(science + ?, ${MAX_SCIENCE_STOCKPILE}) 
+      END WHERE id = ?`
+    );
+    stmt.run(amount, playerId);
+  }
+
+  /**
+   * Directly set player resources (for debug mode)
+   */
+  debugAddPlayerResource(
+    playerId: string,
+    resourceType: "energy" | "alloy" | "science",
+    amount: number
+  ): void {
+    const stmt = this.db.prepare(
+      `UPDATE players SET ${resourceType} = ${resourceType} + ? WHERE id = ?`
     );
     stmt.run(amount, playerId);
   }
@@ -737,10 +788,14 @@ export class DatabaseQueries {
     stmt.run(miningOperationId);
   }
 
-  processMiningYields(currentTime: number): void {
-    // Get all mining operations
-    const stmt = this.db.prepare("SELECT * FROM mining_operations");
-    const rows = stmt.all() as any[];
+  processMiningYields(galaxyId: string, currentTime: number): void {
+    // Get mining operations only for this galaxy
+    const stmt = this.db.prepare(`
+      SELECT mo.* FROM mining_operations mo
+      JOIN players p ON mo.player_id = p.id
+      WHERE p.galaxy_id = ?
+    `);
+    const rows = stmt.all(galaxyId) as any[];
     const operationsToDelete: Array<{ id: string; playerId: string }> = [];
     const MAX_ALLOY_STOCKPILE = 500; // Maximum alloy storage capacity
 
@@ -897,10 +952,14 @@ export class DatabaseQueries {
    * Process defense platform maintenance costs
    * Deducts alloy per day for each platform
    */
-  processDefenseMaintenance(currentTime: number): void {
-    // Get all defense platforms
-    const stmt = this.db.prepare("SELECT * FROM gate_defenses WHERE health > 0");
-    const rows = stmt.all() as any[];
+  processDefenseMaintenance(galaxyId: string, currentTime: number): void {
+    // Get defense platforms only for this galaxy
+    const stmt = this.db.prepare(`
+      SELECT gd.* FROM gate_defenses gd
+      JOIN players p ON gd.player_id = p.id
+      WHERE gd.health > 0 AND p.galaxy_id = ?
+    `);
+    const rows = stmt.all(galaxyId) as any[];
 
     for (const row of rows) {
       const maintenancePerDay = row.maintenance_alloy_per_day ?? 0.1;
@@ -1023,12 +1082,14 @@ export class DatabaseQueries {
     stmt.run(lastYieldAt, megastructureId);
   }
 
-  processMegastructureYields(currentTime: number): void {
-    // Get all megastructures (excluding Dyson Swarms which provide instant energy)
-    const stmt = this.db.prepare(
-      "SELECT * FROM megastructures WHERE type != 'dyson_swarm'"
-    );
-    const rows = stmt.all() as any[];
+  processMegastructureYields(galaxyId: string, currentTime: number): void {
+    // Get megastructures only for this galaxy (excluding Dyson Swarms)
+    const stmt = this.db.prepare(`
+      SELECT m.* FROM megastructures m
+      JOIN players p ON m.player_id = p.id
+      WHERE m.type != 'dyson_swarm' AND p.galaxy_id = ?
+    `);
+    const rows = stmt.all(galaxyId) as any[];
 
     for (const row of rows) {
       const timeSinceLastYield = currentTime - row.last_yield_at;
@@ -1082,14 +1143,33 @@ export class DatabaseQueries {
   /**
    * Process colony resource yields and population growth based on current game time
    */
-  processColonyYields(currentTime: number): { 
-    updatedColonies: Colony[], 
-    abandonedColonies: Array<{ planetId: string, playerId: string, planetName: string, systemId: string }>,
-    starvingColonies: Array<{ planetId: string, playerId: string, planetName: string, starvationSeverity: number, scienceDeficit: number, alloyDeficit: number }> 
+  processColonyYields(
+    galaxyId: string,
+    currentTime: number
+  ): {
+    updatedColonies: Colony[];
+    abandonedColonies: Array<{
+      planetId: string;
+      playerId: string;
+      planetName: string;
+      systemId: string;
+    }>;
+    starvingColonies: Array<{
+      planetId: string;
+      playerId: string;
+      planetName: string;
+      starvationSeverity: number;
+      scienceDeficit: number;
+      alloyDeficit: number;
+    }>;
   } {
-    // Get all colonies
-    const stmt = this.db.prepare("SELECT * FROM colonies");
-    const rows = stmt.all() as any[];
+    // Get colonies only for this galaxy
+    const stmt = this.db.prepare(`
+      SELECT c.* FROM colonies c
+      JOIN players p ON c.player_id = p.id
+      WHERE p.galaxy_id = ?
+    `);
+    const rows = stmt.all(galaxyId) as any[];
     const updatedColonies: Colony[] = [];
     const abandonedColonies: Array<{ planetId: string, playerId: string, planetName: string, systemId: string }> = [];
     const starvingColonies: Array<{ planetId: string, playerId: string, planetName: string, starvationSeverity: number, scienceDeficit: number, alloyDeficit: number }> = [];
@@ -3621,11 +3701,15 @@ export class DatabaseQueries {
    */
   updateColony(colony: Colony): void {
     const stmt = this.db.prepare(
-      `UPDATE colonies SET stage = ?, specialization = ?, population = ?, 
+      `UPDATE colonies SET 
+       player_id = ?, species_id = ?,
+       stage = ?, specialization = ?, population = ?, 
        science_per_day = ?, energy_per_day = ?, alloy_per_day = ?, 
        last_yield_at = ? WHERE id = ?`
     );
     stmt.run(
+      colony.playerId,
+      colony.speciesId,
       colony.stage,
       colony.specialization,
       colony.population,
@@ -4234,7 +4318,10 @@ export class DatabaseQueries {
    * Process technology research progress based on current game time
    * Consumes science proportionally every day for in-progress research
    */
-  processTechnologyResearch(currentTime: number): {
+  processTechnologyResearch(
+    galaxyId: string,
+    currentTime: number
+  ): {
     playerId: string;
     technologyId: string;
     technologyName: string;
@@ -4252,11 +4339,14 @@ export class DatabaseQueries {
     }[] = [];
 
     // First, check for paused research that can be auto-resumed
-    const pausedStmt = this.db.prepare(
-      "SELECT tr.*, p.science FROM technology_research tr JOIN players p ON tr.player_id = p.id WHERE tr.status = 'paused'"
-    );
-    const pausedRows = pausedStmt.all() as any[];
-    
+    // Filter by galaxyId
+    const pausedStmt = this.db.prepare(`
+      SELECT tr.*, p.science FROM technology_research tr 
+      JOIN players p ON tr.player_id = p.id 
+      WHERE tr.status = 'paused' AND p.galaxy_id = ?
+    `);
+    const pausedRows = pausedStmt.all(galaxyId) as any[];
+
     for (const row of pausedRows) {
       // If player has science available, resume the research
       if (row.science > 0) {
@@ -4274,13 +4364,15 @@ export class DatabaseQueries {
       }
     }
 
-    // Get all in-progress research
-    const stmt = this.db.prepare(
-      "SELECT tr.*, p.science FROM technology_research tr JOIN players p ON tr.player_id = p.id WHERE tr.status = 'in_progress'"
-    );
-    const rows = stmt.all() as any[];
+    // Process all active research for this galaxy
+    const activeStmt = this.db.prepare(`
+      SELECT tr.*, p.science FROM technology_research tr 
+      JOIN players p ON tr.player_id = p.id 
+      WHERE tr.status = 'in_progress' AND p.galaxy_id = ?
+    `);
+    const activeRows = activeStmt.all(galaxyId) as any[];
 
-    for (const row of rows) {
+    for (const row of activeRows) {
       const timeSinceStart = currentTime - row.started_at;
       const daysElapsed = timeSinceStart / (24 * 60 * 60);
       const currentProgress = row.progress_days;

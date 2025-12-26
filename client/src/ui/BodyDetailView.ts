@@ -557,10 +557,8 @@ export class BodyDetailView {
           : null;
 
         this.controllerElement.style.display = "block";
-        if (controller) {
-          this.controllerElement.textContent = `Government: ${controller.name}`;
-        } else if (controllerId === this.currentPlayerId) {
-          this.controllerElement.textContent = `Government: You`;
+        if (controller && controller.speciesName) {
+          this.controllerElement.textContent = `Government: ${controller.speciesName}`;
         } else {
           this.controllerElement.textContent = `Government: Unknown`;
         }

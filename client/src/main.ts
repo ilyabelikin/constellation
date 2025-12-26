@@ -30,7 +30,7 @@ class ConstellationApp {
   private game: ConstellationGame | null = null;
   private animationFrameId: number | null = null;
   private bufferedGalaxyPlayers: {
-    metPlayers: { id: string; name: string }[];
+    metPlayers: { id: string; name: string; speciesId: string; speciesName: string }[];
     totalPlayers: number;
   } | null = null;
 
@@ -1331,6 +1331,13 @@ class ConstellationGame {
       if (this.techTreeView.isVisible()) {
         this.network.requestTechTree();
       }
+    };
+
+    this.network.onGameOver = (reason) => {
+      this.hud.showGameOver(reason, () => {
+        // Bring user back to main menu/lobby
+        window.location.reload();
+      });
     };
 
     this.hud.onProposeRelationship = (targetPlayerId, relationshipType) => {

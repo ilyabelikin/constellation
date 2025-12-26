@@ -109,7 +109,6 @@ export class ConstellationWebSocketServer {
       const client = this.clients.get(ws);
       if (!client) return;
 
-      console.log(`[Server] Received message type: ${message.type}`);
       if (
         message.type === "debugAddResource" ||
         message.type === "createGalaxy" ||
@@ -3202,39 +3201,18 @@ export class ConstellationWebSocketServer {
       `[DEBUG] Current player resources - energy: ${player.energy}, alloy: ${player.alloy}, science: ${player.science}`
     );
 
-    // Update the resource based on type
-    if (resourceType === "energy") {
-      this.db.addPlayerEnergy(client.playerId, amount);
-      console.log(
-        `[DEBUG] Added ${amount} energy to player ${player.name} (new total: ${
-          player.energy + amount
-        })`
-      );
-    } else if (resourceType === "alloy") {
-      // Add alloy directly (without cap)
-      const addStmt = this.db
-        .rawDb()
-        .prepare("UPDATE players SET alloy = alloy + ? WHERE id = ?");
-      addStmt.run(amount, client.playerId);
-      console.log(
-        `[DEBUG] Added ${amount} alloy to player ${player.name} (new total: ${
-          player.alloy + amount
-        })`
-      );
-    } else if (resourceType === "science") {
-      this.db.addPlayerScience(client.playerId, amount);
-      console.log(
-        `[DEBUG] Added ${amount} science to player ${player.name} (new total: ${
-          player.science + amount
-        })`
-      );
-    }
+    // Update the resource using the new debug method that bypasses caps
+    this.db.debugAddPlayerResource(client.playerId, resourceType, amount);
+
+    console.log(
+      `[DEBUG] Added ${amount} ${resourceType} to player ${player.name}`
+    );
 
     // Send updated player data
     const updatedPlayer = this.db.getPlayerById(client.playerId);
     if (updatedPlayer) {
       console.log(
-        `[DEBUG] Sending updated player data - energy: ${updatedPlayer.energy}, alloy: ${updatedPlayer.alloy}`
+        `[DEBUG] Sending updated player data - energy: ${updatedPlayer.energy}, alloy: ${updatedPlayer.alloy}, science: ${updatedPlayer.science} (new total: ${updatedPlayer[resourceType]})`
       );
       this.send(client.ws, { type: "playerData", player: updatedPlayer });
     }
@@ -3491,14 +3469,14 @@ export class ConstellationWebSocketServer {
   private handleDayElapsed(galaxyId: string, currentTime: number, daysElapsed: number): void {
     // Process all yields for this galaxy
     // Process mining yields based on current time
-    this.db.processMiningYields(currentTime);
+    this.db.processMiningYields(galaxyId, currentTime);
 
     // Process megastructure yields based on current time
     // Note: Dyson Swarms and Helium-3 extractors provide instant energy (not processed here)
-    this.db.processMegastructureYields(currentTime);
+    this.db.processMegastructureYields(galaxyId, currentTime);
 
     // Process colony yields based on current time (population growth, resource generation)
-    const { updatedColonies, abandonedColonies, starvingColonies } = this.db.processColonyYields(currentTime);
+    const { updatedColonies, abandonedColonies, starvingColonies } = this.db.processColonyYields(galaxyId, currentTime);
 
     // Process population migration between colonies
     const migratedColonies = this.db.processPopulationMigration(currentTime);
@@ -3565,13 +3543,82 @@ export class ConstellationWebSocketServer {
           });
         }
       }
+
+      // Check if the player has any colonies left
+      const remainingColonies = this.db.getColoniesByPlayerId(abandoned.playerId);
+      if (remainingColonies.length === 0) {
+        const victim = this.db.getPlayerById(abandoned.playerId);
+        const victimName = victim ? victim.name : "An unknown civilization";
+
+        const victimConnection = Array.from(this.clients.values()).find(
+          (c) => c.playerId === abandoned.playerId
+        );
+
+        if (victimConnection) {
+          this.send(victimConnection.ws, {
+            type: "gameOver",
+            reason:
+              "CRITICAL ALERT: Your last colony has been abandoned. Your civilization has been destroyed!",
+          });
+        }
+
+        // Remove the victim from the game
+        this.db.deletePlayer(abandoned.playerId);
+
+        // Notify all other players in the galaxy
+        for (const otherClient of this.clients.values()) {
+          if (
+            otherClient.galaxyId === galaxyId &&
+            otherClient.playerId !== abandoned.playerId
+          ) {
+            this.send(otherClient.ws, {
+              type: "error",
+              message: `GALACTIC NEWS: The civilization of ${victimName} has been destroyed!`,
+            });
+          }
+        }
+      } else {
+        // If they have colonies left, check if their capital was abandoned
+        const victim = this.db.getPlayerById(abandoned.playerId);
+        if (victim && victim.homePlanetId === abandoned.planetId) {
+          // Find new capital (largest colony by population)
+          const newCapital = remainingColonies.reduce((prev, current) =>
+            prev.population > current.population ? prev : current
+          );
+
+          this.db.updatePlayerCapital(
+            abandoned.playerId,
+            newCapital.systemId,
+            newCapital.planetId
+          );
+
+          // Notify owner
+          const victimConnection = Array.from(this.clients.values()).find(
+            (c) => c.playerId === abandoned.playerId
+          );
+          if (victimConnection) {
+            this.send(victimConnection.ws, {
+              type: "error",
+              message: `CRITICAL ALERT: Your capital on ${abandoned.planetName} has been abandoned! Your government has relocated to ${newCapital.planetName}.`,
+            });
+            // Send updated player data
+            const updatedVictim = this.db.getPlayerById(abandoned.playerId);
+            if (updatedVictim) {
+              this.send(victimConnection.ws, {
+                type: "playerData",
+                player: updatedVictim,
+              });
+            }
+          }
+        }
+      }
     }
 
     // Process defense platform maintenance costs
-    this.db.processDefenseMaintenance(currentTime);
+    this.db.processDefenseMaintenance(galaxyId, currentTime);
 
     // Process technology research (consumes science proportionally)
-    const completedResearch = this.db.processTechnologyResearch(currentTime);
+    const completedResearch = this.db.processTechnologyResearch(galaxyId, currentTime);
 
     // Notify players of completed, resumed, and paused research
     for (const completion of completedResearch) {
@@ -3923,7 +3970,15 @@ export class ConstellationWebSocketServer {
 
     const message = {
       type: "galaxyPlayers" as const,
-      metPlayers: metPlayers.map((p) => ({ id: p.id, name: p.name })),
+      metPlayers: metPlayers.map((p) => {
+        const species = p.speciesId ? this.db.getSpeciesById(p.speciesId) : null;
+        return {
+          id: p.id,
+          name: p.name,
+          speciesId: p.speciesId || "",
+          speciesName: species ? species.name : "Unknown",
+        };
+      }),
       totalPlayers: allPlayers.length,
     };
     console.log(`[DEBUG] Sending galaxyPlayers message to ${player.name}:`, message);
@@ -4378,7 +4433,7 @@ export class ConstellationWebSocketServer {
     const updatedColony = {
       ...existingColony,
       playerId: player.id,
-      speciesId: player.speciesId,
+      // speciesId remains the same (the original inhabitants)
       population: survivingPopulation,
       sciencePerDay: yields.sciencePerDay,
       alloyPerDay: yields.alloyPerDay,
@@ -4387,63 +4442,128 @@ export class ConstellationWebSocketServer {
 
     this.db.updateColony(updatedColony);
 
-    // Send invasion message
+    // Invasion counts as a meeting between players
+    this.db.addMeeting(player.id, previousOwnerId);
+    this.broadcastGalaxyPlayersInfo(player.galaxyId);
+
+    // Send invasion message to the invader
     this.send(client.ws, {
       type: "colonyInvaded",
       colony: updatedColony,
       previousOwnerId,
     });
 
-    // Notify the previous owner if they are online
-    const previousOwnerConnection = Array.from(this.clients.values()).find(
-      (c) => c.playerId === previousOwnerId
-    );
-    if (previousOwnerConnection) {
-      this.send(previousOwnerConnection.ws, {
-        type: "colonyRemoved",
-        planetId: planet.id,
-      });
-      this.send(previousOwnerConnection.ws, {
-        type: "error",
-        message: `Your colony on ${planet.name} has been invaded by ${player.name}!`,
-      });
+    // Notify all players in the system about the change
+    for (const otherClient of this.clients.values()) {
+      if (
+        otherClient.galaxyId === player.galaxyId &&
+        otherClient.playerId &&
+        otherClient.currentSystemId === system.id
+      ) {
+        if (otherClient.playerId === previousOwnerId) {
+          // Notify the previous owner explicitly
+          this.send(otherClient.ws, {
+            type: "colonyRemoved",
+            planetId: planet.id,
+          });
+          this.send(otherClient.ws, {
+            type: "error",
+            message: `Your colony on ${planet.name} has been invaded by ${player.name}!`,
+          });
+        }
 
-      // Update resource flow for the victim
-      this.sendResourceFlowUpdate(previousOwnerConnection);
+        // Refresh system data for everyone in the system (including invader and victim)
+        const updatedSystem = this.db.getStarSystem(system.id);
+        if (updatedSystem) {
+          updatedSystem.colonies = this.db.getColoniesBySystemId(system.id);
+          this.sendSystemData(otherClient, updatedSystem);
+        }
+      }
+    }
 
-      // Check if the victim has any colonies left
-      const remainingColonies = this.db.getColoniesByPlayerId(previousOwnerId);
-      if (remainingColonies.length === 0) {
-        // Civilization destroyed!
-        const victim = this.db.getPlayerById(previousOwnerId);
-        const victimName = victim ? victim.name : "An unknown civilization";
+    // Check if the victim has any colonies left
+    const remainingColonies = this.db.getColoniesByPlayerId(previousOwnerId);
+    if (remainingColonies.length === 0) {
+      // Civilization destroyed!
+      const victim = this.db.getPlayerById(previousOwnerId);
+      const victimName = victim ? victim.name : "An unknown civilization";
 
+      const previousOwnerConnection = Array.from(this.clients.values()).find(
+        (c) => c.playerId === previousOwnerId
+      );
+
+      if (previousOwnerConnection) {
         // Notify the victim
         this.send(previousOwnerConnection.ws, {
-          type: "error",
-          message: "CRITICAL ALERT: Your last colony has been lost. Your civilization has been destroyed!",
+          type: "gameOver",
+          reason:
+            "CRITICAL ALERT: Your last colony has been lost. Your civilization has been destroyed!",
         });
+      }
 
-        // Notify all other players
-        for (const otherClient of this.clients.values()) {
-          if (otherClient.playerId !== previousOwnerId) {
-            this.send(otherClient.ws, {
-              type: "error",
-              message: `GALACTIC NEWS: The civilization of ${victimName} has been destroyed!`,
+      // Remove the victim from the game
+      this.db.deletePlayer(previousOwnerId);
+
+      // Notify all other players in the galaxy
+      for (const otherClient of this.clients.values()) {
+        if (
+          otherClient.galaxyId === player.galaxyId &&
+          otherClient.playerId !== previousOwnerId
+        ) {
+          this.send(otherClient.ws, {
+            type: "error",
+            message: `GALACTIC NEWS: The civilization of ${victimName} has been destroyed!`,
+          });
+        }
+      }
+    } else {
+      // If they have colonies left, check if we captured their capital
+      const victim = this.db.getPlayerById(previousOwnerId);
+      if (victim && victim.homePlanetId === planet.id) {
+        // Find new capital (largest colony by population)
+        const newCapital = remainingColonies.reduce((prev, current) =>
+          prev.population > current.population ? prev : current
+        );
+
+        this.db.updatePlayerCapital(
+          previousOwnerId,
+          newCapital.systemId,
+          newCapital.planetId
+        );
+
+        // Notify victim
+        const victimConnection = Array.from(this.clients.values()).find(
+          (c) => c.playerId === previousOwnerId
+        );
+        if (victimConnection) {
+          this.send(victimConnection.ws, {
+            type: "error",
+            message: `CRITICAL ALERT: Your capital on ${planet.name} has been lost! Your government has relocated to ${newCapital.planetName}.`,
+          });
+          // Send updated player data
+          const updatedVictim = this.db.getPlayerById(previousOwnerId);
+          if (updatedVictim) {
+            this.send(victimConnection.ws, {
+              type: "playerData",
+              player: updatedVictim,
             });
           }
         }
       }
     }
 
-    // Reload system data for the invader
-    const updatedSystem = this.db.getStarSystem(system.id);
-    if (updatedSystem) {
-      updatedSystem.colonies = this.db.getColoniesBySystemId(system.id);
-      this.sendSystemData(client, updatedSystem);
+    // Update resource flow for the invader
+    this.sendResourceFlowUpdate(client);
+
+    // Update resource flow for the victim if online
+    const victimClient = Array.from(this.clients.values()).find(
+      (c) => c.playerId === previousOwnerId
+    );
+    if (victimClient) {
+      this.sendResourceFlowUpdate(victimClient);
     }
 
-    // Send updated player data
+    // Send updated player data to the invader
     const updatedPlayer = this.db.getPlayerById(player.id);
     if (updatedPlayer) {
       this.send(client.ws, {
@@ -4451,9 +4571,6 @@ export class ConstellationWebSocketServer {
         player: updatedPlayer,
       });
     }
-
-    // Update resource flow
-    this.sendResourceFlowUpdate(client);
   }
 
   private handleRemoveColony(client: ClientConnection, planetId: string): void {
@@ -4491,6 +4608,53 @@ export class ConstellationWebSocketServer {
       planetId,
     });
 
+    // Check if any colonies left
+    const remainingColonies = this.db.getColoniesByPlayerId(player.id);
+    if (remainingColonies.length === 0) {
+      this.send(client.ws, {
+        type: "gameOver",
+        reason:
+          "CRITICAL ALERT: Your last colony has been removed. Your civilization has been destroyed!",
+      });
+
+      // Remove the player from the game
+      this.db.deletePlayer(player.id);
+
+      // Notify all other players in the galaxy
+      const galaxyId = player.galaxyId;
+      for (const otherClient of this.clients.values()) {
+        if (
+          otherClient.galaxyId === galaxyId &&
+          otherClient.playerId !== player.id
+        ) {
+          this.send(otherClient.ws, {
+            type: "error",
+            message: `GALACTIC NEWS: The civilization of ${player.name} has been destroyed!`,
+          });
+        }
+      }
+      return;
+    }
+
+    // Check if the removed colony was the capital
+    if (player.homePlanetId === planetId) {
+      // Find new capital (largest colony by population)
+      const newCapital = remainingColonies.reduce((prev, current) =>
+        prev.population > current.population ? prev : current
+      );
+
+      this.db.updatePlayerCapital(
+        player.id,
+        newCapital.systemId,
+        newCapital.planetId
+      );
+
+      this.send(client.ws, {
+        type: "error",
+        message: `Your capital on this planet was removed. Your government has relocated to ${newCapital.planetName}.`,
+      });
+    }
+
     // Send updated player data (resources may have changed)
     const updatedPlayer = this.db.getPlayerById(player.id);
     if (updatedPlayer) {
@@ -4499,6 +4663,9 @@ export class ConstellationWebSocketServer {
         player: updatedPlayer,
       });
     }
+
+    // Update resource flow
+    this.sendResourceFlowUpdate(client);
   }
 
   private handleUpdateColonySpecialization(
@@ -5504,8 +5671,8 @@ export class ConstellationWebSocketServer {
     }
 
     // Check resource costs (same as GAME_COSTS.TUNNEL_OVERTAKE)
-    const ENERGY_COST = 3;
-    const SCIENCE_COST = 10;
+    const ENERGY_COST = GAME_COSTS.TUNNEL_OVERTAKE.energy;
+    const SCIENCE_COST = GAME_COSTS.TUNNEL_OVERTAKE.science;
 
     if (player.energy < ENERGY_COST) {
       this.sendError(

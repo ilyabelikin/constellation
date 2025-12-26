@@ -289,6 +289,7 @@ export class NetworkClient {
         scienceInvested: number
       ) => void)
     | null = null;
+  public onGameOver: ((reason: string) => void) | null = null;
   public onDisconnected: (() => void) | null = null;
   public onReconnected: (() => void) | null = null;
 
@@ -733,6 +734,11 @@ export class NetworkClient {
               message.progressDays,
               message.scienceInvested
             );
+          }
+          break;
+        case "gameOver":
+          if (this.onGameOver) {
+            this.onGameOver(message.reason);
           }
           break;
       }

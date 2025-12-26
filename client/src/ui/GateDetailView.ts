@@ -53,6 +53,7 @@ export class GateDetailView {
   public onDebugConnectClick?: (gateId: string) => void;
   public onPowerOffTunnel?: (tunnelId: string) => void;
   public onPowerOnTunnel?: (tunnelId: string) => void;
+  public onTunnelOvertake?: (tunnelId: string) => void;
   public onOverchargeTunnel?: (tunnelId: string) => void;
 
   constructor() {
@@ -356,14 +357,36 @@ export class GateDetailView {
               title="${overchargeTooltip}"
               ${overchargeDisabled ? "disabled" : ""}>💥 Overcharge</button>`;
           } else {
-            this.tunnelPowerElement.textContent = `⚡ Powered by ${tunnelInfo.tunnelPoweredByPlayerName}`;
+            // Check if player can afford overtake
+            const ENERGY_COST = GAME_COSTS.TUNNEL_OVERTAKE.energy;
+            const SCIENCE_COST = GAME_COSTS.TUNNEL_OVERTAKE.science;
+            const canAffordOvertake =
+              player &&
+              player.energy >= ENERGY_COST &&
+              player.science >= SCIENCE_COST;
+            const overtakeTooltip = !canAffordOvertake
+              ? `Requires ${ENERGY_COST} Energy + ${SCIENCE_COST} Science`
+              : `Take over tunnel power (${ENERGY_COST} Energy + ${SCIENCE_COST} Science)`;
+
+            this.tunnelPowerElement.innerHTML = `⚡ Powered by ${tunnelInfo.tunnelPoweredByPlayerName}
+            <button id="overtake-tunnel-btn" 
+              style="margin-left: 8px; padding: 2px 6px; font-size: 0.75em; cursor: ${
+                canAffordOvertake ? "pointer" : "not-allowed"
+              }; background: ${
+              canAffordOvertake ? "#fbbf24" : "#6b7280"
+            }; color: #000; border: none; border-radius: 3px; font-weight: bold; opacity: ${
+              canAffordOvertake ? "1" : "0.5"
+            };"
+              title="${overtakeTooltip}"
+              ${canAffordOvertake ? "" : "disabled"}>🏳️ Overtake</button>`;
           }
           // Always use neutral white/light color for tunnel power text
           this.tunnelPowerElement.style.color = "#e5e7eb";
 
-          // Add event listeners if it's the player's tunnel
-          if (tunnelInfo.hasTunnelPower) {
-            setTimeout(() => {
+          // Add event listeners for tunnel buttons
+          setTimeout(() => {
+            // Power Off button (only if player has tunnel power)
+            if (tunnelInfo.hasTunnelPower) {
               const powerOffBtn = document.getElementById(
                 "power-off-tunnel-btn"
               );
@@ -404,20 +427,12 @@ export class GateDetailView {
                       setTimeout(() => {
                         (newPowerOffBtn as HTMLButtonElement).disabled = false;
                       }, 1000);
-                    } else {
-                      console.error(
-                        "[GateDetailView] Power Off button clicked but blocked:",
-                        {
-                          hasCallback: !!this.onPowerOffTunnel,
-                          isDisabled: (newPowerOffBtn as HTMLButtonElement)
-                            .disabled,
-                        }
-                      );
                     }
                   }
                 );
               }
 
+              // Overcharge button
               const overchargeBtn = document.getElementById(
                 "overcharge-tunnel-btn"
               );
@@ -459,8 +474,50 @@ export class GateDetailView {
                   }
                 );
               }
-            }, 0);
-          }
+            } else {
+              // Overtake tunnel button (only if someone else has tunnel power)
+              const overtakeBtn = document.getElementById(
+                "overtake-tunnel-btn"
+              );
+              if (
+                overtakeBtn &&
+                tunnelInfo.tunnelId &&
+                !overtakeBtn.hasAttribute("disabled")
+              ) {
+                const tunnelId = tunnelInfo.tunnelId;
+                // Remove any existing listeners by cloning and replacing
+                const newOvertakeBtn = overtakeBtn.cloneNode(true);
+                overtakeBtn.parentNode?.replaceChild(
+                  newOvertakeBtn,
+                  overtakeBtn
+                );
+
+                (newOvertakeBtn as HTMLButtonElement).addEventListener(
+                  "click",
+                  (event) => {
+                    event.stopPropagation(); // Prevent event bubbling
+                    event.preventDefault(); // Prevent any default behavior
+                    if (
+                      this.onTunnelOvertake &&
+                      !(newOvertakeBtn as HTMLButtonElement).disabled
+                    ) {
+                      console.log(
+                        "[GateDetailView] Tunnel Overtake button clicked for tunnel:",
+                        tunnelId
+                      );
+                      // Temporarily disable to prevent double-clicks
+                      (newOvertakeBtn as HTMLButtonElement).disabled = true;
+                      this.onTunnelOvertake(tunnelId);
+                      // Re-enable after a short delay
+                      setTimeout(() => {
+                        (newOvertakeBtn as HTMLButtonElement).disabled = false;
+                      }, 2000);
+                    }
+                  }
+                );
+              }
+            }
+          }, 0);
         } else {
           // Unpowered - check if tunnel was previously opened or never opened
           const bothGatesHaveOwners =
