@@ -33,6 +33,7 @@ export class BodyDetailView {
   private lifeElement: HTMLElement | null;
   private habitabilityElement: HTMLElement | null;
   private speciesElement: HTMLElement | null;
+  private controllerElement: HTMLElement | null;
   private compositionElement: HTMLElement | null;
   private shapeElement: HTMLElement | null;
   private debugSeedContainer: HTMLElement | null = null;
@@ -77,11 +78,13 @@ export class BodyDetailView {
   private colonyScience: HTMLElement | null;
   private colonyAlloy: HTMLElement | null;
   private colonizeButton: HTMLButtonElement | null;
+  private invadeButton: HTMLButtonElement | null;
   private removeColonyButton: HTMLButtonElement | null;
   private specializationButtons: NodeListOf<HTMLButtonElement> | null;
   public onEstablishColony:
     | ((planetId: string, specialization: string) => void)
     | null = null;
+  public onInvadeColony: ((planetId: string) => void) | null = null;
   public onRemoveColony: ((planetId: string) => void) | null = null;
   public onUpdateColonySpecialization:
     | ((colonyId: string, specialization: string) => void)
@@ -93,7 +96,10 @@ export class BodyDetailView {
 
   // Species data access
   private speciesGetter: ((speciesId: string) => any) | null = null;
+  private playerGetter: ((playerId: string) => any) | null = null;
   private networkClient: any = null;
+  private currentPlayerId: string | null = null;
+  private isConnectedToCapital: boolean = true;
 
   constructor() {
     this.panel = document.getElementById("body-details-panel")!;
@@ -108,6 +114,7 @@ export class BodyDetailView {
       "body-detail-habitability"
     );
     this.speciesElement = document.getElementById("body-detail-species");
+    this.controllerElement = document.getElementById("body-detail-controller");
     this.compositionElement = document.getElementById(
       "body-detail-composition"
     );
@@ -188,6 +195,9 @@ export class BodyDetailView {
     this.colonizeButton = document.getElementById(
       "body-colonize-button"
     ) as HTMLButtonElement;
+    this.invadeButton = document.getElementById(
+      "body-invade-button"
+    ) as HTMLButtonElement;
     this.removeColonyButton = document.getElementById(
       "body-remove-colony-button"
     ) as HTMLButtonElement;
@@ -201,6 +211,15 @@ export class BodyDetailView {
         if (this.currentBody && this.onEstablishColony) {
           // Default to balanced specialization
           this.onEstablishColony(this.currentBody.id, "balanced");
+        }
+      });
+    }
+
+    // Bind invade button click
+    if (this.invadeButton) {
+      this.invadeButton.addEventListener("click", () => {
+        if (this.currentBody && this.onInvadeColony) {
+          this.onInvadeColony(this.currentBody.id);
         }
       });
     }
@@ -253,6 +272,20 @@ export class BodyDetailView {
   }
 
   /**
+   * Set the current player ID for ownership checks
+   */
+  setCurrentPlayerId(playerId: string | null): void {
+    this.currentPlayerId = playerId;
+  }
+
+  /**
+   * Set whether the current system is connected to the player's capital
+   */
+  setConnectedToCapital(isConnected: boolean): void {
+    this.isConnectedToCapital = isConnected;
+  }
+
+  /**
    * Set callback for when seed changes
    */
   setOnSeedChange(callback: (seed: number) => void): void {
@@ -268,6 +301,13 @@ export class BodyDetailView {
   ): void {
     this.speciesGetter = getter;
     this.networkClient = networkClient;
+  }
+
+  /**
+   * Set the player getter function for looking up player names
+   */
+  setPlayerGetter(getter: (playerId: string) => any): void {
+    this.playerGetter = getter;
   }
 
   /**
@@ -491,14 +531,11 @@ export class BodyDetailView {
         if (species) {
           // Species data is cached, display it
           this.speciesElement.style.display = "block";
-          const speciesType = colony ? "Colony" : "Native Species";
-          this.speciesElement.textContent = `${speciesType}: ${species.name}`;
+          this.speciesElement.textContent = `Population: ${species.name}`;
         } else {
           // Species not cached, request it and show loading
           this.speciesElement.style.display = "block";
-          this.speciesElement.textContent = colony
-            ? "Colony: Loading..."
-            : "Native Species: Loading...";
+          this.speciesElement.textContent = "Population: Loading...";
 
           // Request species info from server
           if (this.networkClient) {
@@ -509,6 +546,30 @@ export class BodyDetailView {
         // No species on this planet
         if (this.speciesElement) {
           this.speciesElement.style.display = "none";
+        }
+      }
+
+      // Show controller/government information
+      if (colony && this.controllerElement) {
+        const controllerId = colony.playerId;
+        const controller = this.playerGetter
+          ? this.playerGetter(controllerId)
+          : null;
+
+        this.controllerElement.style.display = "block";
+        if (controller) {
+          this.controllerElement.textContent = `Government: ${controller.name}`;
+        } else if (controllerId === this.currentPlayerId) {
+          this.controllerElement.textContent = `Government: You`;
+        } else {
+          this.controllerElement.textContent = `Government: Unknown`;
+        }
+      } else if (nativeCiv && this.controllerElement) {
+        this.controllerElement.style.display = "block";
+        this.controllerElement.textContent = `Government: Native`;
+      } else {
+        if (this.controllerElement) {
+          this.controllerElement.style.display = "none";
         }
       }
     } else {
@@ -743,6 +804,33 @@ export class BodyDetailView {
           if (this.colonizeButton) {
             this.colonizeButton.style.display = "none";
           }
+
+          // Show/hide invasion button
+          if (this.invadeButton) {
+            if (
+              existingColony.playerId !== this.currentPlayerId &&
+              this.currentPlayerId !== null
+            ) {
+              this.invadeButton.style.display = "block";
+              
+              if (this.isConnectedToCapital) {
+                this.invadeButton.textContent = `⚔️ Invade Colony ${formatCost(
+                  GAME_COSTS.COLONY_INVASION
+                )}`;
+                this.invadeButton.disabled = false;
+                this.invadeButton.style.opacity = "1";
+                this.invadeButton.title = "";
+              } else {
+                this.invadeButton.textContent = `⚔️ Invasion Blocked`;
+                this.invadeButton.disabled = true;
+                this.invadeButton.style.opacity = "0.5";
+                this.invadeButton.title = "You must have full control of all gates and tunnels from your capital to this system to invade.";
+              }
+            } else {
+              this.invadeButton.style.display = "none";
+            }
+          }
+
           // Show remove colony button in debug mode
           if (this.removeColonyButton && this.isDebugMode) {
             this.removeColonyButton.style.display = "block";
@@ -758,6 +846,10 @@ export class BodyDetailView {
             this.colonizeButton.textContent = `🏙 Establish Colony ${formatCost(
               GAME_COSTS.COLONY_ESTABLISHMENT
             )}`;
+          }
+          // Hide invade button when no colony
+          if (this.invadeButton) {
+            this.invadeButton.style.display = "none";
           }
           // Hide remove colony button when no colony
           if (this.removeColonyButton) {

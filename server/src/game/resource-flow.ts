@@ -160,6 +160,62 @@ export function findGatePath(
 }
 
 /**
+ * Checks if a player has full control of a path from one system to another.
+ * "Full control" means:
+ * 1. A path of gates exists.
+ * 2. Every tunnel in the path is powered by the player.
+ * 3. Every gate in the path is owned by the player.
+ */
+export function isPathControlled(
+  db: DatabaseQueries,
+  playerId: string,
+  fromSystemId: string,
+  toSystemId: string
+): boolean {
+  if (fromSystemId === toSystemId) {
+    return true; // Already at destination
+  }
+
+  // BFS to find a fully controlled shortest path
+  const queue: Array<{ systemId: string }> = [{ systemId: fromSystemId }];
+  const visited = new Set<string>([fromSystemId]);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    // Get all gates in current system
+    const gates = db.getGatesBySystem(current.systemId);
+
+    for (const gate of gates) {
+      // Gate must be owned by player
+      const ownerId = db.getGateOwner(gate.id);
+      if (ownerId !== playerId) continue;
+
+      // Tunnel must be powered by player
+      if (!gate.tunnelId) continue;
+      const tunnel = db.getTunnelById(gate.tunnelId);
+      if (!tunnel || tunnel.poweredByPlayerId !== playerId) continue;
+
+      const destinationSystemId = gate.destinationSystemId;
+      if (!destinationSystemId) continue;
+
+      // Check if we reached the destination
+      if (destinationSystemId === toSystemId) {
+        return true;
+      }
+
+      // Continue BFS
+      if (!visited.has(destinationSystemId)) {
+        visited.add(destinationSystemId);
+        queue.push({ systemId: destinationSystemId });
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
  * Calculates resource flow through gates and tunnels for a player
  *
  * NEW TUNNEL CONTROL LOGIC:

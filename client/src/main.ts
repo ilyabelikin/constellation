@@ -489,11 +489,18 @@ class ConstellationGame {
       }
     };
 
-    this.network.onSystemData = (system, gateOwnership, tunnelOwnership) => {
+    this.network.onSystemData = (
+      system,
+      gateOwnership,
+      tunnelOwnership,
+      isConnectedToCapital
+    ) => {
       console.log(
         "[SystemData] System data received at timestamp:",
         Date.now(),
-        system
+        system,
+        "connected to capital:",
+        isConnectedToCapital
       );
       const isSystemRefresh = !!(this.system && this.system.id === system.id);
 
@@ -503,6 +510,9 @@ class ConstellationGame {
         : null;
 
       this.system = system;
+
+      // Update HUD with connectivity info
+      this.hud.setConnectedToCapital(!!isConnectedToCapital);
 
       // Update gate ownership information if provided
       console.log("[SystemData] Gate ownership data:", gateOwnership);
@@ -655,12 +665,21 @@ class ConstellationGame {
       exitGateId,
       gateOwnership,
       tunnelOwnership,
-      isExitGateBlocked
+      isExitGateBlocked,
+      isConnectedToCapital
     ) => {
-      console.log("Gate travel to system:", destinationSystem.id);
+      console.log(
+        "Gate travel to system:",
+        destinationSystem.id,
+        "connected to capital:",
+        isConnectedToCapital
+      );
       if (isExitGateBlocked) {
         console.log("⚠️ Exit gate is blocked by enemy defenses!");
       }
+
+      // Update HUD with connectivity info
+      this.hud.setConnectedToCapital(!!isConnectedToCapital);
 
       const oldExploredGateIds = this.player?.exploredGateIds || [];
       const oldExploredGateIdsSet = new Set(oldExploredGateIds);
@@ -910,6 +929,37 @@ class ConstellationGame {
       }, 0);
     };
 
+    this.network.onColonyInvaded = (colony, previousOwnerId) => {
+      // Trigger colony invasion animation
+      this.scene.triggerColonyInvasion(colony.planetId);
+
+      // Show notification
+      this.hud.showNotification(`Successfully invaded colony on ${colony.planetName}!`, 5000);
+
+      // Update the colony in the current system state
+      if (this.system && this.system.colonies) {
+        const colonyIndex = this.system.colonies.findIndex(
+          (c) => c.planetId === colony.planetId
+        );
+        if (colonyIndex !== -1) {
+          this.system.colonies[colonyIndex] = colony;
+        } else {
+          this.system.colonies.push(colony);
+        }
+      }
+
+      // Update the HUD's system reference immediately to update detail views
+      if (this.system) {
+        this.hud.setSystem(this.system, true);
+      }
+
+      setTimeout(() => {
+        if (this.hud.onSelectObject) {
+          this.hud.onSelectObject(colony.planetId);
+        }
+      }, 0);
+    };
+
     this.network.onColonyUpdated = (colony) => {
       // Update the colony in the current system state
       if (this.system && this.system.colonies) {
@@ -934,11 +984,26 @@ class ConstellationGame {
     };
 
     this.network.onColonyRemoved = (planetId) => {
+      // Find colony name before removing it for notification
+      const colony = this.system?.colonies?.find(c => c.planetId === planetId);
+      const colonyName = colony ? colony.planetName : "a planet";
+
       // Remove the colony from the current system state
       if (this.system && this.system.colonies) {
         this.system.colonies = this.system.colonies.filter(
           (c) => c.planetId !== planetId
         );
+      }
+
+      // Update HUD and scene if needed
+      if (this.system) {
+        this.hud.setSystem(this.system, true);
+      }
+
+      // Refresh object details if this planet was selected
+      const selectedId = this.scene.getSelectedObjectId();
+      if (selectedId === planetId) {
+        this.hud.updateObjectDetails(planetId);
       }
     };
 
@@ -1294,6 +1359,10 @@ class ConstellationGame {
 
     this.hud.onEstablishColony = (planetId, specialization) => {
       this.network.establishColony(planetId, specialization);
+    };
+
+    this.hud.onInvadeColony = (planetId) => {
+      this.network.invadeColony(planetId);
     };
 
     this.hud.onRemoveColony = (planetId) => {

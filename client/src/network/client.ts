@@ -58,7 +58,8 @@ export class NetworkClient {
             | "aggressive";
           otherGateDefenseCount?: number;
           tunnelPoweredBy?: string | null;
-        }>
+        }>,
+        isConnectedToCapital?: boolean
       ) => void)
     | null = null;
   public onStateUpdate: ((state: SystemState) => void) | null = null;
@@ -220,6 +221,9 @@ export class NetworkClient {
       ) => void)
     | null = null;
   public onColonyEstablished: ((colony: any) => void) | null = null;
+  public onColonyInvaded:
+    | ((colony: any, previousOwnerId: string) => void)
+    | null = null;
   public onColonyUpdated: ((colony: any) => void) | null = null;
   public onColonyRemoved: ((planetId: string) => void) | null = null;
   public onColonyAbandoned: ((planetId: string, planetName: string) => void) | null = null;
@@ -386,7 +390,8 @@ export class NetworkClient {
             this.onSystemData(
               message.system,
               message.gateOwnership,
-              message.tunnelOwnership
+              message.tunnelOwnership,
+              message.isConnectedToCapital
             );
           }
           break;
@@ -606,6 +611,11 @@ export class NetworkClient {
         case "colonyEstablished":
           if (this.onColonyEstablished) {
             this.onColonyEstablished(message.colony);
+          }
+          break;
+        case "colonyInvaded":
+          if (this.onColonyInvaded) {
+            this.onColonyInvaded(message.colony, message.previousOwnerId);
           }
           break;
         case "colonyUpdated":
@@ -855,6 +865,10 @@ export class NetworkClient {
     specialization: "balanced" | "research" | "industrial"
   ): void {
     this.send({ type: "establishColony", planetId, specialization });
+  }
+
+  invadeColony(planetId: string): void {
+    this.send({ type: "invadeColony", planetId });
   }
 
   removeColony(planetId: string): void {

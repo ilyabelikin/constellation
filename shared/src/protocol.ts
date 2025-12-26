@@ -89,6 +89,10 @@ export type ClientMessage =
       specialization: "balanced" | "research" | "industrial";
     }
   | {
+      type: "invadeColony";
+      planetId: string;
+    }
+  | {
       type: "removeColony";
       planetId: string;
     }
@@ -162,6 +166,7 @@ export type ServerMessage =
   | {
       type: "systemData";
       system: StarSystem;
+      isConnectedToCapital?: boolean;
       gateOwnership?: Array<{
         gateId: string;
         ownerId: string;
@@ -245,6 +250,7 @@ export type ServerMessage =
       exploredGateIds: string[];
       exitGateId: string;
       isExitGateBlocked?: boolean;
+      isConnectedToCapital?: boolean;
       gateOwnership?: Array<{
         gateId: string;
         ownerId: string;
@@ -387,6 +393,11 @@ export type ServerMessage =
   | {
       type: "colonyEstablished";
       colony: Colony;
+    }
+  | {
+      type: "colonyInvaded";
+      colony: Colony;
+      previousOwnerId: string;
     }
   | {
       type: "colonyUpdated";

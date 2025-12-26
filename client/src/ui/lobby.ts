@@ -21,13 +21,15 @@ export class LobbyManager {
   private newGameButton: HTMLElement;
   private resetButton: HTMLElement;
   private settingsButton: HTMLElement;
+  private changelogButton: HTMLElement;
+  private creditsButton: HTMLElement;
   private gameStatus: HTMLElement;
   private errorMessage: HTMLElement;
   private changelogContent: HTMLElement;
+  private creditsContent: HTMLElement;
+  private settingsContent: HTMLElement;
   
-  // Settings modal elements
-  private settingsModal: HTMLElement;
-  private settingsCloseButton: HTMLElement;
+  // Settings elements
   private settingsInvertX: HTMLInputElement;
   private settingsInvertY: HTMLInputElement;
 
@@ -88,13 +90,15 @@ export class LobbyManager {
     this.newGameButton = document.getElementById("new-game")!;
     this.resetButton = document.getElementById("reset-galaxy")!;
     this.settingsButton = document.getElementById("settings-button")!;
+    this.changelogButton = document.getElementById("changelog-button")!;
+    this.creditsButton = document.getElementById("credits-button")!;
     this.gameStatus = document.getElementById("game-status")!;
     this.errorMessage = document.getElementById("error-message")!;
     this.changelogContent = document.getElementById("changelog-content")!;
+    this.creditsContent = document.getElementById("credits-content")!;
+    this.settingsContent = document.getElementById("settings-content")!;
     
-    // Settings modal elements
-    this.settingsModal = document.getElementById("settings-modal")!;
-    this.settingsCloseButton = document.getElementById("settings-close-button")!;
+    // Settings elements
     this.settingsInvertX = document.getElementById("settings-invert-x") as HTMLInputElement;
     this.settingsInvertY = document.getElementById("settings-invert-y") as HTMLInputElement;
 
@@ -176,16 +180,20 @@ export class LobbyManager {
       this.showSettings();
     });
 
-    this.settingsCloseButton.addEventListener("click", () => {
-      this.hideSettings();
-    });
-
     this.settingsInvertX.addEventListener("change", () => {
       this.saveSettings();
     });
 
     this.settingsInvertY.addEventListener("change", () => {
       this.saveSettings();
+    });
+
+    this.changelogButton.addEventListener("click", () => {
+      this.showChangelog();
+    });
+
+    this.creditsButton.addEventListener("click", () => {
+      this.showCredits();
     });
 
     // Load settings from localStorage
@@ -254,6 +262,28 @@ export class LobbyManager {
     this.lobbyMainView.style.display = "flex";
     this.galaxySelectionView.style.display = "none";
     this.speciesSelectionView.style.display = "none";
+    // Show changelog by default when returning to lobby
+    this.showChangelog();
+  }
+
+  private showCredits(): void {
+    this.changelogContent.classList.add("hidden");
+    this.creditsContent.classList.remove("hidden");
+    this.settingsContent.classList.add("hidden");
+    
+    this.creditsButton.classList.add("active");
+    this.changelogButton.classList.remove("active");
+    this.settingsButton.classList.remove("active");
+  }
+
+  private showChangelog(): void {
+    this.changelogContent.classList.remove("hidden");
+    this.creditsContent.classList.add("hidden");
+    this.settingsContent.classList.add("hidden");
+    
+    this.changelogButton.classList.add("active");
+    this.creditsButton.classList.remove("active");
+    this.settingsButton.classList.remove("active");
   }
 
   private showGalaxySelection(): void {
@@ -591,13 +621,13 @@ export class LobbyManager {
   }
 
   private showSettings(): void {
-    this.settingsModal.classList.remove("hidden");
-    this.settingsModal.style.display = "flex";
-  }
-
-  private hideSettings(): void {
-    this.settingsModal.classList.add("hidden");
-    this.settingsModal.style.display = "none";
+    this.changelogContent.classList.add("hidden");
+    this.creditsContent.classList.add("hidden");
+    this.settingsContent.classList.remove("hidden");
+    
+    this.settingsButton.classList.add("active");
+    this.changelogButton.classList.remove("active");
+    this.creditsButton.classList.remove("active");
   }
 
   private getSettingsKey(): string {

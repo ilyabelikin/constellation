@@ -1,5 +1,10 @@
 # What's New in Constellation
 
+## Version 0.4.3 - Supremacy
+
+- **Invasions**: you may invade a planet if you have contoll of the tunnels leading to it and the resources for the attack.
+- **Game over**: the game is over now if you lost all your planets.
+
 ## Version 0.4.2 - Lights On
 
 - **Cities**: Improved cities on settled worlds to light up based on population dynamically.

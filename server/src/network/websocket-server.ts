@@ -33,7 +33,11 @@ import {
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
-import { calculatePlayerResourceFlow, findGatePath } from "../game/resource-flow.js";
+import {
+  calculatePlayerResourceFlow,
+  findGatePath,
+  isPathControlled,
+} from "../game/resource-flow.js";
 import {
   generateGalaxy,
   generateStarterSystem,
@@ -239,6 +243,9 @@ export class ConstellationWebSocketServer {
             message.specialization
           );
           break;
+        case "invadeColony":
+          this.handleInvadeColony(client, message.planetId);
+          break;
         case "removeColony":
           this.handleRemoveColony(client, message.planetId);
           break;
@@ -370,11 +377,7 @@ export class ConstellationWebSocketServer {
           player.id,
           system.id
         );
-        this.send(client.ws, {
-          type: "systemData",
-          system,
-          gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
-        });
+        this.sendSystemData(client, system, gateOwnership);
       }
 
       // Send ship data
@@ -545,11 +548,7 @@ export class ConstellationWebSocketServer {
           existingPlayer.id,
           system.id
         );
-        this.send(client.ws, {
-          type: "systemData",
-          system,
-          gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
-        });
+        this.sendSystemData(client, system, gateOwnership);
       }
       const ship = this.db.getShipByPlayerId(existingPlayer.id);
       if (ship) {
@@ -1098,11 +1097,7 @@ export class ConstellationWebSocketServer {
         player.id,
         systemWithOperations.id
       );
-      this.send(client.ws, {
-        type: "systemData",
-        system: systemWithOperations,
-        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
-      });
+      this.sendSystemData(client, systemWithOperations, gateOwnership);
     }
 
     // Broadcast updated galaxy players info to ALL players in this galaxy
@@ -1183,12 +1178,12 @@ export class ConstellationWebSocketServer {
     }
 
     // Send system data with gate and tunnel ownership information
-    this.send(client.ws, {
-      type: "systemData",
+    this.sendSystemData(
+      client,
       system,
-      gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
-      tunnelOwnership: tunnelOwnership.length > 0 ? tunnelOwnership : undefined,
-    });
+      gateOwnership,
+      tunnelOwnership
+    );
 
     // Send all gate defenses in this system
     for (const gate of gates) {
@@ -1755,6 +1750,14 @@ export class ConstellationWebSocketServer {
       }
     }
 
+    // Check if destination is connected to capital
+    const isConnectedToCapital = isPathControlled(
+      this.db,
+      player.id,
+      player.homeSystemId,
+      destinationSystem.id
+    );
+
     // Send travel response to client with ownership information
     this.send(client.ws, {
       type: "gateTravel",
@@ -1764,6 +1767,7 @@ export class ConstellationWebSocketServer {
       gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
       tunnelOwnership: tunnelOwnership.length > 0 ? tunnelOwnership : undefined,
       isExitGateBlocked, // New flag to indicate if exit gate is blocked
+      isConnectedToCapital,
     });
 
     // Send all gate defenses in the destination system (so client can render them)
@@ -2753,11 +2757,7 @@ export class ConstellationWebSocketServer {
         client.playerId,
         updatedSystem.id
       );
-      this.send(client.ws, {
-        type: "systemData",
-        system: updatedSystem,
-        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
-      });
+      this.sendSystemData(client, updatedSystem, gateOwnership);
 
       // Also broadcast updated system data to all other clients viewing this system
       for (const otherClient of this.clients.values()) {
@@ -2771,12 +2771,7 @@ export class ConstellationWebSocketServer {
                 updatedSystem.id
               )
             : [];
-          this.send(otherClient.ws, {
-            type: "systemData",
-            system: updatedSystem,
-            gateOwnership:
-              otherGateOwnership.length > 0 ? otherGateOwnership : undefined,
-          });
+          this.sendSystemData(otherClient, updatedSystem, otherGateOwnership);
         }
       }
     }
@@ -3960,6 +3955,33 @@ export class ConstellationWebSocketServer {
     this.send(ws, { type: "error", message });
   }
 
+  private sendSystemData(
+    client: ClientConnection,
+    system: StarSystem,
+    gateOwnership?: any[],
+    tunnelOwnership?: any[]
+  ): void {
+    if (!client.playerId) return;
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) return;
+
+    const isConnectedToCapital = isPathControlled(
+      this.db,
+      player.id,
+      player.homeSystemId,
+      system.id
+    );
+
+    this.send(client.ws, {
+      type: "systemData",
+      system,
+      isConnectedToCapital,
+      gateOwnership: gateOwnership?.length ? gateOwnership : undefined,
+      tunnelOwnership: tunnelOwnership?.length ? tunnelOwnership : undefined,
+    });
+  }
+
   private handleEstablishColony(
     client: ClientConnection,
     planetId: string,
@@ -4215,10 +4237,7 @@ export class ConstellationWebSocketServer {
     const updatedSystem = this.db.getStarSystem(system.id);
     if (updatedSystem) {
       updatedSystem.colonies = this.db.getColoniesBySystemId(system.id);
-      this.send(client.ws, {
-        type: "systemData",
-        system: updatedSystem,
-      });
+      this.sendSystemData(client, updatedSystem);
     }
 
     // Send updated player data
@@ -4231,6 +4250,209 @@ export class ConstellationWebSocketServer {
     }
 
     // Update resource flow for this player (colony affects flow)
+    this.sendResourceFlowUpdate(client);
+  }
+
+  private handleInvadeColony(
+    client: ClientConnection,
+    planetId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    // Check if player has a species
+    if (!player.speciesId) {
+      this.sendError(client.ws, "No species found for player");
+      return;
+    }
+
+    // Get the system the player is currently in
+    const system = this.db.getStarSystem(player.currentSystemId);
+    if (!system) {
+      this.sendError(client.ws, "Current system not found");
+      return;
+    }
+
+    // Find the planet in the system
+    const planet = system.planets.find((p) => p.id === planetId);
+    if (!planet) {
+      this.sendError(client.ws, "Planet not found in current system");
+      return;
+    }
+
+    // Check if planet is colonized by someone else
+    const existingColony = this.db.getColonyByPlanetId(planetId);
+    if (!existingColony) {
+      this.sendError(client.ws, "Planet is not colonized");
+      return;
+    }
+
+    if (existingColony.playerId === player.id) {
+      this.sendError(client.ws, "You already own this colony");
+      return;
+    }
+
+    // Check if player has control of tunnels from capital to this system
+    const isConnected = isPathControlled(
+      this.db,
+      player.id,
+      player.homeSystemId,
+      system.id
+    );
+
+    if (!isConnected) {
+      this.sendError(
+        client.ws,
+        "Cannot invade: You must have full control of all gates and tunnels from your capital to this system."
+      );
+      return;
+    }
+
+    // Check if player has enough resources to invade colony
+    const INVASION_COST = GAME_COSTS.COLONY_INVASION;
+
+    if (player.energy < INVASION_COST.energy) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to invade colony (requires ${INVASION_COST.energy} energy, have ${
+          Math.floor(player.energy * 100) / 100
+        })`
+      );
+      return;
+    }
+
+    if (player.alloy < INVASION_COST.alloy) {
+      this.sendError(
+        client.ws,
+        `Not enough alloy to invade colony (requires ${INVASION_COST.alloy} alloy, have ${
+          Math.floor(player.alloy * 100) / 100
+        })`
+      );
+      return;
+    }
+
+    if (player.science < INVASION_COST.science) {
+      this.sendError(
+        client.ws,
+        `Not enough science to invade colony (requires ${INVASION_COST.science} science, have ${
+          Math.floor(player.science * 100) / 100
+        })`
+      );
+      return;
+    }
+
+    // Deduct resources
+    this.db.updatePlayerResources(
+      player.id,
+      player.energy - INVASION_COST.energy,
+      player.alloy - INVASION_COST.alloy,
+      player.science - INVASION_COST.science
+    );
+
+    // Get current game time
+    const timeState = this.gameState.getGalaxyState(player.galaxyId);
+    const currentTime = timeState ? timeState.currentTime : 0;
+
+    const previousOwnerId = existingColony.playerId;
+
+    // Update colony ownership and species
+    // Invasion causes some population loss (e.g. 20%)
+    const survivingPopulation = Math.floor(existingColony.population * 0.8);
+    
+    // Recalculate yields based on new owner/species
+    // (In this game yields depend on habitability and specialization)
+    const yields = calculateColonyYields(
+      survivingPopulation,
+      existingColony.specialization,
+      planet.habitability || 0.5
+    );
+
+    const updatedColony = {
+      ...existingColony,
+      playerId: player.id,
+      speciesId: player.speciesId,
+      population: survivingPopulation,
+      sciencePerDay: yields.sciencePerDay,
+      alloyPerDay: yields.alloyPerDay,
+      lastYieldAt: currentTime,
+    };
+
+    this.db.updateColony(updatedColony);
+
+    // Send invasion message
+    this.send(client.ws, {
+      type: "colonyInvaded",
+      colony: updatedColony,
+      previousOwnerId,
+    });
+
+    // Notify the previous owner if they are online
+    const previousOwnerConnection = Array.from(this.clients.values()).find(
+      (c) => c.playerId === previousOwnerId
+    );
+    if (previousOwnerConnection) {
+      this.send(previousOwnerConnection.ws, {
+        type: "colonyRemoved",
+        planetId: planet.id,
+      });
+      this.send(previousOwnerConnection.ws, {
+        type: "error",
+        message: `Your colony on ${planet.name} has been invaded by ${player.name}!`,
+      });
+
+      // Update resource flow for the victim
+      this.sendResourceFlowUpdate(previousOwnerConnection);
+
+      // Check if the victim has any colonies left
+      const remainingColonies = this.db.getColoniesByPlayerId(previousOwnerId);
+      if (remainingColonies.length === 0) {
+        // Civilization destroyed!
+        const victim = this.db.getPlayerById(previousOwnerId);
+        const victimName = victim ? victim.name : "An unknown civilization";
+
+        // Notify the victim
+        this.send(previousOwnerConnection.ws, {
+          type: "error",
+          message: "CRITICAL ALERT: Your last colony has been lost. Your civilization has been destroyed!",
+        });
+
+        // Notify all other players
+        for (const otherClient of this.clients.values()) {
+          if (otherClient.playerId !== previousOwnerId) {
+            this.send(otherClient.ws, {
+              type: "error",
+              message: `GALACTIC NEWS: The civilization of ${victimName} has been destroyed!`,
+            });
+          }
+        }
+      }
+    }
+
+    // Reload system data for the invader
+    const updatedSystem = this.db.getStarSystem(system.id);
+    if (updatedSystem) {
+      updatedSystem.colonies = this.db.getColoniesBySystemId(system.id);
+      this.sendSystemData(client, updatedSystem);
+    }
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(player.id);
+    if (updatedPlayer) {
+      this.send(client.ws, {
+        type: "playerData",
+        player: updatedPlayer,
+      });
+    }
+
+    // Update resource flow
     this.sendResourceFlowUpdate(client);
   }
 
@@ -5848,13 +6070,12 @@ export class ConstellationWebSocketServer {
       // Get updated player data with new explored gates
       const updatedPlayer = this.db.getPlayerById(player.id);
 
-      this.send(client.ws, {
-        type: "systemData",
+      this.sendSystemData(
+        client,
         system,
-        gateOwnership: gateOwnership.length > 0 ? gateOwnership : undefined,
-        tunnelOwnership:
-          tunnelOwnership.length > 0 ? tunnelOwnership : undefined,
-      });
+        gateOwnership,
+        tunnelOwnership
+      );
 
       // Send updated player data so client knows about newly explored gates
       if (updatedPlayer) {
@@ -5896,16 +6117,12 @@ export class ConstellationWebSocketServer {
           // Get updated player data with new explored gates
           const updatedTargetPlayer = this.db.getPlayerById(targetPlayer.id);
 
-          this.send(targetClient.ws, {
-            type: "systemData",
-            system: targetSystem,
-            gateOwnership:
-              targetGateOwnership.length > 0 ? targetGateOwnership : undefined,
-            tunnelOwnership:
-              targetTunnelOwnership.length > 0
-                ? targetTunnelOwnership
-                : undefined,
-          });
+          this.sendSystemData(
+            targetClient,
+            targetSystem,
+            targetGateOwnership,
+            targetTunnelOwnership
+          );
 
           // Send updated player data so client knows about newly explored gates
           if (updatedTargetPlayer) {

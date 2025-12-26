@@ -18,30 +18,42 @@ export class ColonyEstablishmentRenderer {
    * Start a colony establishment animation on a planet
    */
   startEstablishment(planetId: string): void {
+    this.startAnimation(planetId, false);
+  }
+
+  /**
+   * Start a colony invasion animation on a planet
+   */
+  startInvasion(planetId: string): void {
+    this.startAnimation(planetId, true);
+  }
+
+  /**
+   * Internal helper to start either establishment or invasion
+   */
+  private startAnimation(planetId: string, isInvasion: boolean): void {
     const bodyMesh = this.bodyMeshes.get(planetId);
     if (!bodyMesh) {
-      console.warn(`Cannot start colony establishment: planet ${planetId} not found`);
-      console.log(`Available bodies:`, Array.from(this.bodyMeshes.keys()));
+      console.warn(`Cannot start colony animation: planet ${planetId} not found`);
       return;
     }
 
     // Bodies can be Mesh or Group, we need a Mesh for planets
     const planetMesh = bodyMesh instanceof THREE.Mesh ? bodyMesh : null;
     if (!planetMesh) {
-      console.warn(`Body ${planetId} is not a mesh (probably a multi-star system)`);
+      console.warn(`Body ${planetId} is not a mesh`);
       return;
     }
 
-    // Don't start if already establishing
+    // Don't start if already active
     if (this.activeEstablishments.has(planetId)) {
-      console.log(`Colony establishment already in progress for planet ${planetId}`);
       return;
     }
 
-    console.log(`Starting colony establishment animation on planet ${planetId} at position:`, planetMesh.position);
     const animation = new ColonyEstablishmentAnimation(
       this.scene,
-      planetMesh
+      planetMesh,
+      isInvasion
     );
     this.activeEstablishments.set(planetId, animation);
   }
@@ -98,20 +110,28 @@ class ColonyEstablishmentAnimation {
   private group: THREE.Group;
   private ship: ColonyShip | null = null;
   private pods: ColonyPod[] = [];
+  private defensiveBeams: DefensiveBeam[] = [];
+  private shipFiringBeams: ShipFiringBeam[] = [];
   private complete: boolean = false;
+  private isInvasion: boolean;
   
-  private readonly NUM_PODS = 8; // Number of pods to deploy
-  private readonly SHIP_DURATION = 3; // seconds for ship arrival
-  private readonly POD_DEPLOY_START = 1.5; // Start deploying pods after 1.5 seconds
-  private readonly POD_DEPLOY_INTERVAL = 0.3; // Deploy a new pod every 0.3 seconds
+  private readonly NUM_PODS = 8;
+  private readonly INVASION_POD_MULTIPLIER = 3;
+  private readonly SHIP_DURATION = 3;
+  private readonly POD_DEPLOY_START = 1.5;
+  private readonly POD_DEPLOY_INTERVAL = 0.3;
   
   private elapsed: number = 0;
   private nextPodTime: number = this.POD_DEPLOY_START;
+  private nextShipFireTime: number = 0;
+  private nextResistanceFireTime: number = 0;
   private podsDeployed: number = 0;
+  private fadeDelayTimer: number = 0;
   
-  constructor(scene: THREE.Scene, planetMesh: THREE.Mesh) {
+  constructor(scene: THREE.Scene, planetMesh: THREE.Mesh, isInvasion: boolean = false) {
     this.scene = scene;
     this.planetMesh = planetMesh;
+    this.isInvasion = isInvasion;
     this.group = new THREE.Group();
     
     // Position group at planet location
@@ -131,7 +151,8 @@ class ColonyEstablishmentAnimation {
     this.ship = new ColonyShip(
       this.group,
       planetRadius,
-      this.SHIP_DURATION
+      this.SHIP_DURATION,
+      this.isInvasion
     );
   }
 
@@ -144,12 +165,35 @@ class ColonyEstablishmentAnimation {
     const planetRadius = (this.planetMesh.geometry as THREE.SphereGeometry)
       .parameters?.radius || 1;
     
+    // In invasion, some pods are targeted by surface defenses
+    const isTargeted = this.isInvasion && Math.random() < 0.4;
+    
     const pod = new ColonyPod(
       this.group,
       this.ship.getCurrentPosition(),
-      planetRadius
+      planetRadius,
+      this.isInvasion,
+      isTargeted
     );
     this.pods.push(pod);
+
+    // If targeted, create a defensive beam from the surface (BLUE resistance)
+    if (isTargeted) {
+        this.createDefensiveBeam(pod);
+    }
+  }
+
+  private createDefensiveBeam(target: ColonyPod | ColonyShip): void {
+      const beam = new DefensiveBeam(this.group, target);
+      this.defensiveBeams.push(beam);
+  }
+
+  private createShipFire(): void {
+      if (!this.ship) return;
+      const planetRadius = (this.planetMesh.geometry as THREE.SphereGeometry)
+        .parameters?.radius || 1;
+      const beam = new ShipFiringBeam(this.group, this.ship, planetRadius);
+      this.shipFiringBeams.push(beam);
   }
 
   /**
@@ -164,31 +208,70 @@ class ColonyEstablishmentAnimation {
     // Animate ship
     if (this.ship) {
       this.ship.animate(deltaTime);
+
+      // Invasion ship fires at the planet
+      if (this.isInvasion && !this.ship.isComplete() && !this.ship.isFading() && this.elapsed >= this.nextShipFireTime) {
+          this.createShipFire();
+          this.nextShipFireTime = this.elapsed + 0.1 + Math.random() * 0.3;
+      }
+
+      // Planet occasionally fires back at the ship (resistance)
+      if (this.isInvasion && !this.ship.isComplete() && !this.ship.isFading() && this.elapsed >= this.nextResistanceFireTime) {
+          this.createDefensiveBeam(this.ship);
+          this.nextResistanceFireTime = this.elapsed + 0.2 + Math.random() * 0.8;
+      }
     }
     
     // Deploy pods at intervals
-    if (this.podsDeployed < this.NUM_PODS && this.elapsed >= this.nextPodTime) {
+    const maxPods = this.isInvasion ? this.NUM_PODS * this.INVASION_POD_MULTIPLIER : this.NUM_PODS;
+    const interval = this.isInvasion ? this.POD_DEPLOY_INTERVAL / 2 : this.POD_DEPLOY_INTERVAL;
+
+    if (this.podsDeployed < maxPods && this.elapsed >= this.nextPodTime) {
       this.deployPod();
       this.podsDeployed++;
-      this.nextPodTime += this.POD_DEPLOY_INTERVAL;
+      this.nextPodTime += interval;
     }
     
     // Animate all pods
     for (const pod of this.pods) {
       pod.animate(deltaTime);
     }
-    
-    // Check if all pods have landed (not necessarily faded)
-    const allPodsLanded = this.pods.every(pod => pod.hasLanded());
-    
-    // Once all pods have landed, start fading the ship
-    if (this.ship && allPodsLanded && this.podsDeployed >= this.NUM_PODS) {
-      this.ship.startFade();
+
+    // Animate defensive beams (BLUE)
+    for (let i = this.defensiveBeams.length - 1; i >= 0; i--) {
+        const beam = this.defensiveBeams[i];
+        beam.animate(deltaTime);
+        if (beam.isComplete()) {
+            beam.dispose();
+            this.defensiveBeams.splice(i, 1);
+        }
+    }
+
+    // Animate ship fire beams (RED)
+    for (let i = this.shipFiringBeams.length - 1; i >= 0; i--) {
+        const beam = this.shipFiringBeams[i];
+        beam.animate(deltaTime);
+        if (beam.isComplete()) {
+            beam.dispose();
+            this.shipFiringBeams.splice(i, 1);
+        }
     }
     
-    // Check if complete (all pods faded and ship faded)
+    // Check if all pods have landed (or been destroyed)
+    const allPodsHandled = this.pods.every(pod => pod.hasLanded() || pod.isDestroyed());
+    const allBeamsDone = this.defensiveBeams.length === 0 && this.shipFiringBeams.length === 0;
+    
+    // Once all pods are handled and beams are done, start a delay then fade the ship
+    if (this.ship && !this.ship.isFading() && allPodsHandled && this.podsDeployed >= maxPods && allBeamsDone) {
+      this.fadeDelayTimer += deltaTime;
+      if (this.fadeDelayTimer >= 1.0) { // 1 second of "victory lap"
+        this.ship.startFade();
+      }
+    }
+    
+    // Check if complete
     const allPodsComplete = this.pods.every(pod => pod.isComplete());
-    if (this.podsDeployed >= this.NUM_PODS && allPodsComplete && this.ship && this.ship.isComplete()) {
+    if (this.podsDeployed >= maxPods && allPodsComplete && this.defensiveBeams.length === 0 && this.shipFiringBeams.length === 0 && this.ship && this.ship.isComplete()) {
       this.complete = true;
     }
   }
@@ -220,6 +303,11 @@ class ColonyEstablishmentAnimation {
       pod.dispose();
     }
     this.pods = [];
+
+    for (const beam of this.defensiveBeams) {
+        beam.dispose();
+    }
+    this.defensiveBeams = [];
     
     // Remove all objects from group
     while (this.group.children.length > 0) {
@@ -239,6 +327,151 @@ class ColonyEstablishmentAnimation {
 }
 
 /**
+ * A beam from the planet surface hitting an invading pod
+ */
+class DefensiveBeam {
+    private line: THREE.Line;
+    private target: ColonyPod | ColonyShip;
+    private targetPosition: THREE.Vector3 = new THREE.Vector3();
+    private surfacePosition: THREE.Vector3 = new THREE.Vector3();
+    private elapsed: number = 0;
+    private readonly DURATION = 0.5;
+    private complete: boolean = false;
+    private parent: THREE.Group;
+
+    constructor(parent: THREE.Group, target: ColonyPod | ColonyShip) {
+        this.parent = parent;
+        this.target = target;
+
+        // Determine surface position (from where the beam originates)
+        if (target instanceof ColonyPod) {
+            this.surfacePosition.copy(target.getLandingPosition());
+        } else {
+            // For the ship, pick a random spot on the "front" half of the planet
+            const shipPos = target.getCurrentPosition();
+            this.surfacePosition.copy(shipPos).normalize();
+            // Add some randomness
+            this.surfacePosition.x += (Math.random() - 0.5) * 0.5;
+            this.surfacePosition.y += (Math.random() - 0.5) * 0.5;
+            this.surfacePosition.z += (Math.random() - 0.5) * 0.5;
+            this.surfacePosition.normalize().multiplyScalar(target.getPlanetRadius());
+        }
+
+        const geometry = new THREE.BufferGeometry().setFromPoints([
+            this.surfacePosition,
+            target.getCurrentPosition()
+        ]);
+
+        const material = new THREE.LineBasicMaterial({
+            color: 0x3366ff, // BLUE for resistance
+            transparent: true,
+            opacity: 0.8,
+            linewidth: 2
+        });
+
+        this.line = new THREE.Line(geometry, material);
+        parent.add(this.line);
+    }
+
+    animate(deltaTime: number): void {
+        this.elapsed += deltaTime;
+        if (this.elapsed >= this.DURATION) {
+            this.complete = true;
+            return;
+        }
+
+        // Update beam to follow target
+        const points = [
+            this.surfacePosition,
+            this.target.getCurrentPosition()
+        ];
+        this.line.geometry.setFromPoints(points);
+
+        // Flicker/fade
+        (this.line.material as THREE.LineBasicMaterial).opacity = (1 - this.elapsed / this.DURATION) * (Math.random() > 0.5 ? 0.8 : 0.4);
+    }
+
+    isComplete(): boolean {
+        return this.complete;
+    }
+
+    dispose(): void {
+        this.line.geometry.dispose();
+        (this.line.material as THREE.Material).dispose();
+        this.parent.remove(this.line);
+    }
+}
+
+/**
+ * Visual beam for the ship firing at the planet
+ */
+class ShipFiringBeam {
+    private line: THREE.Line;
+    private ship: ColonyShip;
+    private targetPos: THREE.Vector3;
+    private elapsed: number = 0;
+    private readonly DURATION = 0.2;
+    private complete: boolean = false;
+    private parent: THREE.Group;
+
+    constructor(parent: THREE.Group, ship: ColonyShip, planetRadius: number) {
+        this.parent = parent;
+        this.ship = ship;
+
+        // Target a random spot on the planet surface
+        const shipPos = ship.getCurrentPosition();
+        this.targetPos = new THREE.Vector3(
+            (Math.random() - 0.5) * 2,
+            (Math.random() - 0.5) * 2,
+            (Math.random() - 0.5) * 2
+        ).normalize().multiplyScalar(planetRadius);
+
+        const geometry = new THREE.BufferGeometry().setFromPoints([
+            shipPos,
+            this.targetPos
+        ]);
+
+        const material = new THREE.LineBasicMaterial({
+            color: 0xff3300, // RED for aggression
+            transparent: true,
+            opacity: 0.9,
+            linewidth: 1
+        });
+
+        this.line = new THREE.Line(geometry, material);
+        parent.add(this.line);
+    }
+
+    animate(deltaTime: number): void {
+        this.elapsed += deltaTime;
+        if (this.elapsed >= this.DURATION) {
+            this.complete = true;
+            return;
+        }
+
+        // Update beam to follow ship
+        const points = [
+            this.ship.getCurrentPosition(),
+            this.targetPos
+        ];
+        this.line.geometry.setFromPoints(points);
+
+        // Flicker/fade
+        (this.line.material as THREE.LineBasicMaterial).opacity = (1 - this.elapsed / this.DURATION);
+    }
+
+    isComplete(): boolean {
+        return this.complete;
+    }
+
+    dispose(): void {
+        this.line.geometry.dispose();
+        (this.line.material as THREE.Material).dispose();
+        this.parent.remove(this.line);
+    }
+}
+
+/**
  * The colony ship that arrives from off-screen
  */
 class ColonyShip {
@@ -252,14 +485,19 @@ class ColonyShip {
   private complete: boolean = false;
   private shouldFade: boolean = false;
   private fadeProgress: number = 0;
+  private isInvasion: boolean;
+  private planetRadius: number;
   private readonly FADE_DURATION = 0.6; // Fade over 0.6 seconds
   
   constructor(
     parent: THREE.Group,
     planetRadius: number,
-    duration: number
+    duration: number,
+    isInvasion: boolean = false
   ) {
     this.duration = duration;
+    this.isInvasion = isInvasion;
+    this.planetRadius = planetRadius;
     this.group = new THREE.Group();
     
     // Ship arrives from a random off-screen direction
@@ -279,16 +517,14 @@ class ColonyShip {
       Math.sin(angle) * orbitDistance
     );
     
-    // Create ship mesh (green elongated shape)
+    // Create ship mesh (green elongated shape, red for invasion)
     const geometry = new THREE.ConeGeometry(planetRadius * 0.15, planetRadius * 0.4, 4);
     const material = new THREE.MeshBasicMaterial({
-      color: 0x00ff00,
+      color: isInvasion ? 0xff0000 : 0x00ff00,
       transparent: true,
       opacity: 0.9
     });
     this.mesh = new THREE.Mesh(geometry, material);
-    
-    console.log(`Colony ship created: radius=${planetRadius}, shipSize=${planetRadius * 0.4}, startPos=`, this.startPos);
     
     // Orient ship toward destination
     const direction = new THREE.Vector3().subVectors(this.endPos, this.startPos).normalize();
@@ -296,8 +532,8 @@ class ColonyShip {
     
     this.group.add(this.mesh);
     
-    // Add green point light
-    this.pointLight = new THREE.PointLight(0x00ff00, 1, planetRadius * 3);
+    // Add point light
+    this.pointLight = new THREE.PointLight(isInvasion ? 0xff0000 : 0x00ff00, 1, planetRadius * 3);
     this.group.add(this.pointLight);
     
     // Set initial position
@@ -349,10 +585,21 @@ class ColonyShip {
   }
 
   /**
+   * Check if the ship is currently in the fading phase
+   */
+  isFading(): boolean {
+    return this.shouldFade;
+  }
+
+  /**
    * Get current ship position for pod deployment
    */
   getCurrentPosition(): THREE.Vector3 {
     return this.group.position.clone();
+  }
+
+  getPlanetRadius(): number {
+    return this.planetRadius;
   }
 
   /**
@@ -382,13 +629,20 @@ class ColonyPod {
   private duration: number;
   private complete: boolean = false;
   private landed: boolean = false;
+  private _isDestroyed: boolean = false;
+  private isTargeted: boolean;
+  private parent: THREE.Group;
   
   constructor(
     parent: THREE.Group,
     shipPosition: THREE.Vector3,
-    planetRadius: number
+    planetRadius: number,
+    isInvasion: boolean = false,
+    isTargeted: boolean = false
   ) {
+    this.parent = parent;
     this.startPos = shipPosition.clone();
+    this.isTargeted = isTargeted;
     
     // Random point on planet surface
     const theta = Math.random() * Math.PI * 2;
@@ -403,10 +657,10 @@ class ColonyPod {
     // Random duration (1-2 seconds)
     this.duration = 1 + Math.random();
     
-    // Create small green sphere (3x smaller than before)
+    // Create small sphere (green for establishment, red for invasion)
     const geometry = new THREE.SphereGeometry(planetRadius * 0.05 / 3, 4, 4);
     const material = new THREE.MeshBasicMaterial({
-      color: 0x00ff00,
+      color: isInvasion ? 0xff0000 : 0x00ff00,
       transparent: true,
       opacity: 0.9
     });
@@ -421,10 +675,17 @@ class ColonyPod {
   animate(deltaTime: number): void {
     if (this.complete) return;
     
-    if (!this.landed) {
+    if (!this.landed && !this._isDestroyed) {
       // Descending phase
       this.progress += deltaTime / this.duration;
       
+      // If targeted, destroy pod at 70% progress
+      if (this.isTargeted && this.progress >= 0.7) {
+          this._isDestroyed = true;
+          this.progress = 0; // Reset for fading out the "explosion"
+          return;
+      }
+
       if (this.progress >= 1) {
         this.progress = 1;
         this.landed = true;
@@ -439,8 +700,18 @@ class ColonyPod {
       const direction = new THREE.Vector3().subVectors(this.endPos, this.startPos).normalize();
       const perpendicular = new THREE.Vector3(-direction.z, 0, direction.x).normalize();
       this.mesh.position.add(perpendicular.multiplyScalar(curveAmount));
+    } else if (this._isDestroyed) {
+        // Exploding phase (just fade out quickly)
+        this.progress += deltaTime / 0.3;
+        const fadeProgress = Math.min(this.progress, 1);
+        (this.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - fadeProgress) * 0.9;
+        this.mesh.scale.setScalar(1 + fadeProgress * 2);
+
+        if (fadeProgress >= 1) {
+            this.complete = true;
+        }
     } else {
-      // Fading phase after landing (twice as slow as before)
+      // Fading phase after landing
       this.progress += deltaTime / 0.6; // Fade over 0.6 seconds
       const fadeProgress = Math.min(this.progress - 1, 1);
       (this.mesh.material as THREE.MeshBasicMaterial).opacity = (1 - fadeProgress) * 0.9;
@@ -452,10 +723,17 @@ class ColonyPod {
   }
 
   /**
-   * Check if pod has landed (not necessarily faded)
+   * Check if pod has landed
    */
   hasLanded(): boolean {
     return this.landed;
+  }
+
+  /**
+   * Check if pod was destroyed
+   */
+  isDestroyed(): boolean {
+      return this._isDestroyed;
   }
 
   /**
@@ -463,6 +741,14 @@ class ColonyPod {
    */
   isComplete(): boolean {
     return this.complete;
+  }
+
+  getCurrentPosition(): THREE.Vector3 {
+      return this.mesh.position;
+  }
+
+  getLandingPosition(): THREE.Vector3 {
+      return this.endPos;
   }
 
   /**

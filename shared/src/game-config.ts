@@ -154,6 +154,11 @@ export const GAME_COSTS = {
     alloy: 15,
     science: 5,
   },
+  COLONY_INVASION: {
+    energy: 3,
+    alloy: 45,
+    science: 45,
+  },
   GATE_CAPTURE: {
     energy: 0,
     alloy: 10,

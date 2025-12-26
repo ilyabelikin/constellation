@@ -46,6 +46,7 @@ export class HUDManager {
     }
   > = new Map();
   private speciesGetter: ((speciesId: string) => any) | null = null;
+  private isConnectedToCapital: boolean = true;
 
   // Detail views
   private bodyDetailView: BodyDetailView;
@@ -217,6 +218,7 @@ export class HUDManager {
         specialization: "balanced" | "research" | "industrial"
       ) => void)
     | null = null;
+  public onInvadeColony: ((planetId: string) => void) | null = null;
   public onRemoveColony: ((planetId: string) => void) | null = null;
   public onUpdateColonySpecialization:
     | ((
@@ -417,6 +419,7 @@ export class HUDManager {
 
     // Initialize detail views
     this.bodyDetailView = new BodyDetailView();
+    this.bodyDetailView.setPlayerGetter((playerId) => this.getPlayerById(playerId));
     this.gateDetailView = new GateDetailView();
     this.shipDetailView = new ShipDetailView();
     this.constellationSystemDetailView = new ConstellationSystemDetailView();
@@ -867,14 +870,23 @@ export class HUDManager {
     this.player = player;
     // Don't auto-hide auth modal here - let main.ts control when to hide it
     // This allows the lobby screen to stay visible on page reload
-    // Update body detail view with home planet reference
+    // Update body detail view with home planet reference and player ID
     this.bodyDetailView.setHomePlanet(this.player, this.system);
+    this.bodyDetailView.setCurrentPlayerId(player.id);
     // Update resource displays
     this.updateResourceDisplays();
     // Request species info to update the species button name
     if (this.player.speciesId && this.networkClient) {
       this.networkClient.requestSpeciesInfo(this.player.speciesId);
     }
+  }
+
+  /**
+   * Set whether the current system is connected to the player's capital
+   */
+  setConnectedToCapital(isConnected: boolean): void {
+    this.isConnectedToCapital = isConnected;
+    this.bodyDetailView.setConnectedToCapital(isConnected);
   }
 
   private updateResourceDisplays(): void {
@@ -1941,6 +1953,12 @@ export class HUDManager {
       }
     };
 
+    this.bodyDetailView.onInvadeColony = (planetId: string) => {
+      if (this.onInvadeColony) {
+        this.onInvadeColony(planetId);
+      }
+    };
+
     this.bodyDetailView.onRemoveColony = (planetId: string) => {
       if (this.onRemoveColony) {
         this.onRemoveColony(planetId);
@@ -2198,6 +2216,16 @@ export class HUDManager {
     this.speciesGetter = getter;
     // Pass the getter to BodyDetailView
     this.bodyDetailView.setSpeciesGetter(getter, this.networkClient);
+  }
+
+  /**
+   * Helper to get a player by ID from current player or met players
+   */
+  public getPlayerById(playerId: string): { id: string; name: string } | null {
+    if (this.player && this.player.id === playerId) {
+      return { id: this.player.id, name: this.player.name };
+    }
+    return this.metPlayers.find((p) => p.id === playerId) || null;
   }
 
   /**

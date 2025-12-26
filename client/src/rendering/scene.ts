@@ -1101,6 +1101,10 @@ export class SceneManager {
     this.colonyEstablishmentRenderer.startEstablishment(planetId);
   }
 
+  triggerColonyInvasion(planetId: string): void {
+    this.colonyEstablishmentRenderer.startInvasion(planetId);
+  }
+
   updateState(state: SystemState): void {
     // Update game time tracking for smooth interpolation
     this.timeInterpolator.setServerTime(state.currentTime);
