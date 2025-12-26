@@ -575,6 +575,8 @@ export function createDesertPlanetMaterial(
           float nearOasis = smoothstep(0.45, 0.65, oasisProximity); // Favor areas near oases
           
           // Rocky outcrops provide shelter - settlements cluster there too
+          vec3 rockCheckPos = samplePos * 4.5 + seedOffset * 0.7;
+          float rockNoise = turbulence3D(rockCheckPos, 3);
           float rockProximity = smoothstep(0.6, 0.8, rockNoise);
           
           // Settlement zones - prefer oases and rocky shelter
