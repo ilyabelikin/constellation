@@ -4441,9 +4441,9 @@ export class ConstellationWebSocketServer {
     };
 
     this.db.updateColony(updatedColony);
-
+    
     // Invasion counts as a meeting between players
-    this.db.addMeeting(player.id, previousOwnerId);
+    this.db.recordPlayerMeeting(player.id, previousOwnerId);
     this.broadcastGalaxyPlayersInfo(player.galaxyId);
 
     // Send invasion message to the invader

@@ -116,7 +116,8 @@ export class NetworkClient {
           otherGateDefenseCount?: number;
           tunnelPoweredBy?: string | null;
         }>,
-        isExitGateBlocked?: boolean
+        isExitGateBlocked?: boolean,
+        isConnectedToCapital?: boolean
       ) => void)
     | null = null;
   public onConstellationData:
@@ -138,7 +139,12 @@ export class NetworkClient {
     | null = null;
   public onGalaxyPlayers:
     | ((
-        metPlayers: { id: string; name: string }[],
+        metPlayers: {
+          id: string;
+          name: string;
+          speciesId: string;
+          speciesName: string;
+        }[],
         totalPlayers: number
       ) => void)
     | null = null;
@@ -485,7 +491,8 @@ export class NetworkClient {
               message.exitGateId,
               message.gateOwnership,
               message.tunnelOwnership,
-              message.isExitGateBlocked
+              message.isExitGateBlocked,
+              message.isConnectedToCapital
             );
           }
           break;

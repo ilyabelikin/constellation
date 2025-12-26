@@ -660,13 +660,13 @@ class ConstellationGame {
     };
 
     this.network.onGateTravel = (
-      destinationSystem,
-      exploredGateIds,
-      exitGateId,
-      gateOwnership,
-      tunnelOwnership,
-      isExitGateBlocked,
-      isConnectedToCapital
+      destinationSystem: StarSystem,
+      exploredGateIds: string[],
+      exitGateId: string,
+      gateOwnership: any,
+      tunnelOwnership: any,
+      isExitGateBlocked?: boolean,
+      isConnectedToCapital?: boolean
     ) => {
       console.log(
         "Gate travel to system:",
