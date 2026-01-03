@@ -905,17 +905,21 @@ class ConstellationGame {
       celestialBodyId,
       alloyPerDay
     ) => {
+      console.log(`[Mining] Operation established on ${celestialBodyId}, rate: ${alloyPerDay}/day`);
+      
       // Clear loading state on mining button
       this.hud.clearBodyActionLoadingState("mine");
       
       // Request updated resource breakdown to show the new mining operation
       this.network.requestResourceBreakdown();
 
+      // Re-select the body to refresh its details with the new mining operation
       setTimeout(() => {
+        console.log(`[Mining] Re-selecting body ${celestialBodyId}`);
         if (this.hud.onSelectObject) {
           this.hud.onSelectObject(celestialBodyId);
         }
-      }, 0);
+      }, 100); // Small delay to ensure system data is processed
     };
 
     this.network.onDysonSwarmLaunched = (
