@@ -601,9 +601,12 @@ export class BodyDetailView {
         }
       }
     } else {
-      // Hide species for non-planets
+      // Hide species and government for non-planets (asteroids, moons, stars)
       if (this.speciesElement) {
         this.speciesElement.style.display = "none";
+      }
+      if (this.controllerElement) {
+        this.controllerElement.style.display = "none";
       }
     }
 
