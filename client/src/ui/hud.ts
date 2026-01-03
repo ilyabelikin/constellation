@@ -1088,10 +1088,12 @@ export class HUDManager {
     // Set current system on body detail view for mining checks
     this.bodyDetailView.setCurrentSystem(system);
 
-    // Clear loading states on all action buttons when system data refreshes
-    // This ensures buttons return to normal state after actions complete
-    this.bodyDetailView.clearAllLoadingStates();
-    this.gateDetailView.clearAllLoadingStates();
+    // Only clear loading states when changing systems, not on every refresh
+    // Individual action confirmations will clear their specific loading states
+    if (isSystemChange) {
+      this.bodyDetailView.clearAllLoadingStates();
+      this.gateDetailView.clearAllLoadingStates();
+    }
 
     // Only hide panels and repopulate outline when actually changing systems
     // OR when coming from constellation view (to ensure theme is applied)
@@ -2895,5 +2897,19 @@ export class HUDManager {
     const remainingYears = (remainingSeconds / (365 * 86400)).toFixed(1);
 
     return `${remainingYears} years`;
+  }
+
+  /**
+   * Clear specific loading state when action confirmation is received
+   */
+  clearBodyActionLoadingState(action: "mine" | "helium3" | "dyson" | "elevator" | "colonize" | "invade"): void {
+    this.bodyDetailView.clearLoadingState(action);
+  }
+
+  /**
+   * Clear all gate loading states
+   */
+  clearGateActionLoadingStates(): void {
+    this.gateDetailView.clearAllLoadingStates();
   }
 }

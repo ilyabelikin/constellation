@@ -624,6 +624,15 @@ class ConstellationGame {
     };
 
     this.network.onError = (message) => {
+      // Clear all loading states on error
+      this.hud.clearBodyActionLoadingState("mine");
+      this.hud.clearBodyActionLoadingState("helium3");
+      this.hud.clearBodyActionLoadingState("dyson");
+      this.hud.clearBodyActionLoadingState("elevator");
+      this.hud.clearBodyActionLoadingState("colonize");
+      this.hud.clearBodyActionLoadingState("invade");
+      this.hud.clearGateActionLoadingStates();
+      
       if (
         message.includes("Not enough energy") ||
         message.includes("Not enough alloy")
@@ -668,6 +677,9 @@ class ConstellationGame {
       isExitGateBlocked?: boolean,
       isConnectedToCapital?: boolean
     ) => {
+      // Clear loading state on gate travel button
+      this.hud.clearGateActionLoadingStates();
+      
       console.log(
         "Gate travel to system:",
         destinationSystem.id,
@@ -893,6 +905,9 @@ class ConstellationGame {
       celestialBodyId,
       alloyPerDay
     ) => {
+      // Clear loading state on mining button
+      this.hud.clearBodyActionLoadingState("mine");
+      
       // Request updated resource breakdown to show the new mining operation
       this.network.requestResourceBreakdown();
 
@@ -910,6 +925,9 @@ class ConstellationGame {
       count,
       maxSwarms
     ) => {
+      // Clear loading state on dyson button
+      this.hud.clearBodyActionLoadingState("dyson");
+      
       this.scene.launchDysonSwarm(megastructureId, starId);
       setTimeout(() => {
         if (this.hud.onSelectObject) {
@@ -919,6 +937,9 @@ class ConstellationGame {
     };
 
     this.network.onColonyEstablished = (colony) => {
+      // Clear loading state on colonize button
+      this.hud.clearBodyActionLoadingState("colonize");
+      
       // Trigger colony establishment animation
       this.scene.triggerColonyEstablishment(colony.planetId);
 
@@ -930,6 +951,9 @@ class ConstellationGame {
     };
 
     this.network.onColonyInvaded = (colony, previousOwnerId) => {
+      // Clear loading state on invade button
+      this.hud.clearBodyActionLoadingState("invade");
+      
       // Trigger colony invasion animation
       this.scene.triggerColonyInvasion(colony.planetId);
 
@@ -1046,6 +1070,9 @@ class ConstellationGame {
     };
 
     this.network.onGateDefenseBuilt = (defense) => {
+      // Clear loading state on fortify button
+      this.hud.clearGateActionLoadingStates();
+      
       // Add defense platform to the scene (if gate is in current system)
       this.scene.addGateDefense(defense);
 
@@ -1067,6 +1094,9 @@ class ConstellationGame {
     };
 
     this.network.onGateAttackUpdate = (attack) => {
+      // Clear loading state on attack button
+      this.hud.clearGateActionLoadingStates();
+      
       // Update attack with combat results
       this.scene.updateGateAttack(attack);
 
@@ -1098,6 +1128,9 @@ class ConstellationGame {
       previousOwnerId,
       overtakeTime
     ) => {
+      // Clear loading state on capture/overtake buttons
+      this.hud.clearGateActionLoadingStates();
+      
       console.log(`Gate ${gateName} was overtaken by ${newOwnerName}`);
 
       // Determine the correct status based on ownership
