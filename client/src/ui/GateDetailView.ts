@@ -8,6 +8,7 @@ import {
   formatCost,
   GAME_COSTS,
 } from "@constellation/shared";
+import { setButtonLoading, clearButtonLoading } from "./ButtonLoadingState.js";
 
 /**
  * Manages the detail view for star gates
@@ -114,6 +115,7 @@ export class GateDetailView {
     // Setup button click handlers
     this.travelButton.addEventListener("click", () => {
       if (this.currentGateId && this.onTravelClick) {
+        setButtonLoading(this.travelButton, "Traveling...");
         this.onTravelClick(this.currentGateId);
       }
     });
@@ -129,13 +131,8 @@ export class GateDetailView {
           "[GateDetailView] Fortify button clicked for gate:",
           this.currentGateId
         );
-        // Temporarily disable to prevent double-clicks
-        this.fortifyButton.disabled = true;
+        setButtonLoading(this.fortifyButton, "Fortifying...");
         this.onFortifyClick(this.currentGateId);
-        // Re-enable after a short delay
-        setTimeout(() => {
-          this.fortifyButton.disabled = false;
-        }, 1000);
       }
     });
 
@@ -151,13 +148,8 @@ export class GateDetailView {
           "[GateDetailView] Attack button clicked for gate:",
           this.currentGateId
         );
-        // Temporarily disable to prevent double-clicks
-        this.attackButton.disabled = true;
+        setButtonLoading(this.attackButton, "Attacking...");
         this.onAttackClick(this.currentGateId);
-        // Re-enable after a short delay
-        setTimeout(() => {
-          this.attackButton.disabled = false;
-        }, 1000);
       }
       return false; // Additional safety to prevent event propagation
     });
@@ -173,13 +165,8 @@ export class GateDetailView {
           "[GateDetailView] Capture button clicked for gate:",
           this.currentGateId
         );
-        // Temporarily disable to prevent double-clicks
-        this.captureButton.disabled = true;
+        setButtonLoading(this.captureButton, "Capturing...");
         this.onCaptureClick(this.currentGateId);
-        // Re-enable after a short delay
-        setTimeout(() => {
-          this.captureButton.disabled = false;
-        }, 1500);
       }
     });
 
@@ -194,13 +181,8 @@ export class GateDetailView {
           "[GateDetailView] Overtake button clicked for gate:",
           this.currentGateId
         );
-        // Temporarily disable to prevent double-clicks
-        this.overtakeButton.disabled = true;
+        setButtonLoading(this.overtakeButton, "Overtaking...");
         this.onOvertakeClick(this.currentGateId);
-        // Re-enable after a short delay
-        setTimeout(() => {
-          this.overtakeButton.disabled = false;
-        }, 2000); // Longer delay for overtake since it's a bigger action
       }
     });
 
@@ -1024,5 +1006,17 @@ export class GateDetailView {
       default:
         return "#ffffff"; // White
     }
+  }
+
+  /**
+   * Clear all button loading states
+   * Called when system data is refreshed or an action completes
+   */
+  clearAllLoadingStates(): void {
+    clearButtonLoading(this.travelButton);
+    clearButtonLoading(this.fortifyButton);
+    clearButtonLoading(this.attackButton);
+    clearButtonLoading(this.captureButton);
+    clearButtonLoading(this.overtakeButton);
   }
 }

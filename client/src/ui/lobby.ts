@@ -1,4 +1,5 @@
 import { GAME_VERSION, VERSION_NAME, Species } from "@constellation/shared";
+import { setButtonLoading, clearButtonLoading } from "./ButtonLoadingState.js";
 
 interface GalaxyInfo {
   id: string;
@@ -136,6 +137,7 @@ export class LobbyManager {
     this.continueButton.addEventListener("click", () => {
       console.log("[Continue] Button clicked, starting game continuation...");
       if (this.playerGameInfo && this.onContinue) {
+        setButtonLoading(this.continueButton as HTMLButtonElement, "Loading...");
         this.onContinue(this.playerGameInfo.galaxyId, this.playerGameInfo.currentSystemId);
       }
     });
@@ -156,6 +158,7 @@ export class LobbyManager {
     this.createNewGalaxyButton.addEventListener("click", () => {
       // Create an empty galaxy and add it to the list
       if (this.createEmptyGalaxy) {
+        setButtonLoading(this.createNewGalaxyButton as HTMLButtonElement, "Creating...");
         this.createEmptyGalaxy();
       }
     });
@@ -225,6 +228,9 @@ export class LobbyManager {
   }
 
   public onEmptyGalaxyCreated(): void {
+    // Clear loading state on create button
+    clearButtonLoading(this.createNewGalaxyButton as HTMLButtonElement);
+    
     // Refresh the galaxy list to show the new galaxy
     if (this.requestGalaxyList) {
       this.requestGalaxyList();
@@ -518,6 +524,17 @@ export class LobbyManager {
   show(): void {
     this.authModal.classList.remove("hidden");
     this.showMainLobby();
+    // Clear any loading states
+    this.clearAllLoadingStates();
+  }
+
+  /**
+   * Clear all button loading states
+   */
+  clearAllLoadingStates(): void {
+    clearButtonLoading(this.continueButton as HTMLButtonElement);
+    clearButtonLoading(this.createNewGalaxyButton as HTMLButtonElement);
+    clearButtonLoading(this.speciesDetailPlayButton);
   }
 
   requestInitialData(): void {
@@ -534,6 +551,8 @@ export class LobbyManager {
   showError(message: string): void {
     this.errorMessage.textContent = message;
     this.errorMessage.classList.remove("hidden");
+    // Clear any loading states on error
+    this.clearAllLoadingStates();
   }
 
   clearError(): void {
@@ -606,6 +625,9 @@ export class LobbyManager {
     // Use species name as the player/civilization name
     const playerName = this.selectedSpecies.name;
     const speciesId = this.selectedSpecies.id;
+
+    // Show loading on the play button
+    setButtonLoading(this.speciesDetailPlayButton, "Joining...");
 
     if (this.isCreatingNewGalaxy) {
       // Creating a new galaxy

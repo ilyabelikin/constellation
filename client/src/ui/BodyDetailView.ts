@@ -19,6 +19,7 @@ import {
   SOLAR_RADIUS,
   calculateIceCapCoverage,
 } from "@constellation/shared";
+import { setButtonLoading, clearButtonLoading } from "./ButtonLoadingState.js";
 
 /**
  * Manages the detail view for celestial bodies (stars, planets, moons, asteroids)
@@ -152,6 +153,7 @@ export class BodyDetailView {
 
       this.mineButton.addEventListener("click", () => {
         if (this.currentBody && this.onEstablishMining) {
+          setButtonLoading(this.mineButton, "Establishing...");
           this.onEstablishMining(this.currentBody.id);
         }
       });
@@ -165,6 +167,7 @@ export class BodyDetailView {
 
       this.helium3Button.addEventListener("click", () => {
         if (this.currentBody && this.onEstablishHelium3) {
+          setButtonLoading(this.helium3Button, "Establishing...");
           this.onEstablishHelium3(this.currentBody.id);
         }
       });
@@ -190,6 +193,7 @@ export class BodyDetailView {
     if (this.dysonButton) {
       this.dysonButton.addEventListener("click", () => {
         if (this.currentBody && this.onLaunchDysonSwarm) {
+          setButtonLoading(this.dysonButton, "Launching...");
           this.onLaunchDysonSwarm(this.currentBody.id);
         }
       });
@@ -203,6 +207,7 @@ export class BodyDetailView {
 
       this.elevatorButton.addEventListener("click", () => {
         if (this.currentBody && this.onBuildSpaceElevator) {
+          setButtonLoading(this.elevatorButton, "Building...");
           this.onBuildSpaceElevator(this.currentBody.id);
         }
       });
@@ -232,6 +237,7 @@ export class BodyDetailView {
     if (this.colonizeButton) {
       this.colonizeButton.addEventListener("click", () => {
         if (this.currentBody && this.onEstablishColony) {
+          setButtonLoading(this.colonizeButton, "Colonizing...");
           // Default to balanced specialization
           this.onEstablishColony(this.currentBody.id, "balanced");
         }
@@ -242,6 +248,7 @@ export class BodyDetailView {
     if (this.invadeButton) {
       this.invadeButton.addEventListener("click", () => {
         if (this.currentBody && this.onInvadeColony) {
+          setButtonLoading(this.invadeButton, "Invading...");
           this.onInvadeColony(this.currentBody.id);
         }
       });
@@ -1106,5 +1113,44 @@ export class BodyDetailView {
     return (
       civilizationLevel.charAt(0).toUpperCase() + civilizationLevel.slice(1)
     );
+  }
+
+  /**
+   * Clear all button loading states
+   * Called when system data is refreshed or an action completes
+   */
+  clearAllLoadingStates(): void {
+    clearButtonLoading(this.mineButton);
+    clearButtonLoading(this.helium3Button);
+    clearButtonLoading(this.dysonButton);
+    clearButtonLoading(this.elevatorButton);
+    clearButtonLoading(this.colonizeButton);
+    clearButtonLoading(this.invadeButton);
+  }
+
+  /**
+   * Clear specific button loading state by action type
+   */
+  clearLoadingState(action: "mine" | "helium3" | "dyson" | "elevator" | "colonize" | "invade"): void {
+    switch (action) {
+      case "mine":
+        clearButtonLoading(this.mineButton);
+        break;
+      case "helium3":
+        clearButtonLoading(this.helium3Button);
+        break;
+      case "dyson":
+        clearButtonLoading(this.dysonButton);
+        break;
+      case "elevator":
+        clearButtonLoading(this.elevatorButton);
+        break;
+      case "colonize":
+        clearButtonLoading(this.colonizeButton);
+        break;
+      case "invade":
+        clearButtonLoading(this.invadeButton);
+        break;
+    }
   }
 }

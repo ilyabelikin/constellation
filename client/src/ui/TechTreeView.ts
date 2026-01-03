@@ -1,4 +1,5 @@
 import { TECHNOLOGIES } from "@constellation/shared";
+import { setButtonLoading, clearButtonLoading } from "./ButtonLoadingState.js";
 
 export class TechTreeView {
   private container: HTMLElement;
@@ -16,6 +17,8 @@ export class TechTreeView {
   private progressBar: HTMLElement | null = null;
   private progressText: HTMLElement | null = null;
   private scienceText: HTMLElement | null = null;
+  private pauseResumeButton: HTMLButtonElement | null = null;
+  private pendingResearchTechId: string | null = null;
 
   // Callbacks
   public onStartResearch: ((technologyId: string) => void) | null = null;
@@ -57,6 +60,9 @@ export class TechTreeView {
   ): void {
     this.completedTechs = new Set(completedTechs);
     this.currentResearch = currentResearch;
+    // Clear any pending loading states when the view is refreshed
+    this.pendingResearchTechId = null;
+    clearButtonLoading(this.pauseResumeButton);
 
     this.container.classList.remove("hidden");
     this.container.style.display = "flex";
@@ -70,6 +76,8 @@ export class TechTreeView {
     this.progressBar = null;
     this.progressText = null;
     this.scienceText = null;
+    this.pauseResumeButton = null;
+    this.pendingResearchTechId = null;
   }
 
   public isVisible(): boolean {
@@ -277,11 +285,12 @@ export class TechTreeView {
     this.scienceText = scienceText;
 
     // Pause/Resume button
-    const button = document.createElement("button");
+    const button = document.createElement("button") as HTMLButtonElement;
     if (this.currentResearch.status === "in_progress") {
       button.textContent = "Pause Research";
       button.addEventListener("click", () => {
         if (this.onPauseResearch && this.currentResearch) {
+          setButtonLoading(button, "Pausing...");
           this.onPauseResearch(this.currentResearch.technologyId);
         }
       });
@@ -289,6 +298,7 @@ export class TechTreeView {
       button.textContent = "Resume Research";
       button.addEventListener("click", () => {
         if (this.onResumeResearch && this.currentResearch) {
+          setButtonLoading(button, "Resuming...");
           this.onResumeResearch(this.currentResearch.technologyId);
         }
       });
@@ -305,12 +315,17 @@ export class TechTreeView {
       transition: all 0.2s;
     `;
     button.addEventListener("mouseenter", () => {
-      button.style.background = "var(--primary-color-dim)";
+      if (!button.disabled) {
+        button.style.background = "var(--primary-color-dim)";
+      }
     });
     button.addEventListener("mouseleave", () => {
-      button.style.background = "var(--primary-color)";
+      if (!button.disabled) {
+        button.style.background = "var(--primary-color)";
+      }
     });
     section.appendChild(button);
+    this.pauseResumeButton = button;
 
     return section;
   }
@@ -343,15 +358,28 @@ export class TechTreeView {
     if (!isCompleted && !isCurrentResearch) {
       card.style.cursor = "pointer";
       card.addEventListener("mouseenter", () => {
-        card.style.background = "rgba(70, 70, 90, 0.4)";
-        card.style.borderColor = "var(--primary-color)";
+        if (this.pendingResearchTechId !== techId) {
+          card.style.background = "rgba(70, 70, 90, 0.4)";
+          card.style.borderColor = "var(--primary-color)";
+        }
       });
       card.addEventListener("mouseleave", () => {
-        card.style.background = "rgba(50, 50, 70, 0.3)";
-        card.style.borderColor = "rgba(148, 163, 184, 0.3)";
+        if (this.pendingResearchTechId !== techId) {
+          card.style.background = "rgba(50, 50, 70, 0.3)";
+          card.style.borderColor = "rgba(148, 163, 184, 0.3)";
+        }
       });
       card.addEventListener("click", () => {
-        if (this.onStartResearch) {
+        if (this.onStartResearch && !this.pendingResearchTechId) {
+          // Show loading state on the card
+          this.pendingResearchTechId = techId;
+          card.style.opacity = "0.7";
+          card.style.cursor = "wait";
+          // Add a loading indicator to the hint area
+          const hint = card.querySelector('div[style*="font-style: italic"]');
+          if (hint) {
+            hint.innerHTML = '<span class="spinner"></span> Starting research...';
+          }
           this.onStartResearch(techId);
         }
       });

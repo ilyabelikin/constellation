@@ -1088,6 +1088,11 @@ export class HUDManager {
     // Set current system on body detail view for mining checks
     this.bodyDetailView.setCurrentSystem(system);
 
+    // Clear loading states on all action buttons when system data refreshes
+    // This ensures buttons return to normal state after actions complete
+    this.bodyDetailView.clearAllLoadingStates();
+    this.gateDetailView.clearAllLoadingStates();
+
     // Only hide panels and repopulate outline when actually changing systems
     // OR when coming from constellation view (to ensure theme is applied)
     if (isSystemChange || !isRefresh || fromConstellationView) {
