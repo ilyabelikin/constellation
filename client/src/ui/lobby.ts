@@ -382,7 +382,7 @@ export class LobbyManager {
         ) {
           // Player is already in this galaxy, continue directly into the game
           if (this.onContinue) {
-            this.onContinue(galaxy.id);
+            this.onContinue(galaxy.id, this.playerGameInfo.currentSystemId);
           }
         } else {
           // Player is not in this galaxy, show species selection
