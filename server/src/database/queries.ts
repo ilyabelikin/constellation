@@ -843,9 +843,7 @@ export class DatabaseQueries {
 
         // If storage is full, skip this operation (it will automatically resume when space is available)
         if (storageAvailable <= 0) {
-          console.log(
-            `Mining operation ${row.id} paused: storage full (${currentAlloy}/${MAX_ALLOY_STOCKPILE})`
-          );
+          // Skip logging for storage full - it's a normal game state, not an error
           continue;
         }
 
@@ -1382,12 +1380,7 @@ export class DatabaseQueries {
               surfaceArea * BASE_POPULATION_DENSITY * planet.habitability * habitableSurfaceFactor
             );
 
-            // Debug logging for stuck population
-            if (fullDays > 0 && newPopulation === row.population && newPopulation < maxPopulation) {
-              console.log(
-                `Population debug for ${row.planet_name}: pop=${newPopulation}, max=${maxPopulation}, radius=${planet.radius}, habitability=${planet.habitability}`
-              );
-            }
+            // Population at capacity is a normal state - no debug logging needed
 
             // Calculate population growth for each day
             for (let day = 0; day < fullDays; day++) {
@@ -1471,13 +1464,7 @@ export class DatabaseQueries {
                 growthRate = Math.max(growthRate, minGrowthRate);
               }
               
-              // Debug logging for first day if population not growing
-              if (day === 0 && fullDays > 0 && (carryingCapacityModifier < 0.1 || growthRate < 0.002)) {
-                console.log(
-                  `Low growth for ${row.planet_name}: growthRate=${growthRate.toFixed(6)}, carryingCapacity=${carryingCapacityModifier.toFixed(4)}, ratio=${populationRatio.toFixed(4)}, pop=${newPopulation}, max=${maxPopulation}`
-                );
-              }
-              
+              // Low growth near capacity is expected - no debug logging needed
               newPopulation = Math.floor(newPopulation * (1 + growthRate));
 
               // Ensure we don't exceed maximum population

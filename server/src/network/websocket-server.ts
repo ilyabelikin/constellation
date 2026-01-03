@@ -3883,8 +3883,8 @@ export class ConstellationWebSocketServer {
       }
     }
 
-    // Broadcast resource flow updates to all clients
-    this.broadcastResourceFlowUpdates();
+    // Note: Resource flow updates are only broadcast when days elapse or player actions occur
+    // Removed from here to improve performance - recalculating path-finding 5x/second was excessive
   }
 
   private broadcastTimeUpdate(): void {
