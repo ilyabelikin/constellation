@@ -242,6 +242,9 @@ export class DatabaseQueries {
     // Load Helium-3 operations for this system
     const helium3Operations = this.getHelium3OperationsBySystem(row.id);
 
+    // Load research operations for this system
+    const researchOperations = this.getResearchOperationsBySystem(row.id);
+
     // Load megastructures for this system
     const megastructures = this.getMegastructuresBySystem(row.id);
 
@@ -264,6 +267,7 @@ export class DatabaseQueries {
       gates,
       miningOperations,
       helium3Operations,
+      researchOperations,
       megastructures,
       colonies,
       nativeCivilizations,
@@ -378,6 +382,11 @@ export class DatabaseQueries {
         (sum, c) => sum + c.sciencePerDay,
         0
       );
+      const researchOps = this.getResearchOperationsByPlayer(row.id);
+      const scienceFromResearch = researchOps.reduce(
+        (sum, op) => sum + op.sciencePerDay,
+        0
+      );
 
       return {
         id: row.id,
@@ -394,7 +403,7 @@ export class DatabaseQueries {
         science: row.science || 0,
         energyPerDay: energyFromMegastructures,
         alloyPerDay: alloyFromMining,
-        sciencePerDay: scienceFromColonies,
+        sciencePerDay: scienceFromColonies + scienceFromResearch,
         speciesId: row.species_id,
       };
     });
@@ -435,6 +444,13 @@ export class DatabaseQueries {
       0
     );
 
+    // Calculate science from research operations (ancient artifacts)
+    const researchOperations = this.getResearchOperationsByPlayer(row.id);
+    const scienceFromResearch = researchOperations.reduce(
+      (sum, op) => sum + op.sciencePerDay,
+      0
+    );
+
     // Calculate science consumption from active research
     const currentResearch = this.getCurrentResearch(row.id);
     const researchCostPerDay = currentResearch && currentResearch.status === "in_progress" ? 2 : 0; // 60 science / 30 days = 2 per day
@@ -444,7 +460,7 @@ export class DatabaseQueries {
     // to avoid circular dependencies (calculatePlayerResourceFlow calls getPlayerById)
     const energyPerDay = energyFromMegastructures;
     const alloyPerDay = alloyFromMining + alloyFromColonies - alloyCostFromDefenses;
-    const sciencePerDay = scienceFromColonies - researchCostPerDay;
+    const sciencePerDay = scienceFromColonies + scienceFromResearch - researchCostPerDay;
 
     return {
       id: row.id,
@@ -773,6 +789,106 @@ export class DatabaseQueries {
     stmt.run(operationId);
   }
 
+  // Research operations (ancient artifacts)
+  createResearchOperation(
+    id: string,
+    playerId: string,
+    systemId: string,
+    celestialBodyId: string,
+    sciencePerDay: number,
+    establishedAt: number,
+    totalScienceLimit: number,
+    scienceExtracted: number
+  ): void {
+    const stmt = this.db.prepare(
+      "INSERT INTO research_operations (id, player_id, system_id, celestial_body_id, science_per_day, established_at, last_yield_at, total_science_limit, science_extracted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    stmt.run(
+      id,
+      playerId,
+      systemId,
+      celestialBodyId,
+      sciencePerDay,
+      establishedAt,
+      establishedAt,
+      totalScienceLimit,
+      scienceExtracted
+    );
+  }
+
+  getResearchOperationsByPlayer(playerId: string): any[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM research_operations WHERE player_id = ?"
+    );
+    const rows = stmt.all(playerId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      sciencePerDay: row.science_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+      totalScienceLimit: row.total_science_limit || 30.0,
+      scienceExtracted: row.science_extracted || 0.0,
+    }));
+  }
+
+  getResearchOperationsBySystem(systemId: string): any[] {
+    const stmt = this.db.prepare(
+      "SELECT * FROM research_operations WHERE system_id = ?"
+    );
+    const rows = stmt.all(systemId) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      sciencePerDay: row.science_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+      totalScienceLimit: row.total_science_limit || 30.0,
+      scienceExtracted: row.science_extracted || 0.0,
+    }));
+  }
+
+  getResearchOperationByCelestialBody(celestialBodyId: string): any | null {
+    const stmt = this.db.prepare(
+      "SELECT * FROM research_operations WHERE celestial_body_id = ?"
+    );
+    const row = stmt.get(celestialBodyId) as any;
+    if (!row) return null;
+    return {
+      id: row.id,
+      playerId: row.player_id,
+      systemId: row.system_id,
+      celestialBodyId: row.celestial_body_id,
+      sciencePerDay: row.science_per_day,
+      establishedAt: row.established_at,
+      lastYieldAt: row.last_yield_at,
+      totalScienceLimit: row.total_science_limit || 30.0,
+      scienceExtracted: row.science_extracted || 0.0,
+    };
+  }
+
+  updateResearchOperationYield(
+    operationId: string,
+    lastYieldAt: number,
+    scienceExtracted: number
+  ): void {
+    const stmt = this.db.prepare(
+      "UPDATE research_operations SET last_yield_at = ?, science_extracted = ? WHERE id = ?"
+    );
+    stmt.run(lastYieldAt, scienceExtracted, operationId);
+  }
+
+  deleteResearchOperation(operationId: string): void {
+    const stmt = this.db.prepare(
+      "DELETE FROM research_operations WHERE id = ?"
+    );
+    stmt.run(operationId);
+  }
+
   updateMiningOperationYield(
     miningOperationId: string,
     lastYieldAt: number,
@@ -915,6 +1031,105 @@ export class DatabaseQueries {
       this.addPlayerEnergy(op.playerId, 1);
       console.log(
         `Refunded 1 energy to player ${op.playerId} for exhausted mining operation ${op.id}`
+      );
+    }
+  }
+
+  processResearchYields(galaxyId: string, currentTime: number): void {
+    const stmt = this.db.prepare(`
+      SELECT ro.* FROM research_operations ro
+      JOIN players p ON ro.player_id = p.id
+      WHERE p.galaxy_id = ?
+    `);
+    const rows = stmt.all(galaxyId) as any[];
+    const operationsToDelete: Array<{ id: string; playerId: string }> = [];
+    const MAX_SCIENCE_STOCKPILE_LOCAL = 500;
+
+    for (const row of rows) {
+      const timeSinceLastYield = currentTime - row.last_yield_at;
+      const daysElapsed = timeSinceLastYield / (24 * 60 * 60);
+
+      if (daysElapsed >= 1) {
+        const player = this.getPlayerById(row.player_id);
+        if (!player) continue;
+
+        // Check if resources from this system are blockaded
+        let isBlockaded = false;
+        if (row.system_id !== player.homeSystemId) {
+          const path = findGatePath(this, row.system_id, player.homeSystemId);
+          if (!path) {
+            isBlockaded = true;
+          } else {
+            const flow = calculatePlayerResourceFlow(this, row.player_id);
+            for (const gateId of path) {
+              const gate = this.getGateById(gateId);
+              if (!gate || !gate.tunnelId) continue;
+              const tunnelFlow = flow.tunnelFlows.get(gate.tunnelId);
+              if (tunnelFlow && tunnelFlow.isBlockaded) {
+                isBlockaded = true;
+                break;
+              }
+            }
+          }
+        }
+
+        if (isBlockaded) {
+          const fullDays = Math.floor(daysElapsed);
+          const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+          this.updateResearchOperationYield(row.id, newLastYieldAt, row.science_extracted || 0);
+          continue;
+        }
+
+        const currentScience = player.science || 0;
+        const storageAvailable = MAX_SCIENCE_STOCKPILE_LOCAL - currentScience;
+
+        if (storageAvailable <= 0) {
+          continue;
+        }
+
+        const fullDays = Math.floor(daysElapsed);
+        let scienceToAdd = row.science_per_day * fullDays;
+
+        const currentlyExtracted = row.science_extracted || 0;
+        const totalLimit = row.total_science_limit || 30.0;
+        const remainingScience = totalLimit - currentlyExtracted;
+
+        if (scienceToAdd > remainingScience) {
+          scienceToAdd = remainingScience;
+        }
+
+        if (scienceToAdd > storageAvailable) {
+          scienceToAdd = storageAvailable;
+        }
+
+        if (scienceToAdd > 0) {
+          this.addPlayerScience(row.player_id, scienceToAdd);
+
+          const newLastYieldAt = row.last_yield_at + fullDays * 24 * 60 * 60;
+          const newScienceExtracted = currentlyExtracted + scienceToAdd;
+          this.updateResearchOperationYield(
+            row.id,
+            newLastYieldAt,
+            newScienceExtracted
+          );
+
+          if (newScienceExtracted >= totalLimit) {
+            operationsToDelete.push({ id: row.id, playerId: row.player_id });
+            console.log(
+              `Research operation ${row.id} on body ${row.celestial_body_id} fully studied (extracted ${newScienceExtracted}/${totalLimit} science)`
+            );
+          }
+        } else if (remainingScience <= 0) {
+          operationsToDelete.push({ id: row.id, playerId: row.player_id });
+        }
+      }
+    }
+
+    for (const op of operationsToDelete) {
+      this.deleteResearchOperation(op.id);
+      this.addPlayerEnergy(op.playerId, 1);
+      console.log(
+        `Refunded 1 energy to player ${op.playerId} for completed research operation ${op.id}`
       );
     }
   }

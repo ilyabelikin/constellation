@@ -938,6 +938,23 @@ class ConstellationGame {
       }, 100); // Small delay to ensure system data is processed
     };
 
+    this.network.onResearchEstablished = (
+      researchOperationId,
+      celestialBodyId,
+      sciencePerDay
+    ) => {
+      console.log(`[Research] Station established on ${celestialBodyId}, rate: ${sciencePerDay}/day`);
+
+      this.hud.clearBodyActionLoadingState("research");
+      this.network.requestResourceBreakdown();
+
+      setTimeout(() => {
+        if (this.hud.onSelectObject) {
+          this.hud.onSelectObject(celestialBodyId);
+        }
+      }, 100);
+    };
+
     this.network.onDysonSwarmLaunched = (
       megastructureId,
       starId,
@@ -1414,6 +1431,10 @@ class ConstellationGame {
 
     this.hud.onEstablishHelium3 = (celestialBodyId) => {
       this.network.establishHelium3Extraction(celestialBodyId);
+    };
+
+    this.hud.onEstablishResearch = (celestialBodyId) => {
+      this.network.establishResearch(celestialBodyId);
     };
 
     this.hud.onLaunchDysonSwarm = (starId) => {

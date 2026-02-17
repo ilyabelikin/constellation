@@ -15,6 +15,14 @@ export const SurfaceType = {
 
 export type SurfaceTypeName = (typeof SurfaceType)[keyof typeof SurfaceType];
 
+// Surface types that can have ancient artifacts (solid, uninhabitable worlds)
+export const ARTIFACT_ALLOWED_SURFACES: ReadonlySet<string> = new Set([
+  SurfaceType.ROCKY,
+  SurfaceType.BARREN,
+  SurfaceType.DESERT,
+  SurfaceType.ICY,
+]);
+
 // Shader uniform values for each surface type
 // These map surface type strings to shader float constants
 export const SurfaceTypeShaderValue: Record<SurfaceTypeName, number> = {
@@ -103,6 +111,9 @@ export interface CelestialBodyType {
   rings?: PlanetaryRing[];
   // Helium-3 mining properties
   hasHelium3?: boolean; // whether body has mineable Helium-3 deposits
+  // Ancient artifact properties
+  hasArtifact?: boolean; // whether body has an ancient artifact site
+  artifactType?: ArtifactTypeName; // type of artifact found on this body
 }
 
 export interface PlanetaryRing {
@@ -194,6 +205,29 @@ export interface MiningOperation {
   lastYieldAt: number; // timestamp of last resource generation
   totalAlloyLimit: number; // total amount of alloy that can be mined (15-100)
   alloyMined: number; // amount of alloy already mined
+}
+
+// Ancient artifact types found on uninhabitable worlds
+export const ArtifactType = {
+  RUINS: "ruins", // Crumbling alien structures with faded inscriptions
+  MONOLITH: "monolith", // Towering crystalline obelisk of unknown origin
+  SIGNAL_SOURCE: "signal_source", // Buried transmitter emitting faint signals
+  CRYSTALLINE_MATRIX: "crystalline_matrix", // Lattice of energy-storing crystals
+} as const;
+
+export type ArtifactTypeName =
+  (typeof ArtifactType)[keyof typeof ArtifactType];
+
+export interface ResearchOperation {
+  id: string;
+  playerId: string;
+  systemId: string;
+  celestialBodyId: string; // planet or moon with artifact
+  sciencePerDay: number; // science generation rate (0.05-0.15)
+  establishedAt: number; // timestamp when research started
+  lastYieldAt: number; // timestamp of last science generation
+  totalScienceLimit: number; // total science that can be extracted (10-60)
+  scienceExtracted: number; // amount of science already extracted
 }
 
 export interface Helium3Operation {
@@ -350,6 +384,7 @@ export interface StarSystem {
   companionStars?: CelestialBodyType[]; // For binary/trinary systems
   miningOperations?: MiningOperation[]; // Active mining operations in this system
   helium3Operations?: Helium3Operation[]; // Active Helium-3 mining operations in this system
+  researchOperations?: ResearchOperation[]; // Active artifact research operations in this system
   megastructures?: Megastructure[]; // Megastructures in this system
   colonies?: Colony[]; // Player colonies in this system
   nativeCivilizations?: NativeCivilization[]; // Native alien civilizations

@@ -217,6 +217,13 @@ export class NetworkClient {
         alloyPerDay: number
       ) => void)
     | null = null;
+  public onResearchEstablished:
+    | ((
+        researchOperationId: string,
+        celestialBodyId: string,
+        sciencePerDay: number
+      ) => void)
+    | null = null;
   public onDysonSwarmLaunched:
     | ((
         megastructureId: string,
@@ -605,6 +612,15 @@ export class NetworkClient {
             );
           }
           break;
+        case "researchEstablished":
+          if (this.onResearchEstablished) {
+            this.onResearchEstablished(
+              message.researchOperationId,
+              message.celestialBodyId,
+              message.sciencePerDay
+            );
+          }
+          break;
         case "dysonSwarmLaunched":
           if (this.onDysonSwarmLaunched) {
             this.onDysonSwarmLaunched(
@@ -867,6 +883,10 @@ export class NetworkClient {
 
   establishHelium3Extraction(celestialBodyId: string): void {
     this.send({ type: "establishHelium3Extraction", celestialBodyId });
+  }
+
+  establishResearch(celestialBodyId: string): void {
+    this.send({ type: "establishResearch", celestialBodyId });
   }
 
   launchDysonSwarm(starId: string): void {

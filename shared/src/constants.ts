@@ -1,6 +1,6 @@
 // Version
-export const GAME_VERSION = "0.4.4";
-export const VERSION_NAME = "Elevator";
+export const GAME_VERSION = "0.4.5";
+export const VERSION_NAME = "Ruins";
 
 // Physical constants (SI units: meters, kilograms, seconds)
 export const GRAVITATIONAL_CONSTANT = 6.6743e-11; // m³/(kg·s²)

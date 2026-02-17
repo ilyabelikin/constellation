@@ -15,9 +15,11 @@ import {
   formatCost,
   GAME_COSTS,
   SPACE_ELEVATOR_CONFIG,
+  RESEARCH_STATION_CONFIG,
   calculateMaxDysonSwarms,
   SOLAR_RADIUS,
   calculateIceCapCoverage,
+  ArtifactType,
 } from "@constellation/shared";
 import { setButtonLoading, clearButtonLoading } from "./ButtonLoadingState.js";
 
@@ -62,6 +64,16 @@ export class BodyDetailView {
   private helium3Rate: HTMLElement | null;
   private helium3Button: HTMLButtonElement | null;
   public onEstablishHelium3: ((celestialBodyId: string) => void) | null = null;
+
+  // Research elements (ancient artifacts)
+  private researchSection: HTMLElement | null;
+  private researchStatus: HTMLElement | null;
+  private researchRate: HTMLElement | null;
+  private researchRemaining: HTMLElement | null;
+  private researchButton: HTMLButtonElement | null;
+  private artifactInfo: HTMLElement | null;
+  private artifactTypeDisplay: HTMLElement | null;
+  public onEstablishResearch: ((celestialBodyId: string) => void) | null = null;
 
   // Dyson Swarm elements
   private dysonSection: HTMLElement | null;
@@ -169,6 +181,32 @@ export class BodyDetailView {
         if (this.currentBody && this.onEstablishHelium3) {
           setButtonLoading(this.helium3Button, "Establishing...");
           this.onEstablishHelium3(this.currentBody.id);
+        }
+      });
+    }
+
+    // Research elements (ancient artifacts)
+    this.researchSection = document.getElementById("body-research-section");
+    this.researchStatus = document.getElementById("body-research-status");
+    this.researchRate = document.getElementById("body-research-rate");
+    this.researchRemaining = document.getElementById(
+      "body-research-remaining"
+    );
+    this.researchButton = document.getElementById(
+      "body-research-button"
+    ) as HTMLButtonElement;
+    this.artifactInfo = document.getElementById("body-artifact-info");
+    this.artifactTypeDisplay = document.getElementById("body-artifact-type");
+
+    if (this.researchButton) {
+      this.researchButton.textContent = `🏛 Establish Research Station ${formatCost(
+        RESEARCH_STATION_CONFIG.cost
+      )}`;
+
+      this.researchButton.addEventListener("click", () => {
+        if (this.currentBody && this.onEstablishResearch) {
+          setButtonLoading(this.researchButton, "Establishing...");
+          this.onEstablishResearch(this.currentBody.id);
         }
       });
     }
@@ -697,6 +735,67 @@ export class BodyDetailView {
       }
     }
 
+    // Show/hide research section for bodies with ancient artifacts
+    if (
+      (body.type === "planet" || body.type === "moon") &&
+      body.hasArtifact
+    ) {
+      if (this.researchSection) {
+        this.researchSection.style.display = "block";
+
+        // Show artifact type info
+        if (this.artifactInfo && this.artifactTypeDisplay) {
+          this.artifactTypeDisplay.textContent = this.formatArtifactType(
+            body.artifactType
+          );
+        }
+
+        // Check if there's already a research operation on this body
+        const existingResearch = this.currentSystem?.researchOperations?.find(
+          (op: any) => op.celestialBodyId === body.id
+        );
+
+        if (existingResearch) {
+          // Show research status, hide button and artifact info
+          if (this.researchStatus) {
+            this.researchStatus.style.display = "block";
+            if (this.researchRate) {
+              this.researchRate.textContent =
+                existingResearch.sciencePerDay.toFixed(2);
+            }
+            if (this.researchRemaining) {
+              const remaining =
+                existingResearch.totalScienceLimit -
+                existingResearch.scienceExtracted;
+              this.researchRemaining.textContent = remaining.toFixed(1);
+            }
+          }
+          if (this.artifactInfo) {
+            this.artifactInfo.style.display = "none";
+          }
+          if (this.researchButton) {
+            this.researchButton.style.display = "none";
+          }
+        } else {
+          // Show artifact info and button, hide research status
+          if (this.researchStatus) {
+            this.researchStatus.style.display = "none";
+          }
+          if (this.artifactInfo) {
+            this.artifactInfo.style.display = "block";
+          }
+          if (this.researchButton) {
+            this.researchButton.style.display = "block";
+          }
+        }
+      }
+    } else {
+      // Hide research section for bodies without artifacts
+      if (this.researchSection) {
+        this.researchSection.style.display = "none";
+      }
+    }
+
     // Show/hide Dyson Swarm section for stars
     if (body.type === "star") {
       if (this.dysonSection) {
@@ -1108,6 +1207,21 @@ export class BodyDetailView {
     return shapes[shape] || shape;
   }
 
+  private formatArtifactType(artifactType?: string): string {
+    switch (artifactType) {
+      case ArtifactType.RUINS:
+        return "Ancient Ruins";
+      case ArtifactType.MONOLITH:
+        return "Alien Monolith";
+      case ArtifactType.SIGNAL_SOURCE:
+        return "Signal Source";
+      case ArtifactType.CRYSTALLINE_MATRIX:
+        return "Crystalline Matrix";
+      default:
+        return "Unknown Artifact";
+    }
+  }
+
   private formatLifeLevel(lifeLevel: string): string {
     // Capitalize first letter and format nicely
     return lifeLevel.charAt(0).toUpperCase() + lifeLevel.slice(1);
@@ -1127,6 +1241,7 @@ export class BodyDetailView {
   clearAllLoadingStates(): void {
     clearButtonLoading(this.mineButton);
     clearButtonLoading(this.helium3Button);
+    clearButtonLoading(this.researchButton);
     clearButtonLoading(this.dysonButton);
     clearButtonLoading(this.elevatorButton);
     clearButtonLoading(this.colonizeButton);
@@ -1136,13 +1251,16 @@ export class BodyDetailView {
   /**
    * Clear specific button loading state by action type
    */
-  clearLoadingState(action: "mine" | "helium3" | "dyson" | "elevator" | "colonize" | "invade"): void {
+  clearLoadingState(action: "mine" | "helium3" | "dyson" | "elevator" | "colonize" | "invade" | "research"): void {
     switch (action) {
       case "mine":
         clearButtonLoading(this.mineButton);
         break;
       case "helium3":
         clearButtonLoading(this.helium3Button);
+        break;
+      case "research":
+        clearButtonLoading(this.researchButton);
         break;
       case "dyson":
         clearButtonLoading(this.dysonButton);

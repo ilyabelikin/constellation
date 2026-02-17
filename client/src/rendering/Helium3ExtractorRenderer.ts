@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Helium3Operation } from "@constellation/shared";
+import { findSurfaceRadius } from "./SurfaceUtils.js";
 
 /**
  * Manages rendering of Helium-3 extraction facilities on planets and moons
@@ -133,70 +134,16 @@ class Helium3Extractor {
 
   /**
    * Calculate the actual surface distance in a given local direction,
-   * taking into account the body's shape (elliptical, rugged, etc.)
+   * using geometry vertex sampling for accuracy on all shapes.
    */
   private getSurfaceDistance(localDir: THREE.Vector3): number {
-    const body = this.bodyMesh.userData.body;
-    const type = this.bodyMesh.userData.type;
-    const boundingRadius = this.getBodyRadius();
-
-    if (!body) return boundingRadius;
-
-    const noiseSeed = body.noiseSeed || 0;
-    const sx = noiseSeed * 1.37;
-    const sy = noiseSeed * 2.51;
-    const sz = noiseSeed * 0.73;
-
-    if (type === "moon") {
-      if (body.shape === "elliptical") {
-        const baseRadius = boundingRadius / 1.3;
-        return Math.sqrt(
-          Math.pow(1.3 * baseRadius * localDir.x, 2) +
-            Math.pow(0.9 * baseRadius * localDir.y, 2) +
-            Math.pow(1.0 * baseRadius * localDir.z, 2)
-        );
-      } else if (body.shape === "rugged") {
-        const nx = localDir.x;
-        const ny = localDir.y;
-        const nz = localDir.z;
-        const noise =
-          Math.sin(nx * 5.3 + ny * 3.7 + sx) *
-          Math.cos(ny * 4.1 + nz * 6.2 + sy) *
-          Math.sin(nz * 3.9 + nx * 5.1 + sz);
-        return boundingRadius * (0.8 + noise * 0.2);
-      } else if (body.shape === "faceted" || body.shape === "binary") {
-        return boundingRadius * 0.9;
-      }
-    } else if (type === "asteroid") {
-      if (body.shape === "elliptical") {
-        const baseRadius = boundingRadius / 1.5;
-        return Math.sqrt(
-          Math.pow(1.5 * baseRadius * localDir.x, 2) +
-            Math.pow(0.8 * baseRadius * localDir.y, 2) +
-            Math.pow(1.0 * baseRadius * localDir.z, 2)
-        );
-      } else if (body.shape === "rugged" || !body.shape) {
-        const nx = localDir.x;
-        const ny = localDir.y;
-        const nz = localDir.z;
-        const noise =
-          Math.sin(nx * 5.3 + ny * 3.7 + sx) *
-          Math.cos(ny * 4.1 + nz * 6.2 + sy) *
-          Math.sin(nz * 3.9 + nx * 5.1 + sz);
-        return boundingRadius * (0.7 + noise * 0.3);
-      } else if (body.shape === "faceted" || body.shape === "binary") {
-        return boundingRadius * 0.85;
-      }
-    }
-
-    return boundingRadius;
+    return findSurfaceRadius(this.bodyMesh.geometry, localDir);
   }
 
   /**
    * Get the radius of the celestial body
    */
   private getBodyRadius(): number {
-    // Get the bounding sphere radius
     const geometry = this.bodyMesh.geometry;
     geometry.computeBoundingSphere();
     return geometry.boundingSphere?.radius || 1;

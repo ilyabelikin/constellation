@@ -25,6 +25,9 @@ import {
   LifeLevelType,
   CivilizationLevel,
   CivilizationLevelType,
+  ArtifactType,
+  ArtifactTypeName,
+  ARTIFACT_ALLOWED_SURFACES,
 } from "@constellation/shared";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
@@ -218,6 +221,17 @@ function calculateHabitabilityFromDistance(
   }
 
   return Math.max(0, Math.min(1, distanceScore));
+}
+
+/**
+ * Pick a random artifact type with weighted probabilities
+ */
+function pickArtifactType(rng: SeededRandom): ArtifactTypeName {
+  const roll = rng.next();
+  if (roll < 0.35) return ArtifactType.RUINS; // 35% - most common
+  if (roll < 0.60) return ArtifactType.MONOLITH; // 25%
+  if (roll < 0.80) return ArtifactType.SIGNAL_SOURCE; // 20%
+  return ArtifactType.CRYSTALLINE_MATRIX; // 20% - rarest
 }
 
 /**
@@ -569,6 +583,22 @@ export function generatePlanet(
     );
   }
 
+  // Ancient artifacts: rare finds on uninhabitable rocky/icy worlds
+  // Only solid-surface planets with low habitability and no intelligent life
+  if (
+    finalHabitability < 0.6 &&
+    lifeLevel !== LifeLevel.INTELLIGENT &&
+    ARTIFACT_ALLOWED_SURFACES.has(planetType.surfaceType)
+  ) {
+    if (rng.next() < 0.12) {
+      planet.hasArtifact = true;
+      planet.artifactType = pickArtifactType(rng);
+      console.log(
+        `Planet ${planetName}: Ancient ${planet.artifactType} discovered!`
+      );
+    }
+  }
+
   return planet;
 }
 
@@ -819,6 +849,16 @@ function generateMoon(
     hasHelium3 = rng.next() < sizeBonus; // 10-15% chance - rare
   }
 
+  // Ancient artifacts on moons: ~8% chance
+  // All moons are uninhabitable so they're all candidates
+  let hasArtifact = false;
+  let artifactType: ArtifactTypeName | undefined;
+  if (rng.next() < 0.08) {
+    hasArtifact = true;
+    artifactType = pickArtifactType(rng);
+    console.log(`Moon ${name}: Ancient ${artifactType} discovered!`);
+  }
+
   return {
     id: uuidv4(),
     name,
@@ -830,10 +870,12 @@ function generateMoon(
     composition,
     shape,
     rotationRate,
-    isTumbling, // New property to indicate chaotic rotation
+    isTumbling,
     color: moonColor,
     noiseSeed,
-    hasHelium3, // Helium-3 availability
+    hasHelium3,
+    hasArtifact,
+    artifactType,
   };
 }
 

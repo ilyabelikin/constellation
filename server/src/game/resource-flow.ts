@@ -515,6 +515,66 @@ export function calculatePlayerResourceFlow(
     }
   }
 
+  // 4. Research operations (ancient artifacts) in distant systems
+  const researchOps = db.getResearchOperationsByPlayer(playerId);
+  for (const op of researchOps) {
+    if (op.systemId === homeSystemId) {
+      continue;
+    }
+
+    const path = findGatePath(db, op.systemId, homeSystemId);
+    if (!path || path.length === 0) {
+      continue;
+    }
+
+    const scienceProduction = op.sciencePerDay > 0 ? op.sciencePerDay : 0;
+    totalRemoteScience += scienceProduction;
+
+    for (const gateId of path) {
+      const gate = db.getGateById(gateId);
+      if (!gate || !gate.tunnelId) continue;
+
+      const tunnelId = gate.tunnelId;
+      let tunnelFlow = tunnelFlows.get(tunnelId);
+      if (!tunnelFlow) {
+        const tunnel = db.getTunnelById(tunnelId);
+        const gatesInTunnel = db.getGatesByTunnel(tunnelId);
+
+        const gateA = gatesInTunnel.find(
+          (g: StarGate) => g.systemId === tunnel?.systemAId
+        );
+        const gateB = gatesInTunnel.find(
+          (g: StarGate) => g.systemId === tunnel?.systemBId
+        );
+
+        const gateAOwner = gateA ? db.getGateOwner(gateA.id) : null;
+        const gateBOwner = gateB ? db.getGateOwner(gateB.id) : null;
+
+        const canTravel = gateAOwner === playerId || gateBOwner === playerId;
+        const hasTunnelPower =
+          gateAOwner === playerId && gateBOwner === playerId;
+
+        tunnelFlow = {
+          tunnelId,
+          energy: 0,
+          alloy: 0,
+          science: 0,
+          isBlockaded: false,
+          gateAOwnerId: gateAOwner || undefined,
+          gateBOwnerId: gateBOwner || undefined,
+          poweredByPlayerId: tunnel?.poweredByPlayerId || null,
+          canTravel,
+          hasTunnelPower,
+        };
+        tunnelFlows.set(tunnelId, tunnelFlow);
+      }
+
+      tunnelFlow.science += scienceProduction;
+
+      addGateFlow(db, gateFlows, gateId, gate.tunnelId, 0, 0, scienceProduction);
+    }
+  }
+
   // Check each tunnel for blockades
   // A tunnel is blockaded if:
   // 1. It's unpowered (no power supply)

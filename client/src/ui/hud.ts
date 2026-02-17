@@ -11,6 +11,7 @@ import { BodyDetailView } from "./BodyDetailView.js";
 import { GateDetailView } from "./GateDetailView.js";
 import { ShipDetailView } from "./ShipDetailView.js";
 import { ConstellationSystemDetailView } from "./ConstellationSystemDetailView.js";
+import { icons, type IconName } from "../icons/index.js";
 
 export class HUDManager {
   private player: Player | null = null;
@@ -92,12 +93,19 @@ export class HUDManager {
   // Helium-3 objects widget
   private helium3ObjectsWidget: HTMLElement;
   private helium3Counter: HTMLElement;
+  // Artifact objects widget
+  private artifactObjectsWidget: HTMLElement;
+  private artifactCounter: HTMLElement;
   private mineableObjects: Array<{ id: string; name: string; type: string }> =
     [];
   private currentMineableIndex: number = 0;
   private isCyclingMineable: boolean = false;
   private helium3Objects: Array<{ id: string; name: string; type: string }> =
     [];
+  private artifactObjects: Array<{ id: string; name: string; type: string }> =
+    [];
+  private currentArtifactIndex: number = 0;
+  private isCyclingArtifact: boolean = false;
   private currentHelium3Index: number = 0;
   private isCyclingHelium3: boolean = false;
 
@@ -216,6 +224,7 @@ export class HUDManager {
   public onDeclareWar: ((targetPlayerId: string) => void) | null = null;
   public onEstablishMining: ((celestialBodyId: string) => void) | null = null;
   public onEstablishHelium3: ((celestialBodyId: string) => void) | null = null;
+  public onEstablishResearch: ((celestialBodyId: string) => void) | null = null;
   public onLaunchDysonSwarm: ((starId: string) => void) | null = null;
   public onBuildSpaceElevator: ((planetId: string) => void) | null = null;
   public onEstablishColony:
@@ -277,6 +286,20 @@ export class HUDManager {
       "helium3-objects-widget"
     )!;
     this.helium3Counter = document.getElementById("helium3-counter")!;
+
+    // Artifact objects widget
+    this.artifactObjectsWidget = document.getElementById(
+      "artifact-objects-widget"
+    )!;
+    this.artifactCounter = document.getElementById("artifact-counter")!;
+
+    // Inject SVG icons into badge containers
+    document.querySelectorAll<HTMLElement>("[data-icon]").forEach((el) => {
+      const name = el.dataset.icon as IconName;
+      if (icons[name]) {
+        el.innerHTML = icons[name];
+      }
+    });
 
     // System outline
     this.systemOutline = document.getElementById("system-outline")!;
@@ -577,6 +600,16 @@ export class HUDManager {
     this.helium3ObjectsWidget.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       this.cycleToPreviousHelium3Object();
+    });
+
+    // Artifact objects widget click handlers
+    this.artifactObjectsWidget.addEventListener("click", (e) => {
+      this.cycleToNextArtifactObject();
+    });
+
+    this.artifactObjectsWidget.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      this.cycleToPreviousArtifactObject();
     });
 
     // Alloy rate breakdown tooltip
@@ -1119,6 +1152,8 @@ export class HUDManager {
     this.updateMineableObjectsWidget();
     // Update Helium-3 objects widget
     this.updateHelium3ObjectsWidget();
+    // Update artifact objects widget
+    this.updateArtifactObjectsWidget();
 
     // Enable transitions after elements are rendered (next frame)
     // This prevents the green flash on initial load
@@ -1164,6 +1199,7 @@ export class HUDManager {
     // Call update methods which will see !this.system and hide widgets properly
     this.updateMineableObjectsWidget();
     this.updateHelium3ObjectsWidget();
+    this.updateArtifactObjectsWidget();
     
     // Hide outline and detail panels
     this.systemOutline.classList.add("hidden");
@@ -1186,6 +1222,7 @@ export class HUDManager {
     else {
       this.updateMineableObjectsWidget();
       this.updateHelium3ObjectsWidget();
+      this.updateArtifactObjectsWidget();
     }
   }
 
@@ -1837,6 +1874,8 @@ export class HUDManager {
     this.updateMineableObjectsWidget();
     // Update Helium-3 objects widget when state changes
     this.updateHelium3ObjectsWidget();
+    // Update artifact objects widget when state changes
+    this.updateArtifactObjectsWidget();
   }
 
   /**
@@ -1969,6 +2008,12 @@ export class HUDManager {
     this.bodyDetailView.onEstablishHelium3 = (celestialBodyId: string) => {
       if (this.onEstablishHelium3) {
         this.onEstablishHelium3(celestialBodyId);
+      }
+    };
+
+    this.bodyDetailView.onEstablishResearch = (celestialBodyId: string) => {
+      if (this.onEstablishResearch) {
+        this.onEstablishResearch(celestialBodyId);
       }
     };
 
@@ -2879,6 +2924,176 @@ export class HUDManager {
     }
   }
 
+  /**
+   * Get all artifact objects in the current system that don't have research operations
+   */
+  private getArtifactObjectsInSystem(): Array<{
+    id: string;
+    name: string;
+    type: string;
+  }> {
+    if (!this.system) return [];
+
+    const artifacts: Array<{ id: string; name: string; type: string }> = [];
+
+    // Check all planets
+    if (this.system.planets) {
+      for (const planet of this.system.planets) {
+        if (planet.hasArtifact) {
+          const alreadyResearching = this.system.researchOperations?.some(
+            (op) => op.celestialBodyId === planet.id
+          );
+          if (!alreadyResearching) {
+            artifacts.push({
+              id: planet.id,
+              name: planet.name,
+              type: "planet",
+            });
+          }
+        }
+      }
+    }
+
+    // Check all moons
+    if (this.system.moons) {
+      for (const moon of this.system.moons) {
+        if (moon.hasArtifact) {
+          const alreadyResearching = this.system.researchOperations?.some(
+            (op) => op.celestialBodyId === moon.id
+          );
+          if (!alreadyResearching) {
+            artifacts.push({
+              id: moon.id,
+              name: moon.name,
+              type: "moon",
+            });
+          }
+        }
+      }
+    }
+
+    return artifacts;
+  }
+
+  /**
+   * Update the artifact objects widget based on the current system
+   */
+  updateArtifactObjectsWidget(): void {
+    if (this.isInConstellationView || !this.system) {
+      this.artifactObjectsWidget.classList.remove("animate-in", "animate-out");
+      this.artifactObjectsWidget.classList.add("hidden");
+      return;
+    }
+
+    const newArtifactObjects = this.getArtifactObjectsInSystem();
+
+    if (newArtifactObjects.length === 0) {
+      const wasVisible =
+        !this.artifactObjectsWidget.classList.contains("hidden");
+
+      this.artifactObjects = [];
+      this.currentArtifactIndex = 0;
+      this.isCyclingArtifact = false;
+
+      if (wasVisible) {
+        this.artifactObjectsWidget.classList.remove("animate-in");
+        this.artifactObjectsWidget.classList.add("animate-out");
+        setTimeout(() => {
+          this.artifactObjectsWidget.classList.add("hidden");
+          this.artifactObjectsWidget.classList.remove("animate-out");
+        }, 300);
+      } else {
+        this.artifactObjectsWidget.classList.remove("animate-in", "animate-out");
+        this.artifactObjectsWidget.classList.add("hidden");
+      }
+      return;
+    }
+
+    const listChanged =
+      newArtifactObjects.length !== this.artifactObjects.length ||
+      !newArtifactObjects.every(
+        (obj, i) => obj.id === this.artifactObjects[i]?.id
+      );
+
+    if (listChanged) {
+      this.artifactObjects = newArtifactObjects;
+      if (this.isCyclingArtifact) {
+        this.currentArtifactIndex = Math.min(
+          this.currentArtifactIndex,
+          Math.max(0, this.artifactObjects.length - 1)
+        );
+        if (this.artifactObjects.length === 0) {
+          this.currentArtifactIndex = 0;
+          this.isCyclingArtifact = false;
+        }
+      } else {
+        this.currentArtifactIndex = 0;
+      }
+    }
+
+    const wasHidden = this.artifactObjectsWidget.classList.contains("hidden");
+    this.updateArtifactCounter();
+    this.artifactObjectsWidget.classList.remove("hidden");
+
+    if (wasHidden) {
+      this.artifactObjectsWidget.classList.add("animate-in");
+      setTimeout(() => {
+        this.artifactObjectsWidget.classList.remove("animate-in");
+      }, 1400);
+    }
+  }
+
+  private updateArtifactCounter(): void {
+    if (this.artifactObjects.length === 0) return;
+
+    if (this.isCyclingArtifact && this.artifactObjects.length > 0) {
+      this.artifactCounter.textContent = `${this.currentArtifactIndex + 1}/${
+        this.artifactObjects.length
+      }`;
+    } else {
+      this.artifactCounter.textContent = this.artifactObjects.length.toString();
+    }
+  }
+
+  private cycleToNextArtifactObject(): void {
+    if (this.artifactObjects.length === 0) return;
+
+    if (!this.isCyclingArtifact) {
+      this.isCyclingArtifact = true;
+      this.currentArtifactIndex = 0;
+    } else {
+      this.currentArtifactIndex =
+        (this.currentArtifactIndex + 1) % this.artifactObjects.length;
+    }
+
+    this.updateArtifactCounter();
+
+    const selectedObject = this.artifactObjects[this.currentArtifactIndex];
+    if (this.onSelectObject) {
+      this.onSelectObject(selectedObject.id);
+    }
+  }
+
+  private cycleToPreviousArtifactObject(): void {
+    if (this.artifactObjects.length === 0) return;
+
+    if (!this.isCyclingArtifact) {
+      this.isCyclingArtifact = true;
+      this.currentArtifactIndex = 0;
+    } else {
+      this.currentArtifactIndex =
+        (this.currentArtifactIndex - 1 + this.artifactObjects.length) %
+        this.artifactObjects.length;
+    }
+
+    this.updateArtifactCounter();
+
+    const selectedObject = this.artifactObjects[this.currentArtifactIndex];
+    if (this.onSelectObject) {
+      this.onSelectObject(selectedObject.id);
+    }
+  }
+
   private calculateOverchargeCooldown(
     overchargedAt?: number | null
   ): string | null {
@@ -2902,7 +3117,7 @@ export class HUDManager {
   /**
    * Clear specific loading state when action confirmation is received
    */
-  clearBodyActionLoadingState(action: "mine" | "helium3" | "dyson" | "elevator" | "colonize" | "invade"): void {
+  clearBodyActionLoadingState(action: "mine" | "helium3" | "dyson" | "elevator" | "colonize" | "invade" | "research"): void {
     this.bodyDetailView.clearLoadingState(action);
   }
 

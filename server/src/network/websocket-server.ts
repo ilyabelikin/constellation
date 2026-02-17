@@ -32,6 +32,7 @@ import {
   calculateIceCapCoverage,
   formatCost,
   SPACE_ELEVATOR_CONFIG,
+  RESEARCH_STATION_CONFIG,
 } from "@constellation/shared";
 import { DatabaseQueries } from "../database/queries.js";
 import { GameStateManager } from "../game/state-manager.js";
@@ -226,6 +227,9 @@ export class ConstellationWebSocketServer {
           break;
         case "establishHelium3Extraction":
           this.handleEstablishHelium3Extraction(client, message.celestialBodyId);
+          break;
+        case "establishResearch":
+          this.handleEstablishResearch(client, message.celestialBodyId);
           break;
         case "launchDysonSwarm":
           this.handleLaunchDysonSwarm(client, message.starId);
@@ -2792,6 +2796,191 @@ export class ConstellationWebSocketServer {
     this.sendResourceFlowUpdate(client);
   }
 
+  private handleEstablishResearch(
+    client: ClientConnection,
+    celestialBodyId: string
+  ): void {
+    if (!client.playerId) {
+      this.sendError(client.ws, "Not authenticated");
+      return;
+    }
+
+    const player = this.db.getPlayerById(client.playerId);
+    if (!player) {
+      this.sendError(client.ws, "Player not found");
+      return;
+    }
+
+    const cost = RESEARCH_STATION_CONFIG.cost;
+    if (player.energy < cost.energy) {
+      this.sendError(
+        client.ws,
+        `Not enough energy to establish research station (requires ${cost.energy} energy)`
+      );
+      return;
+    }
+    if (player.alloy < cost.alloy) {
+      this.sendError(
+        client.ws,
+        `Not enough alloy to establish research station (requires ${cost.alloy} alloy)`
+      );
+      return;
+    }
+    if (player.science < cost.science) {
+      this.sendError(
+        client.ws,
+        `Not enough science to establish research station (requires ${cost.science} science)`
+      );
+      return;
+    }
+
+    const system = this.db.getStarSystem(player.currentSystemId);
+    if (!system) {
+      this.sendError(client.ws, "Current system not found");
+      return;
+    }
+
+    // Find the celestial body in the system (planets and moons)
+    let celestialBody = null;
+
+    for (const planet of system.planets) {
+      if (planet.id === celestialBodyId) {
+        celestialBody = planet;
+        break;
+      }
+    }
+
+    if (!celestialBody) {
+      for (const moon of system.moons) {
+        if (moon.id === celestialBodyId) {
+          celestialBody = moon;
+          break;
+        }
+      }
+    }
+
+    if (!celestialBody) {
+      this.sendError(client.ws, "Celestial body not found");
+      return;
+    }
+
+    if (!celestialBody.hasArtifact) {
+      this.sendError(
+        client.ws,
+        "This celestial body has no ancient artifacts to research"
+      );
+      return;
+    }
+
+    const existingOperation =
+      this.db.getResearchOperationByCelestialBody(celestialBodyId);
+    if (existingOperation) {
+      this.sendError(
+        client.ws,
+        "Research operation already exists on this body"
+      );
+      return;
+    }
+
+    const galaxy = this.db.getGalaxyById(player.galaxyId);
+    if (!galaxy) {
+      this.sendError(client.ws, "Galaxy not found");
+      return;
+    }
+    const currentTime = galaxy.currentTime || 0;
+
+    // Deduct resources
+    const energySuccess = this.db.deductPlayerEnergy(
+      client.playerId,
+      cost.energy
+    );
+    if (!energySuccess) {
+      this.sendError(client.ws, "Failed to deduct energy");
+      return;
+    }
+    const alloySuccess = this.db.deductPlayerAlloy(
+      client.playerId,
+      cost.alloy
+    );
+    if (!alloySuccess) {
+      this.db.addPlayerEnergy(client.playerId, cost.energy);
+      this.sendError(client.ws, "Failed to deduct alloy");
+      return;
+    }
+    if (cost.science > 0) {
+      const scienceSuccess = this.db.deductPlayerScience(
+        client.playerId,
+        cost.science
+      );
+      if (!scienceSuccess) {
+        this.db.addPlayerEnergy(client.playerId, cost.energy);
+        this.db.addPlayerAlloy(client.playerId, cost.alloy);
+        this.sendError(client.ws, "Failed to deduct science");
+        return;
+      }
+    }
+
+    const researchOperationId = uuidv4();
+    const SCIENCE_PER_DAY = 0.05 + Math.random() * 0.10; // 0.05 - 0.15
+    const TOTAL_SCIENCE_LIMIT = 10 + Math.random() * 50; // 10 - 60
+
+    this.db.createResearchOperation(
+      researchOperationId,
+      client.playerId,
+      system.id,
+      celestialBodyId,
+      SCIENCE_PER_DAY,
+      currentTime,
+      TOTAL_SCIENCE_LIMIT,
+      0
+    );
+
+    console.log(
+      `Player ${player.name} established research station on ${celestialBody.name} in system ${system.id}`
+    );
+
+    // Send updated player data
+    const updatedPlayer = this.db.getPlayerById(client.playerId);
+    if (updatedPlayer) {
+      this.send(client.ws, { type: "playerData", player: updatedPlayer });
+    }
+
+    // Reload the system
+    const updatedSystem = this.db.getStarSystem(system.id);
+    if (updatedSystem) {
+      this.gameState.loadSystem(updatedSystem);
+      const gateOwnership = this.db.getGateOwnershipForSystem(
+        client.playerId,
+        updatedSystem.id
+      );
+      this.sendSystemData(client, updatedSystem, gateOwnership);
+
+      for (const otherClient of this.clients.values()) {
+        if (
+          otherClient.currentSystemId === system.id &&
+          otherClient.playerId !== client.playerId
+        ) {
+          const otherGateOwnership = otherClient.playerId
+            ? this.db.getGateOwnershipForSystem(
+                otherClient.playerId,
+                updatedSystem.id
+              )
+            : [];
+          this.sendSystemData(otherClient, updatedSystem, otherGateOwnership);
+        }
+      }
+    }
+
+    this.send(client.ws, {
+      type: "researchEstablished",
+      researchOperationId,
+      celestialBodyId,
+      sciencePerDay: SCIENCE_PER_DAY,
+    });
+
+    this.sendResourceFlowUpdate(client);
+  }
+
   private handleEstablishHelium3Extraction(
     client: ClientConnection,
     celestialBodyId: string
@@ -3615,6 +3804,9 @@ export class ConstellationWebSocketServer {
     // Process all yields for this galaxy
     // Process mining yields based on current time
     this.db.processMiningYields(galaxyId, currentTime);
+
+    // Process research yields based on current time
+    this.db.processResearchYields(galaxyId, currentTime);
 
     // Process megastructure yields based on current time
     // Note: Dyson Swarms and Helium-3 extractors provide instant energy (not processed here)

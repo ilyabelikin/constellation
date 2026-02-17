@@ -653,8 +653,35 @@
         }
 
         .badge-icon {
-            font-size: 20px;
-            line-height: 1;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .badge-icon svg {
+            width: 100%;
+            height: 100%;
+            fill: none;
+            stroke: currentColor;
+            color: var(--primary-color);
+        }
+
+        /* Inline icons used in resource displays and buttons */
+        .icon-inline {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            vertical-align: middle;
+        }
+
+        .icon-inline svg {
+            width: 1em;
+            height: 1em;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
         }
 
         .badge-counter {
@@ -1054,16 +1081,16 @@
     <div id="resources-widget" class="hud hidden" style="position: absolute; top: 68px; left: 10px; padding: 5px 10px;">
         <div style="display: flex; gap: 15px; align-items: center;">
             <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: #60a5fa; font-size: 15px;">⚡</span>
+                <span class="icon-inline" data-icon="energy" style="color: #60a5fa; font-size: 15px;"></span>
                 <span id="energy-display" style="font-weight: bold; font-size: 14px; color: #60a5fa;">0</span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: #94a3b8; font-size: 15px;">⛏</span>
+                <span class="icon-inline" data-icon="pickaxe" style="color: #94a3b8; font-size: 15px;"></span>
                 <span id="alloy-display" style="font-weight: bold; font-size: 14px; color: #94a3b8;">0</span>
                 <span id="alloy-rate" style="font-size: 10px; margin-left: 4px; cursor: pointer;"></span>
             </div>
             <div style="display: flex; align-items: center; gap: 6px;">
-                <span style="color: #a78bfa; font-size: 15px;">⚗️</span>
+                <span class="icon-inline" data-icon="science" style="color: #a78bfa; font-size: 15px;"></span>
                 <span id="science-display" style="font-weight: bold; font-size: 14px; color: #a78bfa;">0</span>
                 <span id="science-rate" style="font-size: 10px; margin-left: 4px;"></span>
             </div>
@@ -1085,26 +1112,24 @@
         <!-- Mineable Objects Badge -->
         <div id="mineable-objects-widget" class="hud badge hidden">
             <div class="badge-content">
-                <div class="badge-icon">⛏</div>
+                <div class="badge-icon" data-icon="pickaxe"></div>
                 <div id="mineable-counter" class="badge-counter">0</div>
             </div>
         </div>
         <!-- Helium-3 Available Badge -->
         <div id="helium3-objects-widget" class="hud badge hidden">
             <div class="badge-content">
-                <div class="badge-icon">⚡</div>
+                <div class="badge-icon" data-icon="energy"></div>
                 <div id="helium3-counter" class="badge-counter">0</div>
             </div>
         </div>
-        <!-- 
-        Example: Add more badges here following the same pattern:
-        <div id="your-badge-widget" class="hud badge hidden">
+        <!-- Artifact Sites Badge -->
+        <div id="artifact-objects-widget" class="hud badge hidden">
             <div class="badge-content">
-                <div class="badge-icon">🚀</div>
-                <div class="badge-counter">0</div>
+                <div class="badge-icon" data-icon="ruins"></div>
+                <div id="artifact-counter" class="badge-counter">0</div>
             </div>
         </div>
-        -->
     </div>
 
     <!-- Top Right Time Controls -->
@@ -1169,6 +1194,20 @@
             </div>
             <button class="hud-button" id="body-helium3-button" style="width: 100%;">
                 ⚡ Establish Helium-3 Extraction
+            </button>
+        </div>
+        <div id="body-research-section" style="display: none; margin-top: 1rem;">
+            <div id="body-research-status" class="detail-value" style="display: none; color: #c084fc; margin-bottom: 0.5rem;">
+                🏛 Research: <span id="body-research-rate">-</span> science/day<br>
+                <span style="font-size: 0.9em; opacity: 0.8;">
+                    Remaining: <span id="body-research-remaining">-</span> knowledge
+                </span>
+            </div>
+            <div id="body-artifact-info" class="detail-value" style="display: none; color: #e9d5ff; margin-bottom: 0.5rem;">
+                🏛 <span id="body-artifact-type">Ancient Ruins</span> detected
+            </div>
+            <button class="hud-button" id="body-research-button" style="width: 100%;">
+                🏛 Establish Research Station
             </button>
         </div>
         <div id="body-dyson-section" style="display: none; margin-top: 1rem;">

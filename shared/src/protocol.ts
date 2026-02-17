@@ -7,6 +7,7 @@ import {
   ConstellationConnection,
   UnexploredGate,
   MiningOperation,
+  ResearchOperation,
   Species,
   Colony,
   NativeCivilization,
@@ -68,6 +69,10 @@ export type ClientMessage =
     }
   | {
       type: "establishHelium3Extraction";
+      celestialBodyId: string;
+    }
+  | {
+      type: "establishResearch";
       celestialBodyId: string;
     }
   | {
@@ -385,6 +390,12 @@ export type ServerMessage =
       helium3OperationId: string;
       celestialBodyId: string;
       energyPerDay: number;
+    }
+  | {
+      type: "researchEstablished";
+      researchOperationId: string;
+      celestialBodyId: string;
+      sciencePerDay: number;
     }
   | {
       type: "dysonSwarmLaunched";

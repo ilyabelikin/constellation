@@ -155,6 +155,20 @@ export function initializeDatabase(dbPath: string): Database.Database {
       FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS research_operations (
+      id TEXT PRIMARY KEY,
+      player_id TEXT NOT NULL,
+      system_id TEXT NOT NULL,
+      celestial_body_id TEXT NOT NULL,
+      science_per_day REAL NOT NULL,
+      established_at INTEGER NOT NULL,
+      last_yield_at INTEGER NOT NULL,
+      total_science_limit REAL DEFAULT 30.0,
+      science_extracted REAL DEFAULT 0.0,
+      FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+      FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS megastructures (
       id TEXT PRIMARY KEY,
       player_id TEXT NOT NULL,
@@ -237,6 +251,8 @@ export function initializeDatabase(dbPath: string): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_mining_operations_system ON mining_operations(system_id);
     CREATE INDEX IF NOT EXISTS idx_helium3_operations_player ON helium3_operations(player_id);
     CREATE INDEX IF NOT EXISTS idx_helium3_operations_system ON helium3_operations(system_id);
+    CREATE INDEX IF NOT EXISTS idx_research_operations_player ON research_operations(player_id);
+    CREATE INDEX IF NOT EXISTS idx_research_operations_system ON research_operations(system_id);
     CREATE INDEX IF NOT EXISTS idx_megastructures_player ON megastructures(player_id);
     CREATE INDEX IF NOT EXISTS idx_megastructures_system ON megastructures(system_id);
     CREATE INDEX IF NOT EXISTS idx_megastructures_type ON megastructures(type);
@@ -1238,6 +1254,39 @@ export function initializeDatabase(dbPath: string): Database.Database {
     }
   } catch (error) {
     console.error("Error during player relationships migration:", error);
+  }
+
+  // Migration: Create research_operations table if it doesn't exist
+  try {
+    const tables = db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='research_operations'"
+      )
+      .all() as Array<{ name: string }>;
+
+    if (tables.length === 0) {
+      console.log("Migrating database: Creating research_operations table");
+      db.exec(`
+        CREATE TABLE research_operations (
+          id TEXT PRIMARY KEY,
+          player_id TEXT NOT NULL,
+          system_id TEXT NOT NULL,
+          celestial_body_id TEXT NOT NULL,
+          science_per_day REAL NOT NULL,
+          established_at INTEGER NOT NULL,
+          last_yield_at INTEGER NOT NULL,
+          total_science_limit REAL DEFAULT 30.0,
+          science_extracted REAL DEFAULT 0.0,
+          FOREIGN KEY (player_id) REFERENCES players(id) ON DELETE CASCADE,
+          FOREIGN KEY (system_id) REFERENCES star_systems(id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_research_operations_player ON research_operations(player_id);
+        CREATE INDEX idx_research_operations_system ON research_operations(system_id);
+      `);
+      console.log("Research operations table migration complete");
+    }
+  } catch (error) {
+    console.error("Error during research operations table migration:", error);
   }
 
   // Migration: Update megastructures table CHECK constraint to include space_elevator

@@ -137,6 +137,31 @@ export const HELIUM3_EXTRACTION_CONFIG: UnitConfig = {
 };
 
 /**
+ * Research Station Configuration
+ * Established on celestial bodies with ancient artifacts
+ * Produces 0.05-0.15 science per day, with a finite knowledge pool (10-60)
+ */
+export const RESEARCH_STATION_CONFIG: UnitConfig = {
+  cost: {
+    energy: 1,
+    alloy: 2,
+    science: 0,
+  },
+  stats: {
+    health: 0,
+    attack: 0,
+    defense: 0,
+    hitChance: 0,
+  },
+  refundOnDestruction: {
+    energy: true,
+    alloy: false,
+    science: false,
+    maintenance: false,
+  },
+};
+
+/**
  * Starting resources for new players
  */
 export const STARTING_RESOURCES = {

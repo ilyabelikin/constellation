@@ -9,6 +9,7 @@ import {
   ConstellationNode,
   ConstellationConnection,
   UnexploredGate,
+  ARTIFACT_ALLOWED_SURFACES,
 } from "@constellation/shared";
 import { CameraController } from "./CameraController.js";
 import { InteractionManager } from "./InteractionManager.js";
@@ -25,6 +26,7 @@ import {
 } from "./materials/planetColorUtils";
 import { getDesertAtmosphereColor } from "./materials/DesertAtmosphereGlowMaterial";
 import { MiningInstallationRenderer } from "./MiningInstallationRenderer.js";
+import { ArtifactRenderer } from "./ArtifactRenderer.js";
 import { Helium3ExtractorRenderer } from "./Helium3ExtractorRenderer.js";
 import { SpaceElevatorRenderer } from "./SpaceElevatorRenderer.js";
 import { ColonyEstablishmentRenderer } from "./ColonyEstablishmentRenderer.js";
@@ -54,6 +56,7 @@ export class SceneManager {
   private constellationView: ConstellationView;
   private dysonSwarmFactory: DysonSwarmFactory;
   private miningInstallationRenderer: MiningInstallationRenderer;
+  private artifactRenderer: ArtifactRenderer;
   private helium3ExtractorRenderer: Helium3ExtractorRenderer;
   private spaceElevatorRenderer: SpaceElevatorRenderer;
   private colonyEstablishmentRenderer: ColonyEstablishmentRenderer;
@@ -248,6 +251,13 @@ export class SceneManager {
     this.miningInstallationRenderer = new MiningInstallationRenderer(
       this.scene,
       this.asteroids,
+      this.moons
+    );
+
+    // Initialize artifact renderer (ancient artifacts on planets and moons)
+    this.artifactRenderer = new ArtifactRenderer(
+      this.scene,
+      this.bodies,
       this.moons
     );
 
@@ -959,6 +969,9 @@ export class SceneManager {
 
     // Dispose mining installations
     this.miningInstallationRenderer.dispose();
+
+    // Dispose artifact renderer
+    this.artifactRenderer.dispose();
 
     // Dispose Helium-3 extractors
     this.helium3ExtractorRenderer.dispose();
@@ -1929,6 +1942,8 @@ export class SceneManager {
         }
         // Show mining installations after gate travel
         this.miningInstallationRenderer.setVisible(true);
+        // Show artifact visuals after gate travel
+        this.artifactRenderer.setVisible(true);
         // Show Helium-3 extractors after gate travel
         this.helium3ExtractorRenderer.setVisible(true);
         this.spaceElevatorRenderer.setVisible(true);
@@ -2271,6 +2286,23 @@ export class SceneManager {
         this.system.miningOperations,
         deltaTime
       );
+    }
+
+    // Update artifact visuals
+    if (this.system) {
+      const artifactBodies = [
+        ...(this.system.planets || []),
+        ...(this.system.moons || []),
+      ].filter((b) => b.hasArtifact &&
+        (!b.surfaceType || ARTIFACT_ALLOWED_SURFACES.has(b.surfaceType))
+      );
+      if (artifactBodies.length > 0) {
+        this.artifactRenderer.update(
+          artifactBodies,
+          this.system.researchOperations || [],
+          deltaTime
+        );
+      }
     }
 
     // Update Helium-3 extractors
@@ -3080,6 +3112,8 @@ export class SceneManager {
     }
     // Hide mining installations during gate travel
     this.miningInstallationRenderer.setVisible(false);
+    // Hide artifact visuals during gate travel
+    this.artifactRenderer.setVisible(false);
     // Hide Helium-3 extractors during gate travel
     this.helium3ExtractorRenderer.setVisible(false);
     this.spaceElevatorRenderer.setVisible(false);
@@ -3353,6 +3387,8 @@ export class SceneManager {
     }
     // Hide mining installations in constellation view
     this.miningInstallationRenderer.setVisible(false);
+    // Hide artifact visuals in constellation view
+    this.artifactRenderer.setVisible(false);
     // Hide Helium-3 extractors in constellation view
     this.helium3ExtractorRenderer.setVisible(false);
     this.spaceElevatorRenderer.setVisible(false);
