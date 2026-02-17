@@ -1101,6 +1101,8 @@ export class BodyDetailView {
       spherical: "Spherical",
       elliptical: "Elliptical",
       rugged: "Irregular/Rugged",
+      faceted: "Faceted/Angular",
+      binary: "Contact Binary",
     };
 
     return shapes[shape] || shape;

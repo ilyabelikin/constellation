@@ -3765,20 +3765,14 @@ export class ConstellationWebSocketServer {
     // Process technology research (consumes science proportionally)
     const completedResearch = this.db.processTechnologyResearch(galaxyId, currentTime);
 
-    // Notify players of completed, resumed, and paused research
+    // Notify players of completed and paused research
     for (const completion of completedResearch) {
       const client = this.findClientByPlayerId(completion.playerId);
       if (client && client.galaxyId === galaxyId) {
         if (completion.paused) {
-          // Notify about auto-paused research
+          // Notify about auto-paused research (no science)
           this.send(client.ws, {
             type: "researchPaused",
-            technologyId: completion.technologyId,
-          });
-        } else if (completion.resumed) {
-          // Notify about auto-resumed research
-          this.send(client.ws, {
-            type: "researchResumed",
             technologyId: completion.technologyId,
           });
         } else if (completion.completed) {
@@ -6676,7 +6670,8 @@ export class ConstellationWebSocketServer {
       this.db.pauseTechnologyResearch(
         client.playerId,
         technologyId,
-        timeState.currentTime
+        timeState.currentTime,
+        "manual"
       );
       this.send(client.ws, {
         type: "researchPaused",
@@ -6703,7 +6698,17 @@ export class ConstellationWebSocketServer {
       return;
     }
 
-    this.db.resumeTechnologyResearch(client.playerId, technologyId);
+    const timeState = this.gameState.getGalaxyTimeState(player.galaxyId);
+    if (!timeState) {
+      this.sendError(client.ws, "Galaxy time state not found");
+      return;
+    }
+
+    this.db.resumeTechnologyResearch(
+      client.playerId,
+      technologyId,
+      timeState.currentTime
+    );
     this.send(client.ws, {
       type: "researchResumed",
       technologyId,

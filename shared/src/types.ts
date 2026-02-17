@@ -93,7 +93,8 @@ export interface CelestialBodyType {
   // Asteroid-specific properties
   asteroidBeltId?: string; // if this is an asteroid, the belt it belongs to
   composition?: "water" | "metal" | "silica"; // asteroid/moon composition
-  shape?: "spherical" | "elliptical" | "rugged"; // asteroid/moon shape
+  shape?: "spherical" | "elliptical" | "rugged" | "faceted" | "binary"; // asteroid/moon shape
+  noiseSeed?: number; // unique seed for procedural noise variation per body
   rotationRate?: number; // radians per second for spinning asteroids/moons
   isTumbling?: boolean; // whether moon/asteroid has chaotic tumbling rotation (vs stable single-axis)
   // Moon-specific properties

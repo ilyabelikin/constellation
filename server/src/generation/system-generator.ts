@@ -736,24 +736,37 @@ function generateMoon(
 
   // Moon shape variety (similar to asteroids but less extreme)
   // Larger moons are more spherical, smaller ones more irregular
-  const shapes = ["spherical", "elliptical", "rugged"] as const;
+  const shapes = [
+    "spherical",
+    "elliptical",
+    "rugged",
+    "faceted",
+    "binary",
+  ] as const;
   let shape: (typeof shapes)[number];
 
   if (radius > 1_000_000) {
     // Large moons (>1000km) are mostly spherical
-    shape = rng.next() < 0.8 ? "spherical" : "elliptical";
+    const rand = rng.next();
+    if (rand < 0.75) shape = "spherical";
+    else if (rand < 0.90) shape = "elliptical";
+    else shape = "faceted"; // rare crystalline large moons
   } else if (radius > 500_000) {
     // Medium moons: mix of shapes
     const rand = rng.next();
-    if (rand < 0.4) shape = "spherical";
-    else if (rand < 0.7) shape = "elliptical";
-    else shape = "rugged";
+    if (rand < 0.30) shape = "spherical";
+    else if (rand < 0.50) shape = "elliptical";
+    else if (rand < 0.70) shape = "rugged";
+    else if (rand < 0.85) shape = "faceted";
+    else shape = "binary"; // contact binary moons
   } else {
-    // Small moons: more irregular
+    // Small moons: more irregular, more variety
     const rand = rng.next();
-    if (rand < 0.2) shape = "spherical";
-    else if (rand < 0.5) shape = "elliptical";
-    else shape = "rugged";
+    if (rand < 0.15) shape = "spherical";
+    else if (rand < 0.30) shape = "elliptical";
+    else if (rand < 0.55) shape = "rugged";
+    else if (rand < 0.75) shape = "faceted";
+    else shape = "binary"; // contact binary is common for small captured moons
   }
 
   // Composition
@@ -782,12 +795,17 @@ function generateMoon(
     !isStableRotation ||
     (radius < 300_000 && shape === "rugged" && rng.next() < 0.15);
 
-  // Color based on composition
-  const colors = {
-    water: "#d4e8f0", // icy white-blue
-    metal: "#a0a0a0", // gray
-    silica: "#8b7355", // rocky brown
+  // Color palettes per composition (pick one randomly for variety)
+  const colorPalettes = {
+    water: ["#d4e8f0", "#c0dce8", "#b8e0f0", "#d0d8e8", "#c8e0e0"], // icy whites, pale cyans, lavender-ice
+    metal: ["#a0a0a0", "#8090a0", "#b0a898", "#989898", "#a8a8b0"], // gray, steel blue, bronze, pewter, silver
+    silica: ["#8b7355", "#7a6050", "#a08060", "#6b6358", "#987850"], // brown, charcoal-brown, ochre, dark gray-brown, sandy
   };
+  const palette = colorPalettes[composition];
+  const moonColor = palette[rng.nextInt(0, palette.length - 1)];
+
+  // Unique noise seed for procedural variation
+  const noiseSeed = rng.nextFloat(0, 1000);
 
   // Determine if moon has Helium-3 deposits
   // Moons with no trapped atmosphere are exposed to solar wind and can accumulate Helium-3
@@ -813,7 +831,8 @@ function generateMoon(
     shape,
     rotationRate,
     isTumbling, // New property to indicate chaotic rotation
-    color: colors[composition],
+    color: moonColor,
+    noiseSeed,
     hasHelium3, // Helium-3 availability
   };
 }
@@ -853,8 +872,14 @@ function generateAsteroid(
     epoch: 0,
   };
 
-  // Asteroid properties
-  const shapes = ["spherical", "elliptical", "rugged"] as const;
+  // Asteroid properties - 5 shapes for visual variety
+  const shapes = [
+    "spherical",
+    "elliptical",
+    "rugged",
+    "faceted",
+    "binary",
+  ] as const;
   const shape = shapes[rng.nextInt(0, shapes.length - 1)];
 
   const compositions = ["water", "metal", "silica"] as const;
@@ -874,12 +899,17 @@ function generateAsteroid(
   // Rotation rate between 0.00005 and 0.0005 radians/second (almost imperceptible tumbling)
   const rotationRate = rng.nextFloat(0.00005, 0.0005);
 
-  // Color based on composition
-  const colors = {
-    water: "#c8e6f5", // light blue
-    metal: "#b0b0b0", // metallic gray
-    silica: "#8b7355", // brownish
+  // Color palettes per composition (pick one randomly for variety)
+  const colorPalettes = {
+    water: ["#c8e6f5", "#b8d8e8", "#a8e0f8", "#d0d0e8", "#c0e8e0"], // light blue, frosty, deep cyan, lavender, green-ice
+    metal: ["#b0b0b0", "#8898a8", "#b8a890", "#909090", "#a0a0b8"], // gray, steel blue, bronze, dark iron, silver
+    silica: ["#8b7355", "#7a5f48", "#a08868", "#685848", "#a09060"], // brown, red-brown, ochre, charcoal, sandy tan
   };
+  const palette = colorPalettes[composition];
+  const asteroidColor = palette[rng.nextInt(0, palette.length - 1)];
+
+  // Unique noise seed for procedural variation
+  const noiseSeed = rng.nextFloat(0, 1000);
 
   return {
     id: uuidv4(),
@@ -893,7 +923,8 @@ function generateAsteroid(
     composition,
     shape,
     rotationRate,
-    color: colors[composition],
+    noiseSeed,
+    color: asteroidColor,
   };
 }
 

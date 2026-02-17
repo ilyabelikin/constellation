@@ -992,6 +992,25 @@ export function initializeDatabase(dbPath: string): Database.Database {
     console.error("Error during technology research table migration:", error);
   }
 
+  // Migration: Add pause_reason column to technology_research
+  try {
+    const columns = db
+      .prepare("PRAGMA table_info(technology_research)")
+      .all() as Array<{ name: string }>;
+    const hasPauseReason = columns.some((col) => col.name === "pause_reason");
+    if (!hasPauseReason) {
+      console.log(
+        "Migrating database: Adding pause_reason column to technology_research"
+      );
+      db.exec(
+        "ALTER TABLE technology_research ADD COLUMN pause_reason TEXT DEFAULT NULL"
+      );
+      console.log("pause_reason column migration complete");
+    }
+  } catch (error) {
+    console.error("Error during pause_reason migration:", error);
+  }
+
   // Migration: Create tunnels table and migrate existing gates
   try {
     const tables = db

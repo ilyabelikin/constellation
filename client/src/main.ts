@@ -458,6 +458,22 @@ class ConstellationGame {
 
       this.scene.setCurrentPlayerId(player.id);
 
+      // If player can't afford a day of research, show paused indicator immediately
+      // (Server will officially pause on the next day tick, but we reflect it in the UI now)
+      if (
+        this.currentResearchData &&
+        this.currentResearchData.status === "in_progress"
+      ) {
+        const sciencePerDay =
+          this.currentResearchData.scienceNeeded /
+          this.currentResearchData.daysNeeded;
+        if (player.science < sciencePerDay) {
+          this.showTechProgressIndicatorPaused(
+            this.currentResearchData.technologyId
+          );
+        }
+      }
+
       // Request tech tree data once on initial load to initialize research progress
       if (!this.hasInitializedTechState) {
         this.hasInitializedTechState = true;
@@ -1246,6 +1262,8 @@ class ConstellationGame {
           currentResearch.progressDays,
           currentResearch.scienceInvested
         );
+      } else if (currentResearch && currentResearch.status === "paused") {
+        this.showTechProgressIndicatorPaused(currentResearch.technologyId);
       } else {
         this.hideTechProgressIndicator();
       }
@@ -1284,8 +1302,8 @@ class ConstellationGame {
       ) {
         this.currentResearchData.status = "paused";
       }
-      // Hide the progress indicator when paused
-      this.hideTechProgressIndicator();
+      // Show the progress indicator in paused state (don't hide it)
+      this.showTechProgressIndicatorPaused(technologyId);
       // Refresh tech tree if it's already open
       if (this.techTreeView.isVisible()) {
         this.shouldShowTechTreeModal = true;
@@ -1295,14 +1313,15 @@ class ConstellationGame {
 
     this.network.onResearchResumed = (technologyId) => {
       console.log(`Research resumed: ${technologyId}`);
-      // Update research status to in_progress
+      // Update research status to in_progress and reset interpolation anchor
       if (
         this.currentResearchData &&
         this.currentResearchData.technologyId === technologyId
       ) {
         this.currentResearchData.status = "in_progress";
+        this.currentResearchData.lastUpdateTime = this.scene.getGameTime();
       }
-      // Show the progress indicator again
+      // Show the progress indicator again (removes paused class via normal update cycle)
       this.showTechProgressIndicator();
       // Refresh tech tree if it's already open
       if (this.techTreeView.isVisible()) {
@@ -1774,35 +1793,63 @@ class ConstellationGame {
       this.scene.getTimeScale()
     );
 
-    // Update tech progress indicator every frame if research is in progress
-    if (
-      this.currentResearchData &&
-      this.currentResearchData.status === "in_progress"
-    ) {
-      // Calculate interpolated progress based on elapsed time
-      const elapsedSeconds =
-        currentGameTime - this.currentResearchData.lastUpdateTime;
-      const elapsedDays = elapsedSeconds / 86400; // 86400 seconds per day
-      const currentProgressDays =
-        this.currentResearchData.progressDays + elapsedDays;
+    // Update tech progress indicator every frame based on research status
+    if (this.currentResearchData) {
+      if (this.currentResearchData.status === "in_progress") {
+        // Don't interpolate progress if the player can't afford a day of research
+        // The server will officially pause on the next day tick, but we show it immediately
+        const playerScience = this.player?.science ?? 0;
+        const sciencePerDay =
+          this.currentResearchData.scienceNeeded /
+          this.currentResearchData.daysNeeded;
+        if (playerScience < sciencePerDay) {
+          // No science available - show as paused on the client (server will confirm)
+          if (
+            this.techProgressBar &&
+            !this.techProgressBar.classList.contains("paused")
+          ) {
+            this.showTechProgressIndicatorPaused(
+              this.currentResearchData.technologyId
+            );
+          }
+        } else {
+          // Calculate interpolated progress based on elapsed time
+          const elapsedSeconds =
+            currentGameTime - this.currentResearchData.lastUpdateTime;
+          const elapsedDays = elapsedSeconds / 86400; // 86400 seconds per day
+          const currentProgressDays =
+            this.currentResearchData.progressDays + elapsedDays;
 
-      // Check if research has reached 100%
-      if (currentProgressDays >= this.currentResearchData.daysNeeded) {
-        // Hide the progress indicator when complete (but keep data until server confirms)
-        this.hideTechProgressIndicator();
-      } else {
-        // Update the indicator with current progress
-        this.updateTechProgressIndicator(
-          this.currentResearchData.technologyId,
-          currentProgressDays,
-          this.currentResearchData.scienceInvested
-        );
+          // Check if research has reached 100%
+          if (currentProgressDays >= this.currentResearchData.daysNeeded) {
+            // Hide the progress indicator when complete (but keep data until server confirms)
+            this.hideTechProgressIndicator();
+          } else {
+            // Update the indicator with current progress
+            this.updateTechProgressIndicator(
+              this.currentResearchData.technologyId,
+              currentProgressDays,
+              this.currentResearchData.scienceInvested
+            );
 
-        // Also update the tech tree modal if it's visible
-        if (this.techTreeView.isVisible()) {
-          this.techTreeView.updateProgressDisplay(
-            currentProgressDays,
-            this.currentResearchData.scienceInvested
+            // Also update the tech tree modal if it's visible
+            if (this.techTreeView.isVisible()) {
+              this.techTreeView.updateProgressDisplay(
+                currentProgressDays,
+                this.currentResearchData.scienceInvested
+              );
+            }
+          }
+        }
+      } else if (this.currentResearchData.status === "paused") {
+        // Research is paused - ensure indicator stays visible in paused state
+        // Only update if not already showing paused (avoid re-setting every frame)
+        if (
+          this.techProgressBar &&
+          !this.techProgressBar.classList.contains("paused")
+        ) {
+          this.showTechProgressIndicatorPaused(
+            this.currentResearchData.technologyId
           );
         }
       }
@@ -1818,6 +1865,10 @@ class ConstellationGame {
   private hideTechProgressIndicator(): void {
     if (this.techProgressIndicator) {
       this.techProgressIndicator.style.display = "none";
+    }
+    // Remove paused style if present
+    if (this.techProgressBar) {
+      this.techProgressBar.classList.remove("paused");
     }
     // Clear the tooltip when hiding
     if (this.techButton) {
@@ -1853,6 +1904,39 @@ class ConstellationGame {
     // Update hover tooltip with tech name and progress
     if (this.techButton) {
       this.techButton.title = `${tech.name}: ${progressPercent.toFixed(1)}%`;
+    }
+
+    // Ensure bar shows active color
+    if (this.techProgressBar) {
+      this.techProgressBar.classList.remove("paused");
+    }
+  }
+
+  private showTechProgressIndicatorPaused(technologyId: string): void {
+    const tech = TECHNOLOGIES[technologyId];
+    if (!tech || !this.techProgressBar) return;
+
+    // Show the indicator
+    this.showTechProgressIndicator();
+
+    // Calculate current progress percentage from stored data
+    const progressDays = this.currentResearchData?.progressDays ?? 0;
+    const progressPercent = Math.min(
+      99.9,
+      (progressDays / tech.researchDays) * 100
+    );
+
+    // Update the SVG circle to show current progress
+    const circumference = 28.27;
+    const offset = circumference - (progressPercent / 100) * circumference;
+    this.techProgressBar.style.strokeDashoffset = offset.toString();
+
+    // Add paused visual style
+    this.techProgressBar.classList.add("paused");
+
+    // Update tooltip to show paused state
+    if (this.techButton) {
+      this.techButton.title = `${tech.name}: ${progressPercent.toFixed(1)}% (PAUSED)`;
     }
   }
 

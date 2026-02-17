@@ -763,6 +763,16 @@
             transition: stroke-dashoffset 0.3s ease;
         }
 
+        .tech-progress-bar.paused {
+            stroke: #f59e0b;
+            animation: tech-paused-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes tech-paused-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
         /* Tech complete alert modal */
         #tech-complete-modal {
             position: fixed;

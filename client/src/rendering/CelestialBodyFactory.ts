@@ -363,20 +363,22 @@ export class CelestialBodyFactory {
     const minVisibleRadius = 0.5; // Minimum 0.5 units in scene
     radius = Math.max(radius, minVisibleRadius);
 
+    const noiseSeed = asteroid.noiseSeed || 0;
     let geometry: THREE.BufferGeometry;
 
     // Create geometry based on shape
     if (asteroid.shape === "spherical") {
-      // More spherical asteroids
       geometry = new THREE.SphereGeometry(radius, 16, 16);
     } else if (asteroid.shape === "elliptical") {
-      // Elongated/elliptical asteroids
       geometry = new THREE.SphereGeometry(radius, 16, 16);
-      // Scale along one axis to make it elliptical
       geometry.scale(1.5, 0.8, 1.0);
+    } else if (asteroid.shape === "faceted") {
+      geometry = this.createFacetedGeometry(radius, 1, noiseSeed);
+    } else if (asteroid.shape === "binary") {
+      geometry = this.createBinaryGeometry(radius, 16, noiseSeed);
     } else {
-      // Rugged/irregular asteroids
-      geometry = this.createRuggedAsteroidGeometry(radius);
+      // Rugged/irregular asteroids (default)
+      geometry = this.createRuggedGeometry(radius, 16, 0.7, 0.3, noiseSeed);
     }
 
     const composition = asteroid.composition || "silica";
@@ -384,7 +386,8 @@ export class CelestialBodyFactory {
     const material = this.materialFactory.createAsteroidMaterial(
       composition,
       asteroid.color || 0x888888,
-      shape
+      shape,
+      noiseSeed
     );
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -395,7 +398,6 @@ export class CelestialBodyFactory {
       rotationRate: asteroid.rotationRate || 0,
     };
 
-    // Enable shadows for asteroids
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
@@ -403,71 +405,32 @@ export class CelestialBodyFactory {
   }
 
   /**
-   * Creates a rugged/irregular asteroid geometry using noise
-   */
-  private createRuggedAsteroidGeometry(radius: number): THREE.BufferGeometry {
-    const geometry = new THREE.SphereGeometry(radius, 16, 16);
-    const positions = geometry.attributes.position;
-
-    // Apply random displacement to vertices for rugged appearance
-    for (let i = 0; i < positions.count; i++) {
-      const x = positions.getX(i);
-      const y = positions.getY(i);
-      const z = positions.getZ(i);
-
-      // Normalize to get direction
-      const length = Math.sqrt(x * x + y * y + z * z);
-      const nx = x / length;
-      const ny = y / length;
-      const nz = z / length;
-
-      // Apply noise-based displacement (pseudo-random based on position)
-      const noise =
-        Math.sin(nx * 5.3 + ny * 3.7) *
-        Math.cos(ny * 4.1 + nz * 6.2) *
-        Math.sin(nz * 3.9 + nx * 5.1);
-
-      const displacement = radius * (0.7 + noise * 0.3); // 70-100% of radius
-
-      positions.setXYZ(
-        i,
-        nx * displacement,
-        ny * displacement,
-        nz * displacement
-      );
-    }
-
-    geometry.computeVertexNormals();
-    return geometry;
-  }
-
-  /**
    * Creates a moon mesh with shape and composition variation
    * Similar to asteroids but with less extreme ruggedness
    */
   createMoon(moon: any): THREE.Mesh {
-    // Moons use similar size multiplier to asteroids but scaled for visibility
     const moonSizeMultiplier = this.bodySizeMultiplier * 2.5;
     let radius = moon.radius * this.scale * moonSizeMultiplier;
 
-    // Ensure minimum visible size
     const minVisibleRadius = 0.3;
     radius = Math.max(radius, minVisibleRadius);
 
+    const noiseSeed = moon.noiseSeed || 0;
     let geometry: THREE.BufferGeometry;
 
     // Create geometry based on shape
     if (moon.shape === "spherical") {
-      // Spherical moons (like Earth's moon)
       geometry = new THREE.SphereGeometry(radius, 24, 24);
     } else if (moon.shape === "elliptical") {
-      // Elliptical moons (slightly elongated)
       geometry = new THREE.SphereGeometry(radius, 24, 24);
       geometry.scale(1.3, 0.9, 1.0);
+    } else if (moon.shape === "faceted") {
+      geometry = this.createFacetedGeometry(radius, 2, noiseSeed);
+    } else if (moon.shape === "binary") {
+      geometry = this.createBinaryGeometry(radius, 20, noiseSeed);
     } else {
-      // Rugged/irregular moons (like Phobos/Deimos)
-      // Less extreme than asteroids - angular but not spiky
-      geometry = this.createRuggedMoonGeometry(radius);
+      // Rugged moons -- less extreme than asteroids (80-100% vs 70-100%)
+      geometry = this.createRuggedGeometry(radius, 20, 0.8, 0.2, noiseSeed);
     }
 
     const composition = moon.composition || "silica";
@@ -475,7 +438,8 @@ export class CelestialBodyFactory {
     const material = this.materialFactory.createAsteroidMaterial(
       composition,
       moon.color || 0x888888,
-      shape
+      shape,
+      noiseSeed
     );
 
     const mesh = new THREE.Mesh(geometry, material);
@@ -486,7 +450,6 @@ export class CelestialBodyFactory {
       rotationRate: moon.rotationRate || 0,
     };
 
-    // Enable shadows for moons
     mesh.castShadow = true;
     mesh.receiveShadow = true;
 
@@ -494,39 +457,145 @@ export class CelestialBodyFactory {
   }
 
   /**
-   * Creates a rugged moon geometry with moderate irregularity
-   * Less extreme than asteroids - angular but not spiky
+   * Creates a rugged/irregular geometry using seeded noise displacement.
+   * Used for both asteroids and moons with different parameters.
    */
-  private createRuggedMoonGeometry(radius: number): THREE.BufferGeometry {
-    const geometry = new THREE.SphereGeometry(radius, 20, 20);
+  private createRuggedGeometry(
+    radius: number,
+    segments: number,
+    baseDisplacement: number,
+    noiseAmplitude: number,
+    seed: number
+  ): THREE.BufferGeometry {
+    const geometry = new THREE.SphereGeometry(radius, segments, segments);
     const positions = geometry.attributes.position;
 
-    // Apply moderate displacement for angular appearance
+    // Seed offsets make each body unique
+    const sx = seed * 1.37;
+    const sy = seed * 2.51;
+    const sz = seed * 0.73;
+
     for (let i = 0; i < positions.count; i++) {
       const x = positions.getX(i);
       const y = positions.getY(i);
       const z = positions.getZ(i);
 
-      // Normalize to get direction
       const length = Math.sqrt(x * x + y * y + z * z);
       const nx = x / length;
       const ny = y / length;
       const nz = z / length;
 
-      // Apply noise-based displacement (less extreme than asteroids)
       const noise =
-        Math.sin(nx * 4.0 + ny * 2.5) *
-        Math.cos(ny * 3.2 + nz * 4.8) *
-        Math.sin(nz * 3.0 + nx * 3.8);
+        Math.sin(nx * 5.3 + ny * 3.7 + sx) *
+        Math.cos(ny * 4.1 + nz * 6.2 + sy) *
+        Math.sin(nz * 3.9 + nx * 5.1 + sz);
 
-      // More moderate displacement: 80-100% of radius (vs 70-100% for asteroids)
-      const displacement = radius * (0.8 + noise * 0.2);
+      const displacement = radius * (baseDisplacement + noise * noiseAmplitude);
 
+      positions.setXYZ(i, nx * displacement, ny * displacement, nz * displacement);
+    }
+
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+
+  /**
+   * Creates a faceted/angular geometry -- low-poly icosahedron with slight vertex jitter.
+   * Looks like a rough crystal or fractured rock.
+   */
+  private createFacetedGeometry(
+    radius: number,
+    detail: number,
+    seed: number
+  ): THREE.BufferGeometry {
+    const geometry = new THREE.IcosahedronGeometry(radius, detail);
+    const positions = geometry.attributes.position;
+
+    const sx = seed * 1.13;
+    const sy = seed * 2.79;
+
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i);
+      const y = positions.getY(i);
+      const z = positions.getZ(i);
+
+      const length = Math.sqrt(x * x + y * y + z * z);
+      if (length === 0) continue;
+      const nx = x / length;
+      const ny = y / length;
+      const nz = z / length;
+
+      // Subtle jitter per vertex to break perfect icosahedron symmetry
+      const jitter =
+        Math.sin(nx * 7.1 + sy) *
+        Math.cos(ny * 5.3 + nz * 8.7 + sx) * 0.12;
+
+      const displacement = radius * (0.88 + jitter);
+
+      positions.setXYZ(i, nx * displacement, ny * displacement, nz * displacement);
+    }
+
+    geometry.computeVertexNormals();
+    return geometry;
+  }
+
+  /**
+   * Creates a contact binary (peanut/dumbbell) geometry -- two fused lobes.
+   * Uses a radial profile curve: full radius at the two X-axis poles,
+   * pinched at the equator to create the neck/waist.
+   * Inspired by real objects like asteroid Arrokoth.
+   */
+  private createBinaryGeometry(
+    radius: number,
+    segments: number,
+    seed: number
+  ): THREE.BufferGeometry {
+    const geometry = new THREE.SphereGeometry(radius, segments, segments);
+    const positions = geometry.attributes.position;
+
+    // Neck depth varies with seed (0.25 to 0.40 -- how pinched the waist is)
+    const neckDepth = 0.25 + (Math.sin(seed * 3.17) * 0.5 + 0.5) * 0.15;
+    // Asymmetry: one lobe slightly larger than the other (±0 to ±0.12)
+    const asymmetry = (Math.sin(seed * 7.43) * 0.5 + 0.5) * 0.12;
+    // Elongation along X axis to stretch the peanut shape
+    const elongation = 1.15 + (Math.sin(seed * 2.31) * 0.5 + 0.5) * 0.15;
+
+    const sx = seed * 1.91;
+    const sy = seed * 0.67;
+    const sz = seed * 1.23;
+
+    for (let i = 0; i < positions.count; i++) {
+      const x = positions.getX(i);
+      const y = positions.getY(i);
+      const z = positions.getZ(i);
+
+      const length = Math.sqrt(x * x + y * y + z * z);
+      if (length === 0) continue;
+      const nx = x / length;
+      const ny = y / length;
+      const nz = z / length;
+
+      // t = position along X axis (-1 to 1), this is the profile parameter
+      const t = nx;
+      // Waist profile: 1.0 at poles (t=±1), dips by neckDepth at equator (t=0)
+      const waist = 1.0 - neckDepth * Math.pow(1.0 - t * t, 2);
+      // Asymmetry makes one lobe slightly fatter
+      const asym = 1.0 + asymmetry * t;
+
+      // Surface roughness noise
+      const noise =
+        Math.sin(nx * 6.1 + ny * 4.3 + sx) *
+        Math.cos(ny * 5.7 + nz * 3.2 + sy) *
+        Math.sin(nz * 4.7 + nx * 3.1 + sz) * 0.05;
+
+      const profileRadius = radius * waist * asym * (1.0 + noise);
+
+      // Apply elongation along X, keep Y/Z as-is
       positions.setXYZ(
         i,
-        nx * displacement,
-        ny * displacement,
-        nz * displacement
+        nx * elongation * profileRadius,
+        ny * profileRadius,
+        nz * profileRadius
       );
     }
 

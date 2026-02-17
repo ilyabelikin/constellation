@@ -208,23 +208,27 @@ export class TechTreeView {
       return document.createElement("div");
     }
 
+    const sectionIsPaused = this.currentResearch.status === "paused";
     const section = document.createElement("div");
     section.style.cssText = `
-      background: rgba(100, 100, 150, 0.2);
-      border: 2px solid var(--primary-color);
+      background: ${sectionIsPaused ? "rgba(245, 158, 11, 0.1)" : "rgba(100, 100, 150, 0.2)"};
+      border: 2px solid ${sectionIsPaused ? "#f59e0b" : "var(--primary-color)"};
       border-radius: 8px;
       padding: 15px;
       margin-bottom: 20px;
     `;
 
+    const researchIsPaused = this.currentResearch.status === "paused";
     const header = document.createElement("div");
     header.style.cssText = `
       font-size: 18px;
       font-weight: bold;
-      color: var(--primary-color);
+      color: ${researchIsPaused ? "#f59e0b" : "var(--primary-color)"};
       margin-bottom: 10px;
     `;
-    header.textContent = "Current Research: " + tech.name;
+    header.textContent = researchIsPaused
+      ? "Current Research: " + tech.name + " (PAUSED)"
+      : "Current Research: " + tech.name;
     section.appendChild(header);
 
     // Progress bar
@@ -241,12 +245,14 @@ export class TechTreeView {
       margin-bottom: 10px;
     `;
 
+    const isPaused = this.currentResearch.status === "paused";
     const progressBar = document.createElement("div");
     progressBar.style.cssText = `
       width: ${progressPercent}%;
       height: 100%;
-      background: var(--primary-color);
+      background: ${isPaused ? "#f59e0b" : "var(--primary-color)"};
       transition: width 0.3s;
+      ${isPaused ? "animation: tech-paused-pulse 2s ease-in-out infinite;" : ""}
     `;
     progressContainer.appendChild(progressBar);
     section.appendChild(progressContainer);
@@ -425,14 +431,17 @@ export class TechTreeView {
 
     // Status text
     if (isCurrentResearch) {
+      const isResearchPaused = this.currentResearch?.status === "paused";
       const status = document.createElement("div");
       status.style.cssText = `
-        color: var(--primary-color);
+        color: ${isResearchPaused ? "#f59e0b" : "var(--primary-color)"};
         font-size: 14px;
         font-weight: bold;
         margin-top: 10px;
       `;
-      status.textContent = "⚗ Researching...";
+      status.textContent = isResearchPaused
+        ? "⏸ Paused - No Science"
+        : "⚗ Researching...";
       card.appendChild(status);
     } else if (!isCompleted) {
       const hint = document.createElement("div");

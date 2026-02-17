@@ -4310,22 +4310,28 @@ export class DatabaseQueries {
   pauseTechnologyResearch(
     playerId: string,
     technologyId: string,
-    pausedAt: number
+    pausedAt: number,
+    reason: "manual" | "auto" = "manual"
   ): void {
     const stmt = this.db.prepare(
-      "UPDATE technology_research SET status = 'paused', paused_at = ? WHERE player_id = ? AND technology_id = ?"
+      "UPDATE technology_research SET status = 'paused', paused_at = ?, pause_reason = ? WHERE player_id = ? AND technology_id = ?"
     );
-    stmt.run(pausedAt, playerId, technologyId);
+    stmt.run(pausedAt, reason, playerId, technologyId);
   }
 
   /**
    * Resume technology research
+   * Adjusts started_at to account for pause duration so elapsed time doesn't include paused time
    */
-  resumeTechnologyResearch(playerId: string, technologyId: string): void {
+  resumeTechnologyResearch(
+    playerId: string,
+    technologyId: string,
+    currentTime: number
+  ): void {
     const stmt = this.db.prepare(
-      "UPDATE technology_research SET status = 'in_progress', paused_at = NULL WHERE player_id = ? AND technology_id = ?"
+      "UPDATE technology_research SET status = 'in_progress', paused_at = NULL, pause_reason = NULL, started_at = ? - (progress_days * 86400) WHERE player_id = ? AND technology_id = ?"
     );
-    stmt.run(playerId, technologyId);
+    stmt.run(currentTime, playerId, technologyId);
   }
 
   /**
@@ -4354,7 +4360,6 @@ export class DatabaseQueries {
     technologyId: string;
     technologyName: string;
     completed: boolean;
-    resumed?: boolean;
     paused?: boolean;
   }[] {
     const completedResearch: {
@@ -4362,35 +4367,13 @@ export class DatabaseQueries {
       technologyId: string;
       technologyName: string;
       completed: boolean;
-      resumed?: boolean;
       paused?: boolean;
     }[] = [];
 
-    // First, check for paused research that can be auto-resumed
-    // Filter by galaxyId
-    const pausedStmt = this.db.prepare(`
-      SELECT tr.*, p.science FROM technology_research tr 
-      JOIN players p ON tr.player_id = p.id 
-      WHERE tr.status = 'paused' AND p.galaxy_id = ?
-    `);
-    const pausedRows = pausedStmt.all(galaxyId) as any[];
-
-    for (const row of pausedRows) {
-      // If player has science available, resume the research
-      if (row.science > 0) {
-        this.resumeTechnologyResearch(row.player_id, row.technology_id);
-        console.log(
-          `Research on ${row.technology_id} auto-resumed: science available`
-        );
-        completedResearch.push({
-          playerId: row.player_id,
-          technologyId: row.technology_id,
-          technologyName: row.technology_id,
-          completed: false,
-          resumed: true,
-        });
-      }
-    }
+    // Paused research stays paused until the player manually resumes.
+    // No auto-resume: this prevents the cycle where science is produced by colonies,
+    // immediately consumed by auto-resumed research, then research re-pauses,
+    // creating a "ghost drain" effect where the player sees research paused but science disappearing.
 
     // Process all active research for this galaxy
     const activeStmt = this.db.prepare(`
@@ -4401,6 +4384,35 @@ export class DatabaseQueries {
     const activeRows = activeStmt.all(galaxyId) as any[];
 
     for (const row of activeRows) {
+      const playerScience = row.science;
+
+      // Look up the tech's science-per-day cost
+      const tech = TECHNOLOGIES[row.technology_id];
+      const sciencePerDay = tech
+        ? tech.scienceCost / tech.researchDays
+        : 2; // fallback to 2/day
+
+      // If player can't afford even one day of research, pause immediately
+      if (playerScience < sciencePerDay) {
+        this.pauseTechnologyResearch(
+          row.player_id,
+          row.technology_id,
+          currentTime,
+          "auto"
+        );
+        console.log(
+          `Research on ${row.technology_id} auto-paused: insufficient science (${playerScience.toFixed(1)} < ${sciencePerDay} needed per day)`
+        );
+        completedResearch.push({
+          playerId: row.player_id,
+          technologyId: row.technology_id,
+          technologyName: row.technology_id,
+          completed: false,
+          paused: true,
+        });
+        continue;
+      }
+
       const timeSinceStart = currentTime - row.started_at;
       const daysElapsed = timeSinceStart / (24 * 60 * 60);
       const currentProgress = row.progress_days;
@@ -4412,7 +4424,6 @@ export class DatabaseQueries {
       if (progressToAdd > 0) {
         // Calculate science needed for this progress (60 total / 30 days = 2 per day)
         const scienceNeeded = progressToAdd * 2;
-        const playerScience = row.science;
 
         // Calculate actual progress based on available science
         let actualProgress = progressToAdd;
@@ -4422,26 +4433,6 @@ export class DatabaseQueries {
           // Not enough science - consume what's available and slow down research
           scienceToConsume = playerScience;
           actualProgress = scienceToConsume / 2; // Convert science back to days
-          
-          // If no science available at all, pause research
-          if (playerScience === 0) {
-            this.pauseTechnologyResearch(
-              row.player_id,
-              row.technology_id,
-              currentTime
-            );
-            console.log(
-              `Research on ${row.technology_id} auto-paused: no science available`
-            );
-            completedResearch.push({
-              playerId: row.player_id,
-              technologyId: row.technology_id,
-              technologyName: row.technology_id,
-              completed: false,
-              paused: true,
-            });
-            continue;
-          }
         }
 
         if (actualProgress > 0) {
@@ -4469,7 +4460,7 @@ export class DatabaseQueries {
             completedResearch.push({
               playerId: row.player_id,
               technologyId: row.technology_id,
-              technologyName: row.technology_id, // Will be mapped to name on client
+              technologyName: row.technology_id,
               completed: true,
             });
           }

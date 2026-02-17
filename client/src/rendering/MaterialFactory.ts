@@ -891,9 +891,10 @@ export class MaterialFactory {
   createAsteroidMaterial(
     composition: "water" | "metal" | "silica",
     color: number,
-    shape: "spherical" | "elliptical" | "rugged"
+    shape: "spherical" | "elliptical" | "rugged" | "faceted" | "binary",
+    noiseSeed: number = 0
   ): THREE.ShaderMaterial {
-    return createAsteroidMaterialModule(composition, color, shape);
+    return createAsteroidMaterialModule(composition, color, shape, noiseSeed);
   }
 
   /**
