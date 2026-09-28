@@ -195,7 +195,7 @@ button.active {
   position: fixed;
   top: 64px;
   left: 10px;
-  width: 250px;
+  width: 270px;
   max-height: calc(100vh - 300px);
   overflow: auto;
   padding: 10px;
@@ -658,7 +658,7 @@ kbd {
 /* ---------------------------------------------------------------- toasts */
 #toasts {
   position: fixed;
-  top: 64px;
+  top: 122px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -856,4 +856,93 @@ kbd {
   .species-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------------------------------------------------------------- outliner tabs & system outline */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+.tabs button {
+  flex: 1;
+  padding: 5px 6px;
+}
+.orow {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  gap: 6px;
+}
+.oicon {
+  width: 14px;
+  text-align: center;
+  flex: none;
+  font-size: 12px;
+}
+.otype {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.1;
+}
+.orow .ri,
+.orow .st {
+  font-size: 12px;
+  flex: none;
+}
+.orow .ri.good {
+  color: var(--good);
+}
+.orow .hab {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  flex: none;
+}
+
+/* ---------------------------------------------------------------- opportunity badges */
+#badges {
+  position: fixed;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  z-index: 8;
+}
+.badge {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--bg);
+  backdrop-filter: blur(8px);
+  border: 1px solid color-mix(in srgb, var(--bc) 55%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--bc) 25%, transparent);
+  color: var(--bc);
+}
+.badge:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--bc) 18%, var(--bg));
+  border-color: var(--bc);
+}
+.badge .bi {
+  font-size: 20px;
+}
+.badge .bn {
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--bc);
+  color: #06101c;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
 }

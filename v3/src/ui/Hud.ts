@@ -39,6 +39,7 @@ import { canAfford } from "../sim/util";
 import type { PickResult } from "../render/Engine";
 import { costHtml, dateString, esc, fmt, pct, RES_ICON, RES_NAME, signed, yieldsHtml } from "./format";
 import { helpHtml } from "./help";
+import { findOpportunities, OPPORTUNITY_META, type Opportunity, type OpportunityKind } from "./opportunities";
 
 export interface AppApi {
   game: Game;
@@ -70,6 +71,9 @@ export class Hud {
   private endShown = false;
   private splitSel = new Set<string>();
   private logCount = 0;
+  outlinerTab: "system" | "empire" = "system";
+  private badgeIndex: Partial<Record<OpportunityKind, number>> = {};
+  private opportunities: Opportunity[] = [];
 
   constructor(
     root: HTMLElement,
@@ -78,12 +82,13 @@ export class Hud {
   ) {
     root.innerHTML = `
       <div id="topbar" class="panel"></div>
+      <div id="badges"></div>
       <div id="outliner" class="panel"></div>
       <div id="details" class="panel hidden"></div>
       <div id="log" class="panel"></div>
       <div id="viewbar" class="panel"></div>
       <div id="minihelp" class="panel">Right-click to command the active fleet · <kbd>?</kbd> help</div>`;
-    for (const id of ["topbar", "outliner", "details", "log", "viewbar"]) this.regions[id] = root.querySelector(`#${id}`)!;
+    for (const id of ["topbar", "badges", "outliner", "details", "log", "viewbar"]) this.regions[id] = root.querySelector(`#${id}`)!;
     root.addEventListener("click", (e) => this.onClick(e));
     modalRoot.addEventListener("click", (e) => this.onClick(e));
     root.addEventListener("change", (e) => {
@@ -115,6 +120,7 @@ export class Hud {
 
   render(): void {
     this.renderTopbar();
+    this.renderBadges();
     this.renderOutliner();
     this.renderDetails();
     this.renderLog();
@@ -183,11 +189,139 @@ export class Hud {
           <span class="name">${esc(f.name)}</span>${status}<span class="meta">${f.ships.length}</span></div>`;
       })
       .join("");
+    const tabs = `<div class="tabs"><button data-action="tab:system" class="${this.outlinerTab === "system" ? "active" : ""}">☉ System</button><button data-action="tab:empire" class="${this.outlinerTab === "empire" ? "active" : ""}">⚑ Empire</button></div>`;
+    if (this.outlinerTab === "system") {
+      this.set("outliner", tabs + this.systemOutline(this.outlineSystemId()));
+      return;
+    }
     this.set(
       "outliner",
-      `<div class="section-title"><span>Colonies</span><span>${colonies.length}</span></div>${colonyRows || `<div class="hint">No colonies.</div>`}
+      `${tabs}<div class="section-title"><span>Colonies</span><span>${colonies.length}</span></div>${colonyRows || `<div class="hint">No colonies.</div>`}
       <div class="section-title"><span>Fleets</span><span>${fleets.length}</span></div>${fleetRows || `<div class="hint">No fleets.</div>`}`,
     );
+  }
+
+  /** In the galaxy view the outline follows the selected star; otherwise the current system. */
+  private outlineSystemId(): string {
+    const sel = this.app.selection;
+    if (this.app.view === "galaxy" && sel?.kind === "system") return sel.id;
+    return this.app.systemId;
+  }
+
+  // ------------------------------------------------------------ system outline
+  private systemOutline(systemId: string): string {
+    const g = this.game;
+    const s = g.state;
+    const p = g.player;
+    const sys = s.systems[systemId];
+    if (!p.explored[systemId]) {
+      return `<div class="section-title"><span>Unexplored system</span></div><div class="hint">Send a scout or any fleet through a tunnel to survey it and reveal its worlds.</div>`;
+    }
+    const sel = this.app.selection;
+    const owner = systemOwner(s, systemId);
+    const colonyBy = new Map(Object.values(s.colonies).map((c) => [c.bodyId, c]));
+    const stationsBy = new Map<string, string[]>();
+    for (const st of Object.values(s.stations)) {
+      const list = stationsBy.get(st.bodyId) ?? [];
+      list.push(`<span class="st" style="color:${s.empires[st.empireId].color}" title="${esc(STATION_MAP[st.type].name)} (${esc(s.empires[st.empireId].name)})">${STATION_MAP[st.type].icon}</span>`);
+      stationsBy.set(st.bodyId, list);
+    }
+    const richIcons = (b: Body) =>
+      (["metals", "energy", "research", "exotics"] as const)
+        .filter((k) => b.richness[k] >= (k === "exotics" ? 0.5 : 1.3))
+        .map((k) => `<span class="ri" style="color:var(--${k})" title="${RES_NAME[k]} ×${b.richness[k].toFixed(1)}">${RES_ICON[k]}</span>`)
+        .join("") +
+      (b.features.includes("artifact") ? `<span class="ri good" title="Precursor artifact">⌬</span>` : "") +
+      (b.features.includes("anomaly") ? `<span class="ri good" title="Anomaly">◈</span>` : "");
+    const row = (b: Body, depth: number, icon: string, typeName: string) => {
+      const col = colonyBy.get(b.id);
+      const h = b.size > 0 ? habitability(p, b) : 0;
+      const hab = !col && b.size > 0 && h >= 0.2 ? `<span class="hab" style="color:${h >= 0.5 ? "var(--good)" : "var(--warn)"}" title="Habitability for us">${pct(h)}</span>` : "";
+      const colTag = col ? `<span class="dot" style="color:${s.empires[col.empireId].color};background:${s.empires[col.empireId].color}" title="${esc(s.empires[col.empireId].name)} colony · ${col.pop.toFixed(1)} pop"></span>` : "";
+      return `<div class="row orow ${sel?.kind === "body" && sel.id === b.id ? "sel" : ""}" style="padding-left:${6 + depth * 14}px" data-action="goto:body:${b.id}" title="${esc(typeName)}">
+        <span class="oicon">${icon}</span><span class="name">${esc(b.name)}<span class="otype">${esc(typeName)}</span></span>${colTag}${hab}${richIcons(b)}${(stationsBy.get(b.id) ?? []).join("")}</div>`;
+    };
+    const bodies = sys.bodyIds.map((id) => s.bodies[id]);
+    const byOrbit = (a: Body, b: Body) => (a.orbit?.a ?? 0) - (b.orbit?.a ?? 0);
+    let html = `<div class="section-title"><span>${esc(sys.name)}</span><span>${owner ? `<span style="color:${s.empires[owner].color}">${esc(s.empires[owner].name.split(" ")[0])}</span>` : "unclaimed"}</span></div>`;
+    for (const sid of sys.starIds) {
+      const st = s.bodies[sid];
+      html += row(st, 0, `<span style="color:${STAR_TYPE_MAP[st.type].color}">✹</span>`, STAR_TYPE_MAP[st.type].name);
+    }
+    const top = bodies.filter((b) => b.kind !== "moon").sort(byOrbit);
+    for (const b of top) {
+      if (b.kind === "belt") html += row(b, 0, "⁘", BELT_TYPE_MAP[b.type].name);
+      else if (b.kind === "comet") html += row(b, 0, "☄", "Comet");
+      else {
+        const pt = PLANET_TYPE_MAP[b.type];
+        html += row(b, 0, `<span style="color:${pt.visual.palette[2]}">●</span>`, pt.name + (b.ring ? " · rings" : ""));
+        for (const m of bodies.filter((x) => x.parentId === b.id).sort(byOrbit)) {
+          html += row(m, 1, `<span style="color:${PLANET_TYPE_MAP[m.type].visual.palette[2]}">•</span>`, PLANET_TYPE_MAP[m.type].name);
+        }
+      }
+    }
+    html += `<div class="section-title"><span>Tunnels</span><span>${sys.gates.length}</span></div>`;
+    for (const gate of sys.gates) {
+      const known = !!p.explored[gate.otherSystemId];
+      html += `<div class="row orow ${sel?.kind === "gate" && sel.id === gate.tunnelId ? "sel" : ""}" data-action="sel:gate:${gate.tunnelId}:${systemId}">
+        <span class="oicon">⟶</span><span class="name">${known ? esc(s.systems[gate.otherSystemId].name) : "Unexplored"}<span class="otype">${s.tunnels[gate.tunnelId].travelDays.toFixed(0)} days</span></span></div>`;
+    }
+    const fleets = Object.values(s.fleets).filter((f) => f.systemId === systemId && f.ships.length && (f.empireId === p.id || this.playerPresent(systemId)));
+    if (fleets.length) {
+      html += `<div class="section-title"><span>Fleets here</span><span>${fleets.length}</span></div>`;
+      for (const f of fleets) {
+        const e = s.empires[f.empireId];
+        html += `<div class="row orow ${sel?.kind === "fleet" && sel.id === f.id ? "sel" : ""}" data-action="goto:fleet:${f.id}">
+          <span class="dot" style="color:${e.color};background:${e.color}"></span><span class="name">${esc(f.name)}<span class="otype">${esc(e.name.split(" ")[0])}${f.battleId ? " · ⚔" : ""}</span></span><span class="meta">${f.ships.length}</span></div>`;
+      }
+    }
+    return html;
+  }
+
+  private playerPresent(systemId: string): boolean {
+    const s = this.game.state;
+    const pid = s.playerId;
+    return (
+      Object.values(s.fleets).some((f) => f.empireId === pid && f.systemId === systemId) ||
+      Object.values(s.colonies).some((c) => c.empireId === pid && c.systemId === systemId)
+    );
+  }
+
+  // ------------------------------------------------------------ opportunity badges
+  private renderBadges(): void {
+    const g = this.game;
+    const scope = this.app.view === "system" ? [this.app.systemId] : Object.keys(g.state.systems);
+    this.opportunities = findOpportunities(g, scope);
+    const where = this.app.view === "system" ? `in ${g.state.systems[this.app.systemId].name}` : "across explored space";
+    const html = this.opportunities
+      .map((o) => {
+        const site = !["idleShips", "freeSlots", "researchIdle"].includes(o.kind);
+        const tip = `${o.title}${site ? ` ${where}` : ""}:\n${o.targets.slice(0, 8).map((t) => "• " + t.label).join("\n")}${o.targets.length > 8 ? `\n…and ${o.targets.length - 8} more` : ""}\n(click to cycle)`;
+        return `<button class="badge" data-action="badge:${o.kind}" title="${esc(tip)}" style="--bc:${o.color}"><span class="bi">${o.icon}</span>${o.kind === "researchIdle" ? "" : `<span class="bn">${o.targets.length}</span>`}</button>`;
+      })
+      .join("");
+    this.set("badges", html);
+  }
+
+  private cycleBadge(kind: OpportunityKind): void {
+    const o = this.opportunities.find((x) => x.kind === kind);
+    if (!o || !o.targets.length) return;
+    const i = (this.badgeIndex[kind] ?? -1) + 1;
+    this.badgeIndex[kind] = i % o.targets.length;
+    const t = o.targets[i % o.targets.length];
+    const app = this.app;
+    if (t.kind === "research") {
+      this.modal = "research";
+      return;
+    }
+    if (t.kind === "fleet") {
+      const f = this.game.state.fleets[t.id];
+      if (f?.systemId) app.enterSystem(f.systemId, { kind: "fleet", id: t.id });
+      return;
+    }
+    const body = this.game.state.bodies[t.id];
+    if (body) app.enterSystem(body.systemId, { kind: "body", id: body.id });
+    app.toast(`${OPPORTUNITY_META[kind].icon} ${t.label}  (${(i % o.targets.length) + 1}/${o.targets.length})`, "info");
   }
 
   // ------------------------------------------------------------ viewbar & log
@@ -675,6 +809,17 @@ export class Hud {
             app.select({ kind: "fleet", id }, false);
           } else app.enterSystem(f.systemId!, { kind: "fleet", id });
         }
+        break;
+      }
+      case "tab":
+        this.outlinerTab = args[0] as "system" | "empire";
+        break;
+      case "badge":
+        this.cycleBadge(args[0] as OpportunityKind);
+        break;
+      case "sel": {
+        const [kind, id, sysId] = args;
+        if (kind === "gate") app.enterSystem(sysId, { kind: "gate", id });
         break;
       }
       case "build":

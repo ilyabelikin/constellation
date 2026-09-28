@@ -579,6 +579,8 @@ export function makeFleet(state: GameState, empire: Empire, systemId: string, po
     systemId,
     pos: { ...pos },
     prevPos: { ...pos },
+    vel: { x: 0, y: 0, z: 0 },
+    thrust: { x: 0, y: 0, z: 0 },
     orbitBodyId: null,
     order: null,
     transit: null,
@@ -703,7 +705,7 @@ export function createGame(partial: Partial<GameSettings> = {}): GameState {
       a,
       b,
       length,
-      travelDays: Math.round((5 + length * 0.9) * 10) / 10,
+      travelDays: Math.round((10 + length * 1.8) * 10) / 10,
     };
     state.tunnels[tunnel.id] = tunnel;
     addGate(state, tunnel, a, b);

@@ -54,6 +54,10 @@ The in-game **How to play** screen (`?`) is the reference. Controls:
 | `R` / `E` | Research tree / empires and diplomacy |
 | `F` / `Esc` | Focus the selection / deselect or open the menu |
 
+The left panel's **System** tab outlines everything in the current system: stars, planets with their moons, belts, comets, gates and fleets. It shows habitability, rich deposits, artifacts, colonies and stations at a glance. The **badges** under the top bar flag recommended actions: worlds to colonize, mining, energy, research and exotic sites, idle ships, free building slots and idle research. Click a badge to cycle through its targets.
+
+Ships fly with Newtonian thrust: they accelerate to cruise speed, coast, then flip and burn to brake, and they match orbits with moving planets.
+
 The game autosaves to `localStorage` every 90 seconds, and you can save manually from the menu.
 
 ## Architecture

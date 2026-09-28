@@ -152,6 +152,10 @@ export interface Fleet {
   pos: Vec3;
   /** Previous-tick position, used by the renderer to interpolate smoothly. */
   prevPos: Vec3;
+  /** Velocity in AU/day. */
+  vel: Vec3;
+  /** Current burn: direction of thrust scaled 0..1 of max acceleration (0 = coasting). */
+  thrust: Vec3;
   orbitBodyId: string | null;
   order: Order | null;
   transit: Transit | null;

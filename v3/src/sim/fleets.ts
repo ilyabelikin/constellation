@@ -12,7 +12,7 @@ import {
   systemOwner,
 } from "./economy";
 import { modifiers } from "./modifiers";
-import { bodyPosition, copyVec, dist } from "./orbits";
+import { bodyPosition, copyVec } from "./orbits";
 import { log, nextId, withRng } from "./util";
 import type { Colony, Empire, Fleet, GameState, Order, SimEvent, Station, Vec3 } from "./types";
 
@@ -138,9 +138,80 @@ export function issueOrder(state: GameState, fleet: Fleet, order: Omit<Order, "r
   return null;
 }
 
+/** Days a fleet needs to reach cruise speed from rest (sets its acceleration). */
+export const ACCEL_DAYS = 1.5;
+
+export function fleetAccel(state: GameState, fleet: Fleet): number {
+  return fleetSpeed(state, fleet) / ACCEL_DAYS;
+}
+
+const ZERO: Vec3 = { x: 0, y: 0, z: 0 };
+
+/** Velocity of whatever the fleet is heading for, so it can match it on arrival. */
+function targetVelocity(state: GameState, fleet: Fleet): Vec3 {
+  const o = fleet.order;
+  if (!o || !fleet.systemId || o.route.length) return ZERO;
+  if (o.kind === "attack" && o.fleetId) return state.fleets[o.fleetId]?.vel ?? ZERO;
+  if (o.bodyId) return bodyVelocity(state, o.bodyId);
+  return ZERO;
+}
+
+export function bodyVelocity(state: GameState, bodyId: string): Vec3 {
+  const body = state.bodies[bodyId];
+  if (!body?.orbit) return ZERO;
+  const h = 0.05;
+  const a = bodyPosition(state, body, state.day);
+  const b = bodyPosition(state, body, state.day + h);
+  return { x: (b.x - a.x) / h, y: (b.y - a.y) / h, z: (b.z - a.z) / h };
+}
+
+/**
+ * Thrust-limited steering. The fleet accelerates towards the target up to
+ * cruise speed, coasts, then flips and burns to arrive matching the target's
+ * velocity (braking curve v = sqrt(2·a·d)). Moving targets are led.
+ * Returns true once the fleet has arrived (position and velocity matched).
+ */
+function steer(fleet: Fleet, target: Vec3, targetVel: Vec3, vmax: number, accel: number, dt: number): boolean {
+  const rx = target.x - fleet.pos.x;
+  const ry = target.y - fleet.pos.y;
+  const rz = target.z - fleet.pos.z;
+  const d = Math.hypot(rx, ry, rz);
+  const rvx = fleet.vel.x - targetVel.x;
+  const rvy = fleet.vel.y - targetVel.y;
+  const rvz = fleet.vel.z - targetVel.z;
+  const relSpeed = Math.hypot(rvx, rvy, rvz);
+  if (d <= Math.max(ARRIVE_EPS, relSpeed * dt * 1.05) && relSpeed <= accel * dt * 2.5) {
+    fleet.pos = copyVec(target);
+    fleet.vel = copyVec(targetVel);
+    fleet.thrust = { x: 0, y: 0, z: 0 };
+    return true;
+  }
+  // Lead a moving target: aim at where it will be when we get there.
+  const eta = Math.min(40, d / Math.max(vmax * 0.6, 1e-3));
+  const ax = rx + targetVel.x * eta * 0.5;
+  const ay = ry + targetVel.y * eta * 0.5;
+  const az = rz + targetVel.z * eta * 0.5;
+  const ad = Math.hypot(ax, ay, az) || 1;
+  const want = Math.min(vmax, Math.sqrt(2 * accel * Math.max(0, d - ARRIVE_EPS * 0.5)) * 0.95);
+  const dvx = targetVel.x + (ax / ad) * want - fleet.vel.x;
+  const dvy = targetVel.y + (ay / ad) * want - fleet.vel.y;
+  const dvz = targetVel.z + (az / ad) * want - fleet.vel.z;
+  const dv = Math.hypot(dvx, dvy, dvz);
+  const maxDv = accel * dt;
+  const k = dv > maxDv ? maxDv / dv : 1;
+  fleet.vel = { x: fleet.vel.x + dvx * k, y: fleet.vel.y + dvy * k, z: fleet.vel.z + dvz * k };
+  // Burn fraction (0 when coasting at cruise, 1 at full thrust); tiny corrections read as coasting.
+  const burn = (dv * k) / maxDv;
+  fleet.thrust = burn > 0.08 && dv > 1e-9 ? { x: (dvx / dv) * burn, y: (dvy / dv) * burn, z: (dvz / dv) * burn } : { x: 0, y: 0, z: 0 };
+  fleet.pos = { x: fleet.pos.x + fleet.vel.x * dt, y: fleet.pos.y + fleet.vel.y * dt, z: fleet.pos.z + fleet.vel.z * dt };
+  return false;
+}
+
 export function stepFleets(state: GameState, dt: number, events: SimEvent[]): void {
   for (const fleet of Object.values(state.fleets)) {
     fleet.prevPos = copyVec(fleet.pos);
+    fleet.vel ??= { x: 0, y: 0, z: 0 };
+    fleet.thrust ??= { x: 0, y: 0, z: 0 };
     if (fleet.ships.length === 0) continue;
     if (fleet.transit) {
       stepTransit(state, fleet, dt, events);
@@ -154,35 +225,19 @@ export function stepFleets(state: GameState, dt: number, events: SimEvent[]): vo
       followOrbit(state, fleet, dt);
       continue;
     }
-    const speed = fleetSpeed(state, fleet) * (fleet.battleId ? 0.5 : 1);
-    const d = dist(fleet.pos, target);
-    const step = speed * dt;
-    if (d <= Math.max(step, ARRIVE_EPS)) {
-      fleet.pos = copyVec(target);
-      arrive(state, fleet, dt, events);
-    } else {
-      const k = step / d;
-      fleet.pos = {
-        x: fleet.pos.x + (target.x - fleet.pos.x) * k,
-        y: fleet.pos.y + (target.y - fleet.pos.y) * k,
-        z: fleet.pos.z + (target.z - fleet.pos.z) * k,
-      };
-    }
+    const vmax = fleetSpeed(state, fleet) * (fleet.battleId ? 0.5 : 1);
+    if (steer(fleet, target, targetVelocity(state, fleet), vmax, fleetAccel(state, fleet), dt)) arrive(state, fleet, dt, events);
   }
 }
 
+/** Idle fleets hold station on their anchor body (or drift to a stop in open space). */
 function followOrbit(state: GameState, fleet: Fleet, dt: number): void {
-  if (!fleet.orbitBodyId) return;
-  const body = state.bodies[fleet.orbitBodyId];
-  if (!body || body.systemId !== fleet.systemId) return;
-  const at = bodyPosition(state, body);
-  const d = dist(fleet.pos, at);
-  const step = fleetSpeed(state, fleet) * dt * 1.5; // a little faster than orbital drift
-  if (d <= step) fleet.pos = at;
-  else {
-    const k = step / d;
-    fleet.pos = { x: fleet.pos.x + (at.x - fleet.pos.x) * k, y: fleet.pos.y + (at.y - fleet.pos.y) * k, z: fleet.pos.z + (at.z - fleet.pos.z) * k };
+  const body = fleet.orbitBodyId ? state.bodies[fleet.orbitBodyId] : null;
+  if (!body || body.systemId !== fleet.systemId) {
+    steer(fleet, fleet.pos, ZERO, fleetSpeed(state, fleet), fleetAccel(state, fleet), dt);
+    return;
   }
+  steer(fleet, bodyPosition(state, body), bodyVelocity(state, body.id), fleetSpeed(state, fleet), fleetAccel(state, fleet), dt);
 }
 
 function stepTransit(state: GameState, fleet: Fleet, dt: number, events: SimEvent[]): void {
@@ -194,6 +249,8 @@ function stepTransit(state: GameState, fleet: Fleet, dt: number, events: SimEven
   fleet.systemId = tr.to;
   fleet.pos = copyVec(gate.pos);
   fleet.prevPos = copyVec(gate.pos);
+  fleet.vel = { x: 0, y: 0, z: 0 };
+  fleet.thrust = { x: 0, y: 0, z: 0 };
   const empire = state.empires[fleet.empireId];
   if (!empire.explored[tr.to]) {
     empire.explored[tr.to] = true;

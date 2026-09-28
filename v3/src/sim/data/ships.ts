@@ -105,7 +105,7 @@ export interface HullDef {
   hull: number;
   armor: number;
   shields: number;
-  /** AU per day. */
+  /** Cruise speed in AU per day (ships accelerate up to it and brake from it). */
   speed: number;
   evasion: number;
   weapons: WeaponMount[];
@@ -130,7 +130,7 @@ export const HULLS: HullDef[] = [
     hull: 30,
     armor: 0,
     shields: 0,
-    speed: 2.6,
+    speed: 1.3,
     evasion: 0.5,
     weapons: [],
     requires: null,
@@ -148,7 +148,7 @@ export const HULLS: HullDef[] = [
     hull: 60,
     armor: 10,
     shields: 0,
-    speed: 1.3,
+    speed: 0.65,
     evasion: 0.1,
     weapons: [],
     requires: null,
@@ -166,7 +166,7 @@ export const HULLS: HullDef[] = [
     hull: 80,
     armor: 10,
     shields: 0,
-    speed: 1.1,
+    speed: 0.55,
     evasion: 0.05,
     weapons: [],
     requires: null,
@@ -184,7 +184,7 @@ export const HULLS: HullDef[] = [
     hull: 90,
     armor: 20,
     shields: 0,
-    speed: 1.4,
+    speed: 0.7,
     evasion: 0.1,
     weapons: [],
     troops: 3,
@@ -203,7 +203,7 @@ export const HULLS: HullDef[] = [
     hull: 60,
     armor: 20,
     shields: 0,
-    speed: 2,
+    speed: 1.0,
     evasion: 0.35,
     weapons: [{ family: "laser", size: "S" }, { family: "missile", size: "S" }],
     requires: null,
@@ -221,7 +221,7 @@ export const HULLS: HullDef[] = [
     hull: 130,
     armor: 50,
     shields: 20,
-    speed: 1.8,
+    speed: 0.9,
     evasion: 0.25,
     weapons: [
       { family: "railgun", size: "S" },
@@ -243,7 +243,7 @@ export const HULLS: HullDef[] = [
     hull: 260,
     armor: 110,
     shields: 60,
-    speed: 1.6,
+    speed: 0.8,
     evasion: 0.16,
     weapons: [
       { family: "railgun", size: "M" },
@@ -265,7 +265,7 @@ export const HULLS: HullDef[] = [
     hull: 520,
     armor: 220,
     shields: 170,
-    speed: 1.4,
+    speed: 0.7,
     evasion: 0.1,
     weapons: [
       { family: "laser", size: "M" },
@@ -288,7 +288,7 @@ export const HULLS: HullDef[] = [
     hull: 1250,
     armor: 520,
     shields: 420,
-    speed: 1.15,
+    speed: 0.575,
     evasion: 0.05,
     weapons: [
       { family: "railgun", size: "L" },
@@ -313,7 +313,7 @@ export const HULLS: HullDef[] = [
     hull: 3600,
     armor: 1300,
     shields: 1300,
-    speed: 0.95,
+    speed: 0.475,
     evasion: 0.02,
     weapons: [
       { family: "lance", size: "XL" },
