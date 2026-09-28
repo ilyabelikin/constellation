@@ -454,3 +454,35 @@ test("HUD updates don't recreate hovered buttons, and one click builds", async (
   await btn.click();
   await expect.poll(() => page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue.length, cap)).toBe(q0 + 1);
 });
+
+test("species screen shows a turntable of that civilization's ships", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("#lb-ship canvas")).toBeVisible();
+  await page.click('[data-species="kraal"]');
+  await expect(page.locator(".ship-preview-caption")).toContainText("Kraal");
+  await expect(page.locator(".ship-preview-caption")).toContainText("bio-carapace");
+  const lit = await page.evaluate(
+    () =>
+      new Promise<number>((resolve) =>
+        requestAnimationFrame(() => {
+          const src = document.querySelector("#lb-ship canvas") as HTMLCanvasElement;
+          const c = document.createElement("canvas");
+          c.width = 120;
+          c.height = 50;
+          const ctx = c.getContext("2d")!;
+          ctx.drawImage(src, 0, 0, 120, 50);
+          const d = ctx.getImageData(0, 0, 120, 50).data;
+          let n = 0;
+          for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 90) n++;
+          resolve(n);
+        }),
+      ),
+  );
+  expect(lit).toBeGreaterThan(30); // a ship is actually drawn
+  await page.click('[data-species="aurelian"]');
+  await expect(page.locator(".ship-preview-caption")).toContainText("Aurelian");
+  // Starting the game tears the preview down.
+  await page.click("#lb-start");
+  await expect(page.locator("#topbar")).toBeVisible();
+  await expect(page.locator("#lb-ship")).toHaveCount(0);
+});

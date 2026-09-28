@@ -23,7 +23,7 @@ import {
 import { createAccretionDiskMaterial, createBeamMaterial, createCoronaMaterial, createStarMaterial } from "./materials/star";
 import { shipVisualLength } from "./scale";
 import { moonVisualRadius, planetVisualRadius, starVisualRadius, SystemLayout } from "./layout";
-import { hullMaterial, radiatorMat, shipModel } from "./ShipModels";
+import { hullMaterial, radiatorMat, SHIP_STYLES, shipModel, styleForSpecies } from "./ShipModels";
 import { stationGeometry, stationMaterial } from "./StationModels";
 
 interface BodyVisual {
@@ -496,6 +496,7 @@ export class SystemView implements View {
   private buildFleet(f: Fleet, key: string): void {
     const s = this.game.state;
     const color = s.empires[f.empireId].color;
+    const style = styleForSpecies(s.empires[f.empireId].speciesId);
     const group = new THREE.Group();
     const ships: THREE.Group[] = [];
     const engines: THREE.Sprite[] = [];
@@ -505,15 +506,15 @@ export class SystemView implements View {
     const spacing = Math.max(0.6, maxLen * 0.75);
     shown.forEach((ship, i) => {
       const hull = HULL_MAP[ship.hull];
-      const model = shipModel(ship.hull);
+      const model = shipModel(ship.hull, style);
       const len = shipVisualLength(hull.length);
       const scale = len / model.length;
       const sg = new THREE.Group();
-      const hm = new THREE.Mesh(model.hull, hullMaterial(color));
+      const hm = new THREE.Mesh(model.hull, hullMaterial(color, style));
       const rm = new THREE.Mesh(model.radiators, radiatorMat());
       sg.add(hm, rm);
       for (const e of model.engines) {
-        const spr = glowSprite(hull.role === "military" ? "#7fd0ff" : "#ffd28a", 1.4 / scale * len * 0.35, 0.9);
+        const spr = glowSprite(hull.role === "military" ? SHIP_STYLES[style].engine : SHIP_STYLES[style].civilEngine, 1.4 / scale * len * 0.35, 0.9);
         spr.position.copy(e);
         sg.add(spr);
         engines.push(spr);
