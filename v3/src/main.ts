@@ -13,7 +13,6 @@ import { SPEEDS, type CloudSaveSummary, type SessionInfo, type SessionSummary } 
 import { Engine, type PickResult } from "./render/Engine";
 import { GalaxyView } from "./render/GalaxyView";
 import { SystemView } from "./render/SystemView";
-import { auToScene } from "./render/scale";
 import { Hud, type AppApi } from "./ui/Hud";
 import { Labels } from "./ui/Labels";
 import { Lobby } from "./ui/Lobby";
@@ -407,8 +406,9 @@ class App implements AppApi {
     const rig = this.engine.rig;
     rig.follow = null;
     rig.minDistance = 3;
-    rig.maxDistance = auToScene(sys.extent) * 4;
-    rig.focus(new THREE.Vector3(), Math.min(rig.maxDistance, auToScene(sys.extent) * 1.6));
+    const extent = this.systemView.extentScene;
+    rig.maxDistance = extent * 4;
+    rig.focus(new THREE.Vector3(), Math.min(rig.maxDistance, extent * 1.6));
     rig.goalPitch = 0.62;
     this.labels.clear();
   }
@@ -517,8 +517,7 @@ class App implements AppApi {
       if (j.t > 0.35 && !j.fired) {
         // ...then pull back to take in the whole system from the side.
         j.fired = true;
-        const sys = this.game.state.systems[j.to];
-        rig.focus(new THREE.Vector3(), auToScene(sys.extent) * 1.9);
+        rig.focus(new THREE.Vector3(), (this.systemView?.extentScene ?? 300) * 1.9);
         rig.goalPitch = 0.2;
       }
       if (j.t > 2.6) this.endGateJump();
@@ -870,7 +869,7 @@ class App implements AppApi {
     }
     if (this.systemView) {
       this.systemView.alpha = this.running ? alpha : 0;
-      this.systemView.renderDay = this.running ? renderDay : time * 2;
+      this.systemView.renderDay = this.running ? renderDay : time * 0.8;
       if (steps > 0) this.systemView.sync();
       this.systemView.handleEvents(events);
     }

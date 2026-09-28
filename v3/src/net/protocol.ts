@@ -6,8 +6,8 @@ import type { PlayerView, StaticView } from "../sim/view";
 import type { DecideRequest, DirectiveReply, TalkReply, TalkRequest } from "../llm/types";
 
 export const PROTOCOL_VERSION = 1;
-/** Real-time speed multipliers: game days per real second (index 0 = paused). */
-export const SPEEDS = [0, 1, 2, 4, 8];
+/** Game days per real second for the 1×/2×/4×/8× buttons (index 0 = paused). 1× is a calm 0.6 days/s. */
+export const SPEEDS = [0, 0.6, 1.2, 2.4, 4.8];
 
 export interface SeatInfo {
   empireId: string;

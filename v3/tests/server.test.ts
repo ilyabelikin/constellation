@@ -107,7 +107,7 @@ describe("multiplayer hub", () => {
     guest.send({ t: "takeSeat", empireId: guest.last("session")!.info.seats.find((s) => !s.playerName)!.empireId });
     host.send({ t: "start" });
     hub.tick(1000);
-    expect(session.game.state.day).toBeGreaterThan(0.8);
+    expect(session.game.state.day).toBeGreaterThan(0.5); // 1× = 0.6 days per second
     guest.send({ t: "speed", index: 4 });
     expect(guest.last("error")!.message).toMatch(/Only the host/);
     guest.send({ t: "speed", index: 0 }); // anyone may pause
@@ -116,7 +116,7 @@ describe("multiplayer hub", () => {
     expect(session.game.state.day).toBe(day);
     host.send({ t: "speed", index: 3 });
     hub.tick(1000);
-    expect(session.game.state.day).toBeGreaterThan(day + 3);
+    expect(session.game.state.day).toBeGreaterThan(day + 2); // 4× = 2.4 days per second
     hub.disconnect(host.conn);
     hub.disconnect(guest.conn);
     const d2 = session.game.state.day;

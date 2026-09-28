@@ -128,7 +128,9 @@ export function generateSystem(
   const orbits: number[] = [];
   for (let i = 0; i < count; i++) {
     orbits.push(a);
-    a *= rng.range(1.45, 1.85);
+    // Neighbouring planets keep a period ratio well clear of close encounters
+    // (real systems sit around 1.5–2.2× in distance).
+    a *= rng.range(1.6, 2.1);
     if (a > 60) break;
   }
 
@@ -247,7 +249,8 @@ export function generateSystem(
         orbit: {
           a: moonA,
           e: rng.range(0, 0.04),
-          period: rng.range(2.5, 5) * (1 + m * 0.9),
+          // Kepler: outer moons take longer (P ∝ a^1.5); the innermost circles in about a week.
+          period: rng.range(5, 9) * Math.pow(moonA / (p.radius * (p.ring ? p.ring.outer + 0.8 : 2.4)), 1.5),
           phase: rng.range(0, Math.PI * 2),
           inclination: rng.range(-0.15, 0.15) + (p.ring ? p.ring.tilt : 0),
           node: rng.range(0, Math.PI * 2),
@@ -314,7 +317,8 @@ export function generateSystem(
   const outermost = Math.max(orbits[orbits.length - 1] ?? 2, ...beltOrbits, 2);
   if (!opts.forbidBinary && !opts.homeSpecies && rng.chance(0.18)) {
     const ct = rng.weighted(STAR_TYPES, (s) => (s.canBeCompanion ? s.weight : 0));
-    const ca = outermost * rng.range(1.35, 1.7);
+    // A distant companion: far enough out that it can't disturb the planets.
+    const ca = outermost * rng.range(3, 4.5);
     bodies.push({
       id: `${id}-s1`,
       systemId: id,
@@ -324,7 +328,7 @@ export function generateSystem(
       parentId: star.id,
       orbit: {
         a: ca,
-        e: rng.range(0, 0.2),
+        e: rng.range(0, 0.12),
         period: orbitalPeriodDays(ca, mass) * 1.5,
         phase: rng.range(0, Math.PI * 2),
         inclination: rng.range(-0.1, 0.1),
