@@ -9,7 +9,10 @@ module.exports = {
       interpreter: "node",
       // --experimental-sqlite: node:sqlite is behind a flag before Node 22.13 (the
       // server runs 22.12); newer Node accepts the flag as a no-op.
-      interpreter_args: "--experimental-sqlite --env-file=.env --import tsx",
+      // The .env path is absolute because Node resolves it before pm2's cwd applies.
+      interpreter_args: `--experimental-sqlite --env-file=${__dirname}/.env --import tsx`,
+      // Fork mode: cluster mode drops the interpreter flags above and crash-loops.
+      exec_mode: "fork",
       instances: 1,
       autorestart: true,
       max_memory_restart: "1G",
