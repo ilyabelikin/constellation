@@ -239,6 +239,23 @@ export interface AiState {
   directive?: AiDirective;
   /** Day on which the ruler next reviews its strategy. */
   llmNext?: number;
+  /** Ruler persona (see data/personas.ts), drawn independently of species. */
+  persona?: string;
+  /** Last day a peace proposal was sent to each (human) empire. */
+  peaceProposedAt?: Record<string, number>;
+}
+
+/** A formal demand one empire has made of another, awaiting an answer. */
+export type Demand =
+  | { kind: "colony"; colonyId: string; day: number }
+  | { kind: "tribute"; resource: ResourceKey; amount: number; day: number };
+
+/** A concrete diplomatic act attached to a message. */
+export interface DiploAction {
+  kind: "none" | "accept_peace" | "propose_peace" | "declare_war" | "offer_tribute" | "cede_colony" | "demand_tribute" | "demand_colony";
+  resource?: ResourceKey;
+  amount?: number;
+  colonyId?: string;
 }
 
 export type Posture = "expand" | "consolidate" | "militarize" | "attack" | "defend";
@@ -263,8 +280,8 @@ export interface ChatMessage {
   text: string;
   day: number;
   at: number; // wall-clock ms
-  /** Diplomatic action the sender took along with the message. */
-  action?: "none" | "accept_peace" | "propose_peace" | "declare_war";
+  /** Diplomatic act the sender carried out along with the message. */
+  action?: DiploAction;
 }
 
 export interface EmpireStats {
@@ -297,6 +314,8 @@ export interface Empire {
   contacts?: Record<string, true>;
   /** Pending peace offers from other (human) empires: sender id → day offered. */
   peaceOffers?: Record<string, number>;
+  /** Pending demands made of this empire: demander id → demand. */
+  demands?: Record<string, Demand>;
 }
 
 export interface Battle {

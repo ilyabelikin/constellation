@@ -3,51 +3,25 @@
 
 import type { Branch } from "../sim/data/techs";
 
-import type { Posture } from "../sim/types";
+import type { DiploAction, Posture } from "../sim/types";
 export type { Posture };
 export const POSTURES: Posture[] = ["expand", "consolidate", "militarize", "attack", "defend"];
 
-export interface RivalBrief {
-  id: string;
-  name: string;
-  species: string;
-  relation: "peace" | "war";
-  /** Human-controlled (a real person reads our messages). */
-  human: boolean;
-  /** Military strength estimate, same scale as ours. */
-  strength: number;
-  /** Their colonies we know of (in systems we have explored). */
-  knownColonies: number;
-  sharesBorder: boolean;
-  /** Days since the current war began (if at war). */
-  warDays?: number;
-  /** They have offered us peace and are waiting for an answer. */
-  offeredPeace?: boolean;
-}
-
+/**
+ * What a ruler knows, as sent to the model: a compact text dump plus the ids
+ * the model may refer to (so its answers can be validated).
+ */
 export interface Briefing {
   day: number;
-  empire: {
-    id: string;
-    name: string;
-    species: string;
-    personality: string;
-    colonies: number;
-    population: number;
-    systemsOwned: number;
-    totalSystems: number;
-    exploredSystems: number;
-    strength: number;
-    resources: Record<string, number>;
-    income: Record<string, number>;
-    techs: number;
-    researching: string | null;
-  };
-  rivals: RivalBrief[];
-  /** Recent events this empire witnessed or was told about. */
-  recent: string[];
-  /** The strategy currently in force, if any. */
-  current?: { posture: Posture; research: Branch | null; warTarget: string | null; summary: string };
+  empireId: string;
+  empireName: string;
+  speciesId: string;
+  personaId: string;
+  /** Compact, knowledge-limited situation report (see briefing.ts). */
+  dump: string;
+  rivals: { id: string; name: string; human: boolean; relation: "peace" | "war" }[];
+  ownColonies: { id: string; name: string; capital: boolean }[];
+  knownColonies: { id: string; name: string; ownerId: string }[];
 }
 
 export interface DecideRequest {
@@ -62,11 +36,9 @@ export interface DirectiveReply {
   warTarget: string | null;
   seekPeace: string[];
   summary: string;
-  /** In-character messages to human rulers (only sent at key moments). */
-  messages: { to: string; text: string }[];
+  /** In-character messages to human rulers (at key moments), optionally with a demand or offer. */
+  messages: { to: string; text: string; action: DiploAction }[];
 }
-
-export type TalkAction = "none" | "accept_peace" | "propose_peace" | "declare_war";
 
 export interface TalkRequest {
   briefing: Briefing;
@@ -78,5 +50,5 @@ export interface TalkRequest {
 
 export interface TalkReply {
   reply: string;
-  action: TalkAction;
+  action: DiploAction;
 }

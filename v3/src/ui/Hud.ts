@@ -34,7 +34,7 @@ import { fleetSpeed, findRoute } from "../sim/fleets";
 import type { PlayerFacade as Game } from "../sim/facade";
 import { buildingUnlocked, hullUnlocked, shipStats, stationUnlocked } from "../sim/modifiers";
 import { dist } from "../sim/orbits";
-import type { Body, ChatMessage, Colony, Fleet, Order, ResourceKey } from "../sim/types";
+import type { Body, ChatMessage, Colony, DiploAction, Fleet, Order, ResourceKey } from "../sim/types";
 import type { SessionInfo } from "../net/protocol";
 import { inviteLink } from "./Lobby";
 import { canAfford, canSeeLog } from "../sim/util";
@@ -867,6 +867,11 @@ export class Hud {
             <div class="stats">Not yet contacted — meet them by sharing a system or surveying their territory.</div></div><div></div></div>`;
         const rel = e.id === p.id ? "" : `<span class="tag ${p.relations[e.id]}">${p.relations[e.id] === "war" ? "AT WAR" : "PEACE"}</span>`;
         const offer = e.id !== p.id && p.peaceOffers?.[e.id] !== undefined;
+        const demand = e.id !== p.id ? p.demands?.[e.id] : undefined;
+        const demandHtml = demand
+          ? `<div class="demand">⚠ Demands ${esc(demand.kind === "colony" ? (s.colonies[demand.colonyId]?.name ?? "a colony") : `${demand.amount} ${demand.resource}`)}
+              <button class="primary" data-action="acceptdemand:${e.id}">Give</button> <button class="danger" data-action="rejectdemand:${e.id}">Refuse</button></div>`
+          : "";
         const unread = this.unreadFrom(e.id);
         const talk = e.id !== p.id && this.app.canChat(e.id) ? `<button data-action="chat:${e.id}">✉ Talk${unread ? `<span class="unread">${unread}</span>` : ""}</button>` : "";
         const btn =
@@ -882,6 +887,7 @@ export class Hud {
         return `<div class="empire-card"><div class="swatch" style="background:${e.color}"></div>
           <div><div style="font-weight:600;font-size:15px;color:${e.color}">${esc(e.name)} ${e.id === p.id ? "(you)" : ""} ${rel} ${ruler} ${offer ? `<span class="tag peace">offers peace</span>` : ""}</div>
           <div class="stats">${e.isPirate ? "Lawless raiders · always hostile" : `${esc(SPECIES_MAP[e.speciesId]?.adjective ?? "")} · ${met ? `${cols.length} colonies · ${fmt(pop, 1)} pop · ${systems}/${total} systems (${pct(systems / total)}) · strength ${fmt(empirePower(s, e.id))} · ${e.research.completed.length} techs${e.research.current === "ascension" ? " · <b style='color:var(--warn)'>pursuing Ascension!</b>" : ""}` : "not yet contacted"}`}</div></div>
+          ${demandHtml}</div>
           <div class="actions">${talk} ${btn}</div></div>`;
       })
       .join("");
@@ -921,12 +927,12 @@ export class Hud {
     const msgs = this.app.chats.filter((m) => (m.from === me && m.to === other.id) || (m.from === other.id && m.to === me));
     for (const m of msgs) this.seenChats.add(m.id);
     const human = !!this.app.remote?.info.seats.find((x) => x.empireId === other.id)?.playerName;
-    const actionText: Record<string, string> = {
-      accept_peace: "☮ accepted peace",
-      propose_peace: "☮ proposed peace",
-      declare_war: "⚔ declared war",
-    };
     const waiting = msgs.length > 0 && msgs[msgs.length - 1].from === me && !human;
+    const demand = g.player.demands?.[other.id];
+    const r = g.player.resources;
+    const gifts = (["credits", "metals"] as const)
+      .map((k) => `<button data-action="gift:${other.id}:${k}:100" ${r[k] >= 100 ? "" : "disabled"} title="Send 100 ${k} as a gift or tribute">🎁 100 ${RES_ICON[k]}</button>`)
+      .join("");
     return `<header><h2 style="color:${other.color}">${esc(other.name)}</h2>
       <span class="tag ${g.player.relations[other.id]}">${g.player.relations[other.id] === "war" ? "AT WAR" : "PEACE"}</span>
       <span class="subtitle">${human ? "A human ruler" : "Their ruler answers in character"}</span>
@@ -935,11 +941,13 @@ export class Hud {
         msgs.length
           ? msgs
               .map(
-                (m) => `<div class="chat-msg ${m.from === me ? "ours" : ""}"><div class="meta">${m.from === me ? "You" : esc(other.name)} · ${dateString(m.day)}${m.action && m.action !== "none" ? ` · <b>${actionText[m.action] ?? ""}</b>` : ""}</div>${esc(m.text)}</div>`,
+                (m) => `<div class="chat-msg ${m.from === me ? "ours" : ""}"><div class="meta">${m.from === me ? "You" : esc(other.name)} · ${dateString(m.day)}${m.action && m.action.kind !== "none" ? ` · <b>${esc(describeAction(g, m.action))}</b>` : ""}</div>${esc(m.text)}</div>`,
               )
               .join("")
           : `<div class="hint">No correspondence yet. Open a channel — propose an alliance, demand tribute, or negotiate a ceasefire.</div>`
       }${waiting ? `<div class="hint">Awaiting their reply…</div>` : ""}</div>
+      ${demand ? `<div class="demand">⚠ They demand ${esc(demand.kind === "colony" ? (g.state.colonies[demand.colonyId]?.name ?? "a colony") : `${demand.amount} ${demand.resource}`)} <button class="primary" data-action="acceptdemand:${other.id}">Give</button> <button class="danger" data-action="rejectdemand:${other.id}">Refuse</button></div>` : ""}
+      <div class="chat-tools">${gifts}${g.player.peaceOffers?.[other.id] !== undefined ? `<button class="primary" data-action="acceptpeace:${other.id}">☮ Accept their peace offer</button>` : ""}${this.app.remote ? "" : `<span class="hint">The game is paused while you write.</span>`}</div>
       <div class="chat-input"><input id="chat-input" maxlength="500" placeholder="Message to the ${esc(other.name)}…" autocomplete="off" /><button class="primary" data-action="sendchat">Send</button></div>`;
   }
 
@@ -1138,6 +1146,15 @@ export class Hud {
       case "acceptpeace":
         res(g.acceptPeace(args[0]), "Peace treaty signed");
         break;
+      case "acceptdemand":
+        if (window.confirm("Give them what they demand?")) res(g.acceptDemand(args[0]), "Demand met");
+        break;
+      case "rejectdemand":
+        res(g.rejectDemand(args[0]), "Demand refused");
+        break;
+      case "gift":
+        res(g.sendTribute(args[0], args[1], Number(args[2])), `Sent ${args[2]} ${args[1]}`);
+        break;
       case "rejectpeace":
         res(g.rejectPeace(args[0]), "Peace offer rejected");
         break;
@@ -1191,6 +1208,28 @@ export class Hud {
     this.endShown = false;
     this.invalidate();
     this.logCount = 0;
+  }
+}
+
+function describeAction(g: Game, a: DiploAction): string {
+  const s = g.state;
+  switch (a.kind) {
+    case "accept_peace":
+      return "☮ accepted peace";
+    case "propose_peace":
+      return "☮ proposed peace";
+    case "declare_war":
+      return "⚔ declared war";
+    case "offer_tribute":
+      return `🎁 sent ${a.amount ?? ""} ${a.resource ?? ""}`;
+    case "cede_colony":
+      return `🜨 ceded ${s.colonies[a.colonyId ?? ""]?.name ?? "a colony"}`;
+    case "demand_tribute":
+      return `⚠ demands ${a.amount ?? ""} ${a.resource ?? ""}`;
+    case "demand_colony":
+      return `⚠ demands ${s.colonies[a.colonyId ?? ""]?.name ?? "a colony"}`;
+    default:
+      return "";
   }
 }
 

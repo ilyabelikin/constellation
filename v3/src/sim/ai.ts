@@ -31,10 +31,19 @@ import { hasMet } from "./knowledge";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
 import type { Rng } from "./rng";
-import { canAfford } from "./util";
-import type { AiState, Colony, Empire, Fleet, GameState } from "./types";
+import { canAfford, logTo } from "./util";
+import type { AiDirective, AiState, Colony, Empire, Fleet, GameState, Posture } from "./types";
 
 const THINK_INTERVAL = 5;
+
+/** Military build-up wanted under each grand-strategy posture (LLM directive). */
+const POSTURE_MILITARY: Record<Posture, number> = { expand: 0.8, consolidate: 0.9, militarize: 1.7, attack: 1.45, defend: 1.3 };
+
+/** The ruler's current directive, if it is still fresh. */
+export function activeDirective(state: GameState, empire: Empire): AiDirective | null {
+  const d = empire.ai?.directive;
+  return d && state.day - d.day < 400 ? d : null;
+}
 
 const BRANCH_WEIGHTS: Record<AiState["personality"], Record<Branch, number>> = {
   expansionist: { industry: 1.3, energy: 1.1, society: 1.6, physics: 0.8, propulsion: 1.3, weapons: 0.8, defense: 0.8 },
@@ -98,12 +107,12 @@ function chooseResearch(state: GameState, empire: Empire, rng: Rng): void {
   const avail = availableTechs(empire);
   if (!avail.length) return;
   const w = BRANCH_WEIGHTS[empire.ai!.personality];
+  const focus = activeDirective(state, empire)?.research;
   const pick = rng.weighted(avail, (t) => {
     if (t.id === "ascension") return empire.research.completed.length > 30 ? 50 : 0;
-    return (w[t.branch] * 1000) / t.cost;
+    return (w[t.branch] * (t.branch === focus ? 3 : 1) * 1000) / t.cost;
   });
   empire.research.current = pick.id;
-  void state;
 }
 
 function planBuildings(state: GameState, empire: Empire, colonies: Colony[], rng: Rng): void {
@@ -158,7 +167,8 @@ function desiredMilitaryPower(state: GameState, empire: Empire, owners: Record<s
   }
   void owners;
   const diff = state.settings.difficulty === "hard" ? 1.2 : state.settings.difficulty === "easy" ? 0.75 : 1;
-  return Math.max(base, threat) * diff;
+  const d = activeDirective(state, empire);
+  return Math.max(base, threat) * diff * (d ? POSTURE_MILITARY[d.posture] : 1);
 }
 
 function planShips(state: GameState, empire: Empire, colonies: Colony[], owners: Record<string, string | null>, rng: Rng): void {
@@ -179,7 +189,7 @@ function planShips(state: GameState, empire: Empire, colonies: Colony[], owners:
   if (countRole("scout") < (state.day < 400 && unexplored.length ? 1 : 0)) tryQueue("scout", 0);
   const wantConstructors = Math.min(3, 1 + Math.floor(colonies.length / 3));
   if (countRole("constructor") < wantConstructors && bestStationSite(state, empire, owners)) tryQueue("constructor", 20);
-  const colonyCap = empire.ai!.personality === "expansionist" ? 2 : 1;
+  const colonyCap = (empire.ai!.personality === "expansionist" ? 2 : 1) + (activeDirective(state, empire)?.posture === "expand" ? 1 : 0);
   if (countRole("colony") < colonyCap && empire.income.credits > 3 && bestColonySite(state, empire, owners)) tryQueue("colony", 30);
   const atWarWithMajor = Object.entries(empire.relations).some(([id, r]) => r === "war" && !state.empires[id].isPirate && state.empires[id].alive);
   if (atWarWithMajor && hullUnlocked(empire, "transport")) {
@@ -392,6 +402,9 @@ function directMilitary(state: GameState, empire: Empire, owners: Record<string,
     .map(([id]) => state.empires[id]);
   let bestTarget: { systemId: string; bodyId: string; score: number } | null = null;
   const from = main.systemId!;
+  const directive = activeDirective(state, empire);
+  // How much stronger than the defenders we want to be before attacking.
+  const margin = directive?.posture === "attack" ? 1.1 : directive?.posture === "defend" ? 2 : 1.3;
   const haveTroops = fleetsOf(state, empire.id).some((f) => f.ships.some((sh) => HULL_MAP[sh.hull].role === "transport"));
   const invTarget = haveTroops ? invasionTarget(state, empire) : null;
   for (const enemy of enemies) {
@@ -414,8 +427,8 @@ function directMilitary(state: GameState, empire: Empire, owners: Record<string,
       if (!r || r.length > 6) continue;
       const garrisonFleets = Object.values(state.fleets).filter((g) => g.empireId === enemy.id && g.systemId === c.systemId).reduce((p, g) => p + fleetPower(state, g), 0);
       const needed = garrisonFleets + colonyPower(state, c);
-      if (mainPower < needed * 1.3) continue;
-      const score = ((c.pop + 2) / (1 + r.length) / (1 + needed / 500)) * (c.id === invTarget?.id ? 3 : 1);
+      if (mainPower < needed * margin) continue;
+      const score = ((c.pop + 2) / (1 + r.length) / (1 + needed / 500)) * (c.id === invTarget?.id ? 3 : 1) * (enemy.id === directive?.warTarget ? 3 : 1);
       if (!bestTarget || score > bestTarget.score) bestTarget = { systemId: c.systemId, bodyId: c.bodyId, score };
     }
   }
@@ -433,6 +446,8 @@ function directMilitary(state: GameState, empire: Empire, owners: Record<string,
 
 function diplomacy(state: GameState, empire: Empire, owners: Record<string, string | null>, rng: Rng): void {
   const ai = empire.ai!;
+  const directive = activeDirective(state, empire);
+  if (directive) return directedDiplomacy(state, empire, directive, rng);
   const myPower = empirePower(state, empire.id) + 1;
   const mine = new Set(ownedSystemIds(state, empire.id, owners));
   for (const other of Object.values(state.empires)) {
@@ -463,9 +478,39 @@ function diplomacy(state: GameState, empire: Empire, owners: Record<string, stri
   }
 }
 
+/** War and peace as the ruler (LLM) decided: the ruler chooses targets; timing rules still apply. */
+function directedDiplomacy(state: GameState, empire: Empire, d: AiDirective, rng: Rng): void {
+  const ai = empire.ai!;
+  const target = d.warTarget ? state.empires[d.warTarget] : null;
+  if (target && target.alive && !target.isPirate && empire.relations[target.id] === "peace" && hasMet(state, empire.id, target.id) && ai.warCooldown <= 0) {
+    if (declareWar(state, empire.id, target.id).ok) {
+      ai.warCooldown = 150;
+      (ai.warStarted ??= {})[target.id] = state.day;
+    }
+  }
+  for (const id of d.seekPeace) {
+    const other = state.empires[id];
+    if (!other || !other.alive || other.isPirate || empire.relations[id] !== "war" || id === d.warTarget) continue;
+    const since = ai.warStarted?.[id] ?? -999;
+    if (state.day - since < 20) continue;
+    if (other.ai) {
+      if (aiAcceptsPeace(state, other, empire.id, rng)) makePeace(state, empire.id, id);
+    } else if (state.day - (ai.peaceProposedAt?.[id] ?? -999) > 45 && !other.peaceOffers?.[empire.id]) {
+      // Human rulers decide for themselves: send a formal offer.
+      (other.peaceOffers ??= {})[empire.id] = state.day;
+      (ai.peaceProposedAt ??= {})[id] = state.day;
+      logTo(state, "diplomacy", `The ${empire.name} proposes peace. Accept it in the Empires screen.`, [id, empire.id]);
+    }
+  }
+}
+
 /** Does the AI accept a peace proposal from `fromId`? */
 export function aiAcceptsPeace(state: GameState, empire: Empire, fromId: string, rng: Rng): boolean {
   if (!empire.ai) return true;
+  // The ruler's own grand strategy comes first.
+  const d = activeDirective(state, empire);
+  if (d?.seekPeace.includes(fromId)) return true;
+  if (d?.warTarget === fromId && state.day - d.day < 90) return false;
   const ratio = (empirePower(state, empire.id) + 1) / (empirePower(state, fromId) + 1);
   const started = empire.ai.warStarted?.[fromId];
   if (started !== undefined && state.day - started < 30 && ratio >= 0.5) return false; // too soon

@@ -86,4 +86,16 @@ export abstract class PlayerFacade {
   rejectPeace(fromId: string) {
     return this.exec("rejectPeace", fromId);
   }
+  sendTribute(toId: string, resource: string, amount: number) {
+    return this.exec("sendTribute", toId, resource, amount);
+  }
+  cedeColony(colonyId: string, toId: string) {
+    return this.exec("cedeColony", colonyId, toId);
+  }
+  acceptDemand(fromId: string) {
+    return this.exec("acceptDemand", fromId);
+  }
+  rejectDemand(fromId: string) {
+    return this.exec("rejectDemand", fromId);
+  }
 }

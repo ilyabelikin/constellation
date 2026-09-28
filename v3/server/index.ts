@@ -23,8 +23,11 @@ const MAX_MSGS_PER_SECOND = 40;
 export function startServer(port = PORT, dbPath = DB_PATH) {
   const db = new Db(dbPath);
   const llm = createLlmClient();
-  const hub = new Hub(db, { llmEnabled: !!llm });
-  if (llm) attachLlm(hub, llm);
+  const hub = new Hub(db);
+  if (llm) {
+    attachLlm(hub, llm);
+    console.log(`LLM rivals enabled (model ${llm.model})`);
+  }
 
   const http = createServer((req, res) => {
     if (req.url === "/health" || req.url === "/api/health") {

@@ -6,6 +6,7 @@
 import { aiAcceptsPeace } from "./ai";
 import * as cmd from "./commands";
 import { colonyShipOptions } from "./planning";
+import { acceptDemand, cedeColony, isResource, rejectDemand, sendTribute } from "./diplomacy";
 import { Rng } from "./rng";
 import { log, logTo } from "./util";
 import type { GameState, Stance, Vec3 } from "./types";
@@ -14,7 +15,7 @@ export type CommandResult = cmd.CommandResult & { fleetId?: string };
 
 export const PEACE_PROPOSAL_COOLDOWN = 30;
 
-type ArgKind = "id" | "optId" | "int" | "text" | "ids" | "target" | "stance" | "bool";
+type ArgKind = "id" | "optId" | "int" | "text" | "ids" | "target" | "stance" | "bool" | "amount";
 
 interface CommandSpec {
   args: ArgKind[];
@@ -39,6 +40,8 @@ function validArg(kind: ArgKind, v: unknown): boolean {
       return v === "aggressive" || v === "defensive" || v === "passive";
     case "bool":
       return v === undefined || v === null || typeof v === "boolean";
+    case "amount":
+      return typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 1_000_000;
     case "target": {
       if (v === undefined || v === null) return true;
       if (typeof v !== "object") return false;
@@ -125,6 +128,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
   proposePeace: { args: ["id"], run: (s, e, t: string) => proposePeace(s, e, t) },
   acceptPeace: { args: ["id"], run: (s, e, t: string) => acceptPeace(s, e, t) },
   rejectPeace: { args: ["id"], run: (s, e, t: string) => rejectPeace(s, e, t) },
+  sendTribute: { args: ["id", "id", "amount"], run: (s, e, to: string, res: string, n: number) => (isResource(res) ? sendTribute(s, e, to, res, n) : { ok: false, error: "Unknown resource" }) },
+  cedeColony: { args: ["id", "id"], run: (s, e, c: string, to: string) => cedeColony(s, e, c, to) },
+  acceptDemand: { args: ["id"], run: (s, e, from: string) => acceptDemand(s, e, from) },
+  rejectDemand: { args: ["id"], run: (s, e, from: string) => rejectDemand(s, e, from) },
 };
 
 export type CommandName = keyof typeof COMMANDS;

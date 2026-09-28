@@ -5,6 +5,7 @@ import { BELT_TYPES, PLANET_TYPES, planetType, type Zone } from "./data/planets"
 import { STAR_TYPES, starType, type StarType } from "./data/stars";
 import { HULL_MAP } from "./data/ships";
 import { SPECIES, SPECIES_MAP, stationDef } from "./data/structures";
+import { PERSONAS } from "./data/personas";
 import { starName, planetName, moonName } from "./names";
 import { orbitalPeriodDays, dist } from "./orbits";
 import { Rng, hashString } from "./rng";
@@ -680,6 +681,12 @@ export function createGame(partial: Partial<GameSettings> = {}): GameState {
     const e = makeEmpire(`e${i + 1}`, rng.pick(names), otherColors[i % otherColors.length], sp, false, false, personalities[i % personalities.length]);
     state.empires[e.id] = e;
   }
+  // Ruler personas are dealt from their own stream (so galaxies stay the same
+  // for a seed) and independently of species; no two rivals share one.
+  const personaDeck = new Rng(hashString(`${settings.seed}/personas`)).shuffle(PERSONAS.map((p) => p.id));
+  Object.values(state.empires).forEach((e, i) => {
+    if (e.ai) e.ai.persona = personaDeck[i % personaDeck.length];
+  });
   let pirate: Empire | null = null;
   if (settings.pirates) {
     pirate = makeEmpire("pirates", "Void Raiders", "#8c8c8c", "pirates", false, true, null);

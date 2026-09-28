@@ -1096,3 +1096,19 @@ kbd {
   color: var(--muted);
   font-size: 12px;
 }
+.demand {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 170, 80, 0.5);
+  border-radius: 7px;
+  background: rgba(255, 150, 60, 0.08);
+  color: #ffd2a0;
+  font-size: 13px;
+}
+.chat-tools {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}

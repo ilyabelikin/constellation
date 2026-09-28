@@ -6,6 +6,9 @@ import type { ChatMessage, GameSettings } from "./sim/types";
 import type { PlayerView, StaticView } from "./sim/view";
 import { NetClient } from "./net/NetClient";
 import { NetGame } from "./net/NetGame";
+import { NetLlmTransport } from "./net/NetLlm";
+import { RivalDirector } from "./llm/director";
+import { hasMet } from "./sim/knowledge";
 import { SPEEDS, type CloudSaveSummary, type SessionInfo, type SessionSummary } from "./net/protocol";
 import { Engine, type PickResult } from "./render/Engine";
 import { GalaxyView } from "./render/GalaxyView";
@@ -66,6 +69,12 @@ class App implements AppApi {
   private pendingStatic: StaticView | null = null;
   private pendingView: PlayerView | null = null;
   private lastViews = -1;
+  /** LLM-voiced rival rulers for local games (answers come via the server). */
+  private director: RivalDirector | null = null;
+  private llmTransport: NetLlmTransport | null = null;
+  private directorTimer = 0;
+  /** The game was paused automatically while the player writes a message. */
+  private chatPaused = false;
   /** Camera flight through a tunnel gate into the connected system. */
   private gateJump: { tunnelId: string; to: string; t: number; phase: "dive" | "emerge"; gate: THREE.Vector3; out: THREE.Vector3; fired: boolean } | null = null;
   private baseFov = 50;
@@ -218,6 +227,10 @@ class App implements AppApi {
   receiveChat(msg: ChatMessage): void {
     if (this.chatLog.some((m) => m.id === msg.id)) return;
     this.chatLog.push(msg);
+    this.notifyChat(msg);
+  }
+
+  private notifyChat(msg: ChatMessage): void {
     const me = this.game?.playerId;
     if (this.running && msg.to === me && msg.from !== me) {
       const from = this.game.state.empires[msg.from];
@@ -234,17 +247,51 @@ class App implements AppApi {
   canChat(empireId: string): boolean {
     const e = this.game.state.empires[empireId];
     if (!e || e.isPirate || !e.alive || empireId === this.game.playerId) return false;
+    if (!hasMet(this.game.state, this.game.playerId, empireId)) return false;
     if (this.remote) {
       const seat = this.remote.info.seats.find((x) => x.empireId === empireId);
       return !!seat?.playerName || this.net.llmAvailable;
     }
-    return false;
+    return !!e.ai && this.net.llmAvailable;
   }
 
   sendChat(to: string, text: string): void {
     const clean = text.trim().slice(0, 500);
     if (!clean) return;
     if (this.remote) this.net.send({ t: "chat", to, text: clean });
+    else if (this.local) {
+      this.ensureDirector();
+      if (this.director) this.director.humanMessage(this.local.playerId, to, clean);
+      else this.toast("Rival rulers can't be reached (no connection to the game server)", "error");
+    }
+  }
+
+  /** Local games get LLM rulers once the server says the service is available. */
+  private ensureDirector(): void {
+    const game = this.local;
+    if (!game || !this.running || this.director || !this.net.llmAvailable) return;
+    this.llmTransport = new NetLlmTransport(this.net);
+    this.director = new RivalDirector(
+      {
+        state: () => game.state,
+        isHuman: (id) => id === game.state.playerId,
+        deliver: (m) => {
+          const log = (game.state.chats ??= []);
+          log.push(m);
+          if (log.length > 400) log.splice(0, log.length - 400);
+          this.notifyChat(m);
+        },
+        chats: () => game.state.chats ?? [],
+        active: () => this.running && !this.localPaused && this.local === game,
+      },
+      this.llmTransport,
+    );
+  }
+
+  private dropDirector(): void {
+    this.llmTransport?.dispose();
+    this.llmTransport = null;
+    this.director = null;
   }
 
   cloudSave(): void {
@@ -263,6 +310,7 @@ class App implements AppApi {
 
   // ---------------------------------------------------------------- lifecycle
   private showTitle(): void {
+    this.dropDirector();
     this.remote?.dispose();
     this.remote = null;
     this.running = false;
@@ -295,6 +343,8 @@ class App implements AppApi {
   }
 
   private startGame(game: PlayerFacade): void {
+    this.dropDirector();
+    this.chatPaused = false;
     this.game = game;
     this.lobby.hide();
     this.selection = null;
@@ -798,6 +848,26 @@ class App implements AppApi {
       renderDay = this.local.state.day - STEP_DAYS * (1 - alpha);
     }
     const events = this.game.drainEvents();
+    if (this.local && this.running) {
+      this.ensureDirector();
+      if (this.director) {
+        if (events.length) this.director.onEvents(events);
+        this.directorTimer += dt;
+        if (this.directorTimer > 0.5) {
+          this.directorTimer = 0;
+          this.director.tick();
+        }
+      }
+      // Writing to another ruler pauses a local game (and resumes it after).
+      const chatting = this.hud?.modal === "chat";
+      if (chatting && !this.localPaused) {
+        this.localPaused = true;
+        this.chatPaused = true;
+      } else if (!chatting && this.chatPaused) {
+        this.chatPaused = false;
+        this.localPaused = false;
+      }
+    }
     if (this.systemView) {
       this.systemView.alpha = this.running ? alpha : 0;
       this.systemView.renderDay = this.running ? renderDay : time * 2;

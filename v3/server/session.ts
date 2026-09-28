@@ -13,6 +13,7 @@ export interface Conn {
   name: string;
   sessionId: string | null;
   staticSentFor: string | null;
+  lastChatAt?: number;
   send(msg: ServerMessage): void;
 }
 
@@ -39,6 +40,8 @@ export class Session {
   lastActivity = Date.now();
   /** Hook for LLM rivals and other observers of each simulated batch. */
   onEvents: ((events: SimEvent[]) => void) | null = null;
+  /** Called after every clock tick (LLM rulers schedule their work here). */
+  afterTick: (() => void) | null = null;
 
   constructor(
     private db: Db,
@@ -177,6 +180,7 @@ export class Session {
         this.save();
       }
     }
+    this.afterTick?.();
     this.sinceView += dtMs;
     if (this.sinceView >= VIEW_INTERVAL_MS) {
       this.sinceView = 0;

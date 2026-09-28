@@ -10,6 +10,8 @@ import { SPECIES_MAP } from "../src/sim/data/structures";
 import type { GameSettings } from "../src/sim/types";
 import type { Db } from "./db";
 import { Session, type Conn } from "./session";
+import { hasMet } from "../src/sim/knowledge";
+import { chatId } from "../src/llm/director";
 
 export const MAX_CLOUD_SAVES = 12;
 export const MAX_SAVE_BYTES = 6 * 1024 * 1024;
@@ -19,10 +21,15 @@ const UUID_RE = /^[0-9a-f-]{36}$/i;
 export interface HubOptions {
   /** Called when a session is created or loaded (the LLM layer attaches here). */
   onSessionLoaded?: (session: Session) => void;
-  /** Handles chat messages (LLM replies, human relay). */
-  onChat?: (conn: Conn, msg: Extract<ClientMessage, { t: "chat" }>, session: Session | null) => void;
+  /** A human ruler wrote to an AI-controlled empire (answered by the LLM layer). */
+  aiChat?: (session: Session, fromEmpireId: string, toEmpireId: string, text: string) => void;
+  /** A single-player browser asks for a ruler decision or reply. */
+  onLlmRequest?: (conn: Conn, msg: Extract<ClientMessage, { t: "llm" }>) => void;
   llmEnabled?: boolean;
 }
+
+/** Minimum milliseconds between chat messages from one connection. */
+const CHAT_INTERVAL_MS = 1200;
 
 function cleanName(name: unknown, fallback: string): string {
   if (typeof name !== "string") return fallback;
@@ -53,7 +60,7 @@ export class Hub {
 
   constructor(
     readonly db: Db,
-    private opts: HubOptions = {},
+    readonly opts: HubOptions = {},
   ) {}
 
   connect(send: (msg: ServerMessage) => void): Conn {
@@ -195,7 +202,10 @@ export class Hub {
         this.db.deleteSave(String(msg.id), conn.uuid);
         return this.sendSaves(conn);
       case "chat":
-        return this.opts.onChat?.(conn, msg, current);
+        return this.chat(conn, msg, current);
+      case "llm":
+        if (!this.opts.onLlmRequest) return conn.send({ t: "llmResult", id: Number(msg.id) || 0, ok: false, error: "AI diplomats are not available on this server" });
+        return this.opts.onLlmRequest(conn, msg);
       default:
         return conn.send({ t: "error", message: "Unknown message" });
     }
@@ -208,6 +218,29 @@ export class Hub {
     conn.name = cleanName(msg.name, this.db.playerName(uuid) ?? "Commander");
     this.db.upsertPlayer(uuid, conn.name);
     conn.send({ t: "welcome", uuid, name: conn.name, llm: !!this.opts.llmEnabled });
+  }
+
+  /** Diplomatic messages: relayed between humans, answered by the LLM layer for AI rulers. */
+  private chat(conn: Conn, msg: Extract<ClientMessage, { t: "chat" }>, session: Session | null): void {
+    if (!session) return conn.send({ t: "error", message: "Join a game first" });
+    const from = session.seatOf(conn.uuid);
+    if (!from) return conn.send({ t: "error", message: "Take a seat to talk to other rulers" });
+    const now = Date.now();
+    if (now - (conn.lastChatAt ?? 0) < CHAT_INTERVAL_MS) return conn.send({ t: "error", message: "Slow down — envoys need time to travel" });
+    const state = session.game.state;
+    const to = typeof msg.to === "string" ? msg.to : "";
+    const target = state.empires[to];
+    const text = typeof msg.text === "string" ? msg.text.replace(/[\u0000-\u0008\u000b-\u001f]/g, "").trim().slice(0, 500) : "";
+    if (!target || target.isPirate || !target.alive || to === from) return conn.send({ t: "error", message: "No such ruler" });
+    if (!text) return;
+    if (!hasMet(state, from, to)) return conn.send({ t: "error", message: "We have not met them yet" });
+    conn.lastChatAt = now;
+    if (session.seats.has(to)) {
+      session.addChat({ id: chatId(), from, to, text, day: state.day, at: now });
+      return;
+    }
+    if (!this.opts.aiChat) return conn.send({ t: "error", message: "Their ruler does not answer (AI diplomats are offline)" });
+    this.opts.aiChat(session, from, to, text);
   }
 
   private leave(conn: Conn): void {

@@ -134,3 +134,32 @@ test("cloud saves: save a local game and load it after a reload", async ({ page 
   expect(loaded).toBeGreaterThanOrEqual(Math.floor(day) - 0.01);
   expect(await page.evaluate(() => (window as any).__app.game.state.settings.seed)).toBe("cloud-e2e");
 });
+
+test("talk to a rival ruler: the game pauses while you write and they answer in character", async ({ page }) => {
+  watch(page, "player");
+  await openLobby(page, "Dana");
+  await expect(page.locator('#lb-online .tag:has-text("AI diplomats")')).toBeVisible();
+  await page.fill("#lb-seed", "talk-e2e");
+  await page.click("#lb-start");
+  await expect(page.locator("#topbar")).toBeVisible();
+  const rival = await page.evaluate(() => {
+    const g = (window as any).__app.game;
+    const e = Object.values(g.state.empires).find((x: any) => x.ai && !x.isPirate) as any;
+    (g.player.contacts ??= {})[e.id] = true;
+    (e.contacts ??= {})[g.playerId] = true;
+    return { id: e.id, name: e.name };
+  });
+  await domClick(page, '#topbar [data-action="modal:empires"]');
+  await domClick(page, `[data-action="chat:${rival.id}"]`);
+  await expect(page.locator(".modal h2")).toHaveText(rival.name);
+  await expect.poll(() => page.evaluate(() => (window as any).__app.paused)).toBe(true);
+  await page.fill("#chat-input", "Greetings! Would you accept a gift as tribute?");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".chat-msg.ours")).toContainText("Greetings!");
+  await expect(page.locator(".chat-msg:not(.ours)")).toContainText("acknowledges", { timeout: 20_000 });
+  await expect(page.locator(".chat-msg:not(.ours) .meta")).toContainText("sent 50 credits");
+  await domClick(page, '.modal [data-action="close"]');
+  await expect.poll(() => page.evaluate(() => (window as any).__app.paused)).toBe(false);
+  // The correspondence is part of the saved game.
+  expect(await page.evaluate(() => (window as any).__app.local.state.chats.length)).toBe(2);
+});
