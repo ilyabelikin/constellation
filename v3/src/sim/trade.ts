@@ -8,6 +8,7 @@ import { aiAcceptsTrade } from "./ai";
 import { findRoute, issueOrder } from "./fleets";
 import { makeFleet, makeShip } from "./galaxy";
 import { hasMet } from "./knowledge";
+import { modifiers } from "./modifiers";
 import { bodyPosition } from "./orbits";
 import type { CommandResult } from "./api";
 import type { Colony, Empire, Fleet, GameState } from "./types";
@@ -35,6 +36,8 @@ export function tradeValue(from: Colony, to: Colony, hops: number, foreign: bool
 
 function destinations(state: GameState, from: Colony): { colony: Colony; value: number }[] {
   const owner = state.empires[from.empireId];
+  const m = modifiers(owner);
+  const maxHops = MAX_HOPS + m.tradeRange;
   const out: { colony: Colony; value: number }[] = [];
   for (const c of Object.values(state.colonies)) {
     if (c.id === from.id || !hasHub(c)) continue;
@@ -42,8 +45,8 @@ function destinations(state: GameState, from: Colony): { colony: Colony; value: 
     if (foreign && (!isTradePartner(state, owner.id, c.empireId) || !owner.explored[c.systemId])) continue;
     if (Object.values(state.battles).some((b) => b.systemId === c.systemId)) continue;
     const route = c.systemId === from.systemId ? [] : findRoute(state, from.systemId, c.systemId, owner);
-    if (!route || route.length > MAX_HOPS) continue;
-    out.push({ colony: c, value: tradeValue(from, c, route.length, foreign) });
+    if (!route || route.length > maxHops) continue;
+    out.push({ colony: c, value: tradeValue(from, c, route.length, foreign) * (1 + m.trade) });
   }
   return out;
 }
@@ -60,7 +63,7 @@ export function tradeDay(state: GameState): Fleet[] {
     if (!hasHub(c) || (c.nextTrade ?? 0) > state.day) continue;
     const owner = state.empires[c.empireId];
     if (!owner?.alive || owner.isPirate) continue;
-    c.nextTrade = state.day + TRADE_INTERVAL;
+    c.nextTrade = state.day + TRADE_INTERVAL / (1 + modifiers(owner).tradeFrequency);
     if (Object.values(state.battles).some((b) => b.systemId === c.systemId)) continue;
     const options = destinations(state, c);
     if (!options.length) continue;

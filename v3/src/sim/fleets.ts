@@ -234,7 +234,12 @@ export function stepFleets(state: GameState, dt: number, events: SimEvent[]): vo
     fleet.prevPos = copyVec(fleet.pos);
     fleet.vel ??= { x: 0, y: 0, z: 0 };
     fleet.thrust ??= { x: 0, y: 0, z: 0 };
-    if (fleet.ships.length === 0) continue;
+    if (fleet.ships.length === 0) {
+      // A fleet with no ships left (merged, colonised, lost) simply disbands.
+      clearOrder(state, fleet);
+      delete state.fleets[fleet.id];
+      continue;
+    }
     if (fleet.transit) {
       stepTransit(state, fleet, dt, events);
       continue;

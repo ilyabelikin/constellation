@@ -25,7 +25,7 @@ import { HULLS } from "../src/sim/data/ships";
 import { BUILDING_MAP, STATION_MAP, STATIONS } from "../src/sim/data/structures";
 import { fleetPower } from "../src/sim/combat";
 import { declareWar } from "../src/sim/commands";
-import { proposeTrade, tradeValue } from "../src/sim/trade";
+import { proposeTrade, TRADE_INTERVAL, tradeValue } from "../src/sim/trade";
 import { canSeeLog } from "../src/sim/util";
 import type { Colony, Fleet, GameState } from "../src/sim/types";
 
@@ -1098,6 +1098,23 @@ describe("merchant trade", () => {
     expect(Object.values(s.fleets).some((f) => f.order?.kind === "trade" && s.colonies[f.order.colonyId!]?.empireId === ai.id && f.empireId === g.playerId)).toBe(false);
   });
 
+  it("Galactic Market makes merchant trade richer, not credits in general", () => {
+    const { g, s, cap } = tradeGame();
+    const cargo = () => {
+      for (const f of Object.values(s.fleets)) if (f.cargo) delete s.fleets[f.id];
+      cap.nextTrade = 0;
+      g.advance(1.05);
+      return Object.values(s.fleets).find((f) => f.cargo && f.name.startsWith(cap.name))?.cargo ?? 0;
+    };
+    const plain = cargo();
+    const before = incomeReport(s, g.player).gross.credits;
+    g.player.research.completed.push("galactic_market");
+    expect(incomeReport(s, g.player).gross.credits).toBeCloseTo(before, 5); // no flat credit bonus
+    const market = cargo();
+    expect(market).toBeCloseTo(plain * 1.5, 0);
+    expect(cap.nextTrade! - s.day).toBeLessThan(TRADE_INTERVAL * 0.8); // departs more often
+  });
+
   it("human rulers get a trade offer to accept or decline", () => {
     const { g, s } = tradeGame();
     const ai = Object.values(s.empires).find((e) => e.ai && !e.isPirate)!;
@@ -1109,5 +1126,21 @@ describe("merchant trade", () => {
     expect(g.player.tradePartners?.[ai.id]).toBeDefined();
     expect(g.cancelTrade(ai.id).ok).toBe(true);
     expect(ai.tradePartners?.[g.playerId]).toBeUndefined();
+  });
+});
+
+describe("empty fleets", () => {
+  it("a fleet with no ships left disbands on the next tick", () => {
+    const g = Game.create({ seed: "empty" });
+    const s = g.state;
+    const guard = playerFleet(g, "Home Guard");
+    const extra = makeFleet(s, g.player, guard.systemId!, { ...guard.pos }, "Extra");
+    extra.ships.push(makeShip(s, g.player, "corvette"));
+    expect(g.mergeFleets(guard.id, extra.id).ok).toBe(true);
+    expect(s.fleets[extra.id]).toBeUndefined();
+    // However a fleet ends up empty, it goes away.
+    guard.ships = [];
+    g.step();
+    expect(s.fleets[guard.id]).toBeUndefined();
   });
 });

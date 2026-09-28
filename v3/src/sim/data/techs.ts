@@ -25,6 +25,12 @@ export interface TechEffects {
   repair?: number;
   artifacts?: number;
   garrison?: number;
+  /** Merchant cargo value (+50% = 0.5). */
+  trade?: number;
+  /** Freighter departures (+30% more often = 0.3). */
+  tradeFrequency?: number;
+  /** Extra tunnel jumps merchants will haul. */
+  tradeRange?: number;
 }
 
 export interface TechDef {
@@ -83,7 +89,15 @@ export const TECHS: TechDef[] = [
   t("hydroponics", "Hydroponic Farms", "society", 1, [], { popGrowth: 0.4, popCapacity: 0.1 }, "Vertical farming. +40% population growth, +10% capacity."),
   t("ground_forces", "Ground Forces", "society", 1, [], { garrison: 2 }, "Orbital drop troops. Unlocks Troop Transports.", ["transport"]),
   t("xeno_adaptation", "Xeno-Adaptation", "society", 2, ["hydroponics"], { habitability: 0.15 }, "Gene-tailored colonists. +15% habitability on all worlds."),
-  t("galactic_market", "Galactic Market", "society", 2, ["hydroponics"], { credits: 0.25 }, "Interstellar commerce. +25% credits."),
+  t(
+    "galactic_market",
+    "Galactic Market",
+    "society",
+    2,
+    ["hydroponics"],
+    { trade: 0.5, tradeFrequency: 0.3, tradeRange: 2 },
+    "Interstellar exchanges and letters of credit. Merchant cargoes are worth 50% more, freighters depart 30% more often and haul 2 jumps farther.",
+  ),
   t("arcologies", "Arcologies", "society", 3, ["xeno_adaptation"], { popCapacity: 0.2 }, "Self-contained city towers. +20% capacity, unlocks Habitat Domes.", ["habitat"]),
   t("terraforming", "Terraforming", "society", 4, ["arcologies"], { habitability: 0.25 }, "Reshape entire worlds. +25% habitability."),
   // Physics
