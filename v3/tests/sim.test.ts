@@ -21,7 +21,7 @@ import { STAR_TYPES } from "../src/sim/data/stars";
 import { PLANET_TYPES } from "../src/sim/data/planets";
 import { TECHS, TECH_MAP } from "../src/sim/data/techs";
 import { HULLS } from "../src/sim/data/ships";
-import { STATIONS } from "../src/sim/data/structures";
+import { BUILDING_MAP, STATION_MAP, STATIONS } from "../src/sim/data/structures";
 import { fleetPower } from "../src/sim/combat";
 import { declareWar } from "../src/sim/commands";
 import { canSeeLog } from "../src/sim/util";
@@ -209,8 +209,8 @@ describe("economy", () => {
     const c = home(g);
     const before = { ...g.player.resources };
     expect(g.queueBuilding(c.id, "trade_hub").ok).toBe(true);
-    expect(g.player.resources.credits).toBe(before.credits - 60);
-    expect(runUntil(g, () => c.buildings.some((b) => b.type === "trade_hub"), 20)).toBe(true);
+    expect(g.player.resources.credits).toBe(before.credits - BUILDING_MAP.trade_hub.cost.credits!);
+    expect(runUntil(g, () => c.buildings.some((b) => b.type === "trade_hub"), BUILDING_MAP.trade_hub.days + 4)).toBe(true);
     expect(g.queueBuilding(c.id, "shipyard").ok).toBe(false); // unique
     expect(g.queueBuilding(c.id, "quantum_lab").ok).toBe(false); // needs research
   });
@@ -258,7 +258,7 @@ describe("economy", () => {
       c.queue = [];
       if (g.queueShip(c.id, "corvette").ok) queued++;
       else break;
-      g.advance(15);
+      g.advance(HULLS.find((h) => h.id === "corvette")!.buildDays + 1);
     }
     expect(queued).toBeLessThanOrEqual(commandCapacity(g.state, g.player));
   });
@@ -503,8 +503,8 @@ describe("regressions from code review", () => {
     expect(runUntil(g, () => (cons.order?.work ?? 0) > 0, 100)).toBe(true);
     const paid = { ...g.player.resources };
     expect(g.stopFleet(cons.id).ok).toBe(true);
-    expect(g.player.resources.credits).toBeCloseTo(paid.credits + 40, 5);
-    expect(g.player.resources.metals).toBeCloseTo(paid.metals + 70, 5);
+    expect(g.player.resources.credits).toBeCloseTo(paid.credits + STATION_MAP.solar_array.cost.credits!, 5);
+    expect(g.player.resources.metals).toBeCloseTo(paid.metals + STATION_MAP.solar_array.cost.metals!, 5);
   });
 
   it("clears a move order that targets the fleet's own system", () => {
@@ -879,4 +879,27 @@ describe("slow, deliberate early economy", () => {
     expect(guard.ships[0].hull_hp).toBe(1); // no repairs
     expect(g.state.log.some((l) => l.text.includes("treasury is empty"))).toBe(true);
   });
+});
+
+describe("pacing", () => {
+  it("expansion and construction take months, not weeks", () => {
+    const g = Game.create({ seed: "pacing", systemCount: 32, aiCount: 3 });
+    const s = g.state;
+    const firstExtra: Record<string, number> = {};
+    for (let d = 0; d < 500; d++) {
+      g.advance(1);
+      for (const e of Object.values(s.empires)) {
+        if (!e.ai || e.isPirate) continue;
+        const n = Object.values(s.colonies).filter((c) => c.empireId === e.id).length;
+        if (n >= 2) firstExtra[e.id] ??= d;
+        expect(n).toBeLessThanOrEqual(4); // no snowball in the first ~14 minutes of 1× play
+      }
+    }
+    // Rivals do expand, but only after saving up for a colony ship.
+    const days = Object.values(firstExtra);
+    expect(days.length).toBeGreaterThan(0);
+    expect(Math.min(...days)).toBeGreaterThan(100);
+    // Nothing is instant: the cheapest building takes weeks.
+    expect(Math.min(...Object.values(BUILDING_MAP).map((b) => b.days))).toBeGreaterThanOrEqual(30);
+  }, 120_000);
 });

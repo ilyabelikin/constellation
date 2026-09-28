@@ -110,7 +110,9 @@ function chooseResearch(state: GameState, empire: Empire, rng: Rng): void {
   const focus = activeDirective(state, empire)?.research;
   const pick = rng.weighted(avail, (t) => {
     if (t.id === "ascension") return empire.research.completed.length > 30 ? 50 : 0;
-    return (w[t.branch] * (t.branch === focus ? 3 : 1) * 1000) / t.cost;
+    // New warship hulls matter more than their tier's price suggests.
+    const hull = t.unlocks?.some((u) => HULL_MAP[u]?.role === "military") ? 2.5 : 1;
+    return (w[t.branch] * (t.branch === focus ? 3 : 1) * hull * 1000) / t.cost;
   });
   empire.research.current = pick.id;
 }

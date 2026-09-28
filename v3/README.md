@@ -26,6 +26,7 @@ npm run dev          # http://localhost:5173
 | `npm test` | Run the simulation unit tests (Vitest) |
 | `npm run test:e2e` | Run the browser end-to-end tests (Playwright + Chromium) |
 | `npm run typecheck` | Run a strict TypeScript check |
+| `npx tsx scripts/pacing.ts [days] [seeds…]` | Economy pacing benchmark: AI-only games, median day of each milestone (first building, colonies, techs, warship classes) |
 
 ## What's new compared to v2
 

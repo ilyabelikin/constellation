@@ -14,7 +14,7 @@ import type { Body, Colony, Empire, GameState, QueueItem, ResourceKey, Resources
 export const CAPITAL_YIELDS: Required<Yields> = { credits: 2, metals: 1.5, energy: 2.5, research: 1.5, exotics: 0 };
 export const CAPITAL_DEFENSE = 350;
 export const POP_CREDITS = 0.15;
-export const POP_RESEARCH = 0.04;
+export const POP_RESEARCH = 0.06;
 
 // --------------------------------------------------------------------------
 // Habitability & population
@@ -167,7 +167,7 @@ export function stationUpkeep(station: Station): Yields {
 /** Total credits/day of administrative overhead for `n` colonies. */
 export function adminUpkeep(n: number): number {
   if (n <= 1) return 0;
-  return (n - 1) * (0.6 + 0.09 * (n - 1));
+  return (n - 1) * (0.8 + 0.12 * (n - 1));
 }
 
 /** Full per-day income report for an empire. */
@@ -230,7 +230,7 @@ export function hullCost(state: GameState, empire: Empire, hullId: string): Part
   if (hull.role === "colony") {
     let colonies = 0;
     for (const c of Object.values(state.colonies)) if (c.empireId === empire.id) colonies++;
-    mult *= Math.min(6, 1 + 0.3 * Math.max(0, colonies - 1));
+    mult *= Math.min(6, 1 + 0.4 * Math.max(0, colonies - 1));
   }
   const out: Partial<Resources> = {};
   for (const [k, v] of Object.entries(hull.cost) as [keyof Resources, number][]) out[k] = Math.round(v * mult);
