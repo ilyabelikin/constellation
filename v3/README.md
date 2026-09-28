@@ -20,7 +20,8 @@ npm run dev          # http://localhost:5173
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev` | Start the Vite dev server |
+| `npm run dev` | Start the Vite dev server (proxies `/ws` to the game server) |
+| `npm run server` | Start the game server on :8787 (online play, cloud saves, LLM rivals); reads `.env` |
 | `npm run build` | Typecheck and build a static bundle into `dist/` (host it anywhere) |
 | `npm test` | Run the simulation unit tests (Vitest) |
 | `npm run test:e2e` | Run the browser end-to-end tests (Playwright + Chromium) |
@@ -46,9 +47,10 @@ The in-game **How to play** screen (`?`) is the reference. Controls:
 | --- | --- |
 | Left-click | Select a planet, star, fleet, gate or system |
 | Right-click | Order the active fleet: move, colonize, invade, attack, jump through a gate or travel to a system |
+| `Shift` + right-click / button | Queue the order after the fleet's current ones (e.g. a busy constructor's next stations) |
 | Left-drag / right-drag / WASD | Rotate / pan the camera |
 | Wheel | Zoom |
-| Double-click | Focus the object / enter the system |
+| Double-click | Focus the object / enter a surveyed system / fly through a gate into the (surveyed) system beyond |
 | `Space`, `1`–`4` | Pause, game speed |
 | `G` / `H` | Galaxy map / home system |
 | `R` / `E` | Research tree / empires and diplomacy |
@@ -58,7 +60,17 @@ The left panel's **System** tab outlines everything in the current system: stars
 
 Ships fly with Newtonian thrust: they accelerate to cruise speed, coast, then flip and burn to brake, and they match orbits with moving planets.
 
-The game autosaves to `localStorage` every 90 seconds, and you can save manually from the menu.
+The game autosaves to `localStorage` every 90 seconds, and you can save manually from the menu or to the cloud.
+
+Population grows along an S-curve: slowly from a handful of settlers, fastest at mid capacity, levelling off when full. Crowded worlds send private migrant liners (which you don't command) to young colonies with room. Arriving ships park in orbit and send shuttles down to the surface.
+
+## Playing with friends
+
+Enter your name on the title screen and click **Host online game**. You get an invite code and link. Friends open the link (or enter the code), take over any AI empire, and the host starts the game. The server runs the shared clock: anyone may pause, only the host changes speed, and the game pauses by itself when nobody is online. Games are saved on the server; resume them from the title screen. Each player only receives what their empire can know: no foreign colonies in unexplored systems, no fleets outside sensor range, no news they didn't witness. Pathfinding never uses tunnels your empire hasn't discovered.
+
+## Rival rulers with a voice
+
+When the game server has an OpenRouter key (`OPENROUTER_API_KEY`, see `.env.example` and `../DEPLOYMENT.md`), each rival empire is ruled by a character dealt at random from 14 personas (the Iron Chancellor, the Merchant Prince, the Young Heir, the Ancient Mind…), independent of species; the species lore shapes how they speak. Every few months, and at key moments (first contact, a declaration of war, a lost colony, an answered demand) the ruler reviews a compact, knowledge-limited situation report and sets a grand strategy (posture, research focus, war target, peace wishes) that steers the AI. Open **Empires → Talk** to write to them: they answer in character and may act, e.g. accept peace, send tribute, cede a colony, demand one of yours or declare war. Hard rules decide what a ruler can actually be talked into. A single-player game pauses while you write. Human players in an online game can talk to each other the same way.
 
 ## Architecture
 
@@ -73,11 +85,14 @@ v3/src
 │   ├── ai.ts         Rival empire AI;  pirates.ts: Void Raiders
 │   ├── commands.ts   Validated commands (shared by player UI and AI)
 │   └── game.ts       Fixed-step loop (0.1 day), victory, save/load
+├── llm/        Ruler briefings, prompts and parsing, the RivalDirector
+├── net/        WebSocket protocol, client, fog-of-war NetGame
 ├── render/     Three.js views, procedural shaders, ship/station models, effects
 └── ui/         HUD, lobby, labels (plain DOM + CSS)
+v3/server       Game server: sessions, per-player views, SQLite persistence, OpenRouter
 ```
 
-The whole game state is plain JSON with a seeded RNG, so saves are trivial and replays are deterministic. The simulation has no browser dependencies. It runs unchanged in Node, which is how the tests (and a future authoritative multiplayer server) use it.
+The whole game state is plain JSON with a seeded RNG, so saves are trivial and replays are deterministic. The simulation has no browser dependencies. It runs unchanged in Node, which is how the tests and the authoritative multiplayer server use it.
 
 ## Testing
 

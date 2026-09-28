@@ -4,3 +4,4 @@ test-results
 playwright-report
 e2e/screenshots/*.png
 data
+.env

@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "server": "tsx server/index.ts"
+    "server": "tsx --env-file-if-exists=.env server/main.ts"
   },
   "dependencies": {
     "three": "^0.186.1",

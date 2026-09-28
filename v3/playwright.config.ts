@@ -18,7 +18,7 @@ export default defineConfig({
   webServer: [
     {
       // Game server with a throwaway in-memory database and a mock LLM.
-      command: `npx tsx server/index.ts`,
+      command: `npx tsx server/main.ts`,
       url: `http://127.0.0.1:${SERVER_PORT}/health`,
       env: { PORT: String(SERVER_PORT), DB_PATH: ":memory:", LLM_MOCK: "1" },
       reuseExistingServer: false,

@@ -239,7 +239,7 @@ test("station panel dispatches the constructor to build a solar array", async ({
   const btn = page.locator('#details [data-action$=":solar_array"]');
   await expect(btn).toBeEnabled();
   await btn.click();
-  await expect(page.locator(".toast.good").last()).toContainText("Builders dispatched");
+  await expect(page.locator(".toast.good").last()).toContainText("build Solar Array");
   await page.evaluate(() => (window as any).__app.game.advance(60));
   await expect(page.locator("#log")).toContainText("Solar Array completed", { timeout: 10000 });
 });
@@ -429,4 +429,28 @@ test("unsurveyed systems cannot be entered or looked into", async ({ page }) => 
   expect(r.after).toBe(r.before);
   expect(r.jumping).toBe(false);
   await expect(page.locator(".toast.error").first()).toContainText("Unsurveyed");
+});
+
+test("HUD updates don't recreate hovered buttons, and one click builds", async ({ page }) => {
+  await startGame(page, "hud-stable");
+  await page.click('[data-action="speed:4"]');
+  const cap = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const c = app.game.playerColonies().find((x: any) => x.capital);
+    app.game.player.resources.credits = 9000;
+    app.game.player.resources.metals = 9000;
+    app.game.queueBuilding(c.id, "mine"); // something in progress so the panel keeps changing
+    app.select({ kind: "body", id: c.bodyId });
+    return c.id;
+  });
+  const btn = page.locator('#details [data-action^="build:"]:not([disabled])').first();
+  await expect(btn).toBeVisible();
+  await btn.hover();
+  await page.evaluate(() => ((document.querySelector('#details [data-action^="build:"]:not([disabled])') as any).__marker = 1));
+  const q0 = await page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue.length, cap);
+  await page.waitForTimeout(2500); // many HUD refreshes while the queue progresses
+  const stable = await page.evaluate(() => (document.querySelector('#details [data-action^="build:"]:not([disabled])') as any)?.__marker === 1);
+  expect(stable).toBe(true);
+  await btn.click();
+  await expect.poll(() => page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue.length, cap)).toBe(q0 + 1);
 });

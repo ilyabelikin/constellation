@@ -94,13 +94,3 @@ export function startServer(port = PORT, dbPath = DB_PATH) {
   };
   return { hub, http, wss, shutdown };
 }
-
-if (process.argv[1] && /server[\\/]index\.ts$/.test(process.argv[1])) {
-  const srv = startServer();
-  for (const sig of ["SIGINT", "SIGTERM"] as const)
-    process.on(sig, () => {
-      console.log("Saving sessions and shutting down…");
-      srv.shutdown();
-      process.exit(0);
-    });
-}

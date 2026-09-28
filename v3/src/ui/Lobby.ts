@@ -5,6 +5,7 @@ import { EMPIRE_COLORS } from "../sim/galaxy";
 import type { GameSettings } from "../sim/types";
 import type { CloudSaveSummary, SessionInfo, SessionSummary } from "../net/protocol";
 import { dateString, esc } from "./format";
+import { morphHtml } from "./morph";
 import { helpHtml } from "./help";
 
 export interface LobbyCallbacks {
@@ -56,7 +57,7 @@ export class Lobby {
   refreshOnline(): void {
     if (this.room) return;
     const el = this.root.querySelector("#lb-online");
-    if (el) el.innerHTML = this.onlineHtml();
+    if (el) morphHtml(el, this.onlineHtml());
   }
 
   private onlineHtml(): string {

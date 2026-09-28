@@ -37,6 +37,7 @@ import { dist } from "../sim/orbits";
 import type { Body, ChatMessage, Colony, DiploAction, Fleet, Order, ResourceKey } from "../sim/types";
 import type { SessionInfo } from "../net/protocol";
 import { inviteLink } from "./Lobby";
+import { morphHtml } from "./morph";
 import { canAfford, canSeeLog } from "../sim/util";
 import { hasMet } from "../sim/knowledge";
 import type { PickResult } from "../render/Engine";
@@ -145,20 +146,13 @@ export class Hud {
     if (this.cache[region] === html) return;
     this.cache[region] = html;
     const target = el ?? this.regions[region];
-    // Preserve scroll position, typed text and focus across re-renders.
-    const st = target.scrollTop;
-    const inputs = new Map<string, string>();
-    target.querySelectorAll<HTMLInputElement>("input[id]").forEach((i) => inputs.set(i.id, i.value));
-    const focused = document.activeElement && target.contains(document.activeElement) ? document.activeElement.id : "";
-    target.innerHTML = html;
-    target.scrollTop = st;
-    for (const [id, v] of inputs) {
-      const i = target.querySelector<HTMLInputElement>(`#${id}`);
-      if (i && i.type !== "checkbox") i.value = v;
-    }
-    if (focused) target.querySelector<HTMLElement>(`#${focused}`)?.focus();
+    // Patch in place (not innerHTML): hovered buttons don't blink, clicks in
+    // progress aren't lost, and typed text, focus and scroll positions survive.
+    const log0 = target.querySelector<HTMLElement>(".chat-log");
+    const chatLen = log0?.childElementCount ?? -1;
+    morphHtml(target, html);
     const log = target.querySelector<HTMLElement>(".chat-log");
-    if (log) log.scrollTop = log.scrollHeight;
+    if (log && log.childElementCount !== chatLen) log.scrollTop = log.scrollHeight;
   }
 
   isChattingWith(empireId: string): boolean {
@@ -887,8 +881,7 @@ export class Hud {
         return `<div class="empire-card"><div class="swatch" style="background:${e.color}"></div>
           <div><div style="font-weight:600;font-size:15px;color:${e.color}">${esc(e.name)} ${e.id === p.id ? "(you)" : ""} ${rel} ${ruler} ${offer ? `<span class="tag peace">offers peace</span>` : ""}</div>
           <div class="stats">${e.isPirate ? "Lawless raiders · always hostile" : `${esc(SPECIES_MAP[e.speciesId]?.adjective ?? "")} · ${met ? `${cols.length} colonies · ${fmt(pop, 1)} pop · ${systems}/${total} systems (${pct(systems / total)}) · strength ${fmt(empirePower(s, e.id))} · ${e.research.completed.length} techs${e.research.current === "ascension" ? " · <b style='color:var(--warn)'>pursuing Ascension!</b>" : ""}` : "not yet contacted"}`}</div></div>
-          ${demandHtml}</div>
-          <div class="actions">${talk} ${btn}</div></div>`;
+          <div class="actions">${talk} ${btn}${demandHtml}</div></div>`;
       })
       .join("");
     return `<header><h2>Empires of the galaxy</h2><button data-action="close">✕</button></header>${rows}
