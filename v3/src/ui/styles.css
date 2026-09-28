@@ -1112,3 +1112,25 @@ kbd {
   flex-wrap: wrap;
   margin: 6px 0;
 }
+
+/* Species ship showcase on the title screen. */
+.ship-preview {
+  position: relative;
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: radial-gradient(ellipse at 50% 60%, rgba(60, 90, 160, 0.25), rgba(0, 0, 0, 0.35) 70%);
+  overflow: hidden;
+}
+.ship-preview-canvas {
+  display: block;
+  width: 100%;
+}
+.ship-preview-caption {
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}

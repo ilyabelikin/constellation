@@ -37,6 +37,7 @@ test.afterEach(() => {
 });
 
 test("host a galaxy, a friend joins by link, takes a seat and both play", async ({ browser }) => {
+  test.setTimeout(360_000); // two full clients rendering in software
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
   const host = await hostCtx.newPage();

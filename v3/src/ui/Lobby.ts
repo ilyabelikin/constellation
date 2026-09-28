@@ -6,6 +6,7 @@ import type { GameSettings } from "../sim/types";
 import type { CloudSaveSummary, SessionInfo, SessionSummary } from "../net/protocol";
 import { dateString, esc } from "./format";
 import { morphHtml } from "./morph";
+import { ShipPreview } from "./ShipPreview";
 import { helpHtml } from "./help";
 
 export interface LobbyCallbacks {
@@ -34,6 +35,9 @@ export class Lobby {
   private color = EMPIRE_COLORS[0];
   private showHelp = false;
   private room: SessionInfo | null = null;
+  /** The species' ships on a turntable; kept across re-renders (one WebGL context). */
+  private previewHost: HTMLElement | null = null;
+  private preview: ShipPreview | null = null;
 
   constructor(
     private root: HTMLElement,
@@ -149,9 +153,31 @@ export class Lobby {
   hide(): void {
     this.root.classList.add("hidden");
     this.root.innerHTML = "";
+    this.preview?.dispose();
+    this.preview = null;
+    this.previewHost = null;
+  }
+
+  private mountPreview(): void {
+    const slot = this.root.querySelector("#lb-ship-slot");
+    if (!slot) return;
+    if (!this.previewHost) {
+      this.previewHost = document.createElement("div");
+      this.previewHost.className = "ship-preview";
+      this.previewHost.id = "lb-ship";
+      this.preview = new ShipPreview(this.previewHost);
+    }
+    slot.replaceWith(this.previewHost);
+    this.preview?.set(this.species, this.color);
   }
 
   private render(): void {
+    if (this.room || this.showHelp) {
+      // The turntable only lives on the species screen.
+      this.preview?.dispose();
+      this.preview = null;
+      this.previewHost = null;
+    }
     if (this.room) return this.renderRoom(this.room);
     const sp = SPECIES.find((s) => s.id === this.species)!;
     if (this.showHelp) {
@@ -178,6 +204,7 @@ export class Lobby {
           </div>`,
         ).join("")}
       </div>
+      <div id="lb-ship-slot"></div>
       <div class="form-row">
         <label class="field">Empire name<input id="lb-name" maxlength="28" value="${esc(sp.name)}" /></label>
         <label class="field">Colour
@@ -215,8 +242,10 @@ export class Lobby {
         this.render();
       }),
     );
+    this.mountPreview();
     (this.root.querySelector("#lb-color") as HTMLSelectElement).addEventListener("change", (e) => {
       this.color = (e.target as HTMLSelectElement).value;
+      this.preview?.set(this.species, this.color);
     });
     this.root.querySelector('[data-a="continue"]')?.addEventListener("click", () => this.cb.onContinue());
     this.root.querySelector('[data-a="help"]')!.addEventListener("click", () => {
