@@ -290,3 +290,21 @@ test("right-click dismisses badges and messages", async ({ page }) => {
   await toast.click({ button: "right" });
   await expect(toast).toHaveCount(0);
 });
+
+test("colonize without a colony ship offers to build one at the best shipyard", async ({ page }) => {
+  await startGame(page, "hero7");
+  await page.click('[data-action="speed:0"]');
+  await page.evaluate(() => {
+    const g = (window as any).__app.game;
+    g.player.resources.credits = 5000;
+    g.player.resources.metals = 5000;
+  });
+  // Pick a colonizable world via the opportunity badge instead of guessing.
+  await page.click('#badges [data-action="badge:colonize"]');
+  await page.locator('#details [data-action^="colonize:"]').click();
+  await expect(page.locator(".modal h2")).toContainText("Colonize");
+  await expect(page.locator(".modal .tag.peace")).toContainText("recommended");
+  await page.locator('.modal [data-action^="buildcolony:"]').first().click();
+  await expect(page.locator(".modal")).toHaveCount(0);
+  await expect(page.locator("#details")).toContainText("Colony ship being built");
+});

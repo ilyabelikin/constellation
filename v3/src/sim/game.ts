@@ -13,9 +13,10 @@ import { createGame, makeFleet, makeShip, SAVE_VERSION } from "./galaxy";
 import { clearModifierCache } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
 import { pirateDay } from "./pirates";
+import { colonyShipOptions } from "./planning";
 import { Rng } from "./rng";
 import { acquaintances, log, logTo } from "./util";
-import type { Colony, GameSettings, GameState, SimEvent } from "./types";
+import type { Colony, GameSettings, GameState, QueueItem, SimEvent } from "./types";
 
 export const STEP_DAYS = 0.1;
 export const DOMINATION_SHARE = 0.6;
@@ -78,7 +79,7 @@ export class Game {
   private dailyTick(): void {
     const s = this.state;
     const rng = new Rng(s.rngState);
-    for (const c of Object.values(s.colonies)) processColonyDay(s, c, (col, hull) => this.onShipBuilt(col, hull));
+    for (const c of Object.values(s.colonies)) processColonyDay(s, c, (col, item) => this.onShipBuilt(col, item));
     for (const e of Object.values(s.empires)) processEconomyDay(s, e);
     repairFleetsDay(s);
     for (const [a, b] of updateContacts(s)) this.events.push({ type: "contact", a, b });
@@ -97,7 +98,8 @@ export class Game {
     }
   }
 
-  private onShipBuilt(colony: Colony, hullId: string): void {
+  private onShipBuilt(colony: Colony, item: Extract<QueueItem, { kind: "ship" }>): void {
+    const hullId = item.type;
     const s = this.state;
     const empire = s.empires[colony.empireId];
     const hull = HULL_MAP[hullId];
@@ -105,7 +107,7 @@ export class Game {
     const ship = makeShip(s, empire, hullId);
     empire.stats.shipsBuilt++;
     let fleet = null;
-    if (hull.role === "military") {
+    if (hull.role === "military" && !item.then) {
       fleet = Object.values(s.fleets).find(
         (f) =>
           f.empireId === empire.id &&
@@ -135,6 +137,18 @@ export class Game {
     fleet.ships.push(ship);
     this.events.push({ type: "shipBuilt", systemId: colony.systemId, fleetId: fleet.id, hull: hullId });
     if (empire.isPlayer) log(s, "construction", `${hull.name} ${ship.name.split(" ").pop()} launched at ${colony.name}.`, empire.id, colony.systemId);
+    if (item.then?.kind === "colonize") {
+      const target = s.bodies[item.then.bodyId];
+      const r = cmd.colonizeOrder(s, empire.id, fleet.id, item.then.bodyId);
+      if (empire.isPlayer)
+        log(
+          s,
+          "colony",
+          r.ok ? `${fleet.name} set course to colonise ${target.name}.` : `${fleet.name} can no longer colonise ${target.name}: ${r.error}.`,
+          empire.id,
+          target.systemId,
+        );
+    }
   }
 
   private checkEliminations(): void {
@@ -209,6 +223,13 @@ export class Game {
   }
   queueShip(colonyId: string, hull: string) {
     return this.after(cmd.queueShip(this.state, this.playerId, colonyId, hull));
+  }
+  /** Queue a colony ship (at `colonyId`, or the best shipyard) that will settle `bodyId` on launch. */
+  buildColonyShipFor(bodyId: string, colonyId?: string): cmd.CommandResult {
+    const options = colonyShipOptions(this.state, this.playerId, bodyId);
+    const pick = colonyId ? options.find((o) => o.colonyId === colonyId) : options[0];
+    if (!pick) return { ok: false, error: "No shipyard can reach that world" };
+    return this.after(cmd.queueShip(this.state, this.playerId, pick.colonyId, "colony", { kind: "colonize", bodyId }));
   }
   cancelQueueItem(colonyId: string, index: number, expectType?: string) {
     return this.after(cmd.cancelQueueItem(this.state, this.playerId, colonyId, index, expectType));

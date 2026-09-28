@@ -725,3 +725,22 @@ describe("fog of war", () => {
     expect(canSeeLog(entry, g.playerId)).toBe(false);
   });
 });
+
+describe("colony ship planning", () => {
+  it("ranks shipyards and auto-colonises the chosen world when the ship launches", async () => {
+    const { colonyShipOptions } = await import("../src/sim/planning");
+    let g = Game.create({ seed: "plan" });
+    const findTarget = (gm: Game) =>
+      Object.values(gm.state.bodies).find((b) => b.systemId === home(gm).systemId && b.id !== home(gm).bodyId && canColonize(gm.player, b));
+    for (let i = 0; !findTarget(g); i++) g = Game.create({ seed: `plan-${i}` });
+    const target = findTarget(g)!;
+    g.player.resources.credits = g.player.resources.metals = 5000;
+    const opts = colonyShipOptions(g.state, g.playerId, target.id);
+    expect(opts.length).toBe(1);
+    expect(opts[0].colonyId).toBe(home(g).id);
+    expect(opts[0].etaDays).toBeGreaterThan(opts[0].buildDays);
+    expect(g.buildColonyShipFor(target.id).ok).toBe(true);
+    expect(home(g).queue.at(-1)).toMatchObject({ type: "colony", then: { kind: "colonize", bodyId: target.id } });
+    expect(runUntil(g, () => Object.values(g.state.colonies).some((c) => c.bodyId === target.id), 200)).toBe(true);
+  });
+});

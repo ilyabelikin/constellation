@@ -40,6 +40,7 @@ import { hasMet } from "../sim/knowledge";
 import type { PickResult } from "../render/Engine";
 import { costHtml, dateString, esc, fmt, pct, RES_ICON, RES_NAME, signed, yieldsHtml } from "./format";
 import { helpHtml } from "./help";
+import { colonyShipOptions } from "../sim/planning";
 import { findOpportunities, OPPORTUNITY_META, type Opportunity, type OpportunityKind, type OpportunityTarget } from "./opportunities";
 
 function targetKey(t: OpportunityTarget): string {
@@ -67,7 +68,7 @@ export interface AppApi {
   quitToTitle(): void;
 }
 
-type Modal = null | "research" | "empires" | "menu" | "help" | "end";
+type Modal = null | "research" | "empires" | "menu" | "help" | "end" | "colonize";
 
 export class Hud {
   private regions: Record<string, HTMLElement> = {};
@@ -80,6 +81,7 @@ export class Hud {
   private badgeIndex: Partial<Record<OpportunityKind, number>> = {};
   private opportunities: Opportunity[] = [];
   private dismissed: Partial<Record<OpportunityKind, Set<string>>> = {};
+  private colonizeTarget: string | null = null;
 
   constructor(
     root: HTMLElement,
@@ -489,9 +491,16 @@ export class Hud {
       const f = ok ? this.nearestIdleFleet("colony", b.systemId) : null;
       const owner = systemOwner(s, b.systemId);
       const blocked = owner && owner !== p.id && !s.empires[owner].isPirate;
-      actions.push(
-        `<button class="primary" data-action="colonize:${b.id}" ${ok && f && !blocked ? "" : "disabled"} title="${!ok ? "Uninhabitable for our species (needs 20%+)" : blocked ? "Claimed by another empire" : !f ? "Build a Colony Ship at a shipyard first" : `Send ${esc(f.name)}`}">🜨 Colonize${f && ok ? ` · ${esc(f.name)}` : ""}</button>`,
-      );
+      const pending =
+        Object.values(s.fleets).find((x) => x.empireId === p.id && x.order?.kind === "colonize" && x.order.bodyId === b.id) ??
+        null;
+      const queuedAt = g.playerColonies().find((c) => c.queue.some((q) => q.kind === "ship" && q.then?.bodyId === b.id));
+      if (pending) actions.push(`<span class="chip good">🜨 ${esc(pending.name)} is on its way</span>`);
+      else if (queuedAt) actions.push(`<span class="chip good">🜨 Colony ship being built at ${esc(queuedAt.name)}</span>`);
+      else
+        actions.push(
+          `<button class="primary" data-action="colonize:${b.id}" ${ok && !blocked ? "" : "disabled"} title="${!ok ? "Uninhabitable for our species (needs 20%+)" : blocked ? "Claimed by another empire" : f ? `Send ${esc(f.name)}` : "Build a colony ship for this world"}">🜨 Colonize${f && ok ? ` · ${esc(f.name)}` : "…"}</button>`,
+        );
     }
     if (colony && colony.empireId !== p.id && p.relations[colony.empireId] === "war") {
       const f = this.nearestIdleFleet("transport", b.systemId);
@@ -702,6 +711,7 @@ export class Hud {
     else if (this.modal === "menu") inner = this.menuModal();
     else if (this.modal === "help") inner = `<header><h2>How to play</h2><button data-action="close">✕</button></header>${helpHtml()}`;
     else if (this.modal === "end") inner = this.endModal();
+    else if (this.modal === "colonize") inner = this.colonizeModal();
     this.set("modal", `<div class="modal-backdrop" data-action="backdrop"><div class="panel modal" data-stop="1">${inner}</div></div>`, this.modalRoot);
   }
 
@@ -778,6 +788,28 @@ export class Hud {
         <button data-action="modal:help">How to play</button>
         <button class="danger" data-action="quit">Quit to title</button>
       </div>`;
+  }
+
+  private colonizeModal(): string {
+    const g = this.game;
+    const s = g.state;
+    const body = this.colonizeTarget ? s.bodies[this.colonizeTarget] : null;
+    if (!body) return `<header><h2>Colonize</h2><button data-action="close">✕</button></header>`;
+    const options = colonyShipOptions(s, g.playerId, body.id);
+    const h = habitability(g.player, body);
+    const rows = options
+      .map((o, i) => {
+        const best = i === 0 && o.affordable;
+        return `<div class="empire-card" style="grid-template-columns:1fr auto">
+          <div><div style="font-weight:600;font-size:15px">${esc(o.colonyName)} ${best ? `<span class="tag peace">recommended</span>` : ""}</div>
+          <div class="stats">Arrives in ~${Math.round(o.etaDays)} days · queue ${Math.round(o.queueDays)}d + build ${Math.round(o.buildDays)}d + travel ${Math.round(o.travelDays)}d (${o.jumps} jump${o.jumps === 1 ? "" : "s"}) · ${costHtml(o.cost, g.player.resources)}</div></div>
+          <div><button class="${best ? "primary" : ""}" data-action="buildcolony:${o.colonyId}" ${o.affordable ? "" : "disabled"} title="${o.affordable ? "Queue a colony ship here" : "Not enough resources"}">Build &amp; send</button></div></div>`;
+      })
+      .join("");
+    return `<header><h2>Colonize ${esc(body.name)}</h2><button data-action="close">✕</button></header>
+      <p class="desc">No colony ship is available. Build one at a shipyard and it will fly to <b>${esc(body.name)}</b>
+      (${esc(PLANET_TYPE_MAP[body.type]?.name ?? body.type)}, habitability ${pct(h)}, size ${body.size}) and settle it as soon as it launches.</p>
+      ${rows || `<div class="hint">None of your colonies has an Orbital Shipyard with a known route there. Build a shipyard first.</div>`}`;
   }
 
   private endModal(): string {
@@ -872,6 +904,22 @@ export class Hud {
         const b = g.state.bodies[args[0]];
         const f = this.nearestIdleFleet("colony", b.systemId);
         if (f) res(g.colonize(f.id, b.id), `${f.name} en route to ${b.name}`);
+        else {
+          // No colony ship available: offer to build one at the best shipyard.
+          this.colonizeTarget = b.id;
+          this.modal = "colonize";
+        }
+        break;
+      }
+      case "buildcolony": {
+        const target = this.colonizeTarget;
+        if (!target) break;
+        const r = g.buildColonyShipFor(target, args[0]);
+        res(r, `Colony ship queued — it will settle ${g.state.bodies[target].name} on launch`);
+        if (r.ok) {
+          this.modal = null;
+          this.colonizeTarget = null;
+        }
         break;
       }
       case "invade": {

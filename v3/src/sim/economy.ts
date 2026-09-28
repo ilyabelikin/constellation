@@ -8,7 +8,7 @@ import { BUILDING_MAP, STATION_MAP, SPECIES_MAP, type StationDef } from "./data/
 import { TECHS, TECH_MAP, type TechDef } from "./data/techs";
 import { modifiers, hasTech } from "./modifiers";
 import { clamp, log } from "./util";
-import type { Body, Colony, Empire, GameState, ResourceKey, Resources, Station, Yields } from "./types";
+import type { Body, Colony, Empire, GameState, QueueItem, ResourceKey, Resources, Station, Yields } from "./types";
 
 export const CAPITAL_YIELDS: Required<Yields> = { credits: 4, metals: 3, energy: 5, research: 3, exotics: 0 };
 export const CAPITAL_DEFENSE = 350;
@@ -443,7 +443,11 @@ export function storageCap(state: GameState, empire: Empire): number {
   return 2000 + colonies * 750;
 }
 
-export function processColonyDay(state: GameState, colony: Colony, onShipBuilt: (c: Colony, hull: string) => void): void {
+export function processColonyDay(
+  state: GameState,
+  colony: Colony,
+  onShipBuilt: (c: Colony, item: Extract<QueueItem, { kind: "ship" }>) => void,
+): void {
   const empire = state.empires[colony.empireId];
   growPopulation(state, colony);
   // Defense regeneration after 3 quiet days.
@@ -465,7 +469,7 @@ export function processColonyDay(state: GameState, colony: Colony, onShipBuilt: 
         log(state, "construction", `${BUILDING_MAP[item.type].name} completed on ${colony.name}.`, empire.id, colony.systemId);
       if (BUILDING_MAP[item.type].defense) colony.defense = Math.min(maxDefense(state, colony), colony.defense + BUILDING_MAP[item.type].defense!);
     } else {
-      onShipBuilt(colony, item.type);
+      onShipBuilt(colony, item);
     }
   }
 }

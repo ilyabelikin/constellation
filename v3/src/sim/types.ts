@@ -169,7 +169,15 @@ export interface BuildingInstance {
 
 export type QueueItem =
   | { kind: "building"; type: string; progress: number; total: number }
-  | { kind: "ship"; type: string; progress: number; total: number; paid?: Partial<Resources> };
+  | {
+      kind: "ship";
+      type: string;
+      progress: number;
+      total: number;
+      paid?: Partial<Resources>;
+      /** Standing order the new ship executes on launch (e.g. colonise a chosen world). */
+      then?: { kind: "colonize"; bodyId: string };
+    };
 
 export interface Colony {
   id: string;

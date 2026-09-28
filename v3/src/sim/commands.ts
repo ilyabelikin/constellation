@@ -38,7 +38,13 @@ export function queueBuilding(state: GameState, empireId: string, colonyId: stri
   return OK;
 }
 
-export function queueShip(state: GameState, empireId: string, colonyId: string, hullId: string): CommandResult {
+export function queueShip(
+  state: GameState,
+  empireId: string,
+  colonyId: string,
+  hullId: string,
+  then?: { kind: "colonize"; bodyId: string },
+): CommandResult {
   const colony = state.colonies[colonyId];
   const empire = state.empires[empireId];
   if (!colony || colony.empireId !== empireId) return fail("Not your colony");
@@ -52,7 +58,7 @@ export function queueShip(state: GameState, empireId: string, colonyId: string, 
   const cost = hullCost(state, empire, hullId);
   if (!canAfford(empire.resources, cost)) return fail("Not enough resources");
   pay(empire.resources, cost);
-  colony.queue.push({ kind: "ship", type: hullId, progress: 0, total: hull.buildDays, paid: cost });
+  colony.queue.push({ kind: "ship", type: hullId, progress: 0, total: hull.buildDays, paid: cost, ...(then ? { then } : {}) });
   return OK;
 }
 
