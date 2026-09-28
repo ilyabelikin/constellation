@@ -2,7 +2,7 @@
 
 import * as THREE from "three";
 import { STAR_TYPE_MAP } from "../sim/data/stars";
-import { systemOwnerMap } from "../sim/economy";
+import { systemOwnerMap, systemHolders } from "../sim/economy";
 import { sensorSystems } from "../sim/knowledge";
 import type { PlayerFacade as Game } from "../sim/facade";
 import type { PickResult, View } from "./Engine";
@@ -189,7 +189,8 @@ export class GalaxyView implements View {
       l.mesh.visible = !!known;
       const oa = this.owners[l.a];
       const ob = this.owners[l.b];
-      const col = oa && oa === ob ? s.empires[oa].color : "#4fa8ff";
+      // Only colour a lane by owner when we have seen both ends (no peeking into unexplored space).
+      const col = oa && oa === ob && player.explored[l.a] && player.explored[l.b] ? s.empires[oa].color : "#4fa8ff";
       l.mat.uniforms.uColor.value.set(col);
       l.mat.uniforms.uOpacity.value = player.explored[l.a] && player.explored[l.b] ? 0.7 : 0.3;
     }
@@ -308,10 +309,12 @@ export class GalaxyView implements View {
       const pos = v.pos.clone();
       pos.y += 4;
       const star = s.bodies[s.systems[v.id].starIds[0]];
+      const contested = explored && systemHolders(s, v.id).length > 1;
       out.push({
         key: `s:${v.id}`,
-        text: explored ? s.systems[v.id].name : "Unexplored",
-        sub: explored ? STAR_TYPE_MAP[star.type].name : undefined,
+        // Star names are charted from afar (gates name their destinations); details need a survey.
+        text: s.systems[v.id].name,
+        sub: explored ? `${STAR_TYPE_MAP[star.type].name}${contested ? " · contested" : ""}` : "Unexplored",
         pos,
         color: owner && explored ? s.empires[owner].color : explored ? "#d8e6ff" : "#7a8599",
         kind: "system",

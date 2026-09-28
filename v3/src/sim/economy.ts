@@ -378,6 +378,19 @@ export function systemOwner(state: GameState, systemId: string): string | null {
 }
 
 /** Owner of every system. Computed in one pass over colonies & stations. */
+/** Who holds colonies in a system (strongest first); more than one means it is contested. */
+export function systemHolders(state: GameState, systemId: string): { empireId: string; colonies: Colony[]; weight: number }[] {
+  const by = new Map<string, { empireId: string; colonies: Colony[]; weight: number }>();
+  for (const c of Object.values(state.colonies)) {
+    if (c.systemId !== systemId) continue;
+    const h = by.get(c.empireId) ?? { empireId: c.empireId, colonies: [], weight: 0 };
+    h.colonies.push(c);
+    h.weight += 100 + c.pop;
+    by.set(c.empireId, h);
+  }
+  return [...by.values()].sort((a, b) => b.weight - a.weight);
+}
+
 export function systemOwnerMap(state: GameState): Record<string, string | null> {
   const score: Record<string, Record<string, number>> = {};
   const bump = (sys: string, emp: string, v: number) => {

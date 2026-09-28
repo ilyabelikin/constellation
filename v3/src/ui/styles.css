@@ -1176,3 +1176,11 @@ kbd {
   color: var(--bad);
   font-weight: 600;
 }
+.holder {
+  font-size: 13px;
+  margin: 3px 0;
+}
+.holder a {
+  cursor: pointer;
+  text-decoration: underline dotted;
+}

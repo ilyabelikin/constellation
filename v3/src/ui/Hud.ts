@@ -20,6 +20,7 @@ import {
   hullCost,
   incomeReport,
   buildingOutput,
+  systemHolders,
   isBankrupt,
   isBlackout,
   maxDefense,
@@ -363,7 +364,7 @@ export class Hud {
     for (const gate of sys.gates) {
       const known = !!p.explored[gate.otherSystemId];
       html += `<div class="row orow ${sel?.kind === "gate" && sel.id === gate.tunnelId ? "sel" : ""}" data-action="sel:gate:${gate.tunnelId}:${systemId}">
-        <span class="oicon">⟶</span><span class="name">${known ? esc(s.systems[gate.otherSystemId].name) : "Unexplored"}<span class="otype">${s.tunnels[gate.tunnelId].travelDays.toFixed(0)} days</span></span></div>`;
+        <span class="oicon">⟶</span><span class="name">${esc(s.systems[gate.otherSystemId].name)}${known ? "" : " · unexplored"}<span class="otype">${s.tunnels[gate.tunnelId].travelDays.toFixed(0)} days</span></span></div>`;
     }
     const fleets = Object.values(s.fleets).filter((f) => f.systemId === systemId && f.ships.length && (f.empireId === p.id || this.playerPresent(systemId)));
     if (fleets.length) {
@@ -808,7 +809,7 @@ export class Hud {
     const here = this.app.systemId;
     const to = t.a === here ? t.b : t.a;
     const explored = !!s.empires[s.playerId].explored[to];
-    return `<h2>Tunnel Gate</h2><div class="subtitle">${esc(s.systems[here].name)} ⟶ ${explored ? esc(s.systems[to].name) : "Unexplored system"}</div>
+    return `<h2>Tunnel Gate</h2><div class="subtitle">${esc(s.systems[here].name)} ⟶ ${esc(s.systems[to].name)}${explored ? "" : " (unexplored)"}</div>
       <p class="desc">An ancient gate anchoring a stable tunnel through subspace. Fleets entering it emerge ${t.length.toFixed(1)} light years away.</p>
       <div class="kv"><div class="k">Distance</div><div class="v">${t.length.toFixed(1)} ly</div><div class="k">Transit time</div><div class="v">${t.travelDays.toFixed(0)} days</div></div>
       <div class="actions"><button data-action="jumpgate:${tunnelId}" ${explored ? "" : `disabled title="Survey it first: send any ship through the gate"`}>⟶ Look through the gate</button>
@@ -824,7 +825,12 @@ export class Hud {
     const owner = systemOwner(s, id);
     const star = s.bodies[sys.starIds[0]];
     const st = STAR_TYPE_MAP[star.type];
-    let html = `<h2>${explored ? esc(sys.name) : "Unexplored system"}</h2><div class="subtitle">${explored ? `${esc(st.name)}${sys.starIds.length > 1 ? " binary" : ""}` : "Unknown star"}${owner && explored ? ` · <span style="color:${s.empires[owner].color}">${esc(s.empires[owner].name)}</span>` : ""}</div>`;
+    const holders = explored ? systemHolders(s, id) : [];
+    let html = `<h2>${esc(sys.name)}</h2><div class="subtitle">${explored ? `${esc(st.name)}${sys.starIds.length > 1 ? " binary" : ""}` : "Unexplored"}${owner && explored ? ` · <span style="color:${s.empires[owner].color}">${esc(s.empires[owner].name)}</span>` : ""}${holders.length > 1 ? ` · <span class="tag war">contested</span>` : ""}</div>`;
+    if (holders.length)
+      html += `<div class="section-title">Colonies</div>${holders
+        .map((h) => `<div class="holder"><span style="color:${s.empires[h.empireId].color}">${esc(s.empires[h.empireId].name)}</span> · ${h.colonies.map((c) => `<a data-action="goto:body:${c.bodyId}">${esc(c.name)}</a> (${fmt(c.pop, 1)})`).join(", ")}</div>`)
+        .join("")}${holders.length > 1 ? `<div class="hint">The empire with the most colonists holds the system; take every colony to claim it.</div>` : ""}`;
     if (explored) {
       const bodies = sys.bodyIds.map((b) => s.bodies[b]);
       const planets = bodies.filter((b) => b.kind === "planet");

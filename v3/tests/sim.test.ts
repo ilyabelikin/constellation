@@ -16,7 +16,9 @@ import {
   maxDefense,
   popCapacity,
   stationBuildError,
+  systemHolders,
   systemOwner,
+  systemOwnerMap,
 } from "../src/sim/economy";
 import { STAR_TYPES } from "../src/sim/data/stars";
 import { PLANET_TYPES } from "../src/sim/data/planets";
@@ -27,6 +29,7 @@ import { fleetPower } from "../src/sim/combat";
 import { declareWar } from "../src/sim/commands";
 import { proposeTrade, TRADE_INTERVAL, tradeValue } from "../src/sim/trade";
 import { shipStores, supplyLevel } from "../src/sim/supplies";
+import { cedeColony } from "../src/sim/diplomacy";
 import { canSeeLog } from "../src/sim/util";
 import type { Colony, Fleet, GameState } from "../src/sim/types";
 
@@ -1226,5 +1229,63 @@ describe("logistics", () => {
     g.advance(1.05);
     expect(s.fleets[tender.id]).toBeUndefined();
     expect(g.player.resources.metals).toBeGreaterThan(before + carried * 0.99 - 20);
+  });
+});
+
+describe("systems changing hands", () => {
+  function setup() {
+    const g = Game.create({ seed: "hands", aiCount: 1, pirates: false });
+    const s = g.state;
+    const enemy = Object.values(s.empires).find((e) => e.ai && !e.isPirate)!;
+    const cap = Object.values(s.colonies).find((c) => c.empireId === enemy.id)!;
+    return { g, s, enemy, cap };
+  }
+  const capture = (s: GameState, colonyId: string, to: string) => {
+    s.colonies[colonyId].empireId = to;
+    s.colonies[colonyId].capital = false;
+  };
+
+  it("taking a system's only colony hands the system over", () => {
+    const { g, s, enemy, cap } = setup();
+    expect(systemOwner(s, cap.systemId)).toBe(enemy.id);
+    capture(s, cap.id, g.playerId);
+    expect(systemOwner(s, cap.systemId)).toBe(g.playerId);
+    expect(systemOwnerMap(s)[cap.systemId]).toBe(g.playerId);
+    expect(systemHolders(s, cap.systemId).map((h) => h.empireId)).toEqual([g.playerId]);
+  });
+
+  it("taking one of two colonies leaves the system contested, held by the larger side", () => {
+    const { g, s, enemy, cap } = setup();
+    const moon = s.systems[cap.systemId].bodyIds.map((id) => s.bodies[id]).find((b) => b.id !== cap.bodyId && (b.kind === "planet" || b.kind === "moon"))!;
+    const second = foundColony(s, enemy, moon.id, 2);
+    capture(s, second.id, g.playerId);
+    const holders = systemHolders(s, cap.systemId);
+    expect(holders.map((h) => h.empireId)).toEqual([enemy.id, g.playerId]); // contested, enemy still stronger
+    expect(systemOwner(s, cap.systemId)).toBe(enemy.id);
+    capture(s, cap.id, g.playerId);
+    expect(systemOwner(s, cap.systemId)).toBe(g.playerId);
+    expect(systemHolders(s, cap.systemId)).toHaveLength(1);
+  });
+
+  it("stations alone never outweigh a colony, and a fallen empire's stations vanish", () => {
+    const { g, s, enemy, cap } = setup();
+    for (let i = 0; i < 20; i++) s.stations[`st${i}`] = { id: `st${i}`, empireId: enemy.id, systemId: cap.systemId, bodyId: cap.bodyId, type: "mining_station", hp: 100 } as never;
+    capture(s, cap.id, g.playerId);
+    expect(systemOwner(s, cap.systemId)).toBe(g.playerId);
+    g.advance(1.1); // the enemy has no colonies left: it collapses
+    expect(s.empires[enemy.id].alive).toBe(false);
+    expect(Object.values(s.stations).some((x) => x.empireId === enemy.id)).toBe(false);
+  });
+
+  it("ceding a colony by treaty moves the system too", () => {
+    const { g, s, enemy, cap } = setup();
+    meet(g, enemy.id);
+    const moon = s.systems[cap.systemId].bodyIds.map((id) => s.bodies[id]).find((b) => b.id !== cap.bodyId && (b.kind === "planet" || b.kind === "moon"))!;
+    const outpost = foundColony(s, enemy, moon.id, 1);
+    delete s.colonies[cap.id]; // the enemy's only colony there is the outpost
+    foundColony(s, enemy, Object.values(s.bodies).find((b) => b.systemId !== cap.systemId && canColonize(enemy, b) && !Object.values(s.colonies).some((c) => c.bodyId === b.id))!.id, 5).capital = true;
+    expect(cedeColony(s, enemy.id, outpost.id, g.playerId).ok).toBe(true);
+    expect(systemOwner(s, cap.systemId)).toBe(g.playerId);
+    expect(g.player.explored[cap.systemId]).toBe(true);
   });
 });

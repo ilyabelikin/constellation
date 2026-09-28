@@ -638,3 +638,44 @@ test("trade agreements are signed from the Empires screen", async ({ page }) => 
   await expect(page.locator(".empire-card .tag.trade")).toContainText("trade partner");
   await expect(page.locator(`[data-action="endtrade:${rival}"]`)).toBeVisible();
 });
+
+test("galaxy map names every star, marks unexplored ones, and shows contested systems and captures", async ({ page }) => {
+  await startGame(page, "hands-e2e");
+  await page.click('[data-action="speed:0"]');
+  const info = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const s = app.game.state;
+    const enemy = Object.values(s.empires).find((e: any) => e.ai && !e.isPirate) as any;
+    const cap = Object.values(s.colonies).find((c: any) => c.empireId === enemy.id) as any;
+    const unexplored = Object.keys(s.systems).find((id) => !s.empires[s.playerId].explored[id] && id !== cap.systemId)!;
+    s.empires[s.playerId].explored[cap.systemId] = true;
+    // A second enemy colony in the same system, which we capture.
+    const other = s.systems[cap.systemId].bodyIds.map((id: string) => s.bodies[id]).find((b: any) => b.id !== cap.bodyId && (b.kind === "planet" || b.kind === "moon"));
+    s.colonies.cx = { ...cap, id: "cx", bodyId: other.id, name: other.name, pop: 2, capital: false, buildings: [], queue: [], empireId: s.playerId };
+    app.local.step();
+    app.showGalaxy();
+    return { sys: cap.systemId, name: s.systems[cap.systemId].name, unexplored, unexploredName: s.systems[unexplored].name, enemyColor: enemy.color, playerColor: s.empires[s.playerId].color, capId: cap.id, player: s.playerId };
+  });
+  const label = (id: string) => page.evaluate((sys) => (window as any).__app.galaxyView.labelAnchors().find((l: any) => l.key === `s:${sys}`), id);
+  const u = await label(info.unexplored);
+  expect(u.text).toBe(info.unexploredName);
+  expect(u.sub).toBe("Unexplored");
+  const c = await label(info.sys);
+  expect(c.sub).toContain("contested");
+  expect(c.color).toBe(info.enemyColor); // the bigger side still holds it
+  // The system panel lists who holds what.
+  await page.evaluate((sys) => (window as any).__app.select({ kind: "system", id: sys }), info.sys);
+  await expect(page.locator("#details")).toContainText("contested");
+  await expect(page.locator("#details .holder")).toHaveCount(2);
+  // Take the last enemy colony: the system (and its label) changes hands.
+  await page.evaluate((i) => {
+    const app = (window as any).__app;
+    app.game.state.colonies[i.capId].empireId = i.player;
+    app.game.state.colonies[i.capId].capital = false;
+    app.local.step();
+    app.galaxyView.sync();
+  }, info);
+  const after = await label(info.sys);
+  expect(after.color).toBe(info.playerColor);
+  expect(after.sub).not.toContain("contested");
+});
