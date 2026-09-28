@@ -1,5 +1,5 @@
 import { Rng } from "./rng";
-import type { GameEventKind, GameState, Resources } from "./types";
+import type { GameEventKind, GameLogEntry, GameState, Resources } from "./types";
 
 export function nextId(state: GameState, prefix: string): string {
   state.idCounter += 1;
@@ -22,7 +22,43 @@ export function log(
   systemId?: string,
 ): void {
   state.log.push({ day: state.day, kind, text, empireId, systemId });
-  if (state.log.length > 400) state.log.splice(0, state.log.length - 400);
+  if (state.log.length > 600) state.log.splice(0, state.log.length - 600);
+}
+
+/** Log an event only for the given empires (duplicates and unknown ids are ignored). */
+export function logTo(
+  state: GameState,
+  kind: GameEventKind,
+  text: string,
+  audience: Iterable<string>,
+  systemId?: string,
+): void {
+  const ids = [...new Set(audience)].filter((id) => state.empires[id]);
+  if (!ids.length) return;
+  state.log.push({ day: state.day, kind, text, empireId: null, audience: ids, systemId });
+  if (state.log.length > 600) state.log.splice(0, state.log.length - 600);
+}
+
+/** Whether `empireId` may see a log entry. */
+export function canSeeLog(entry: GameLogEntry, empireId: string): boolean {
+  if (entry.audience) return entry.audience.includes(empireId);
+  return entry.empireId === null || entry.empireId === empireId;
+}
+
+/** Empires with eyes in a system: a fleet, colony or station there. */
+export function witnesses(state: GameState, systemId: string): string[] {
+  const out = new Set<string>();
+  for (const f of Object.values(state.fleets)) if (f.systemId === systemId && f.ships.length) out.add(f.empireId);
+  for (const c of Object.values(state.colonies)) if (c.systemId === systemId) out.add(c.empireId);
+  for (const st of Object.values(state.stations)) if (st.systemId === systemId) out.add(st.empireId);
+  return [...out];
+}
+
+/** Empires that have met `empireId` (plus the empire itself). */
+export function acquaintances(state: GameState, empireId: string): string[] {
+  const out = [empireId];
+  for (const e of Object.values(state.empires)) if (e.contacts?.[empireId]) out.push(e.id);
+  return out;
 }
 
 export function emptyResources(): Resources {

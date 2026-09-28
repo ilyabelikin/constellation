@@ -301,7 +301,7 @@ export function applyResearch(state: GameState, empire: Empire, points: number):
     r.progress[tech.id] = cost;
     r.completed.push(tech.id);
     r.current = null;
-    log(state, "research", `${empire.name} completed ${tech.name}.`, empire.isPlayer ? empire.id : null);
+    if (empire.isPlayer) log(state, "research", `${empire.name} completed ${tech.name}.`, empire.id);
     if (tech.id === "ascension") {
       state.winner = empire.id;
       state.victoryType = "ascension";

@@ -6,6 +6,7 @@ import { HULL_MAP } from "../sim/data/ships";
 import { STAR_TYPE_MAP } from "../sim/data/stars";
 import { STATION_MAP } from "../sim/data/structures";
 import type { Game } from "../sim/game";
+import { sensorSystems } from "../sim/knowledge";
 import { orbitPosition } from "../sim/orbits";
 import type { Body, Fleet, SimEvent, Station } from "../sim/types";
 import { Effects } from "./Effects";
@@ -475,14 +476,11 @@ export class SystemView implements View {
 
   /** Fog of war: only show foreign fleets where the player has presence. */
   private isVisible(f: Fleet): boolean {
-    const s = this.game.state;
-    if (f.empireId === s.playerId) return true;
-    const pid = s.playerId;
-    return (
-      Object.values(s.fleets).some((o) => o.empireId === pid && o.systemId === this.systemId) ||
-      Object.values(s.colonies).some((c) => c.empireId === pid && c.systemId === this.systemId) ||
-      Object.values(s.stations).some((st) => st.empireId === pid && st.systemId === this.systemId)
-    );
+    return f.empireId === this.game.state.playerId || this.playerPresent();
+  }
+
+  private playerPresent(): boolean {
+    return sensorSystems(this.game.state, this.game.state.playerId).has(this.systemId);
   }
 
   private buildFleet(f: Fleet, key: string): void {
@@ -810,8 +808,12 @@ export class SystemView implements View {
 
   handleEvents(events: SimEvent[]): void {
     const s = this.game.state;
+    // Without eyes in this system we see nothing of what happens here.
+    const present = this.playerPresent();
     for (const e of events) {
-      if (e.systemId !== this.systemId) continue;
+      if (!("systemId" in e) || e.systemId !== this.systemId) continue;
+      const ours = (e.type === "colonized" || e.type === "stationBuilt") && e.empireId === s.playerId;
+      if (!present && !ours) continue;
       if (e.type === "shot") {
         const from = this.refWorld(e.fromRef);
         const to = this.refWorld(e.toRef);

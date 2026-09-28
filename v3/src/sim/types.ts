@@ -245,6 +245,8 @@ export interface Empire {
   fleetCounter: number;
   /** Day the empire lost its last colony (cleared when it has one again). */
   homelessSince?: number;
+  /** Empires this one has met (shared a system, or surveyed one of theirs). */
+  contacts?: Record<string, true>;
 }
 
 export interface Battle {
@@ -271,7 +273,9 @@ export interface GameLogEntry {
   day: number;
   kind: GameEventKind;
   text: string;
-  empireId: string | null; // null = visible to everyone
+  empireId: string | null; // a single recipient, or null together with `audience`/public
+  /** Empires that know about this event (when absent and empireId is null: public news). */
+  audience?: string[];
   systemId?: string;
 }
 
@@ -327,4 +331,5 @@ export type SimEvent =
   | { type: "shipBuilt"; systemId: string; fleetId: string; hull: string }
   | { type: "colonized"; systemId: string; bodyId: string; empireId: string }
   | { type: "stationBuilt"; systemId: string; bodyId: string; empireId: string; stationType: string }
-  | { type: "jump"; systemId: string; pos: Vec3; fleetId: string; entering: boolean };
+  | { type: "jump"; systemId: string; pos: Vec3; fleetId: string; entering: boolean }
+  | { type: "contact"; a: string; b: string };

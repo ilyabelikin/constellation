@@ -35,7 +35,8 @@ import type { Game } from "../sim/game";
 import { buildingUnlocked, hullUnlocked, shipStats, stationUnlocked } from "../sim/modifiers";
 import { dist } from "../sim/orbits";
 import type { Body, Colony, Fleet, ResourceKey } from "../sim/types";
-import { canAfford } from "../sim/util";
+import { canAfford, canSeeLog } from "../sim/util";
+import { hasMet } from "../sim/knowledge";
 import type { PickResult } from "../render/Engine";
 import { costHtml, dateString, esc, fmt, pct, RES_ICON, RES_NAME, signed, yieldsHtml } from "./format";
 import { helpHtml } from "./help";
@@ -366,7 +367,7 @@ export class Hud {
 
   private renderLog(): void {
     const s = this.game.state;
-    const entries = s.log.filter((l) => l.empireId === null || l.empireId === s.playerId).slice(-60);
+    const entries = s.log.filter((l) => canSeeLog(l, s.playerId)).slice(-60);
     if (entries.length !== this.logCount || this.cache.log === undefined) {
       this.logCount = entries.length;
       const html = entries
@@ -406,7 +407,7 @@ export class Hud {
       if (f.empireId !== s.playerId || !f.ships.some((sh) => HULL_MAP[sh.hull].role === role)) continue;
       // Never silently re-task a fleet that is already busy.
       if (f.order || f.transit) continue;
-      const hops = findRoute(s, f.systemId!, bodySystemId)?.length ?? 99;
+      const hops = findRoute(s, f.systemId!, bodySystemId, this.game.player)?.length ?? 99;
       if (hops < bestHops) {
         best = f;
         bestHops = hops;
@@ -675,7 +676,7 @@ export class Hud {
       const f = s.fleets[this.app.activeFleetId!];
       if (!f) return null;
       const from = f.transit ? f.transit.to : f.systemId!;
-      return findRoute(s, from, id);
+      return findRoute(s, from, id, p);
     })() : null;
     html += `<div class="actions"><button class="primary" data-action="enter:${id}">☉ Enter system</button>
       ${this.app.activeFleetId && s.fleets[this.app.activeFleetId] ? `<button data-action="send:${id}">Send ${esc(s.fleets[this.app.activeFleetId].name)}${route ? ` (${route.length} jumps)` : ""}</button>` : ""}</div>
@@ -746,10 +747,14 @@ export class Hud {
         const cols = Object.values(s.colonies).filter((c) => c.empireId === e.id);
         const pop = cols.reduce((a, c) => a + c.pop, 0);
         const systems = Object.values(owners).filter((o) => o === e.id).length;
-        const met = e.id === p.id || e.isPirate || cols.some((c) => p.explored[c.systemId]);
+        const met = hasMet(s, p.id, e.id);
+        if (!met)
+          return `<div class="empire-card"><div class="swatch" style="background:#3a4150"></div>
+            <div><div style="font-weight:600;font-size:15px;color:var(--muted)">Unknown civilization</div>
+            <div class="stats">Not yet contacted — meet them by sharing a system or surveying their territory.</div></div><div></div></div>`;
         const rel = e.id === p.id ? "" : `<span class="tag ${p.relations[e.id]}">${p.relations[e.id] === "war" ? "AT WAR" : "PEACE"}</span>`;
         const btn =
-          e.id === p.id || e.isPirate
+          e.id === p.id || e.isPirate || !met
             ? ""
             : p.relations[e.id] === "war"
               ? `<button data-action="peace:${e.id}">☮ Propose peace</button>`

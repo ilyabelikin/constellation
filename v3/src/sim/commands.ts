@@ -8,7 +8,7 @@ import { buildingSlots, canColonize, commandCapacity, commandUsed, hullCost, sta
 import { clearOrder, issueOrder, mergeFleets } from "./fleets";
 import { makeFleet } from "./galaxy";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
-import { canAfford, log, pay, refund } from "./util";
+import { acquaintances, canAfford, logTo, pay, refund } from "./util";
 import type { Empire, Fleet, GameState, Stance, Vec3 } from "./types";
 
 export type CommandResult = { ok: true } | { ok: false; error: string };
@@ -231,6 +231,7 @@ export function declareWar(state: GameState, empireId: string, targetId: string)
   const b = state.empires[targetId];
   if (!a || !b || a === b) return fail("Invalid empire");
   if (a.relations[targetId] === "war") return fail("Already at war");
+  if (!a.contacts?.[targetId] && !b.isPirate) return fail("We have not met them yet");
   a.relations[targetId] = "war";
   b.relations[empireId] = "war";
   if (b.ai) {
@@ -238,7 +239,7 @@ export function declareWar(state: GameState, empireId: string, targetId: string)
     (b.ai.warStarted ??= {})[empireId] = state.day;
   }
   if (a.ai) (a.ai.warStarted ??= {})[targetId] = state.day;
-  log(state, "diplomacy", `${a.name} declared war on ${b.name}!`, null);
+  logTo(state, "diplomacy", `${a.name} declared war on ${b.name}!`, [...acquaintances(state, a.id), ...acquaintances(state, b.id)]);
   return OK;
 }
 
@@ -253,6 +254,6 @@ export function makePeace(state: GameState, empireId: string, targetId: string):
   b.relations[empireId] = "peace";
   if (a.ai) a.ai.warCooldown = 200;
   if (b.ai) b.ai.warCooldown = 200;
-  log(state, "diplomacy", `${a.name} and ${b.name} signed a peace treaty.`, null);
+  logTo(state, "diplomacy", `${a.name} and ${b.name} signed a peace treaty.`, [...acquaintances(state, a.id), ...acquaintances(state, b.id)]);
   return OK;
 }

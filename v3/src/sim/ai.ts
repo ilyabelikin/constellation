@@ -27,6 +27,7 @@ import {
 } from "./commands";
 import { colonyPower, fleetArmed, fleetPower, isHostile } from "./combat";
 import { findRoute, mergeFleets } from "./fleets";
+import { hasMet } from "./knowledge";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
 import type { Rng } from "./rng";
@@ -213,7 +214,7 @@ function bestColonySite(state: GameState, empire: Empire, owners: Record<string,
     const owner = owners[sysId];
     if (owner && owner !== empire.id && !state.empires[owner].isPirate) continue;
     if (Object.values(state.stations).some((s) => s.systemId === sysId && state.empires[s.empireId].isPirate)) continue;
-    const hops = Math.min(...homes.map((h) => findRoute(state, h, sysId)?.length ?? 99));
+    const hops = Math.min(...homes.map((h) => findRoute(state, h, sysId, empire)?.length ?? 99));
     if (hops > (homeless ? 12 : 4)) continue;
     for (const bid of state.systems[sysId].bodyIds) {
       const b = state.bodies[bid];
@@ -267,7 +268,7 @@ function bestStationSite(
     const owner = owners[sysId];
     if (owner && owner !== empire.id) continue;
     if (Object.values(state.stations).some((s) => s.systemId === sysId && state.empires[s.empireId].isPirate)) continue;
-    const hops = Math.min(...homes.map((h) => findRoute(state, h, sysId)?.length ?? 99));
+    const hops = Math.min(...homes.map((h) => findRoute(state, h, sysId, empire)?.length ?? 99));
     if (hops > 2) continue;
     const sys = state.systems[sysId];
     for (const bid of [...sys.starIds, ...sys.bodyIds]) {
@@ -290,7 +291,7 @@ function invasionTarget(state: GameState, empire: Empire): Colony | null {
   let best: Colony | null = null;
   let bestScore = -Infinity;
   for (const c of Object.values(state.colonies)) {
-    if (!isHostile(state, empire.id, c.empireId) || state.empires[c.empireId].isPirate) continue;
+    if (!isHostile(state, empire.id, c.empireId) || state.empires[c.empireId].isPirate || !empire.explored[c.systemId]) continue;
     let score = -c.defense / 50 - garrison(state, c) + c.pop * 0.3;
     // Strongly prefer the colony our warships are already besieging.
     if (c.defense <= 0) {
@@ -323,7 +324,7 @@ function directCivilians(state: GameState, empire: Empire, owners: Record<string
       let best: string | null = null;
       let bestD = Infinity;
       for (const id of candidates) {
-        const r = findRoute(state, from, id);
+        const r = findRoute(state, from, id, empire);
         if (r && r.length < bestD && r.length > 0) {
           bestD = r.length + rng.range(0, 0.9);
           best = id;
@@ -396,8 +397,8 @@ function directMilitary(state: GameState, empire: Empire, owners: Record<string,
   for (const enemy of enemies) {
     if (enemy.isPirate) {
       for (const s of Object.values(state.stations)) {
-        if (s.empireId !== enemy.id) continue;
-        const r = findRoute(state, from, s.systemId);
+        if (s.empireId !== enemy.id || !empire.explored[s.systemId]) continue;
+        const r = findRoute(state, from, s.systemId, empire);
         if (!r || r.length > 4) continue;
         const guard = Object.values(state.fleets).filter((g) => g.empireId === enemy.id && g.systemId === s.systemId).reduce((p, g) => p + fleetPower(state, g), 0);
         const needed = guard + 450;
@@ -408,7 +409,8 @@ function directMilitary(state: GameState, empire: Empire, owners: Record<string,
       continue;
     }
     for (const c of coloniesOf(state, enemy.id)) {
-      const r = findRoute(state, from, c.systemId);
+      if (!empire.explored[c.systemId]) continue; // only colonies we have actually found
+      const r = findRoute(state, from, c.systemId, empire);
       if (!r || r.length > 6) continue;
       const garrisonFleets = Object.values(state.fleets).filter((g) => g.empireId === enemy.id && g.systemId === c.systemId).reduce((p, g) => p + fleetPower(state, g), 0);
       const needed = garrisonFleets + colonyPower(state, c);
@@ -434,7 +436,7 @@ function diplomacy(state: GameState, empire: Empire, owners: Record<string, stri
   const myPower = empirePower(state, empire.id) + 1;
   const mine = new Set(ownedSystemIds(state, empire.id, owners));
   for (const other of Object.values(state.empires)) {
-    if (other.id === empire.id || other.isPirate || !other.alive) continue;
+    if (other.id === empire.id || other.isPirate || !other.alive || !hasMet(state, empire.id, other.id)) continue;
     const rel = empire.relations[other.id];
     const theirPower = empirePower(state, other.id) + 1;
     const ratio = myPower / theirPower;

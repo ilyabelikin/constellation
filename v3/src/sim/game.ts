@@ -8,12 +8,13 @@ import { applySiege, autoPursue, repairFleetsDay, stepCombat } from "./combat";
 import * as cmd from "./commands";
 import { incomeReport, maxDefense, processColonyDay, processEconomyDay, systemOwnerMap } from "./economy";
 import { ensureCapital, stepFleets } from "./fleets";
+import { updateContacts } from "./knowledge";
 import { createGame, makeFleet, makeShip, SAVE_VERSION } from "./galaxy";
 import { clearModifierCache } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
 import { pirateDay } from "./pirates";
 import { Rng } from "./rng";
-import { log } from "./util";
+import { acquaintances, log, logTo } from "./util";
 import type { Colony, GameSettings, GameState, SimEvent } from "./types";
 
 export const STEP_DAYS = 0.1;
@@ -80,6 +81,7 @@ export class Game {
     for (const c of Object.values(s.colonies)) processColonyDay(s, c, (col, hull) => this.onShipBuilt(col, hull));
     for (const e of Object.values(s.empires)) processEconomyDay(s, e);
     repairFleetsDay(s);
+    for (const [a, b] of updateContacts(s)) this.events.push({ type: "contact", a, b });
     for (const e of Object.values(s.empires)) if (e.ai && e.alive) aiThink(s, e, rng);
     for (const e of Object.values(s.empires)) if (e.alive && !e.isPirate) ensureCapital(s, e.id);
     pirateDay(s, rng);
@@ -158,7 +160,7 @@ export class Game {
       }
       for (const f of Object.values(s.fleets)) if (f.empireId === e.id) delete s.fleets[f.id];
       for (const st of Object.values(s.stations)) if (st.empireId === e.id) delete s.stations[st.id];
-      log(s, e.isPlayer ? "defeat" : "victory", `The ${e.name} has collapsed.`, null);
+      logTo(s, e.isPlayer ? "defeat" : "victory", `The ${e.name} has collapsed.`, acquaintances(s, e.id));
     }
   }
 

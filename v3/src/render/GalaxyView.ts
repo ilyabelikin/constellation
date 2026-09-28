@@ -3,6 +3,7 @@
 import * as THREE from "three";
 import { STAR_TYPE_MAP } from "../sim/data/stars";
 import { systemOwnerMap } from "../sim/economy";
+import { sensorSystems } from "../sim/knowledge";
 import type { Game } from "../sim/game";
 import type { PickResult, View } from "./Engine";
 import { temperatureColor } from "./glsl";
@@ -211,7 +212,7 @@ export class GalaxyView implements View {
     while (this.fleetGroup.children.length) this.fleetGroup.remove(this.fleetGroup.children[0]);
     while (this.battleGroup.children.length) this.battleGroup.remove(this.battleGroup.children[0]);
     const s = this.game.state;
-    const player = s.empires[s.playerId];
+    const sensors = sensorSystems(s, s.playerId);
     const perSystem = new Map<string, number>();
     for (const f of Object.values(s.fleets)) {
       if (!f.ships.length) continue;
@@ -220,13 +221,13 @@ export class GalaxyView implements View {
       if (f.transit) {
         const link = this.links.find((l) => l.id === f.transit!.tunnelId);
         if (!link) continue;
-        if (!mine && !player.explored[f.transit.from] && !player.explored[f.transit.to]) continue;
+        if (!mine && !sensors.has(f.transit.from) && !sensors.has(f.transit.to)) continue;
         const curve = link.mesh.userData.curve as THREE.QuadraticBezierCurve3;
         let t = Math.min(1, (f.transit.progress + 0.1 * this.alpha) / f.transit.total);
         if (link.a !== f.transit.from) t = 1 - t;
         pos = curve.getPoint(t);
       } else if (f.systemId) {
-        if (!mine && !this.playerPresent(f.systemId)) continue;
+        if (!mine && !sensors.has(f.systemId)) continue;
         const k = perSystem.get(f.systemId) ?? 0;
         perSystem.set(f.systemId, k + 1);
         const base = this.systems.get(f.systemId)!.pos;
@@ -247,23 +248,13 @@ export class GalaxyView implements View {
       this.fleetGroup.add(spr);
     }
     for (const b of Object.values(s.battles)) {
-      if (!this.playerPresent(b.systemId)) continue;
+      if (!sensors.has(b.systemId)) continue;
       const v = this.systems.get(b.systemId);
       if (!v) continue;
       const spr = glowSprite("#ff3030", 14 + Math.sin(this.time * 6) * 3, 0.5);
       spr.position.copy(v.pos);
       this.battleGroup.add(spr);
     }
-  }
-
-  private playerPresent(systemId: string): boolean {
-    const s = this.game.state;
-    const pid = s.playerId;
-    return (
-      Object.values(s.fleets).some((o) => o.empireId === pid && o.systemId === systemId) ||
-      Object.values(s.colonies).some((c) => c.empireId === pid && c.systemId === systemId) ||
-      Object.values(s.stations).some((st) => st.empireId === pid && st.systemId === systemId)
-    );
   }
 
   private updateRings(): void {

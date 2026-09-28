@@ -21,6 +21,8 @@ import { TECHS, TECH_MAP } from "../src/sim/data/techs";
 import { HULLS } from "../src/sim/data/ships";
 import { STATIONS } from "../src/sim/data/structures";
 import { fleetPower } from "../src/sim/combat";
+import { declareWar } from "../src/sim/commands";
+import { canSeeLog } from "../src/sim/util";
 import type { Colony, Fleet, GameState } from "../src/sim/types";
 
 function home(g: Game): Colony {
@@ -29,6 +31,12 @@ function home(g: Game): Colony {
 
 function playerFleet(g: Game, name: string): Fleet {
   return Object.values(g.state.fleets).find((f) => f.empireId === g.playerId && f.name === name)!;
+}
+
+/** Establish diplomatic contact between the player and another empire. */
+function meet(g: Game, otherId: string): void {
+  (g.player.contacts ??= {})[otherId] = true;
+  (g.state.empires[otherId].contacts ??= {})[g.playerId] = true;
 }
 
 function runUntil(g: Game, pred: () => boolean, maxDays: number): boolean {
@@ -267,15 +275,24 @@ describe("research", () => {
 });
 
 describe("fleets", () => {
-  it("routes through tunnels and explores new systems", () => {
+  it("routes only through explored systems and explores new ones on arrival", () => {
     const g = Game.create({ seed: "fleet" });
     const scout = playerFleet(g, "Pathfinder");
     const start = scout.systemId!;
-    const target = Object.keys(g.state.systems).find((id) => (findRoute(g.state, start, id)?.length ?? 0) === 2)!;
-    expect(g.player.explored[target]).toBeUndefined();
-    expect(g.moveFleet(scout.id, target, { bodyId: g.state.systems[target].starIds[0] }).ok).toBe(true);
-    expect(runUntil(g, () => scout.systemId === target && !scout.order, 400)).toBe(true);
-    expect(g.player.explored[target]).toBe(true);
+    const s = g.state;
+    const neighbour = s.systems[start].gates[0].otherSystemId;
+    const beyond = s.systems[neighbour].gates.map((gt) => gt.otherSystemId).find((id) => id !== start && !s.systems[start].gates.some((x) => x.otherSystemId === id))!;
+    expect(g.player.explored[neighbour]).toBeUndefined();
+    // Two jumps away through an unexplored system: we don't know that route yet.
+    expect(g.moveFleet(scout.id, beyond).ok).toBe(false);
+    expect(findRoute(s, start, beyond, g.player)).toBeNull();
+    expect(findRoute(s, start, beyond)).not.toBeNull(); // the omniscient network does have a path
+    // The adjacent system is reachable through the gate we can see.
+    expect(g.moveFleet(scout.id, neighbour, { bodyId: s.systems[neighbour].starIds[0] }).ok).toBe(true);
+    expect(runUntil(g, () => scout.systemId === neighbour && !scout.order, 400)).toBe(true);
+    expect(g.player.explored[neighbour]).toBe(true);
+    // Now its gates are known, so the system beyond becomes routable.
+    expect(g.moveFleet(scout.id, beyond).ok).toBe(true);
   });
 
   it("colonises a habitable world", () => {
@@ -388,7 +405,8 @@ describe("combat", () => {
     enemy.ai = null; // keep the defender passive for the test
     const target = Object.values(s.colonies).find((c) => c.empireId === enemy.id)!;
     for (const f of Object.values(s.fleets)) if (f.empireId === enemy.id) delete s.fleets[f.id];
-    g.declareWar(enemy.id);
+    meet(g, enemy.id);
+    expect(g.declareWar(enemy.id).ok).toBe(true);
     g.player.research.completed.push("ground_forces", "battleships", "cruisers", "destroyers", "frigates");
     const fleet = makeFleet(s, g.player, target.systemId, { x: 0, y: 0, z: 0 }, "Armada");
     for (let i = 0; i < 6; i++) fleet.ships.push(makeShip(s, g.player, "cruiser"));
@@ -519,6 +537,7 @@ describe("regressions from code review", () => {
     const g = Game.create({ seed: "peacechase" });
     const s = g.state;
     const other = Object.values(s.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    meet(g, other.id);
     g.declareWar(other.id);
     const guard = playerFleet(g, "Home Guard");
     const t = makeFleet(s, other, guard.systemId!, { x: guard.pos.x + 3, y: 0, z: guard.pos.z }, "Target");
@@ -539,6 +558,7 @@ describe("regressions from code review", () => {
   it("refuses repeated peace proposals for a while", () => {
     const g = Game.create({ seed: "peacespam" });
     const other = Object.values(g.state.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    meet(g, other.id);
     g.declareWar(other.id);
     // Make them strong so they refuse.
     for (const f of Object.values(g.state.fleets)) if (f.empireId === other.id) for (let i = 0; i < 20; i++) f.ships.push(makeShip(g.state, other, "corvette"));
@@ -660,5 +680,48 @@ describe("moon sizes", () => {
     expect(giantMoons.filter((r) => r > 0.4).length / giantMoons.length).toBeLessThan(0.1);
     // Still a few big ones to discover.
     expect(giantMoons.some((r) => r > 0.4)).toBe(true);
+  });
+});
+
+
+describe("fog of war", () => {
+  it("keeps other empires' private news out of the player's log", () => {
+    const g = Game.create({ seed: "fog", aiCount: 3 });
+    g.advance(600);
+    const s = g.state;
+    const visible = s.log.filter((l) => canSeeLog(l, g.playerId));
+    const others = Object.values(s.empires).filter((e) => !e.isPlayer && !e.isPirate);
+    // Rival research completions are never announced to us.
+    expect(visible.some((l) => l.kind === "research" && others.some((o) => l.text.startsWith(o.name)))).toBe(false);
+    // Colonisation news only reaches empires that could see it.
+    for (const l of s.log.filter((x) => x.text.includes("founded a colony"))) {
+      expect(l.audience).toBeDefined();
+    }
+  });
+
+  it("requires contact before declaring war, and announces first contact", () => {
+    const g = Game.create({ seed: "contact" });
+    const s = g.state;
+    const other = Object.values(s.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    expect(g.declareWar(other.id).ok).toBe(false);
+    // Park one of their scouts in our home system: we meet the next day.
+    const f = makeFleet(s, other, home(g).systemId, { x: 5, y: 0, z: 5 }, "Visitor");
+    f.ships.push(makeShip(s, other, "scout"));
+    f.stance = "passive";
+    g.advance(1.1);
+    expect(g.player.contacts?.[other.id]).toBe(true);
+    expect(s.log.some((l) => canSeeLog(l, g.playerId) && l.text.startsWith("First contact"))).toBe(true);
+    expect(g.declareWar(other.id).ok).toBe(true);
+  });
+
+  it("does not tell uninvolved empires about wars between strangers", () => {
+    const g = Game.create({ seed: "news", aiCount: 3 });
+    const [a, b] = Object.values(g.state.empires).filter((e) => !e.isPlayer && !e.isPirate);
+    (a.contacts ??= {})[b.id] = true;
+    (b.contacts ??= {})[a.id] = true;
+    declareWar(g.state, a.id, b.id);
+    const entry = g.state.log.find((l) => l.text.includes("declared war"))!;
+    expect(canSeeLog(entry, a.id)).toBe(true);
+    expect(canSeeLog(entry, g.playerId)).toBe(false);
   });
 });
