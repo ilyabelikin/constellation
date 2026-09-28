@@ -4,11 +4,11 @@
 
 import { HULL_MAP, SLOT_MULT, WEAPONS, type SlotSize, type WeaponFamily, type WeaponMount } from "./data/ships";
 import { PIRATE_HAVEN_BOUNTY, STATION_MAP } from "./data/structures";
-import { maxDefense, systemOwner } from "./economy";
+import { isBankrupt, maxDefense, systemOwner } from "./economy";
 import { modifiers, shipStats, weaponDamage } from "./modifiers";
 import { bodyPosition, copyVec, dist } from "./orbits";
 import { Rng } from "./rng";
-import { log } from "./util";
+import { log, logTo, witnesses } from "./util";
 import type { Battle, Colony, Empire, Fleet, GameState, Ship, SimEvent, Station, Vec3 } from "./types";
 
 export const ENGAGE_RANGE = 1.2;
@@ -231,25 +231,29 @@ function centroid(ps: Vec3[]): Vec3 {
 }
 
 function announceBattle(state: GameState, battle: Battle): void {
-  const player = state.empires[state.playerId];
-  if (!battle.empireIds.includes(player.id)) return;
-  const foes = battle.empireIds.filter((e) => e !== player.id).map((e) => state.empires[e].name);
-  log(state, "combat", `Battle erupted in ${state.systems[battle.systemId].name} against ${foes.join(", ")}!`, player.id, battle.systemId);
+  for (const id of battle.empireIds) {
+    const e = state.empires[id];
+    if (!e?.isPlayer) continue;
+    const foes = battle.empireIds.filter((x) => x !== id).map((x) => state.empires[x].name);
+    log(state, "combat", `Battle erupted in ${state.systems[battle.systemId].name} against ${foes.join(", ")}!`, id, battle.systemId);
+  }
 }
 
 function concludeBattle(state: GameState, battle: Battle): void {
-  const player = state.empires[state.playerId];
-  if (!battle.empireIds.includes(player.id)) return;
-  const stillHere = Object.values(state.fleets).some((f) => f.empireId === player.id && f.systemId === battle.systemId && f.ships.length);
-  log(
-    state,
-    "combat",
-    stillHere
-      ? `The battle in ${state.systems[battle.systemId].name} is over — our forces hold the field.`
-      : `The battle in ${state.systems[battle.systemId].name} is over.`,
-    player.id,
-    battle.systemId,
-  );
+  for (const id of battle.empireIds) {
+    const e = state.empires[id];
+    if (!e?.isPlayer) continue;
+    const stillHere = Object.values(state.fleets).some((f) => f.empireId === id && f.systemId === battle.systemId && f.ships.length);
+    log(
+      state,
+      "combat",
+      stillHere
+        ? `The battle in ${state.systems[battle.systemId].name} is over — our forces hold the field.`
+        : `The battle in ${state.systems[battle.systemId].name} is over.`,
+      id,
+      battle.systemId,
+    );
+  }
 }
 
 function buildCombatants(state: GameState, group: Entity[], battle: Battle): Combatant[] {
@@ -412,15 +416,21 @@ function onKilled(state: GameState, target: Combatant, killer: Combatant, battle
     const name = STATION_MAP[st.type]?.name ?? "Station";
     if (st.type === "pirate_haven") {
       for (const [k, v] of Object.entries(PIRATE_HAVEN_BOUNTY)) (killerEmpire.resources as Record<string, number>)[k] += v;
-      log(
+      logTo(
         state,
         "combat",
         `${killerEmpire.name} destroyed a Raider Haven in ${state.systems[st.systemId].name} and seized its hoard!`,
-        null,
+        [killerEmpire.id, ...witnesses(state, st.systemId)],
         st.systemId,
       );
-    } else if (state.empires[st.empireId].isPlayer || killerEmpire.isPlayer) {
-      log(state, "combat", `${state.empires[st.empireId].name}'s ${name} in ${state.systems[st.systemId].name} was destroyed.`, null, st.systemId);
+    } else {
+      logTo(
+        state,
+        "combat",
+        `${state.empires[st.empireId].name}'s ${name} in ${state.systems[st.systemId].name} was destroyed.`,
+        [st.empireId, killerEmpire.id, ...witnesses(state, st.systemId)],
+        st.systemId,
+      );
     }
   }
 }
@@ -430,6 +440,7 @@ export function repairFleetsDay(state: GameState): void {
   for (const f of Object.values(state.fleets)) {
     if (f.battleId || f.transit || !f.systemId) continue;
     const e = state.empires[f.empireId];
+    if (!e.isPirate && isBankrupt(e)) continue; // unpaid dockworkers
     const m = modifiers(e);
     const owner = systemOwner(state, f.systemId);
     let rate = owner === e.id ? 0.04 : 0.01;

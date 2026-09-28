@@ -1,6 +1,6 @@
 # Deployment Guide
 
-constell.space serves **v3**, a static browser game (no game server; saves live in the player's `localStorage`).
+constell.space serves **v3**: a browser game (static files) plus a small game server for online multiplayer, cloud saves and LLM-voiced rival rulers. Single-player games run entirely in the browser and still work if the game server is down.
 
 ## Deploy your changes
 
@@ -23,8 +23,9 @@ The game is live at https://constell.space as soon as the script finishes.
 - Pulls the latest `main` from GitHub (fast-forward only)
 - Runs `npm ci` in `v3/`
 - Builds `v3/` into `v3/dist/`
+- Starts or reloads the game server with pm2 (`v3/ecosystem.config.cjs`, process `constellation-v3`, port 8787, SQLite database in `v3/data/`)
 
-Caddy serves `v3/dist/` directly, so nothing needs restarting.
+Caddy serves `v3/dist/` and proxies the WebSocket (`/ws`) and health check (`/api/health`) to the game server. Running games are saved on shutdown and every 30 seconds, so a reload doesn't lose them.
 
 ---
 
@@ -44,20 +45,52 @@ The Caddy site block:
 ```
 constell.space, www.constell.space {
 	encode gzip zstd
-	root * /opt/constellation/v3/dist
-	try_files {path} /index.html
-	file_server
+	handle /ws {
+		reverse_proxy 127.0.0.1:8787
+	}
+	handle /api/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+	handle {
+		root * /opt/constellation/v3/dist
+		try_files {path} /index.html
+		file_server
+	}
 }
 ```
+
+## LLM rivals (OpenRouter key)
+
+Rival rulers talk and plan with a language model through OpenRouter (default model `z-ai/glm-5.3-flash`). The key stays on the server: browsers never see it, and single-player games send their (knowledge-limited) questions through the game server, which rate-limits them per player.
+
+Put the key in `/opt/constellation/v3/.env` (created empty by `deploy.sh`, mode 600, never committed):
+
+```bash
+ssh root@5.223.89.26
+cd /opt/constellation/v3
+nano .env            # OPENROUTER_API_KEY=sk-or-...   (see .env.example for other options)
+pm2 reload constellation-v3 --update-env
+curl -s localhost:8787/health   # "llm": true
+```
+
+Without a key the game works as before, with rule-based rivals and no AI diplomacy chat. Optional settings: `LLM_MODEL`, `LLM_BASE_URL`, `LLM_MAX_CALLS_PER_HOUR` (global safety cap, default 2000).
 
 ---
 
 ## Useful commands
 
-Check that the site responds:
+Check that the site and the game server respond:
 
 ```bash
 curl -sI https://constell.space
+curl -s https://constell.space/api/health
+```
+
+Game server logs and status:
+
+```bash
+ssh root@5.223.89.26 "pm2 logs constellation-v3 --lines 100"
+ssh root@5.223.89.26 "pm2 status"
 ```
 
 Validate and reload Caddy after editing its config:
@@ -80,6 +113,7 @@ ssh root@5.223.89.26 "journalctl -u caddy -f"
 2. Clone the repo: `git clone https://github.com/ilyabelikin/constellation.git /opt/constellation`
 3. Add the Caddy site block above and reload Caddy.
 4. Update `SERVER` in `deploy.sh`, then run `./deploy.sh`.
+5. Add the OpenRouter key to `v3/.env` (see above) and run `pm2 startup` once so the game server survives reboots.
 
 ---
 

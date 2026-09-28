@@ -1,11 +1,18 @@
 import "./ui/styles.css";
 import * as THREE from "three";
 import { Game, STEP_DAYS } from "./sim/game";
-import type { GameSettings } from "./sim/types";
+import type { PlayerFacade } from "./sim/facade";
+import type { ChatMessage, GameSettings } from "./sim/types";
+import type { PlayerView, StaticView } from "./sim/view";
+import { NetClient } from "./net/NetClient";
+import { NetGame } from "./net/NetGame";
+import { NetLlmTransport } from "./net/NetLlm";
+import { RivalDirector } from "./llm/director";
+import { hasMet } from "./sim/knowledge";
+import { SPEEDS, type CloudSaveSummary, type SessionInfo, type SessionSummary } from "./net/protocol";
 import { Engine, type PickResult } from "./render/Engine";
 import { GalaxyView } from "./render/GalaxyView";
 import { SystemView } from "./render/SystemView";
-import { auToScene } from "./render/scale";
 import { Hud, type AppApi } from "./ui/Hud";
 import { Labels } from "./ui/Labels";
 import { Lobby } from "./ui/Lobby";
@@ -31,7 +38,6 @@ function newestSave(): string | null {
     .sort((a, b) => Number(st.getItem(`${b}-time`) ?? 0) - Number(st.getItem(`${a}-time`) ?? 0))[0];
   return pick ? st.getItem(pick) : null;
 }
-const SPEEDS = [0, 1, 2, 4, 8]; // game days per real second
 
 function storage(): Storage | null {
   try {
@@ -42,13 +48,35 @@ function storage(): Storage | null {
 }
 
 class App implements AppApi {
-  game!: Game;
+  game!: PlayerFacade;
+  /** The authoritative game when playing locally (single player). */
+  local: Game | null = null;
+  /** The server-hosted game when playing online. */
+  remote: NetGame | null = null;
   view: "galaxy" | "system" = "system";
   systemId = "";
   selection: PickResult | null = null;
   activeFleetId: string | null = null;
-  speedIndex = 1;
-  paused = true;
+  private localSpeed = 1;
+  private localPaused = true;
+
+  readonly net = new NetClient();
+  session: SessionInfo | null = null;
+  mySessions: SessionSummary[] = [];
+  cloudSaves: CloudSaveSummary[] = [];
+  chatLog: ChatMessage[] = [];
+  private pendingStatic: StaticView | null = null;
+  private pendingView: PlayerView | null = null;
+  private lastViews = -1;
+  /** LLM-voiced rival rulers for local games (answers come via the server). */
+  private director: RivalDirector | null = null;
+  private llmTransport: NetLlmTransport | null = null;
+  private directorTimer = 0;
+  /** The game was paused automatically while the player writes a message. */
+  private chatPaused = false;
+  /** Camera flight through a tunnel gate into the connected system. */
+  private gateJump: { tunnelId: string; to: string; t: number; phase: "dive" | "emerge"; gate: THREE.Vector3; out: THREE.Vector3; fired: boolean } | null = null;
+  private baseFov = 50;
 
   private engine: Engine;
   private galaxyView: GalaxyView | null = null;
@@ -71,7 +99,19 @@ class App implements AppApi {
       onNewGame: (s) => this.newGame(s),
       onContinue: () => this.load(),
       hasSave: () => !!newestSave(),
+      online: () => ({ connected: this.net.welcomed, name: this.net.name, llm: this.net.llmAvailable }),
+      setName: (name) => this.net.setName(name),
+      onHost: (settings) => this.net.send({ t: "create", settings, sessionName: `${settings.playerName ?? "Commander"}'s galaxy` }),
+      onJoin: (code) => this.net.send({ t: "join", code }),
+      sessions: () => this.mySessions,
+      cloudSaves: () => this.cloudSaves,
+      onCloudLoad: (id) => this.net.send({ t: "cloudLoad", id }),
+      onCloudDelete: (id) => this.net.send({ t: "cloudDelete", id }),
+      takeSeat: (empireId) => this.net.send({ t: "takeSeat", empireId }),
+      startSession: () => this.net.send({ t: "start" }),
+      leaveSession: () => this.leaveSession(),
     });
+    this.setupNet();
     this.setupInput();
     this.showTitle();
     requestAnimationFrame(() => this.frame());
@@ -79,35 +119,240 @@ class App implements AppApi {
   }
 
   // ---------------------------------------------------------------- lifecycle
+  get speedIndex(): number {
+    return this.remote ? this.remote.info.speedIndex : this.localSpeed;
+  }
+
+  get paused(): boolean {
+    return this.remote ? this.remote.info.paused : this.localPaused;
+  }
+
+  get isHost(): boolean {
+    return this.remote ? this.remote.info.youAreHost : true;
+  }
+
+  // ---------------------------------------------------------------- network
+  private setupNet(): void {
+    const net = this.net;
+    net.onStatus = (up) => {
+      if (up) {
+        net.send({ t: "mySessions" });
+        net.send({ t: "cloudList" });
+        const code = new URLSearchParams(location.search).get("join");
+        if (code && !this.session) net.send({ t: "join", code });
+        // Back online in the middle of a game: rejoin it.
+        else if (this.session) net.send({ t: "join", code: this.session.code });
+      } else if (this.remote) this.toast("Connection lost — reconnecting…", "error");
+      this.lobby.refreshOnline();
+    };
+    net.on("sessions", (m) => {
+      this.mySessions = m.list;
+      this.lobby.refreshOnline();
+    });
+    net.on("cloudSaves", (m) => {
+      this.cloudSaves = m.list;
+      this.lobby.refreshOnline();
+    });
+    net.on("cloudSaved", () => this.toast("Saved to the cloud", "good"));
+    net.on("cloudData", (m) => {
+      try {
+        this.startLocal(Game.deserialize(m.data));
+        this.toast("Cloud save loaded", "good");
+      } catch (e) {
+        this.toast(`Load failed: ${(e as Error).message}`, "error");
+      }
+    });
+    net.on("error", (m) => this.toast(m.message, "error"));
+    net.on("session", (m) => {
+      const joining = !this.session || this.session.id !== m.info.id;
+      this.session = m.info;
+      if (joining) {
+        this.pendingStatic = null;
+        this.pendingView = null;
+        this.chatLog = [];
+        if (location.search.includes("join=")) history.replaceState(null, "", location.pathname);
+      }
+      if (this.remote) {
+        this.remote.info = m.info;
+        this.hud?.render();
+      } else {
+        this.maybeEnterRemote();
+        if (!this.remote) this.lobby.showRoom(m.info);
+      }
+    });
+    net.on("static", (m) => {
+      this.pendingStatic = m.data;
+      this.maybeEnterRemote();
+    });
+    net.on("view", (m) => {
+      if (this.remote) return; // NetGame consumes views itself
+      this.pendingView = m.data;
+      this.maybeEnterRemote();
+    });
+    net.on("left", () => {
+      this.session = null;
+      if (this.remote) this.showTitle();
+      else this.lobby.show();
+    });
+    net.on("chatHistory", (m) => {
+      this.chatLog = m.messages;
+      this.hud?.render();
+    });
+    net.on("chat", (m) => this.receiveChat(m.message));
+    net.connect();
+  }
+
+  private maybeEnterRemote(): void {
+    const info = this.session;
+    if (this.remote || !info || info.status === "lobby" || !info.yourEmpireId) return;
+    if (!this.pendingStatic || !this.pendingView || this.pendingView.playerId !== info.yourEmpireId) return;
+    const ng = new NetGame(this.net, this.pendingStatic, this.pendingView, info);
+    ng.onError = (msg) => this.toast(msg, "error");
+    this.pendingView = null;
+    this.remote = ng;
+    this.local = null;
+    this.startGame(ng);
+    this.toast(`Joined ${info.name}. Invite code ${info.code}`, "good");
+  }
+
+  leaveSession(): void {
+    this.net.send({ t: "leave" });
+    this.net.send({ t: "mySessions" });
+    this.session = null;
+    if (this.remote) this.showTitle();
+    else this.lobby.show();
+  }
+
+  receiveChat(msg: ChatMessage): void {
+    if (this.chatLog.some((m) => m.id === msg.id)) return;
+    this.chatLog.push(msg);
+    this.notifyChat(msg);
+  }
+
+  private notifyChat(msg: ChatMessage): void {
+    const me = this.game?.playerId;
+    if (this.running && msg.to === me && msg.from !== me) {
+      const from = this.game.state.empires[msg.from];
+      if (!this.hud?.isChattingWith(msg.from)) this.toast(`✉ ${from?.name ?? "Someone"}: ${msg.text.slice(0, 90)}`, "info");
+    }
+    this.hud?.render();
+  }
+
+  get chats(): ChatMessage[] {
+    return this.local ? (this.local.state.chats ?? []) : this.chatLog;
+  }
+
+  /** Can we talk to this empire? Humans always (online); AI rulers need the LLM service. */
+  canChat(empireId: string): boolean {
+    const e = this.game.state.empires[empireId];
+    if (!e || e.isPirate || !e.alive || empireId === this.game.playerId) return false;
+    if (!hasMet(this.game.state, this.game.playerId, empireId)) return false;
+    if (this.remote) {
+      const seat = this.remote.info.seats.find((x) => x.empireId === empireId);
+      return !!seat?.playerName || this.net.llmAvailable;
+    }
+    return !!e.ai && this.net.llmAvailable;
+  }
+
+  sendChat(to: string, text: string): void {
+    const clean = text.trim().slice(0, 500);
+    if (!clean) return;
+    if (this.remote) this.net.send({ t: "chat", to, text: clean });
+    else if (this.local) {
+      this.ensureDirector();
+      if (this.director) this.director.humanMessage(this.local.playerId, to, clean);
+      else this.toast("Rival rulers can't be reached (no connection to the game server)", "error");
+    }
+  }
+
+  /** Local games get LLM rulers once the server says the service is available. */
+  private ensureDirector(): void {
+    const game = this.local;
+    if (!game || !this.running || this.director || !this.net.llmAvailable) return;
+    this.llmTransport = new NetLlmTransport(this.net);
+    this.director = new RivalDirector(
+      {
+        state: () => game.state,
+        isHuman: (id) => id === game.state.playerId,
+        deliver: (m) => {
+          const log = (game.state.chats ??= []);
+          log.push(m);
+          if (log.length > 400) log.splice(0, log.length - 400);
+          this.notifyChat(m);
+        },
+        chats: () => game.state.chats ?? [],
+        active: () => this.running && !this.localPaused && this.local === game,
+      },
+      this.llmTransport,
+    );
+  }
+
+  private dropDirector(): void {
+    this.llmTransport?.dispose();
+    this.llmTransport = null;
+    this.director = null;
+  }
+
+  cloudSave(): void {
+    if (!this.local) return;
+    if (!this.net.welcomed) {
+      this.toast("Cloud saves need a connection to the game server", "error");
+      return;
+    }
+    const p = this.local.player;
+    this.net.send({ t: "cloudSave", name: `${p.name} — day ${Math.floor(this.local.state.day)}`, data: this.local.serialize() });
+  }
+
+  get online(): boolean {
+    return this.net.welcomed;
+  }
+
+  // ---------------------------------------------------------------- lifecycle
   private showTitle(): void {
+    this.dropDirector();
+    this.remote?.dispose();
+    this.remote = null;
     this.running = false;
     document.getElementById("hud")!.classList.add("hidden");
     this.labels.clear();
     // Attract mode: a demo galaxy slowly rotating behind the title.
-    this.game = Game.create({ seed: "title-screen", systemCount: 24, aiCount: 3 });
+    this.local = Game.create({ seed: "title-screen", systemCount: 24, aiCount: 3 });
+    this.game = this.local;
     const home = this.game.playerColonies()[0];
     this.systemId = home.systemId;
     this.showSystemInternal(home.systemId);
     this.engine.rig.goalDistance = 150;
     this.engine.rig.goalPitch = 0.35;
     this.engine.rig.snap();
-    this.lobby.show();
+    if (this.session) this.lobby.showRoom(this.session);
+    else this.lobby.show();
   }
 
   newGame(settings: Partial<GameSettings>): void {
-    this.startGame(Game.create(settings));
+    this.startLocal(Game.create(settings));
     this.toast("Welcome, leader. Your homeworld awaits orders.", "good");
   }
 
-  private startGame(game: Game): void {
+  private startLocal(game: Game): void {
+    if (this.session) this.leaveSession();
+    this.remote?.dispose();
+    this.remote = null;
+    this.local = game;
+    this.startGame(game);
+  }
+
+  private startGame(game: PlayerFacade): void {
+    this.dropDirector();
+    this.chatPaused = false;
     this.game = game;
     this.lobby.hide();
     this.selection = null;
     this.activeFleetId = null;
     this.running = true;
-    this.paused = false;
-    this.speedIndex = 1;
+    this.localPaused = false;
+    this.localSpeed = 1;
     this.acc = 0;
+    this.lastViews = -1;
     const hudRoot = document.getElementById("hud")!;
     hudRoot.classList.remove("hidden");
     if (!this.hud) this.hud = new Hud(hudRoot, document.getElementById("modal-root")!, this);
@@ -119,8 +364,12 @@ class App implements AppApi {
   }
 
   save(): void {
+    if (!this.local) {
+      this.toast("Online games are saved on the server automatically", "info");
+      return;
+    }
     try {
-      writeSave(SAVE_KEY, this.game.serialize());
+      writeSave(SAVE_KEY, this.local.serialize());
       this.toast("Game saved", "good");
     } catch (e) {
       this.toast(`Save failed: ${(e as Error).message}`, "error");
@@ -134,7 +383,7 @@ class App implements AppApi {
       return;
     }
     try {
-      this.startGame(Game.deserialize(json));
+      this.startLocal(Game.deserialize(json));
       this.toast("Game loaded", "good");
     } catch (e) {
       this.toast(`Load failed: ${(e as Error).message}`, "error");
@@ -142,7 +391,8 @@ class App implements AppApi {
   }
 
   quitToTitle(): void {
-    this.showTitle();
+    if (this.remote) this.leaveSession();
+    else this.showTitle();
   }
 
   // ---------------------------------------------------------------- views
@@ -156,14 +406,23 @@ class App implements AppApi {
     const rig = this.engine.rig;
     rig.follow = null;
     rig.minDistance = 3;
-    rig.maxDistance = auToScene(sys.extent) * 4;
-    rig.focus(new THREE.Vector3(), Math.min(rig.maxDistance, auToScene(sys.extent) * 1.6));
+    const extent = this.systemView.extentScene;
+    rig.maxDistance = extent * 4;
+    rig.focus(new THREE.Vector3(), Math.min(rig.maxDistance, extent * 1.6));
     rig.goalPitch = 0.62;
     this.labels.clear();
   }
 
+  /** Only systems the player has surveyed can be viewed up close. */
+  private canView(id: string): boolean {
+    if (this.game.player?.explored[id]) return true;
+    this.toast("Unsurveyed system — send a ship there to reveal it", "error");
+    return false;
+  }
+
   enterSystem(id: string, focusSel: PickResult | null = null): void {
     if (this.view !== "system" || this.systemId !== id) {
+      if (!this.canView(id)) return;
       if (!focusSel && this.selection && !this.selectionInSystem(this.selection, id)) this.select(null);
       this.galaxyView?.dispose();
       this.galaxyView = null;
@@ -181,6 +440,98 @@ class App implements AppApi {
     if (sel.kind === "fleet") return s.fleets[sel.id]?.systemId === systemId;
     if (sel.kind === "gate") return s.systems[systemId].gates.some((g) => g.tunnelId === sel.id);
     return false;
+  }
+
+  // ---------------------------------------------------------------- gate flight
+  /** Nearest equivalent of `angle` to `ref` (so eased yaw never spins the long way round). */
+  private closestAngle(angle: number, ref: number): number {
+    return angle + Math.round((ref - angle) / (Math.PI * 2)) * Math.PI * 2;
+  }
+
+  /** Dive through a gate, emerge from its twin in the connected system and pull back to a side view. */
+  jumpThroughGate(tunnelId: string): void {
+    if (!this.systemView || this.gateJump) return;
+    const t = this.game.state.tunnels[tunnelId];
+    const gate = this.systemView.gateWorld(tunnelId);
+    if (!t || !gate) return;
+    const to = t.a === this.systemId ? t.b : t.a;
+    if (!this.canView(to)) return;
+    const out = gate.clone().normalize(); // gates face the star; "out" leads through the ring
+    const rig = this.engine.rig;
+    rig.follow = null;
+    rig.minDistance = 0.3;
+    // Line up on the star side of the ring, looking out through it.
+    rig.goalYaw = this.closestAngle(Math.atan2(-out.x, -out.z), rig.yaw);
+    rig.goalPitch = 0.05;
+    rig.focus(gate, 18);
+    this.baseFov = this.engine.camera.fov;
+    this.select(null);
+    this.gateJump = { tunnelId, to, t: 0, phase: "dive", gate, out, fired: false };
+  }
+
+  private warpFlash(on: boolean): void {
+    let el = document.getElementById("warp-flash");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "warp-flash";
+      document.body.appendChild(el);
+    }
+    el.classList.toggle("on", on);
+  }
+
+  private stepGateJump(dt: number): void {
+    const j = this.gateJump!;
+    const rig = this.engine.rig;
+    const cam = this.engine.camera;
+    j.t += dt;
+    if (j.phase === "dive") {
+      if (j.t > 0.8 && !j.fired) {
+        // Punch through the membrane.
+        j.fired = true;
+        rig.focus(j.gate.clone().addScaledVector(j.out, 40), 0.4);
+        this.systemView?.effects.jump(j.gate, new THREE.Color("#7fc8ff"));
+      }
+      if (j.fired) cam.fov = THREE.MathUtils.lerp(cam.fov, this.baseFov + 45, 1 - Math.exp(-dt * 4));
+      if (j.t > 1.15) this.warpFlash(true);
+      if (j.t > 1.35) {
+        this.enterSystem(j.to);
+        const exit = this.systemView?.gateWorld(j.tunnelId);
+        if (!exit) {
+          this.endGateJump();
+          return;
+        }
+        const out = exit.clone().normalize();
+        // Arrive just outside the twin gate, looking in towards the star...
+        rig.minDistance = 0.3;
+        rig.follow = null;
+        rig.goalYaw = Math.atan2(out.x, out.z);
+        rig.goalPitch = 0.04;
+        rig.focus(exit.clone().addScaledVector(out, -6), 9);
+        rig.snap();
+        this.systemView!.effects.jump(exit, new THREE.Color("#7fc8ff"));
+        this.gateJump = { ...j, phase: "emerge", t: 0, gate: exit, out, fired: false };
+        this.warpFlash(false);
+      }
+    } else {
+      cam.fov = THREE.MathUtils.lerp(cam.fov, this.baseFov, 1 - Math.exp(-dt * 2.5));
+      if (j.t > 0.35 && !j.fired) {
+        // ...then pull back to take in the whole system from the side.
+        j.fired = true;
+        rig.focus(new THREE.Vector3(), (this.systemView?.extentScene ?? 300) * 1.9);
+        rig.goalPitch = 0.2;
+      }
+      if (j.t > 2.6) this.endGateJump();
+    }
+    cam.updateProjectionMatrix();
+  }
+
+  private endGateJump(): void {
+    const cam = this.engine.camera;
+    cam.fov = this.baseFov;
+    cam.updateProjectionMatrix();
+    this.engine.rig.minDistance = 3;
+    this.warpFlash(false);
+    this.gateJump = null;
   }
 
   showGalaxy(): void {
@@ -216,7 +567,7 @@ class App implements AppApi {
     this.selection = sel;
     if (sel?.kind === "fleet") {
       const f = this.game.state.fleets[sel.id];
-      if (f && f.empireId === this.game.playerId) this.activeFleetId = sel.id;
+      if (f && f.empireId === this.game.playerId && !f.civilian) this.activeFleetId = sel.id;
     }
     if (this.systemView) this.systemView.selected = sel;
     if (this.galaxyView) this.galaxyView.selected = sel;
@@ -250,16 +601,25 @@ class App implements AppApi {
   }
 
   setSpeed(i: number): void {
-    if (i === 0) this.paused = true;
+    if (this.remote) {
+      this.net.send({ t: "speed", index: i });
+      return;
+    }
+    if (i === 0) this.localPaused = true;
     else {
-      this.paused = false;
-      this.speedIndex = i;
+      this.localPaused = false;
+      this.localSpeed = i;
     }
     this.hud?.render();
   }
 
   togglePause(): void {
-    this.paused = !this.paused;
+    if (this.remote) {
+      const info = this.remote.info;
+      this.setSpeed(info.speedIndex > 0 ? 0 : 1);
+      return;
+    }
+    this.localPaused = !this.localPaused;
     this.hud?.render();
   }
 
@@ -268,13 +628,19 @@ class App implements AppApi {
     const el = document.createElement("div");
     el.className = `toast ${kind}`;
     el.textContent = msg;
+    el.title = "Right-click to dismiss";
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      el.remove();
+    });
     root.appendChild(el);
     setTimeout(() => el.remove(), kind === "error" ? 3200 : 2400);
     while (root.children.length > 4) root.firstChild?.remove();
   }
 
   // ---------------------------------------------------------------- orders
-  private commandAt(pick: PickResult | null): void {
+  /** Right-click order for the active fleet; with Shift it is queued after its current orders. */
+  private commandAt(pick: PickResult | null, queued = false): void {
     const g = this.game;
     const s = g.state;
     const fid = this.activeFleetId;
@@ -289,19 +655,19 @@ class App implements AppApi {
     const roles = new Set(fleet.ships.map((sh) => HULL_MAP[sh.hull].role));
     if (pick.kind === "system") {
       const sys = s.systems[pick.id];
-      r = g.moveFleet(fleet.id, sys.id, { bodyId: sys.starIds[0] });
+      r = g.moveFleet(fleet.id, sys.id, { bodyId: sys.starIds[0] }, queued);
       msg = `${fleet.name} → ${sys.name}`;
     } else if (pick.kind === "body") {
       const body = s.bodies[pick.id];
       const colony = Object.values(s.colonies).find((c) => c.bodyId === body.id);
       if (roles.has("colony") && !colony && canColonize(g.player, body)) {
-        r = g.colonize(fleet.id, body.id);
+        r = g.colonize(fleet.id, body.id, queued);
         msg = `${fleet.name} will colonize ${body.name}`;
       } else if (roles.has("transport") && colony && colony.empireId !== g.playerId) {
-        r = g.invade(fleet.id, colony.id);
+        r = g.invade(fleet.id, colony.id, queued);
         msg = `${fleet.name} will invade ${body.name}`;
       } else {
-        r = g.moveFleet(fleet.id, body.systemId, { bodyId: body.id });
+        r = g.moveFleet(fleet.id, body.systemId, { bodyId: body.id }, queued);
         msg = `${fleet.name} → ${body.name}`;
       }
     } else if (pick.kind === "fleet") {
@@ -311,20 +677,20 @@ class App implements AppApi {
         r = g.attackFleet(fleet.id, target.id);
         msg = `${fleet.name} engaging ${target.name}`;
       } else if (target.systemId) {
-        r = g.moveFleet(fleet.id, target.systemId, { pos: { ...target.pos } });
+        r = g.moveFleet(fleet.id, target.systemId, { pos: { ...target.pos } }, queued);
         msg = `${fleet.name} joining ${target.name}`;
       }
     } else if (pick.kind === "gate") {
       const t = s.tunnels[pick.id];
       const to = t.a === this.systemId ? t.b : t.a;
-      r = g.moveFleet(fleet.id, to);
+      r = g.moveFleet(fleet.id, to, {}, queued);
       msg = `${fleet.name} jumping to ${s.systems[to].name}`;
     } else if (pick.kind === "point" && pick.point && this.systemView) {
-      r = g.moveFleet(fleet.id, this.systemId, { pos: this.systemView.sceneToSystem(pick.point) });
+      r = g.moveFleet(fleet.id, this.systemId, { pos: this.systemView.sceneToSystem(pick.point) }, queued);
       msg = `${fleet.name} moving`;
     }
     if (!r.ok) this.toast(r.error ?? "Cannot do that", "error");
-    else this.toast(msg, "good");
+    else this.toast(queued && (fleet.order || fleet.transit || fleet.queue?.length) ? `Queued: ${msg}` : msg, "good");
     this.hud?.invalidate();
     this.hud?.render();
   }
@@ -359,19 +725,20 @@ class App implements AppApi {
     canvas.addEventListener("pointerup", (e) => {
       const d = down;
       down = null;
-      if (!d || d.moved || !this.running) return;
+      if (!d || d.moved || !this.running || this.gateJump) return;
       const pick = this.engine.pick(e.clientX, e.clientY);
-      if (d.button === 2) this.commandAt(pick);
+      if (d.button === 2) this.commandAt(pick, e.shiftKey);
       else if (d.button === 0) {
         if (!pick || pick.kind === "point") this.select(null);
         else this.select(pick);
       }
     });
     canvas.addEventListener("dblclick", (e) => {
-      if (!this.running) return;
+      if (!this.running || this.gateJump) return;
       const pick = this.engine.pick(e.clientX, e.clientY);
       if (!pick || pick.kind === "point") return;
       if (pick.kind === "system") this.enterSystem(pick.id);
+      else if (pick.kind === "gate") this.jumpThroughGate(pick.id);
       else {
         this.select(pick, true);
       }
@@ -453,23 +820,56 @@ class App implements AppApi {
     if (this.keys.has("q")) rig.rotate(-pan, 0);
 
     let steps = 0;
-    if (this.running && !this.paused) {
-      this.acc += dt * SPEEDS[this.speedIndex];
-      while (this.acc >= STEP_DAYS && steps < 120) {
-        this.game.step();
-        this.acc -= STEP_DAYS;
-        steps++;
+    let alpha = 0;
+    let renderDay = this.game.state.day;
+    if (this.remote) {
+      // The server runs the clock; we interpolate between its snapshots.
+      if (this.remote.viewsReceived !== this.lastViews) {
+        this.lastViews = this.remote.viewsReceived;
+        steps = 1;
       }
-      if (steps >= 120) this.acc = 0;
-    } else if (!this.running) {
-      // Title screen: gently orbit.
-      rig.goalYaw += dt * 0.03;
+      alpha = this.remote.alpha(now);
+      renderDay = this.remote.renderDay(now);
+    } else if (this.local) {
+      if (this.running && !this.localPaused) {
+        this.acc += dt * SPEEDS[this.localSpeed];
+        while (this.acc >= STEP_DAYS && steps < 120) {
+          this.local.step();
+          this.acc -= STEP_DAYS;
+          steps++;
+        }
+        if (steps >= 120) this.acc = 0;
+      } else if (!this.running) {
+        // Title screen: gently orbit.
+        rig.goalYaw += dt * 0.03;
+      }
+      alpha = Math.min(1, this.acc / STEP_DAYS);
+      renderDay = this.local.state.day - STEP_DAYS * (1 - alpha);
     }
-    const alpha = Math.min(1, this.acc / STEP_DAYS);
     const events = this.game.drainEvents();
+    if (this.local && this.running) {
+      this.ensureDirector();
+      if (this.director) {
+        if (events.length) this.director.onEvents(events);
+        this.directorTimer += dt;
+        if (this.directorTimer > 0.5) {
+          this.directorTimer = 0;
+          this.director.tick();
+        }
+      }
+      // Writing to another ruler pauses a local game (and resumes it after).
+      const chatting = this.hud?.modal === "chat";
+      if (chatting && !this.localPaused) {
+        this.localPaused = true;
+        this.chatPaused = true;
+      } else if (!chatting && this.chatPaused) {
+        this.chatPaused = false;
+        this.localPaused = false;
+      }
+    }
     if (this.systemView) {
       this.systemView.alpha = this.running ? alpha : 0;
-      this.systemView.renderDay = this.running ? this.game.state.day - STEP_DAYS * (1 - alpha) : time * 2;
+      this.systemView.renderDay = this.running ? renderDay : time * 0.8;
       if (steps > 0) this.systemView.sync();
       this.systemView.handleEvents(events);
     }
@@ -481,6 +881,7 @@ class App implements AppApi {
     if (this.selection?.kind === "fleet" && !this.game.state.fleets[this.selection.id]) this.select(null);
     if (this.activeFleetId && !this.game.state.fleets[this.activeFleetId]) this.activeFleetId = null;
 
+    if (this.gateJump) this.stepGateJump(dt);
     this.engine.render(dt, time);
     if (this.running) {
       const anchors = this.systemView ? this.systemView.labelAnchors() : this.galaxyView ? this.galaxyView.labelAnchors() : [];
@@ -490,11 +891,11 @@ class App implements AppApi {
         this.hudTimer = 0;
         this.hud?.render();
       }
-      if (!this.paused && !this.game.state.winner) this.autosaveTimer += dt;
-      if (this.autosaveTimer > 90) {
+      if (this.local && !this.localPaused && !this.local.state.winner) this.autosaveTimer += dt;
+      if (this.local && this.autosaveTimer > 90) {
         this.autosaveTimer = 0;
         try {
-          writeSave(AUTOSAVE_KEY, this.game.serialize());
+          writeSave(AUTOSAVE_KEY, this.local.serialize());
         } catch {
           /* storage full or unavailable: ignore autosave */
         }

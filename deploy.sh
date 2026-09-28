@@ -2,7 +2,8 @@
 
 # Constellation Deployment Script
 # Deploys the latest v3 from GitHub to the server.
-# v3 is a static browser game: Caddy serves $REMOTE_DIR/v3/dist directly.
+# Caddy serves $REMOTE_DIR/v3/dist and proxies /ws and /api to the v3 game
+# server (pm2 process "constellation-v3" on 127.0.0.1:8787).
 #
 # Usage:
 #   ./deploy.sh
@@ -31,6 +32,14 @@ npm ci --no-audit --no-fund
 
 echo "🔨 Building v3..."
 npm run build
+
+echo "🛰  (Re)starting the game server..."
+mkdir -p data
+# Secrets (OPENROUTER_API_KEY) live in v3/.env on the server only.
+[ -f .env ] || { touch .env; chmod 600 .env; }
+command -v pm2 >/dev/null || npm install -g pm2
+pm2 startOrReload ecosystem.config.cjs --update-env
+pm2 save
 
 echo "✅ Deployment complete!"
 ENDSSH

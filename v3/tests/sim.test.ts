@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Rng } from "../src/sim/rng";
 import { Game } from "../src/sim/game";
 import { createGame, isConnected, makeFleet, makeShip } from "../src/sim/galaxy";
-import { findRoute } from "../src/sim/fleets";
+import { findRoute, foundColony } from "../src/sim/fleets";
 import { orbitPosition, solveKepler } from "../src/sim/orbits";
 import {
   buildingSlots,
@@ -11,7 +11,9 @@ import {
   habitability,
   hullCost,
   incomeReport,
+  growPopulation,
   maxDefense,
+  popCapacity,
   stationBuildError,
   systemOwner,
 } from "../src/sim/economy";
@@ -21,6 +23,8 @@ import { TECHS, TECH_MAP } from "../src/sim/data/techs";
 import { HULLS } from "../src/sim/data/ships";
 import { STATIONS } from "../src/sim/data/structures";
 import { fleetPower } from "../src/sim/combat";
+import { declareWar } from "../src/sim/commands";
+import { canSeeLog } from "../src/sim/util";
 import type { Colony, Fleet, GameState } from "../src/sim/types";
 
 function home(g: Game): Colony {
@@ -29,6 +33,12 @@ function home(g: Game): Colony {
 
 function playerFleet(g: Game, name: string): Fleet {
   return Object.values(g.state.fleets).find((f) => f.empireId === g.playerId && f.name === name)!;
+}
+
+/** Establish diplomatic contact between the player and another empire. */
+function meet(g: Game, otherId: string): void {
+  (g.player.contacts ??= {})[otherId] = true;
+  (g.state.empires[otherId].contacts ??= {})[g.playerId] = true;
 }
 
 function runUntil(g: Game, pred: () => boolean, maxDays: number): boolean {
@@ -179,7 +189,7 @@ describe("data tables", () => {
     }
   });
   it("only requires existing techs for hulls and stations", () => {
-    for (const h of HULLS) if (h.requires) expect(TECH_MAP[h.requires]).toBeDefined();
+    for (const h of HULLS) if (h.requires && h.requires !== "__never__") expect(TECH_MAP[h.requires]).toBeDefined();
     for (const s of STATIONS) if (s.requires && s.requires !== "__never__") expect(TECH_MAP[s.requires]).toBeDefined();
   });
 });
@@ -267,15 +277,24 @@ describe("research", () => {
 });
 
 describe("fleets", () => {
-  it("routes through tunnels and explores new systems", () => {
+  it("routes only through explored systems and explores new ones on arrival", () => {
     const g = Game.create({ seed: "fleet" });
     const scout = playerFleet(g, "Pathfinder");
     const start = scout.systemId!;
-    const target = Object.keys(g.state.systems).find((id) => (findRoute(g.state, start, id)?.length ?? 0) === 2)!;
-    expect(g.player.explored[target]).toBeUndefined();
-    expect(g.moveFleet(scout.id, target, { bodyId: g.state.systems[target].starIds[0] }).ok).toBe(true);
-    expect(runUntil(g, () => scout.systemId === target && !scout.order, 400)).toBe(true);
-    expect(g.player.explored[target]).toBe(true);
+    const s = g.state;
+    const neighbour = s.systems[start].gates[0].otherSystemId;
+    const beyond = s.systems[neighbour].gates.map((gt) => gt.otherSystemId).find((id) => id !== start && !s.systems[start].gates.some((x) => x.otherSystemId === id))!;
+    expect(g.player.explored[neighbour]).toBeUndefined();
+    // Two jumps away through an unexplored system: we don't know that route yet.
+    expect(g.moveFleet(scout.id, beyond).ok).toBe(false);
+    expect(findRoute(s, start, beyond, g.player)).toBeNull();
+    expect(findRoute(s, start, beyond)).not.toBeNull(); // the omniscient network does have a path
+    // The adjacent system is reachable through the gate we can see.
+    expect(g.moveFleet(scout.id, neighbour, { bodyId: s.systems[neighbour].starIds[0] }).ok).toBe(true);
+    expect(runUntil(g, () => scout.systemId === neighbour && !scout.order, 400)).toBe(true);
+    expect(g.player.explored[neighbour]).toBe(true);
+    // Now its gates are known, so the system beyond becomes routable.
+    expect(g.moveFleet(scout.id, beyond).ok).toBe(true);
   });
 
   it("colonises a habitable world", () => {
@@ -388,7 +407,8 @@ describe("combat", () => {
     enemy.ai = null; // keep the defender passive for the test
     const target = Object.values(s.colonies).find((c) => c.empireId === enemy.id)!;
     for (const f of Object.values(s.fleets)) if (f.empireId === enemy.id) delete s.fleets[f.id];
-    g.declareWar(enemy.id);
+    meet(g, enemy.id);
+    expect(g.declareWar(enemy.id).ok).toBe(true);
     g.player.research.completed.push("ground_forces", "battleships", "cruisers", "destroyers", "frigates");
     const fleet = makeFleet(s, g.player, target.systemId, { x: 0, y: 0, z: 0 }, "Armada");
     for (let i = 0; i < 6; i++) fleet.ships.push(makeShip(s, g.player, "cruiser"));
@@ -519,6 +539,7 @@ describe("regressions from code review", () => {
     const g = Game.create({ seed: "peacechase" });
     const s = g.state;
     const other = Object.values(s.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    meet(g, other.id);
     g.declareWar(other.id);
     const guard = playerFleet(g, "Home Guard");
     const t = makeFleet(s, other, guard.systemId!, { x: guard.pos.x + 3, y: 0, z: guard.pos.z }, "Target");
@@ -539,6 +560,7 @@ describe("regressions from code review", () => {
   it("refuses repeated peace proposals for a while", () => {
     const g = Game.create({ seed: "peacespam" });
     const other = Object.values(g.state.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    meet(g, other.id);
     g.declareWar(other.id);
     // Make them strong so they refuse.
     for (const f of Object.values(g.state.fleets)) if (f.empireId === other.id) for (let i = 0; i < 20; i++) f.ships.push(makeShip(g.state, other, "corvette"));
@@ -635,5 +657,226 @@ describe("realistic flight", () => {
     const oldDays = startDist / 2; // corvettes used to cruise at 2 AU/day with no acceleration
     expect(days).toBeGreaterThan(oldDays * 1.8);
     expect(days).toBeLessThan(oldDays * 3.5);
+  });
+});
+
+describe("moon sizes", () => {
+  it("makes most moons small, with large moons rare", () => {
+    const ratios: number[] = [];
+    const giantMoons: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const s = createGame({ seed: `moons-${i}`, systemCount: 40, aiCount: 1 });
+      for (const b of Object.values(s.bodies)) {
+        if (b.kind !== "moon") continue;
+        const parent = s.bodies[b.parentId!];
+        if (PLANET_TYPES.find((t) => t.id === parent.type)!.giant) giantMoons.push(b.radius);
+        else ratios.push(b.radius / parent.radius);
+      }
+    }
+    ratios.sort((a, b) => a - b);
+    giantMoons.sort((a, b) => a - b);
+    const median = (xs: number[]) => xs[Math.floor(xs.length / 2)];
+    expect(median(ratios)).toBeLessThan(0.12);
+    expect(ratios.filter((r) => r > 0.3).length / ratios.length).toBeLessThan(0.08);
+    expect(median(giantMoons)).toBeLessThan(0.15); // Earth radii
+    expect(giantMoons.filter((r) => r > 0.4).length / giantMoons.length).toBeLessThan(0.1);
+    // Still a few big ones to discover.
+    expect(giantMoons.some((r) => r > 0.4)).toBe(true);
+  });
+});
+
+
+describe("fog of war", () => {
+  it("keeps other empires' private news out of the player's log", () => {
+    const g = Game.create({ seed: "fog", aiCount: 3 });
+    g.advance(600);
+    const s = g.state;
+    const visible = s.log.filter((l) => canSeeLog(l, g.playerId));
+    const others = Object.values(s.empires).filter((e) => !e.isPlayer && !e.isPirate);
+    // Rival research completions are never announced to us.
+    expect(visible.some((l) => l.kind === "research" && others.some((o) => l.text.startsWith(o.name)))).toBe(false);
+    // Colonisation news only reaches empires that could see it.
+    for (const l of s.log.filter((x) => x.text.includes("founded a colony"))) {
+      expect(l.audience).toBeDefined();
+    }
+  });
+
+  it("requires contact before declaring war, and announces first contact", () => {
+    const g = Game.create({ seed: "contact" });
+    const s = g.state;
+    const other = Object.values(s.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    expect(g.declareWar(other.id).ok).toBe(false);
+    // Park one of their scouts in our home system: we meet the next day.
+    const f = makeFleet(s, other, home(g).systemId, { x: 5, y: 0, z: 5 }, "Visitor");
+    f.ships.push(makeShip(s, other, "scout"));
+    f.stance = "passive";
+    g.advance(1.1);
+    expect(g.player.contacts?.[other.id]).toBe(true);
+    expect(s.log.some((l) => canSeeLog(l, g.playerId) && l.text.startsWith("First contact"))).toBe(true);
+    expect(g.declareWar(other.id).ok).toBe(true);
+  });
+
+  it("does not tell uninvolved empires about wars between strangers", () => {
+    const g = Game.create({ seed: "news", aiCount: 3 });
+    const [a, b] = Object.values(g.state.empires).filter((e) => !e.isPlayer && !e.isPirate);
+    (a.contacts ??= {})[b.id] = true;
+    (b.contacts ??= {})[a.id] = true;
+    declareWar(g.state, a.id, b.id);
+    const entry = g.state.log.find((l) => l.text.includes("declared war"))!;
+    expect(canSeeLog(entry, a.id)).toBe(true);
+    expect(canSeeLog(entry, g.playerId)).toBe(false);
+  });
+});
+
+describe("colony ship planning", () => {
+  it("ranks shipyards and auto-colonises the chosen world when the ship launches", async () => {
+    const { colonyShipOptions } = await import("../src/sim/planning");
+    let g = Game.create({ seed: "plan" });
+    const findTarget = (gm: Game) =>
+      Object.values(gm.state.bodies).find((b) => b.systemId === home(gm).systemId && b.id !== home(gm).bodyId && canColonize(gm.player, b));
+    for (let i = 0; !findTarget(g); i++) g = Game.create({ seed: `plan-${i}` });
+    const target = findTarget(g)!;
+    g.player.resources.credits = g.player.resources.metals = 5000;
+    const opts = colonyShipOptions(g.state, g.playerId, target.id);
+    expect(opts.length).toBe(1);
+    expect(opts[0].colonyId).toBe(home(g).id);
+    expect(opts[0].etaDays).toBeGreaterThan(opts[0].buildDays);
+    expect(g.buildColonyShipFor(target.id).ok).toBe(true);
+    expect(home(g).queue.at(-1)).toMatchObject({ type: "colony", then: { kind: "colonize", bodyId: target.id } });
+    expect(runUntil(g, () => Object.values(g.state.colonies).some((c) => c.bodyId === target.id), 200)).toBe(true);
+  });
+});
+
+describe("population and migration", () => {
+  it("grows slowly from a handful of settlers, then faster, then levels off (S-curve)", () => {
+    const g = Game.create({ seed: "pop-s", aiCount: 1 });
+    const c = home(g);
+    c.pop = 1;
+    c.nextMigration = 1e9;
+    const cap = popCapacity(g.state, c);
+    const samples: number[] = [];
+    for (let d = 0; d < 1200; d++) {
+      growPopulation(g.state, c, 1);
+      if (d % 100 === 0) samples.push(c.pop);
+    }
+    const gains = samples.slice(1).map((p, i) => p - samples[i]);
+    // Early gains are small, the middle is the fastest, the end slows down.
+    const peak = gains.indexOf(Math.max(...gains));
+    expect(peak).toBeGreaterThan(0);
+    expect(peak).toBeLessThan(gains.length - 1);
+    expect(gains[0]).toBeLessThan(Math.max(...gains) * 0.5);
+    expect(gains[gains.length - 1]).toBeLessThan(Math.max(...gains) * 0.5);
+    expect(c.pop).toBeLessThanOrEqual(cap + 1e-9);
+    // A new colony needs years, not weeks, to become a city.
+    const fresh = { ...c, pop: 1 };
+    for (let d = 0; d < 100; d++) growPopulation(g.state, fresh, 1);
+    expect(fresh.pop).toBeLessThan(2.6); // even on an ideal homeworld
+  });
+
+  it("sends private liners from crowded worlds to colonies with room", () => {
+    const g = Game.create({ seed: "migrate", aiCount: 1, pirates: false });
+    const capital = home(g);
+    const target = Object.values(g.state.bodies).find(
+      (b) => b.systemId === capital.systemId && b.id !== capital.bodyId && canColonize(g.player, b) && !Object.values(g.state.colonies).some((c) => c.bodyId === b.id),
+    );
+    expect(target).toBeDefined();
+    const young = foundColony(g.state, g.player, target!.id, 1);
+    young.nextMigration = 1e9;
+    capital.pop = popCapacity(g.state, capital);
+    const before = capital.pop + young.pop;
+    let liner: Fleet | undefined;
+    for (let i = 0; i < 20 && !liner; i++) {
+      g.step();
+      liner = Object.values(g.state.fleets).find((f) => f.civilian);
+    }
+    expect(liner).toBeDefined();
+    expect(liner!.order?.kind).toBe("migrate");
+    expect(liner!.order?.colonyId).toBe(young.id);
+    expect(liner!.migrants).toBeGreaterThan(0);
+    // The player cannot commandeer a private liner.
+    expect(g.moveFleet(liner!.id, capital.systemId).ok).toBe(false);
+    expect(g.stopFleet(liner!.id).ok).toBe(false);
+    const aboard = liner!.migrants!;
+    const id = liner!.id;
+    for (let i = 0; i < 3000 && g.state.fleets[id]; i++) g.step();
+    expect(g.state.fleets[id]).toBeUndefined(); // released after unloading
+    expect(young.pop).toBeGreaterThan(1 + aboard * 0.9);
+    // Settlers are moved, not created (growth over the trip is small).
+    expect(capital.pop + young.pop).toBeLessThan(before + 1.5);
+  });
+
+  it("liners never appear in shipyards and do not use command points", () => {
+    const g = Game.create({ seed: "liner-yard" });
+    expect(g.queueShip(home(g).id, "liner").ok).toBe(false);
+    expect(HULLS.find((h) => h.id === "liner")!.command).toBe(0);
+  });
+});
+
+describe("queued fleet orders", () => {
+  it("runs shift-queued orders one after another and skips ones that became impossible", () => {
+    const g = Game.create({ seed: "queue", pirates: false });
+    const builder = playerFleet(g, "Construction Crew 3") ?? Object.values(g.state.fleets).find((f) => f.empireId === g.playerId && f.ships.some((s) => s.hull === "constructor"))!;
+    g.player.resources.credits = 9000;
+    g.player.resources.metals = 9000;
+    g.player.resources.energy = 9000;
+    const sys = g.state.systems[home(g).systemId];
+    const sites: [string, string][] = [];
+    for (const id of sys.bodyIds)
+      for (const st of STATIONS)
+        if (sites.length < 3 && !sites.some(([b]) => b === id) && !stationBuildError(g.state, g.player, st.id, g.state.bodies[id])) sites.push([id, st.id]);
+    expect(sites.length).toBeGreaterThanOrEqual(2);
+    expect(g.buildStation(builder.id, sites[0][0], sites[0][1]).ok).toBe(true);
+    // Without Shift a new order replaces the current one; with Shift it waits in line.
+    expect(g.buildStation(builder.id, sites[1][0], sites[1][1], true).ok).toBe(true);
+    expect(builder.queue).toHaveLength(1);
+    expect(g.buildStation(builder.id, sites[1][0], sites[1][1], true).ok).toBe(false); // no duplicates
+    const home2 = home(g);
+    expect(g.moveFleet(builder.id, home2.systemId, { bodyId: home2.bodyId }, true).ok).toBe(true);
+    expect(builder.order?.kind).toBe("buildStation");
+    const built = () => Object.values(g.state.stations).filter((s) => s.empireId === g.playerId).length;
+    const before = built();
+    for (let i = 0; i < 4000 && (builder.order || builder.queue?.length); i++) g.step();
+    expect(built()).toBe(before + 2);
+    expect(builder.order).toBeNull();
+    expect(builder.orbitBodyId).toBe(home2.bodyId); // last queued order: return home
+    // A direct order clears the plan.
+    g.moveFleet(builder.id, home2.systemId, { bodyId: sites[0][0] });
+    g.moveFleet(builder.id, home2.systemId, { bodyId: home2.bodyId }, true);
+    g.stopFleet(builder.id);
+    expect(builder.queue).toEqual([]);
+  });
+});
+
+describe("slow, deliberate early economy", () => {
+  it("homeworlds start with modest income and ships cost upkeep", () => {
+    const g = Game.create({ seed: "upkeep" });
+    const r = incomeReport(g.state, g.player);
+    expect(r.net.credits).toBeGreaterThan(0);
+    expect(r.net.credits).toBeLessThan(3); // a colony ship (140 credits) takes months to save for
+    const before = r.upkeep.credits;
+    const guard = Object.values(g.state.fleets).find((f) => f.empireId === g.playerId && f.ships.some((s) => s.hull === "corvette"))!;
+    guard.ships.push(makeShip(g.state, g.player, "cruiser"));
+    expect(incomeReport(g.state, g.player).upkeep.credits).toBeCloseTo(before + HULLS.find((h) => h.id === "cruiser")!.upkeep.credits!, 5);
+  });
+
+  it("an empty treasury halves construction and stops repairs", () => {
+    const g = Game.create({ seed: "bankrupt", pirates: false });
+    const c = home(g);
+    g.player.resources.credits = 5000;
+    g.player.resources.metals = 5000;
+    expect(g.queueBuilding(c.id, "mine").ok).toBe(true);
+    const guard = Object.values(g.state.fleets).find((f) => f.empireId === g.playerId && f.ships.some((s) => s.hull === "corvette"))!;
+    // Bankrupt: huge fleet upkeep, no money left.
+    for (let i = 0; i < 12; i++) guard.ships.push(makeShip(g.state, g.player, "battleship"));
+    g.player.resources.credits = 0;
+    g.refreshIncome();
+    guard.ships[0].hull_hp = 1;
+    const item = c.queue[0];
+    const p0 = item.progress;
+    g.advance(4);
+    expect(g.player.resources.credits).toBe(0);
+    expect(item.progress - p0).toBeLessThanOrEqual(2.1); // half speed
+    expect(guard.ships[0].hull_hp).toBe(1); // no repairs
+    expect(g.state.log.some((l) => l.text.includes("treasury is empty"))).toBe(true);
   });
 });

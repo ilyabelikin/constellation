@@ -93,7 +93,7 @@ export const WEAPONS: Record<WeaponFamily, WeaponFamilyDef> = {
   },
 };
 
-export type HullRole = "military" | "scout" | "constructor" | "colony" | "transport";
+export type HullRole = "military" | "scout" | "constructor" | "colony" | "transport" | "civilian";
 
 export interface HullDef {
   id: string;
@@ -101,6 +101,7 @@ export interface HullDef {
   role: HullRole;
   cost: Partial<Resources>;
   buildDays: number;
+  /** Daily running cost: crews are paid in credits, reactors burn energy. */
   upkeep: Partial<Resources>;
   hull: number;
   armor: number;
@@ -118,7 +119,28 @@ export interface HullDef {
   description: string;
 }
 
+/** Tech id nobody can research: hulls that require it are never built in shipyards. */
+export const NOT_BUILDABLE = "__never__";
+
 export const HULLS: HullDef[] = [
+  {
+    id: "liner",
+    command: 0,
+    name: "Migrant Liner",
+    role: "civilian",
+    cost: {},
+    buildDays: 0,
+    upkeep: {},
+    hull: 40,
+    armor: 0,
+    shields: 0,
+    speed: 0.5,
+    evasion: 0.1,
+    weapons: [],
+    requires: NOT_BUILDABLE,
+    length: 110,
+    description: "A privately chartered liner carrying settlers from crowded worlds to young colonies.",
+  },
   {
     id: "scout",
     command: 0,
@@ -126,7 +148,7 @@ export const HULLS: HullDef[] = [
     role: "scout",
     cost: { credits: 25, metals: 20 },
     buildDays: 10,
-    upkeep: { energy: 0.05 },
+    upkeep: { credits: 0.2, energy: 0.1 },
     hull: 30,
     armor: 0,
     shields: 0,
@@ -144,7 +166,7 @@ export const HULLS: HullDef[] = [
     role: "constructor",
     cost: { credits: 50, metals: 60 },
     buildDays: 18,
-    upkeep: { energy: 0.1 },
+    upkeep: { credits: 0.3, energy: 0.2 },
     hull: 60,
     armor: 10,
     shields: 0,
@@ -162,7 +184,7 @@ export const HULLS: HullDef[] = [
     role: "colony",
     cost: { credits: 140, metals: 90 },
     buildDays: 35,
-    upkeep: { energy: 0.2 },
+    upkeep: { credits: 0.5, energy: 0.3 },
     hull: 80,
     armor: 10,
     shields: 0,
@@ -180,7 +202,7 @@ export const HULLS: HullDef[] = [
     role: "transport",
     cost: { credits: 50, metals: 50 },
     buildDays: 15,
-    upkeep: { energy: 0.1 },
+    upkeep: { credits: 0.3, energy: 0.15 },
     hull: 90,
     armor: 20,
     shields: 0,
@@ -199,7 +221,7 @@ export const HULLS: HullDef[] = [
     role: "military",
     cost: { credits: 20, metals: 45 },
     buildDays: 14,
-    upkeep: { energy: 0.12, credits: 0.05 },
+    upkeep: { credits: 0.45, energy: 0.3 },
     hull: 60,
     armor: 20,
     shields: 0,
@@ -217,7 +239,7 @@ export const HULLS: HullDef[] = [
     role: "military",
     cost: { credits: 35, metals: 90 },
     buildDays: 24,
-    upkeep: { energy: 0.2, credits: 0.1 },
+    upkeep: { credits: 0.75, energy: 0.45 },
     hull: 130,
     armor: 50,
     shields: 20,
@@ -239,7 +261,7 @@ export const HULLS: HullDef[] = [
     role: "military",
     cost: { credits: 60, metals: 160 },
     buildDays: 38,
-    upkeep: { energy: 0.35, credits: 0.2 },
+    upkeep: { credits: 1.2, energy: 0.7 },
     hull: 260,
     armor: 110,
     shields: 60,
@@ -261,7 +283,7 @@ export const HULLS: HullDef[] = [
     role: "military",
     cost: { credits: 110, metals: 290 },
     buildDays: 58,
-    upkeep: { energy: 0.6, credits: 0.35 },
+    upkeep: { credits: 2, energy: 1.2 },
     hull: 520,
     armor: 220,
     shields: 170,
@@ -284,7 +306,7 @@ export const HULLS: HullDef[] = [
     role: "military",
     cost: { credits: 220, metals: 600, exotics: 15 },
     buildDays: 90,
-    upkeep: { energy: 1.2, credits: 0.7 },
+    upkeep: { credits: 3.4, energy: 2 },
     hull: 1250,
     armor: 520,
     shields: 420,
@@ -309,7 +331,7 @@ export const HULLS: HullDef[] = [
     role: "military",
     cost: { credits: 500, metals: 1400, exotics: 80 },
     buildDays: 150,
-    upkeep: { energy: 3, credits: 1.5 },
+    upkeep: { credits: 7, energy: 4 },
     hull: 3600,
     armor: 1300,
     shields: 1300,

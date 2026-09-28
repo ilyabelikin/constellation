@@ -8,8 +8,8 @@ import { buildingSlots, canColonize, commandCapacity, commandUsed, hullCost, sta
 import { clearOrder, issueOrder, mergeFleets } from "./fleets";
 import { makeFleet } from "./galaxy";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
-import { canAfford, log, pay, refund } from "./util";
-import type { Empire, Fleet, GameState, Stance, Vec3 } from "./types";
+import { acquaintances, canAfford, logTo, pay, refund } from "./util";
+import type { Empire, Fleet, GameState, QueuedOrder, Stance, Vec3 } from "./types";
 
 export type CommandResult = { ok: true } | { ok: false; error: string };
 
@@ -38,7 +38,13 @@ export function queueBuilding(state: GameState, empireId: string, colonyId: stri
   return OK;
 }
 
-export function queueShip(state: GameState, empireId: string, colonyId: string, hullId: string): CommandResult {
+export function queueShip(
+  state: GameState,
+  empireId: string,
+  colonyId: string,
+  hullId: string,
+  then?: { kind: "colonize"; bodyId: string },
+): CommandResult {
   const colony = state.colonies[colonyId];
   const empire = state.empires[empireId];
   if (!colony || colony.empireId !== empireId) return fail("Not your colony");
@@ -52,7 +58,7 @@ export function queueShip(state: GameState, empireId: string, colonyId: string, 
   const cost = hullCost(state, empire, hullId);
   if (!canAfford(empire.resources, cost)) return fail("Not enough resources");
   pay(empire.resources, cost);
-  colony.queue.push({ kind: "ship", type: hullId, progress: 0, total: hull.buildDays, paid: cost });
+  colony.queue.push({ kind: "ship", type: hullId, progress: 0, total: hull.buildDays, paid: cost, ...(then ? { then } : {}) });
   return OK;
 }
 
@@ -115,16 +121,35 @@ export function moveFleet(
   fleetId: string,
   systemId: string,
   target: { bodyId?: string; pos?: Vec3 } = {},
+  queued = false,
 ): CommandResult {
   const f = ownFleet(state, empireId, fleetId);
   if (!f) return fail("Not your fleet");
   if (!state.systems[systemId]) return fail("Unknown system");
   if (target.bodyId && state.bodies[target.bodyId]?.systemId !== systemId) return fail("Body not in that system");
-  const err = issueOrder(state, f, { kind: "move", systemId, bodyId: target.bodyId, pos: target.pos });
+  const err = orderFleet(state, f, { kind: "move", systemId, bodyId: target.bodyId, pos: target.pos }, queued);
   return err ? fail(err) : OK;
 }
 
-export function colonizeOrder(state: GameState, empireId: string, fleetId: string, bodyId: string): CommandResult {
+/**
+ * Give a fleet an order now, or (when `queued` and the fleet is busy) append
+ * it to the fleet's plan to start once the current order is done. A direct
+ * order replaces the whole plan.
+ */
+export function orderFleet(state: GameState, f: Fleet, order: QueuedOrder, queued: boolean): string | null {
+  if (queued && (f.order || f.transit || f.queue?.length)) {
+    if ((f.queue?.length ?? 0) >= MAX_QUEUED_ORDERS) return "That fleet's order queue is full";
+    (f.queue ??= []).push(order);
+    return null;
+  }
+  const err = issueOrder(state, f, order);
+  if (!err) f.queue = [];
+  return err;
+}
+
+export const MAX_QUEUED_ORDERS = 12;
+
+export function colonizeOrder(state: GameState, empireId: string, fleetId: string, bodyId: string, queued = false): CommandResult {
   const f = ownFleet(state, empireId, fleetId);
   if (!f) return fail("Not your fleet");
   const body = state.bodies[bodyId];
@@ -132,7 +157,7 @@ export function colonizeOrder(state: GameState, empireId: string, fleetId: strin
   if (!f.ships.some((s) => HULL_MAP[s.hull].role === "colony")) return fail("Fleet has no colony ship");
   if (!canColonize(state.empires[empireId], body)) return fail("World is not habitable for our species");
   if (Object.values(state.colonies).some((c) => c.bodyId === bodyId)) return fail("Already colonised");
-  const err = issueOrder(state, f, { kind: "colonize", systemId: body.systemId, bodyId });
+  const err = orderFleet(state, f, { kind: "colonize", systemId: body.systemId, bodyId }, queued);
   return err ? fail(err) : OK;
 }
 
@@ -142,6 +167,7 @@ export function buildStationOrder(
   fleetId: string,
   bodyId: string,
   stationType: string,
+  queued = false,
 ): CommandResult {
   const f = ownFleet(state, empireId, fleetId);
   if (!f) return fail("Not your fleet");
@@ -151,11 +177,12 @@ export function buildStationOrder(
   if (!f.ships.some((s) => HULL_MAP[s.hull].role === "constructor")) return fail("Fleet has no constructor");
   const err0 = stationBuildError(state, state.empires[empireId], stationType, body);
   if (err0) return fail(err0);
-  const err = issueOrder(state, f, { kind: "buildStation", systemId: body.systemId, bodyId, stationType });
+  if (queued && f.queue?.some((q) => q.kind === "buildStation" && q.bodyId === bodyId && q.stationType === stationType)) return fail("Already queued");
+  const err = orderFleet(state, f, { kind: "buildStation", systemId: body.systemId, bodyId, stationType }, queued);
   return err ? fail(err) : OK;
 }
 
-export function invadeOrder(state: GameState, empireId: string, fleetId: string, colonyId: string): CommandResult {
+export function invadeOrder(state: GameState, empireId: string, fleetId: string, colonyId: string, queued = false): CommandResult {
   const f = ownFleet(state, empireId, fleetId);
   if (!f) return fail("Not your fleet");
   const c = state.colonies[colonyId];
@@ -163,7 +190,7 @@ export function invadeOrder(state: GameState, empireId: string, fleetId: string,
   if (c.empireId === empireId) return fail("That is our colony");
   if (state.empires[empireId].relations[c.empireId] !== "war") return fail("We must be at war to invade");
   if (!f.ships.some((s) => HULL_MAP[s.hull].role === "transport")) return fail("Fleet has no troop transports");
-  const err = issueOrder(state, f, { kind: "invade", systemId: c.systemId, bodyId: c.bodyId, colonyId });
+  const err = orderFleet(state, f, { kind: "invade", systemId: c.systemId, bodyId: c.bodyId, colonyId }, queued);
   return err ? fail(err) : OK;
 }
 
@@ -182,6 +209,7 @@ export function stopFleet(state: GameState, empireId: string, fleetId: string): 
   if (!f) return fail("Not your fleet");
   if (f.transit) return fail("Cannot stop inside a tunnel");
   clearOrder(state, f);
+  f.queue = [];
   return OK;
 }
 
@@ -231,6 +259,7 @@ export function declareWar(state: GameState, empireId: string, targetId: string)
   const b = state.empires[targetId];
   if (!a || !b || a === b) return fail("Invalid empire");
   if (a.relations[targetId] === "war") return fail("Already at war");
+  if (!a.contacts?.[targetId] && !b.isPirate) return fail("We have not met them yet");
   a.relations[targetId] = "war";
   b.relations[empireId] = "war";
   if (b.ai) {
@@ -238,7 +267,7 @@ export function declareWar(state: GameState, empireId: string, targetId: string)
     (b.ai.warStarted ??= {})[empireId] = state.day;
   }
   if (a.ai) (a.ai.warStarted ??= {})[targetId] = state.day;
-  log(state, "diplomacy", `${a.name} declared war on ${b.name}!`, null);
+  logTo(state, "diplomacy", `${a.name} declared war on ${b.name}!`, [...acquaintances(state, a.id), ...acquaintances(state, b.id)]);
   return OK;
 }
 
@@ -253,6 +282,6 @@ export function makePeace(state: GameState, empireId: string, targetId: string):
   b.relations[empireId] = "peace";
   if (a.ai) a.ai.warCooldown = 200;
   if (b.ai) b.ai.warCooldown = 200;
-  log(state, "diplomacy", `${a.name} and ${b.name} signed a peace treaty.`, null);
+  logTo(state, "diplomacy", `${a.name} and ${b.name} signed a peace treaty.`, [...acquaintances(state, a.id), ...acquaintances(state, b.id)]);
   return OK;
 }

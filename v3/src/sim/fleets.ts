@@ -8,16 +8,19 @@ import {
   garrison,
   habitability,
   maxDefense,
+  popCapacity,
   stationBuildError,
   systemOwner,
 } from "./economy";
 import { modifiers } from "./modifiers";
 import { bodyPosition, copyVec } from "./orbits";
-import { log, nextId, withRng } from "./util";
-import type { Colony, Empire, Fleet, GameState, Order, SimEvent, Station, Vec3 } from "./types";
+import { log, logTo, nextId, witnesses, withRng } from "./util";
+import type { Colony, Empire, Fleet, GameState, Order, QueuedOrder, SimEvent, Station, Vec3 } from "./types";
 
 export const ARRIVE_EPS = 0.02;
 export const COLONIZE_DAYS = 4;
+/** Days a migrant liner's shuttles need to ferry its settlers down. */
+export const UNLOAD_DAYS = 3;
 
 export function fleetSpeed(state: GameState, fleet: Fleet): number {
   const empire = state.empires[fleet.empireId];
@@ -37,24 +40,40 @@ export function gateFor(state: GameState, systemId: string, tunnelId: string) {
   return state.systems[systemId].gates.find((g) => g.tunnelId === tunnelId)!;
 }
 
-// Tunnels never change after generation, so routes can be cached per network.
-const routeCache = new WeakMap<object, Map<string, string[] | null>>();
+// Routes depend only on the tunnel network and on what an empire has explored
+// (which only ever grows), so they are cached per empire and exploration count.
+const routeCache = new WeakMap<object, { n: number; routes: Map<string, string[] | null> }>();
+const omniscientCache = new WeakMap<object, Map<string, string[] | null>>();
 
-/** Dijkstra over the tunnel network; returns tunnel ids to traverse (a fresh array). */
-export function findRoute(state: GameState, from: string, to: string): string[] | null {
+/**
+ * Dijkstra over the tunnel network; returns tunnel ids to traverse (a fresh array).
+ * With `empire`, only knowledge that empire has is used: it can see the gates of
+ * systems it has explored, and so may route *into* an unexplored system, but
+ * never *through* one (its other gates are unknown).
+ */
+export function findRoute(state: GameState, from: string, to: string, empire?: Empire | null): string[] | null {
   if (from === to) return [];
-  let cache = routeCache.get(state.tunnels);
-  if (!cache) {
-    cache = new Map();
-    routeCache.set(state.tunnels, cache);
+  let cache: Map<string, string[] | null>;
+  if (empire && !empire.isPirate) {
+    const n = Object.keys(empire.explored).length;
+    let entry = routeCache.get(empire);
+    if (!entry || entry.n !== n) {
+      entry = { n, routes: new Map() };
+      routeCache.set(empire, entry);
+    }
+    cache = entry.routes;
+  } else {
+    cache = omniscientCache.get(state.tunnels) ?? new Map();
+    omniscientCache.set(state.tunnels, cache);
+    empire = null;
   }
   const key = `${from}|${to}`;
-  if (!cache.has(key)) cache.set(key, computeRoute(state, from, to));
+  if (!cache.has(key)) cache.set(key, computeRoute(state, from, to, empire ?? null));
   const r = cache.get(key)!;
   return r ? [...r] : null;
 }
 
-function computeRoute(state: GameState, from: string, to: string): string[] | null {
+function computeRoute(state: GameState, from: string, to: string, empire: Empire | null): string[] | null {
   const distTo: Record<string, number> = { [from]: 0 };
   const prev: Record<string, { sys: string; tunnel: string }> = {};
   const open = new Set<string>([from]);
@@ -69,6 +88,8 @@ function computeRoute(state: GameState, from: string, to: string): string[] | nu
     open.delete(cur);
     if (cur === to) break;
     done.add(cur);
+    // Unknown systems are dead ends: we don't know where their other gates lead.
+    if (empire && cur !== from && !empire.explored[cur]) continue;
     for (const g of state.systems[cur].gates) {
       const nxt = g.otherSystemId;
       if (done.has(nxt)) continue;
@@ -90,8 +111,8 @@ function computeRoute(state: GameState, from: string, to: string): string[] | nu
   return route;
 }
 
-export function hopCount(state: GameState, from: string, to: string): number {
-  const r = findRoute(state, from, to);
+export function hopCount(state: GameState, from: string, to: string, empire?: Empire | null): number {
+  const r = findRoute(state, from, to, empire);
   return r ? r.length : Infinity;
 }
 
@@ -130,8 +151,8 @@ export function clearOrder(state: GameState, fleet: Fleet): void {
 export function issueOrder(state: GameState, fleet: Fleet, order: Omit<Order, "route">): string | null {
   const from = fleet.transit ? fleet.transit.to : fleet.systemId;
   if (!from) return "Fleet location unknown";
-  const route = findRoute(state, from, order.systemId);
-  if (!route) return "No tunnel route to destination";
+  const route = findRoute(state, from, order.systemId, state.empires[fleet.empireId]);
+  if (!route) return "No known route — explore the systems in between first";
   clearOrder(state, fleet);
   fleet.order = { ...order, route, work: 0 };
   fleet.orbitBodyId = null;
@@ -228,6 +249,42 @@ export function stepFleets(state: GameState, dt: number, events: SimEvent[]): vo
     const vmax = fleetSpeed(state, fleet) * (fleet.battleId ? 0.5 : 1);
     if (steer(fleet, target, targetVelocity(state, fleet), vmax, fleetAccel(state, fleet), dt)) arrive(state, fleet, dt, events);
   }
+  for (const fleet of Object.values(state.fleets)) if (!fleet.order && !fleet.transit && fleet.systemId && fleet.queue?.length) startQueuedOrder(state, fleet);
+}
+
+/** Why a queued order can no longer be carried out (checked when it comes up). */
+function queuedOrderError(state: GameState, fleet: Fleet, o: QueuedOrder): string | null {
+  const empire = state.empires[fleet.empireId];
+  const has = (role: string) => fleet.ships.some((s) => HULL_MAP[s.hull].role === role);
+  const body = o.bodyId ? state.bodies[o.bodyId] : null;
+  switch (o.kind) {
+    case "colonize":
+      if (!has("colony") || !body) return "no colony ship";
+      if (Object.values(state.colonies).some((c) => c.bodyId === body.id)) return `${body.name} is already colonised`;
+      return canColonize(empire, body) ? null : `${body.name} is uninhabitable`;
+    case "buildStation":
+      if (!has("constructor") || !body || !o.stationType) return "no constructor";
+      return stationBuildError(state, empire, o.stationType, body);
+    case "invade": {
+      const c = o.colonyId ? state.colonies[o.colonyId] : null;
+      if (!c || c.empireId === empire.id) return "target colony is gone";
+      return empire.relations[c.empireId] === "war" ? null : "we are no longer at war";
+    }
+    case "attack":
+      return o.fleetId && state.fleets[o.fleetId] ? null : "target is gone";
+    default:
+      return state.systems[o.systemId] ? null : "unknown destination";
+  }
+}
+
+/** Start the next still-valid order from the fleet's queue. */
+export function startQueuedOrder(state: GameState, fleet: Fleet): void {
+  const empire = state.empires[fleet.empireId];
+  while (fleet.queue?.length && !fleet.order) {
+    const next = fleet.queue.shift()!;
+    const err = queuedOrderError(state, fleet, next) ?? issueOrder(state, fleet, next);
+    if (err && empire.isPlayer) log(state, "info", `${fleet.name} skipped a queued order: ${err}.`, empire.id, fleet.systemId ?? undefined);
+  }
 }
 
 /** Idle fleets hold station on their anchor body (or drift to a stop in open space). */
@@ -295,7 +352,23 @@ function arrive(state: GameState, fleet: Fleet, dt: number, events: SimEvent[]):
       fleet.orbitBodyId = o.bodyId ?? null;
       doInvade(state, fleet);
       break;
+    case "migrate":
+      fleet.orbitBodyId = o.bodyId ?? null;
+      doMigrate(state, fleet, dt);
+      break;
   }
+}
+
+/** Shuttles ferry the liner's settlers down; then the chartered liner is released (leaves play). */
+function doMigrate(state: GameState, fleet: Fleet, dt: number): void {
+  const o = fleet.order!;
+  o.work = (o.work ?? 0) + dt;
+  if (o.work < UNLOAD_DAYS || fleet.battleId) return;
+  let colony: Colony | undefined = o.colonyId ? state.colonies[o.colonyId] : undefined;
+  if (!colony || colony.empireId !== fleet.empireId)
+    colony = Object.values(state.colonies).find((c) => c.empireId === fleet.empireId && c.systemId === fleet.systemId);
+  if (colony) colony.pop = Math.min(popCapacity(state, colony), colony.pop + (fleet.migrants ?? 0));
+  delete state.fleets[fleet.id];
 }
 
 function removeShipOfRole(fleet: Fleet, role: string): boolean {
@@ -325,11 +398,11 @@ function doColonize(state: GameState, fleet: Fleet, dt: number, events: SimEvent
   removeShipOfRole(fleet, "colony");
   const colony = foundColony(state, empire, body.id, 1);
   events.push({ type: "colonized", systemId: body.systemId, bodyId: body.id, empireId: empire.id });
-  log(
+  logTo(
     state,
     "colony",
     `${empire.name} founded a colony on ${body.name} (habitability ${Math.round(habitability(empire, body) * 100)}%).`,
-    empire.isPlayer ? empire.id : null,
+    witnesses(state, colony.systemId),
     colony.systemId,
   );
   fleet.order = null;
@@ -440,11 +513,11 @@ function doInvade(state: GameState, fleet: Fleet): void {
     colony.capital = false;
     colony.defense = 0;
     colony.lastAttacked = state.day;
-    log(state, "combat", `${empire.name} invaded and captured ${colony.name} from ${victim.name}!`, null, colony.systemId);
+    logTo(state, "combat", `${empire.name} invaded and captured ${colony.name} from ${victim.name}!`, [oldOwner, ...witnesses(state, colony.systemId)], colony.systemId);
     ensureCapital(state, oldOwner);
   } else {
     colony.pop = Math.max(0.5, colony.pop * 0.95);
-    log(state, "combat", `${empire.name}'s invasion of ${colony.name} was repulsed.`, empire.isPlayer || victim.isPlayer ? null : empire.id, colony.systemId);
+    logTo(state, "combat", `${empire.name}'s invasion of ${colony.name} was repulsed.`, [empire.id, ...witnesses(state, colony.systemId)], colony.systemId);
   }
   fleet.order = null;
 }
@@ -456,7 +529,7 @@ export function ensureCapital(state: GameState, empireId: string): void {
   cols.sort((a, b) => b.pop - a.pop);
   cols[0].capital = true;
   const e = state.empires[empireId];
-  log(state, "colony", `${e.name} relocated its capital to ${cols[0].name}.`, e.isPlayer ? e.id : null, cols[0].systemId);
+  log(state, "colony", `${e.name} relocated its capital to ${cols[0].name}.`, e.id, cols[0].systemId);
 }
 
 export function mergeFleets(state: GameState, into: Fleet, from: Fleet): void {

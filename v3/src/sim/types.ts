@@ -118,7 +118,9 @@ export interface Ship {
   xp: number;
 }
 
-export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack";
+export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack" | "migrate";
+
+export type QueuedOrder = Omit<Order, "route" | "work">;
 
 export interface Order {
   kind: OrderKind;
@@ -161,6 +163,12 @@ export interface Fleet {
   transit: Transit | null;
   stance: Stance;
   battleId: string | null;
+  /** Privately run vessel (migrant liner): follows its own course, not player orders. */
+  civilian?: boolean;
+  /** Colonists aboard a migrant liner. */
+  migrants?: number;
+  /** Orders to carry out after the current one (shift-queued). */
+  queue?: QueuedOrder[];
 }
 
 export interface BuildingInstance {
@@ -169,7 +177,15 @@ export interface BuildingInstance {
 
 export type QueueItem =
   | { kind: "building"; type: string; progress: number; total: number }
-  | { kind: "ship"; type: string; progress: number; total: number; paid?: Partial<Resources> };
+  | {
+      kind: "ship";
+      type: string;
+      progress: number;
+      total: number;
+      paid?: Partial<Resources>;
+      /** Standing order the new ship executes on launch (e.g. colonise a chosen world). */
+      then?: { kind: "colonize"; bodyId: string };
+    };
 
 export interface Colony {
   id: string;
@@ -186,6 +202,8 @@ export interface Colony {
   /** Days since last combat damage; defenses regenerate after a delay. */
   lastAttacked: number;
   capital: boolean;
+  /** Day before which no new migrant liner departs from this colony. */
+  nextMigration?: number;
 }
 
 export interface Station {
@@ -217,6 +235,53 @@ export interface AiState {
   warStarted?: Record<string, number>;
   /** Day until which peace proposals from an empire are refused outright. */
   peaceRefusedUntil?: Record<string, number>;
+  /** Grand strategy chosen by the empire's (LLM) ruler; steers the utility AI. */
+  directive?: AiDirective;
+  /** Day on which the ruler next reviews its strategy. */
+  llmNext?: number;
+  /** Ruler persona (see data/personas.ts), drawn independently of species. */
+  persona?: string;
+  /** Last day a peace proposal was sent to each (human) empire. */
+  peaceProposedAt?: Record<string, number>;
+}
+
+/** A formal demand one empire has made of another, awaiting an answer. */
+export type Demand =
+  | { kind: "colony"; colonyId: string; day: number }
+  | { kind: "tribute"; resource: ResourceKey; amount: number; day: number };
+
+/** A concrete diplomatic act attached to a message. */
+export interface DiploAction {
+  kind: "none" | "accept_peace" | "propose_peace" | "declare_war" | "offer_tribute" | "cede_colony" | "demand_tribute" | "demand_colony";
+  resource?: ResourceKey;
+  amount?: number;
+  colonyId?: string;
+}
+
+export type Posture = "expand" | "consolidate" | "militarize" | "attack" | "defend";
+
+export interface AiDirective {
+  posture: Posture;
+  /** Research branch to favour. */
+  research: string | null;
+  /** Empire to wage war on (declared when the AI next thinks, if at peace). */
+  warTarget: string | null;
+  /** Empires the ruler wants peace with. */
+  seekPeace: string[];
+  summary: string;
+  day: number;
+}
+
+/** A diplomatic message between two empires' rulers. */
+export interface ChatMessage {
+  id: string;
+  from: string; // empire id
+  to: string; // empire id
+  text: string;
+  day: number;
+  at: number; // wall-clock ms
+  /** Diplomatic act the sender carried out along with the message. */
+  action?: DiploAction;
 }
 
 export interface EmpireStats {
@@ -245,6 +310,14 @@ export interface Empire {
   fleetCounter: number;
   /** Day the empire lost its last colony (cleared when it has one again). */
   homelessSince?: number;
+  /** Empires this one has met (shared a system, or surveyed one of theirs). */
+  contacts?: Record<string, true>;
+  /** Pending peace offers from other (human) empires: sender id → day offered. */
+  peaceOffers?: Record<string, number>;
+  /** Last day the player was warned about an empty treasury. */
+  bankruptWarnedAt?: number;
+  /** Pending demands made of this empire: demander id → demand. */
+  demands?: Record<string, Demand>;
 }
 
 export interface Battle {
@@ -271,7 +344,9 @@ export interface GameLogEntry {
   day: number;
   kind: GameEventKind;
   text: string;
-  empireId: string | null; // null = visible to everyone
+  empireId: string | null; // a single recipient, or null together with `audience`/public
+  /** Empires that know about this event (when absent and empireId is null: public news). */
+  audience?: string[];
   systemId?: string;
 }
 
@@ -306,6 +381,8 @@ export interface GameState {
   victoryType: string | null;
   /** Next day on which pirates may spawn a raid. */
   nextRaid: number;
+  /** Diplomatic correspondence (local games; sessions keep it server-side). */
+  chats?: ChatMessage[];
 }
 
 /** Ephemeral events emitted by a tick, consumed by the renderer/UI (not saved). */
@@ -327,4 +404,5 @@ export type SimEvent =
   | { type: "shipBuilt"; systemId: string; fleetId: string; hull: string }
   | { type: "colonized"; systemId: string; bodyId: string; empireId: string }
   | { type: "stationBuilt"; systemId: string; bodyId: string; empireId: string; stationType: string }
-  | { type: "jump"; systemId: string; pos: Vec3; fleetId: string; entering: boolean };
+  | { type: "jump"; systemId: string; pos: Vec3; fleetId: string; entering: boolean }
+  | { type: "contact"; a: string; b: string };

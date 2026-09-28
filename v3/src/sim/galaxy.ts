@@ -5,6 +5,7 @@ import { BELT_TYPES, PLANET_TYPES, planetType, type Zone } from "./data/planets"
 import { STAR_TYPES, starType, type StarType } from "./data/stars";
 import { HULL_MAP } from "./data/ships";
 import { SPECIES, SPECIES_MAP, stationDef } from "./data/structures";
+import { PERSONAS } from "./data/personas";
 import { starName, planetName, moonName } from "./names";
 import { orbitalPeriodDays, dist } from "./orbits";
 import { Rng, hashString } from "./rng";
@@ -127,7 +128,9 @@ export function generateSystem(
   const orbits: number[] = [];
   for (let i = 0; i < count; i++) {
     orbits.push(a);
-    a *= rng.range(1.45, 1.85);
+    // Neighbouring planets keep a period ratio well clear of close encounters
+    // (real systems sit around 1.5–2.2× in distance).
+    a *= rng.range(1.6, 2.1);
     if (a > 60) break;
   }
 
@@ -224,15 +227,17 @@ export function generateSystem(
     else moonCount = rng.chance(0.25) ? 1 : 0;
     let moonA = p.radius * (p.ring ? p.ring.outer + 0.8 : 2.4);
     for (let m = 0; m < moonCount; m++) {
+      const mr = moonRadius(rng, p.radius, pt.giant);
       const mt = rng.weighted(PLANET_TYPES, (t) => {
         if (t.moonWeight <= 0) return 0;
         if (zone === "hot" && (t.id === "arctic" || t.id === "ice_dwarf")) return 0;
-        if ((zone === "outer" || zone === "cold") && ["terran", "ocean", "jungle", "savanna", "arid"].includes(t.id))
-          return 0;
+        const earthlike = ["terran", "ocean", "jungle", "savanna", "arid", "tundra", "toxic"].includes(t.id);
+        if ((zone === "outer" || zone === "cold") && earthlike && t.id !== "tundra") return 0;
+        // Only large moons can hold an atmosphere, oceans or a biosphere.
+        if (earthlike && mr < 0.3) return 0;
         if (t.id === "volcanic") return pt.giant ? 0.8 : zone === "hot" ? 0.6 : 0.05; // tidal heating
         return t.moonWeight;
       });
-      const mr = Math.min(rng.range(mt.radius[0], mt.radius[1]) * 0.6, p.radius * 0.45);
       moonA += Math.max(mr * 3, p.radius * 0.5) + rng.range(0.2, 0.8) * p.radius;
       const moon: Body = {
         id: `${p.id}m${m}`,
@@ -244,14 +249,15 @@ export function generateSystem(
         orbit: {
           a: moonA,
           e: rng.range(0, 0.04),
-          period: rng.range(2.5, 5) * (1 + m * 0.9),
+          // Kepler: outer moons take longer (P ∝ a^1.5); the innermost circles in about a week.
+          period: rng.range(5, 9) * Math.pow(moonA / (p.radius * (p.ring ? p.ring.outer + 0.8 : 2.4)), 1.5),
           phase: rng.range(0, Math.PI * 2),
           inclination: rng.range(-0.15, 0.15) + (p.ring ? p.ring.tilt : 0),
           node: rng.range(0, Math.PI * 2),
           argPeri: 0,
         },
-        radius: Math.max(0.12, mr),
-        size: Math.min(mt.size[1] > 0 ? rng.int(Math.max(1, mt.size[0] - 1), Math.min(2, mt.size[1])) : 0, 2),
+        radius: mr,
+        size: mt.size[1] > 0 ? (mr >= 0.4 ? 2 : mr >= 0.2 ? 1 : 0) : 0,
         richness: richness(rng, mt.richness),
         features: ["tidallyLocked"],
         seed: rng.int(0, 1e9),
@@ -311,7 +317,8 @@ export function generateSystem(
   const outermost = Math.max(orbits[orbits.length - 1] ?? 2, ...beltOrbits, 2);
   if (!opts.forbidBinary && !opts.homeSpecies && rng.chance(0.18)) {
     const ct = rng.weighted(STAR_TYPES, (s) => (s.canBeCompanion ? s.weight : 0));
-    const ca = outermost * rng.range(1.35, 1.7);
+    // A distant companion: far enough out that it can't disturb the planets.
+    const ca = outermost * rng.range(3, 4.5);
     bodies.push({
       id: `${id}-s1`,
       systemId: id,
@@ -321,7 +328,7 @@ export function generateSystem(
       parentId: star.id,
       orbit: {
         a: ca,
-        e: rng.range(0, 0.2),
+        e: rng.range(0, 0.12),
         period: orbitalPeriodDays(ca, mass) * 1.5,
         phase: rng.range(0, Math.PI * 2),
         inclination: rng.range(-0.1, 0.1),
@@ -387,6 +394,20 @@ export function generateSystem(
           : undefined,
   };
   return { system, bodies };
+}
+
+/**
+ * Moon radius in Earth radii. Most moons are small next to their planet
+ * (Luna is 0.27 R⊕, Ganymede 4% of Jupiter); large moons are rare.
+ */
+export function moonRadius(rng: Rng, parentRadius: number, parentGiant: boolean): number {
+  const skew = Math.pow(rng.next(), 2.6); // heavily biased towards small
+  if (parentGiant) {
+    if (rng.chance(0.05)) return rng.range(0.4, 0.65); // a rare Titan/Ganymede-class moon
+    return 0.03 + skew * 0.3;
+  }
+  if (rng.chance(0.04)) return parentRadius * rng.range(0.3, 0.5); // rare near-double planet
+  return Math.max(0.02, parentRadius * (0.03 + skew * 0.22));
 }
 
 function decorateFeatures(rng: Rng, body: Body): void {
@@ -664,6 +685,12 @@ export function createGame(partial: Partial<GameSettings> = {}): GameState {
     const e = makeEmpire(`e${i + 1}`, rng.pick(names), otherColors[i % otherColors.length], sp, false, false, personalities[i % personalities.length]);
     state.empires[e.id] = e;
   }
+  // Ruler personas are dealt from their own stream (so galaxies stay the same
+  // for a seed) and independently of species; no two rivals share one.
+  const personaDeck = new Rng(hashString(`${settings.seed}/personas`)).shuffle(PERSONAS.map((p) => p.id));
+  Object.values(state.empires).forEach((e, i) => {
+    if (e.ai) e.ai.persona = personaDeck[i % personaDeck.length];
+  });
   let pirate: Empire | null = null;
   if (settings.pirates) {
     pirate = makeEmpire("pirates", "Void Raiders", "#8c8c8c", "pirates", false, true, null);

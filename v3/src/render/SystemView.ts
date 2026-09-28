@@ -5,9 +5,11 @@ import { BELT_TYPE_MAP, PLANET_TYPE_MAP } from "../sim/data/planets";
 import { HULL_MAP } from "../sim/data/ships";
 import { STAR_TYPE_MAP } from "../sim/data/stars";
 import { STATION_MAP } from "../sim/data/structures";
-import type { Game } from "../sim/game";
+import type { PlayerFacade as Game } from "../sim/facade";
+import { sensorSystems } from "../sim/knowledge";
 import { orbitPosition } from "../sim/orbits";
 import type { Body, Fleet, SimEvent, Station } from "../sim/types";
+import { Shuttles } from "./Shuttles";
 import { Effects } from "./Effects";
 import type { PickResult, View } from "./Engine";
 import { temperatureColor } from "./glsl";
@@ -19,7 +21,8 @@ import {
   createRingMaterial,
 } from "./materials/planet";
 import { createAccretionDiskMaterial, createBeamMaterial, createCoronaMaterial, createStarMaterial } from "./materials/star";
-import { mapSystemPos, planetVisualRadius, shipVisualLength, starVisualRadius, auToScene } from "./scale";
+import { shipVisualLength } from "./scale";
+import { moonVisualRadius, planetVisualRadius, starVisualRadius, SystemLayout } from "./layout";
 import { hullMaterial, radiatorMat, shipModel } from "./ShipModels";
 import { stationGeometry, stationMaterial } from "./StationModels";
 
@@ -45,6 +48,8 @@ interface FleetVisual {
   pos: THREE.Vector3;
   pick: THREE.Mesh;
   radius: number;
+  /** Seconds until the next landing shuttle leaves (while unloading). */
+  shuttleTimer?: number;
 }
 
 interface StationVisual {
@@ -58,6 +63,7 @@ const tmpV = { x: 0, y: 0, z: 0 };
 export class SystemView implements View {
   readonly scene = new THREE.Scene();
   readonly effects = new Effects();
+  readonly shuttles = new Shuttles();
   private bodies = new Map<string, BodyVisual>();
   private fleets = new Map<string, FleetVisual>();
   private stations = new Map<string, StationVisual>();
@@ -77,6 +83,8 @@ export class SystemView implements View {
   hovered: PickResult | null = null;
   renderDay = 0;
   alpha = 0;
+  /** Where things sit on screen: compressed, collision-free orbits. */
+  readonly layout: SystemLayout;
 
   constructor(
     readonly game: Game,
@@ -85,12 +93,13 @@ export class SystemView implements View {
     envMap?: THREE.Texture,
   ) {
     const sys = game.state.systems[systemId];
+    this.layout = new SystemLayout(game.state, systemId);
     if (envMap) {
       this.scene.environment = envMap;
       this.scene.environmentIntensity = 0.28;
     }
     this.scene.add(new THREE.AmbientLight(0x8090b0, 0.18));
-    this.scene.add(this.orbitLines, this.pathLines, this.battleMarkers, this.effects.group);
+    this.scene.add(this.orbitLines, this.pathLines, this.battleMarkers, this.effects.group, this.shuttles.group);
     for (const sid of sys.starIds) this.buildStar(game.state.bodies[sid]);
     for (const bid of sys.bodyIds) {
       const b = game.state.bodies[bid];
@@ -116,7 +125,7 @@ export class SystemView implements View {
   }
 
   get extentScene(): number {
-    return auToScene(this.game.state.systems[this.systemId].extent);
+    return this.layout.radius(this.game.state.systems[this.systemId].extent);
   }
 
   // ------------------------------------------------------------------ build
@@ -218,7 +227,7 @@ export class SystemView implements View {
 
   private buildPlanet(body: Body): void {
     const pt = PLANET_TYPE_MAP[body.type];
-    const r = body.kind === "moon" ? Math.max(0.35, planetVisualRadius(body.radius) * 0.75) : planetVisualRadius(body.radius);
+    const r = body.kind === "moon" ? moonVisualRadius(body.radius) : planetVisualRadius(body.radius);
     const group = new THREE.Group();
     const tilt = new THREE.Group();
     tilt.rotation.z = body.axialTilt;
@@ -300,11 +309,13 @@ export class SystemView implements View {
     for (let i = 0; i < count; i++) {
       const rr = a + (rnd() + rnd() + rnd() - 1.5) * w * 0.8;
       const ang = rnd() * Math.PI * 2;
-      const rs = auToScene(rr);
-      const y = (rnd() - 0.5) * (auToScene(a + w) - auToScene(a - w)) * 0.18;
+      // Scatter within the band the layout reserved for this belt.
+      const half = this.layout.beltHalfWidth(body.id);
+      const rs = this.layout.radius(a) + Math.max(-half, Math.min(half, ((rr - a) / (w * 1.2)) * half));
+      const y = (rnd() - 0.5) * half * 0.35;
       e.set(rnd() * 6, rnd() * 6, rnd() * 6);
       q.setFromEuler(e);
-      const sc = 0.08 + Math.pow(rnd(), 4) * 0.55;
+      const sc = 0.03 + Math.pow(rnd(), 4) * 0.2;
       m.compose(new THREE.Vector3(Math.cos(ang) * rs, y, Math.sin(ang) * rs), q, new THREE.Vector3(sc, sc * (0.6 + rnd() * 0.6), sc));
       mesh.setMatrixAt(i, m);
       mesh.setColorAt(i, c0.clone().lerp(c1, rnd()));
@@ -314,8 +325,8 @@ export class SystemView implements View {
     this.scene.add(mesh);
     this.belts.push({ body, mesh });
     // Pick handle: a thin torus following the belt.
-    const pr = auToScene(a);
-    const pick = new THREE.Mesh(new THREE.TorusGeometry(pr, Math.max(2.5, (auToScene(a + w) - auToScene(a - w)) * 0.5), 6, 64), new THREE.MeshBasicMaterial({ visible: false }));
+    const pr = this.layout.radius(a);
+    const pick = new THREE.Mesh(new THREE.TorusGeometry(pr, Math.max(2.5, this.layout.beltHalfWidth(body.id)), 6, 64), new THREE.MeshBasicMaterial({ visible: false }));
     pick.rotation.x = Math.PI / 2;
     pick.userData.pick = { kind: "body", id: body.id } as PickResult;
     this.scene.add(pick);
@@ -358,7 +369,7 @@ export class SystemView implements View {
       for (let i = 0; i <= N; i++) {
         const o = { ...b.orbit, phase: (i / N) * Math.PI * 2 };
         const p = orbitPosition(o, 0, tmpV);
-        const m = mapSystemPos(p);
+        const m = this.layout.map(p);
         pts.push(new THREE.Vector3(m.x, m.y, m.z));
       }
       const geo = new THREE.BufferGeometry().setFromPoints(pts);
@@ -373,7 +384,7 @@ export class SystemView implements View {
     const sys = this.game.state.systems[this.systemId];
     for (const gate of sys.gates) {
       const group = new THREE.Group();
-      const p = mapSystemPos(gate.pos);
+      const p = this.layout.map(gate.pos);
       group.position.set(p.x, p.y, p.z);
       group.lookAt(0, 0, 0);
       const ringMat = new THREE.MeshStandardMaterial({ color: "#8a93a6", metalness: 0.85, roughness: 0.3, emissive: new THREE.Color("#2a4a8a"), emissiveIntensity: 0.4 });
@@ -475,14 +486,11 @@ export class SystemView implements View {
 
   /** Fog of war: only show foreign fleets where the player has presence. */
   private isVisible(f: Fleet): boolean {
-    const s = this.game.state;
-    if (f.empireId === s.playerId) return true;
-    const pid = s.playerId;
-    return (
-      Object.values(s.fleets).some((o) => o.empireId === pid && o.systemId === this.systemId) ||
-      Object.values(s.colonies).some((c) => c.empireId === pid && c.systemId === this.systemId) ||
-      Object.values(s.stations).some((st) => st.empireId === pid && st.systemId === this.systemId)
-    );
+    return f.empireId === this.game.state.playerId || this.playerPresent();
+  }
+
+  private playerPresent(): boolean {
+    return sensorSystems(this.game.state, this.game.state.playerId).has(this.systemId);
   }
 
   private buildFleet(f: Fleet, key: string): void {
@@ -494,7 +502,7 @@ export class SystemView implements View {
     const shown = f.ships.slice(0, 24);
     let maxLen = 0;
     for (const sh of shown) maxLen = Math.max(maxLen, shipVisualLength(HULL_MAP[sh.hull].length));
-    const spacing = Math.max(1.6, maxLen * 0.75);
+    const spacing = Math.max(0.6, maxLen * 0.75);
     shown.forEach((ship, i) => {
       const hull = HULL_MAP[ship.hull];
       const model = shipModel(ship.hull);
@@ -520,7 +528,7 @@ export class SystemView implements View {
       group.add(sg);
       ships.push(sg);
     });
-    const radius = Math.max(1.6, maxLen * 0.8 + Math.ceil((shown.length - 1) / 6) * spacing);
+    const radius = Math.max(1.1, maxLen * 0.8 + Math.ceil((shown.length - 1) / 6) * spacing);
     const pick = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 8), new THREE.MeshBasicMaterial({ visible: false }));
     pick.userData.pick = { kind: "fleet", id: f.id } as PickResult;
     group.add(pick);
@@ -553,7 +561,8 @@ export class SystemView implements View {
     const beacon = glowSprite(st.type === "pirate_haven" ? "#ff3030" : color, 1.6, 0.8);
     beacon.position.y = 0.8;
     holder.add(beacon);
-    if (st.type === "pirate_haven") holder.scale.setScalar(1.6);
+    // Stations are small next to worlds (they used to be drawn as big as moons).
+    holder.scale.setScalar(st.type === "pirate_haven" ? 0.8 : 0.45);
     this.scene.add(holder);
     const idx = Object.values(s.stations).filter((o) => o.bodyId === st.bodyId).indexOf(st);
     this.stations.set(st.id, { station: st, mesh: holder, angle: idx * 2.1 + (st.id.length % 7) });
@@ -588,15 +597,12 @@ export class SystemView implements View {
     if (body.kind === "moon" && body.parentId) {
       const parent = this.game.state.bodies[body.parentId];
       this.bodyWorld(parent, out);
-      const pv = this.bodies.get(parent.id);
-      const pr = pv ? pv.radius : 2;
-      const ratio = body.orbit.a / Math.max(parent.radius, 0.1);
-      const d = pr * (1.6 + 0.42 * ratio);
+      const d = this.layout.moonDistance(body.id) ?? 3;
       const o = orbitPosition({ ...body.orbit, a: d, e: 0 }, this.renderDay, tmpV);
       return out.set(out.x + o.x, out.y + o.y, out.z + o.z);
     }
     const p = orbitPosition(body.orbit, this.renderDay, tmpV);
-    const m = mapSystemPos(p);
+    const m = this.layout.map(p);
     return out.set(m.x, m.y, m.z);
   }
 
@@ -604,20 +610,46 @@ export class SystemView implements View {
     return this.bodies.get(bodyId)?.radius ?? 1;
   }
 
-  /** Visual position of a fleet: interpolated, orbiting its anchor body when idle. */
+  /** The body a fleet holds orbit around, or is on final approach to (in this system). */
+  private anchorBody(f: Fleet): Body | null {
+    const s = this.game.state;
+    const id = !f.order ? f.orbitBodyId : f.order.route.length === 0 && f.order.systemId === this.systemId ? (f.order.bodyId ?? null) : null;
+    const body = id ? s.bodies[id] : null;
+    return body && body.systemId === this.systemId && body.kind !== "belt" ? body : null;
+  }
+
+  /** The fleet's parking-orbit slot around a body (scene space). */
+  private orbitSlot(f: Fleet, body: Body, out: THREE.Vector3): THREE.Vector3 {
+    this.bodyWorld(body, out);
+    // Low parking orbit, outside any rings (stars: well clear of the corona).
+    const br = this.bodyRadius(body.id);
+    const base = body.kind === "star" ? br * 2.6 : br * (body.ring ? body.ring.outer : 1) * 1.25 + 0.5;
+    const r = base + (hashId(f.id) % 3) * 0.35;
+    const a = this.renderDay * 0.12 + (hashId(f.id) % 628) / 100;
+    return out.set(out.x + Math.cos(a) * r, out.y + 0.25 + (hashId(f.id) % 5) * 0.1, out.z + Math.sin(a) * r);
+  }
+
+  /**
+   * Visual position of a fleet: interpolated flight, holding a parking orbit
+   * around its anchor body when idle. Ships heading for a body steer into
+   * their orbit slot on final approach instead of flying into the planet.
+   */
   fleetWorld(f: Fleet, out = new THREE.Vector3()): THREE.Vector3 {
-    if (f.orbitBodyId && !f.order && this.game.state.bodies[f.orbitBodyId]?.systemId === this.systemId) {
-      const body = this.game.state.bodies[f.orbitBodyId];
-      this.bodyWorld(body, out);
-      const r = this.bodyRadius(body.id) * (body.kind === "star" ? 2.4 : 2.1) + 1.8 + (hashId(f.id) % 3) * 0.9;
-      const a = this.renderDay * 0.35 + (hashId(f.id) % 628) / 100;
-      return out.set(out.x + Math.cos(a) * r, out.y + 0.6 + (hashId(f.id) % 5) * 0.25, out.z + Math.sin(a) * r);
-    }
+    const body = this.anchorBody(f);
+    if (body && !f.order) return this.orbitSlot(f, body, out);
     const x = f.prevPos.x + (f.pos.x - f.prevPos.x) * this.alpha;
     const y = f.prevPos.y + (f.pos.y - f.prevPos.y) * this.alpha;
     const z = f.prevPos.z + (f.pos.z - f.prevPos.z) * this.alpha;
-    const m = mapSystemPos({ x, y, z });
-    return out.set(m.x, m.y + 0.6, m.z);
+    const m = this.layout.map({ x, y, z });
+    out.set(m.x, m.y + 0.6, m.z);
+    if (body) {
+      const center = this.bodyWorld(body, new THREE.Vector3());
+      const slot = this.orbitSlot(f, body, new THREE.Vector3());
+      const reach = slot.distanceTo(center) * 4;
+      const k = Math.min(1, Math.max(0, 1 - out.distanceTo(center) / reach));
+      out.addScaledVector(slot.sub(center), k * k * (3 - 2 * k));
+    }
+    return out;
   }
 
   refWorld(ref: string, out = new THREE.Vector3()): THREE.Vector3 | null {
@@ -657,7 +689,7 @@ export class SystemView implements View {
       if (bv.body.kind === "belt") continue;
       this.bodyWorld(bv.body, tmp);
       bv.group.position.copy(tmp);
-      if (bv.spin && bv.body.rotation) bv.spin.rotation.y = (this.renderDay / bv.body.rotation) * Math.PI * 2 * 0.25;
+      if (bv.spin && bv.body.rotation) bv.spin.rotation.y = (this.renderDay / bv.body.rotation) * Math.PI * 2 * 0.05;
       for (const m of bv.materials) {
         if (m.uniforms.uTime) m.uniforms.uTime.value = time;
         if (m.uniforms.uLightPos) m.uniforms.uLightPos.value.set(0, 0, 0);
@@ -693,14 +725,14 @@ export class SystemView implements View {
     for (const sv of this.stations.values()) {
       const body = s.bodies[sv.station.bodyId];
       this.bodyWorld(body, tmp);
-      const r = body.kind === "belt" ? 0 : this.bodyRadius(body.id) * (body.kind === "star" ? 1.6 : 1.5) + 1.2;
-      const a = sv.angle + this.renderDay * 0.25;
+      const r = body.kind === "belt" ? 0 : this.bodyRadius(body.id) * (body.kind === "star" ? 2.2 : (body.ring ? body.ring.outer : 1) * 1.35) + 0.4;
+      const a = sv.angle + this.renderDay * 0.1;
       if (body.kind === "belt") {
         const ang = sv.angle;
-        const rr = auToScene(body.orbit!.a);
+        const rr = this.layout.radius(body.orbit!.a);
         sv.mesh.position.set(Math.cos(ang) * rr, 1.5, Math.sin(ang) * rr);
       } else {
-        sv.mesh.position.set(tmp.x + Math.cos(a) * r, tmp.y + 0.5, tmp.z + Math.sin(a) * r);
+        sv.mesh.position.set(tmp.x + Math.cos(a) * r, tmp.y + 0.2, tmp.z + Math.sin(a) * r);
       }
       sv.mesh.rotation.y = -a;
     }
@@ -731,10 +763,33 @@ export class SystemView implements View {
         (e.material as THREE.SpriteMaterial).opacity = glow * flicker;
       }
     }
+    this.updateShuttles(dt);
     this.updatePaths();
     this.updateBattles(time);
     this.updateRings();
     this.effects.update(dt);
+  }
+
+  /** Ships founding a colony or unloading settlers send shuttles down to the surface. */
+  private updateShuttles(dt: number): void {
+    const s = this.game.state;
+    const center = new THREE.Vector3();
+    for (const v of this.fleets.values()) {
+      const o = v.fleet.order;
+      if (!o || (o.kind !== "colonize" && o.kind !== "migrate") || !(o.work && o.work > 0) || !o.bodyId || o.route.length) continue;
+      const body = s.bodies[o.bodyId];
+      if (!body || body.systemId !== this.systemId) continue;
+      v.shuttleTimer = (v.shuttleTimer ?? 0) - dt;
+      if (v.shuttleTimer > 0) continue;
+      v.shuttleTimer = 0.35 + Math.random() * 0.45;
+      this.shuttles.launch(v.pos, body.id, this.bodyWorld(body, center));
+    }
+    this.shuttles.update(dt, (bodyId, out) => {
+      const b = s.bodies[bodyId];
+      if (!b) return null;
+      this.bodyWorld(b, out);
+      return this.bodyRadius(bodyId);
+    });
   }
 
   private updatePaths(): void {
@@ -752,7 +807,7 @@ export class SystemView implements View {
       else if (f.order.bodyId) target = this.bodyWorld(s.bodies[f.order.bodyId]);
       else if (f.order.fleetId && s.fleets[f.order.fleetId]) target = this.fleetWorld(s.fleets[f.order.fleetId]);
       else if (f.order.pos) {
-        const m = mapSystemPos(f.order.pos);
+        const m = this.layout.map(f.order.pos);
         target = new THREE.Vector3(m.x, m.y, m.z);
       }
       if (!target) continue;
@@ -768,7 +823,7 @@ export class SystemView implements View {
     while (this.battleMarkers.children.length) this.battleMarkers.remove(this.battleMarkers.children[0]);
     for (const b of Object.values(this.game.state.battles)) {
       if (b.systemId !== this.systemId) continue;
-      const m = mapSystemPos(b.pos);
+      const m = this.layout.map(b.pos);
       const spr = glowSprite("#ff3a3a", 10 + Math.sin(time * 6) * 2, 0.25);
       spr.position.set(m.x, m.y, m.z);
       this.battleMarkers.add(spr);
@@ -810,18 +865,22 @@ export class SystemView implements View {
 
   handleEvents(events: SimEvent[]): void {
     const s = this.game.state;
+    // Without eyes in this system we see nothing of what happens here.
+    const present = this.playerPresent();
     for (const e of events) {
-      if (e.systemId !== this.systemId) continue;
+      if (!("systemId" in e) || e.systemId !== this.systemId) continue;
+      const ours = (e.type === "colonized" || e.type === "stationBuilt") && e.empireId === s.playerId;
+      if (!present && !ours) continue;
       if (e.type === "shot") {
         const from = this.refWorld(e.fromRef);
         const to = this.refWorld(e.toRef);
         if (!from || !to) continue;
         this.effects.shot(e.weapon as never, from, to, e.hit, !!e.intercepted, new THREE.Color(s.empires[e.fromEmpire]?.color ?? "#fff"));
       } else if (e.type === "explosion") {
-        const p = this.refWorld(e.ref) ?? new THREE.Vector3(...Object.values(mapSystemPos(e.pos)) as [number, number, number]);
+        const p = this.refWorld(e.ref) ?? new THREE.Vector3(...Object.values(this.layout.map(e.pos)) as [number, number, number]);
         this.effects.explosion(p, e.size);
       } else if (e.type === "jump") {
-        const m = mapSystemPos(e.pos);
+        const m = this.layout.map(e.pos);
         this.effects.jump(new THREE.Vector3(m.x, m.y, m.z), new THREE.Color("#7fc8ff"));
       } else if (e.type === "colonized" || e.type === "stationBuilt") {
         const b = s.bodies[e.bodyId];
@@ -859,7 +918,7 @@ export class SystemView implements View {
   sceneToSystem(p: THREE.Vector3): { x: number; y: number; z: number } {
     const r = Math.hypot(p.x, p.y, p.z);
     if (r < 1e-6) return { x: 0, y: 0, z: 0 };
-    const au = Math.pow(r / 34, 1 / 0.55);
+    const au = this.layout.auAt(r);
     return { x: (p.x / r) * au, y: (p.y / r) * au, z: (p.z / r) * au };
   }
 
@@ -901,11 +960,11 @@ export class SystemView implements View {
     const sp = this.selectionPos(sel);
     if (sp) {
       const isStar = sel.kind === "body" && this.game.state.bodies[sel.id]?.kind === "star";
-      return { p: sp.p, dist: Math.max(8, sp.r * (isStar ? 11 : 6)) };
+      return { p: sp.p, dist: Math.max(4, sp.r * (isStar ? 9 : 7)) };
     }
     if (sel.kind === "body") {
       const b = this.game.state.bodies[sel.id];
-      if (b?.kind === "belt") return { p: new THREE.Vector3(), dist: auToScene(b.orbit!.a) * 2.2 };
+      if (b?.kind === "belt") return { p: new THREE.Vector3(), dist: this.layout.radius(b.orbit!.a) * 2.2 };
     }
     return null;
   }
@@ -922,6 +981,7 @@ export class SystemView implements View {
       if (mat && !Array.isArray(mat) && (mat instanceof THREE.ShaderMaterial || !mat.userData.shared)) mat.dispose();
     });
     this.effects.clear();
+    this.shuttles.clear();
   }
 }
 

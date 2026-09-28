@@ -214,6 +214,15 @@ test("empires screen lists rivals and supports declaring war", async ({ page }) 
   page.on("dialog", (d) => d.accept());
   await page.keyboard.press("e");
   await expect(page.locator(".empire-card")).toHaveCount(5);
+  // Rivals we haven't met are unknown and can't be addressed.
+  await expect(page.locator(".empire-card", { hasText: "Unknown civilization" })).not.toHaveCount(0);
+  await expect(page.locator('.empire-card [data-action^="war:"]')).toHaveCount(0);
+  await page.evaluate(() => {
+    const g = (window as any).__app.game;
+    const rival = Object.values(g.state.empires).find((e: any) => e.id !== g.playerId && !e.isPirate) as any;
+    (g.player.contacts ??= {})[rival.id] = true;
+    (rival.contacts ??= {})[g.playerId] = true;
+  });
   await page.locator('.empire-card [data-action^="war:"]').first().click();
   await expect(page.locator(".empire-card .tag.war").first()).toBeVisible();
   await expect(page.locator("#log")).toContainText("declared war");
@@ -230,7 +239,7 @@ test("station panel dispatches the constructor to build a solar array", async ({
   const btn = page.locator('#details [data-action$=":solar_array"]');
   await expect(btn).toBeEnabled();
   await btn.click();
-  await expect(page.locator(".toast.good").last()).toContainText("Builders dispatched");
+  await expect(page.locator(".toast.good").last()).toContainText("build Solar Array");
   await page.evaluate(() => (window as any).__app.game.advance(60));
   await expect(page.locator("#log")).toContainText("Solar Array completed", { timeout: 10000 });
 });
@@ -270,4 +279,178 @@ test("system outline and opportunity badges help explore quickly", async ({ page
   // Empire tab still lists colonies and fleets.
   await page.click('[data-action="tab:empire"]');
   await expect(page.locator("#outliner")).toContainText("Colonies");
+});
+
+test("right-click dismisses badges and messages", async ({ page }) => {
+  await startGame(page, "hero7");
+  await page.click('[data-action="speed:0"]');
+  const mining = page.locator('#badges [data-action="badge:mining"]');
+  await expect(mining).toBeVisible();
+  await mining.click({ button: "right" });
+  await expect(mining).toHaveCount(0);
+  // Other badges are unaffected, and the dismissal survives re-renders.
+  await expect(page.locator('#badges [data-action="badge:energy"]')).toBeVisible();
+  await page.waitForTimeout(800);
+  await expect(mining).toHaveCount(0);
+  // Toasts close on right-click.
+  await page.evaluate(() => (window as any).__app.toast("Test message", "info"));
+  const toast = page.locator(".toast", { hasText: "Test message" });
+  await expect(toast).toBeVisible();
+  await toast.click({ button: "right" });
+  await expect(toast).toHaveCount(0);
+});
+
+test("colonize without a colony ship offers to build one at the best shipyard", async ({ page }) => {
+  await startGame(page, "hero7");
+  await page.click('[data-action="speed:0"]');
+  await page.evaluate(() => {
+    const g = (window as any).__app.game;
+    g.player.resources.credits = 5000;
+    g.player.resources.metals = 5000;
+  });
+  // Pick a colonizable world via the opportunity badge instead of guessing.
+  await page.click('#badges [data-action="badge:colonize"]');
+  await page.locator('#details [data-action^="colonize:"]').click();
+  await expect(page.locator(".modal h2")).toContainText("Colonize");
+  await expect(page.locator(".modal .tag.peace")).toContainText("recommended");
+  await page.locator('.modal [data-action^="buildcolony:"]').first().click();
+  await expect(page.locator(".modal")).toHaveCount(0);
+  await expect(page.locator("#details")).toContainText("Colony ship being built");
+});
+
+test("colony ships park in orbit and send shuttles down instead of flying into the planet", async ({ page }) => {
+  await startGame(page, "orbit-e2e");
+  await page.click('[data-action="speed:0"]');
+  const bodyId = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const g = app.game;
+    g.player.resources.credits = 5000;
+    g.player.resources.metals = 5000;
+    const cap = g.playerColonies()[0];
+    const taken = new Set(Object.values(g.state.colonies).map((c: any) => c.bodyId));
+    const hab = (window as any).__app.game.state.systems[cap.systemId].bodyIds
+      .map((id: string) => g.state.bodies[id])
+      .filter((b: any) => (b.kind === "planet" || b.kind === "moon") && !taken.has(b.id) && b.id !== cap.bodyId);
+    // First world in the home system the player can settle.
+    for (const b of hab) if (g.buildColonyShipFor(b.id, cap.id).ok) return b.id;
+    return null;
+  });
+  expect(bodyId).not.toBeNull();
+  await page.click('[data-action="speed:4"]');
+  // Watch the approach: record how close the ship's visual gets to the planet centre.
+  const result = await page.evaluate(
+    (id) =>
+      new Promise<{ minRatio: number; shuttles: number; colonized: boolean }>((resolve) => {
+        const app = (window as any).__app;
+        let minRatio = Infinity;
+        let shuttles = 0;
+        const started = performance.now();
+        const tick = () => {
+          const v = app.systemView;
+          const s = app.game.state;
+          const fleet = Object.values(s.fleets).find((f: any) => f.order?.kind === "colonize" && f.order.bodyId === id) as any;
+          if (v && fleet && fleet.systemId === app.systemId) {
+            const body = s.bodies[id];
+            const center = v.bodyWorld(body);
+            const pos = v.fleetWorld(fleet);
+            if (fleet.order.route.length === 0) minRatio = Math.min(minRatio, pos.distanceTo(center) / v.bodyRadius(id));
+            shuttles = Math.max(shuttles, v.shuttles.count);
+          }
+          const colonized = Object.values(s.colonies).some((c: any) => c.bodyId === id);
+          if (colonized || performance.now() - started > 150_000) resolve({ minRatio, shuttles, colonized });
+          else requestAnimationFrame(tick);
+        };
+        tick();
+      }),
+    bodyId,
+  );
+  expect(result.colonized).toBe(true);
+  expect(result.minRatio).toBeGreaterThan(1.3); // never inside (or skimming) the planet
+  expect(result.shuttles).toBeGreaterThan(0);
+});
+
+test("double-clicking a gate flies the camera through it into the connected system", async ({ page }) => {
+  await startGame(page, "gate-e2e");
+  await page.click('[data-action="speed:0"]');
+  const info = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const sys = app.game.state.systems[app.systemId];
+    const gate = sys.gates[0];
+    app.game.player.explored[gate.otherSystemId] = true; // surveyed earlier
+    // Frame the gate so it can be double-clicked.
+    const p = app.systemView.gateWorld(gate.tunnelId);
+    app.select(null);
+    app.engine.rig.follow = null;
+    app.engine.rig.focus(p, 40);
+    app.engine.rig.snap();
+    return { from: app.systemId, to: gate.otherSystemId, tunnelId: gate.tunnelId };
+  });
+  // Wait for the camera to settle on the gate, then double-click it.
+  let pos: { x: number; y: number } | null = null;
+  await expect
+    .poll(async () => {
+      pos = await page.evaluate((id) => {
+        const app = (window as any).__app;
+        const p = app.engine.project(app.systemView.gateWorld(id));
+        const hit = p && app.engine.pick(p.x, p.y);
+        const onScreen = p && p.x > 100 && p.x < innerWidth - 100 && p.y > 100 && p.y < innerHeight - 100;
+        return onScreen && hit?.kind === "gate" && hit.id === id ? p : null;
+      }, info.tunnelId);
+      return pos;
+    })
+    .not.toBeNull();
+  await page.mouse.dblclick(pos!.x, pos!.y);
+  await expect.poll(() => page.evaluate(() => (window as any).__app.gateJump?.phase ?? (window as any).__app.systemId)).not.toBe(info.from);
+  const shots = process.env.GATE_SHOTS;
+  for (let i = 0; i < 6 && shots; i++) {
+    await page.screenshot({ path: `${shots}/gate-${i}.png` });
+    await page.waitForTimeout(450);
+  }
+  await expect.poll(() => page.evaluate(() => (window as any).__app.systemId)).toBe(info.to);
+  await expect.poll(() => page.evaluate(() => (window as any).__app.gateJump), { timeout: 30_000 }).toBeNull();
+  const fov = await page.evaluate(() => (window as any).__app.engine.camera.fov);
+  expect(fov).toBeCloseTo(50, 3);
+  if (shots) await page.screenshot({ path: `${shots}/gate-end.png` });
+});
+
+test("unsurveyed systems cannot be entered or looked into", async ({ page }) => {
+  await startGame(page, "gate-e2e");
+  await page.click('[data-action="speed:0"]');
+  const r = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const g = app.game;
+    const unknown = Object.keys(g.state.systems).find((id) => !g.player.explored[id])!;
+    const before = app.systemId;
+    app.enterSystem(unknown);
+    const gate = g.state.systems[before].gates.find((x: any) => !g.player.explored[x.otherSystemId]);
+    if (gate) app.jumpThroughGate(gate.tunnelId);
+    return { before, after: app.systemId, jumping: !!app.gateJump };
+  });
+  expect(r.after).toBe(r.before);
+  expect(r.jumping).toBe(false);
+  await expect(page.locator(".toast.error").first()).toContainText("Unsurveyed");
+});
+
+test("HUD updates don't recreate hovered buttons, and one click builds", async ({ page }) => {
+  await startGame(page, "hud-stable");
+  await page.click('[data-action="speed:4"]');
+  const cap = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const c = app.game.playerColonies().find((x: any) => x.capital);
+    app.game.player.resources.credits = 9000;
+    app.game.player.resources.metals = 9000;
+    app.game.queueBuilding(c.id, "mine"); // something in progress so the panel keeps changing
+    app.select({ kind: "body", id: c.bodyId });
+    return c.id;
+  });
+  const btn = page.locator('#details [data-action^="build:"]:not([disabled])').first();
+  await expect(btn).toBeVisible();
+  await btn.hover();
+  await page.evaluate(() => ((document.querySelector('#details [data-action^="build:"]:not([disabled])') as any).__marker = 1));
+  const q0 = await page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue.length, cap);
+  await page.waitForTimeout(2500); // many HUD refreshes while the queue progresses
+  const stable = await page.evaluate(() => (document.querySelector('#details [data-action^="build:"]:not([disabled])') as any)?.__marker === 1);
+  expect(stable).toBe(true);
+  await btn.click();
+  await expect.poll(() => page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue.length, cap)).toBe(q0 + 1);
 });

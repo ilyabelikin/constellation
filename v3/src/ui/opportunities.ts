@@ -5,7 +5,7 @@ import { HULL_MAP } from "../sim/data/ships";
 import { STAR_TYPE_MAP } from "../sim/data/stars";
 import { BUILDING_MAP } from "../sim/data/structures";
 import { buildingSlots, canColonize, habitability, siteContext, stationBuildError, type SiteContext } from "../sim/economy";
-import type { Game } from "../sim/game";
+import type { PlayerFacade as Game } from "../sim/facade";
 import type { Body } from "../sim/types";
 
 export type OpportunityKind =
