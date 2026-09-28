@@ -5,6 +5,7 @@ import { createGame, isConnected, makeFleet, makeShip } from "../src/sim/galaxy"
 import { findRoute, foundColony } from "../src/sim/fleets";
 import { orbitPosition, solveKepler } from "../src/sim/orbits";
 import {
+  buildingOutput,
   buildingSlots,
   canColonize,
   commandCapacity,
@@ -902,4 +903,23 @@ describe("pacing", () => {
     // Nothing is instant: the cheapest building takes weeks.
     expect(Math.min(...Object.values(BUILDING_MAP).map((b) => b.days))).toBeGreaterThanOrEqual(30);
   }, 120_000);
+});
+
+describe("where to build", () => {
+  it("workforce buildings scale with population, deposit buildings with richness", () => {
+    const g = Game.create({ seed: "scaling" });
+    const body = g.state.bodies[home(g).bodyId];
+    const out = (id: string, pop: number, b = body) => buildingOutput(BUILDING_MAP[id], b, pop);
+    // Trade and research: a core world with many people beats a young colony.
+    for (const [id, k] of [["trade_hub", "credits"], ["research_lab", "research"], ["quantum_lab", "research"]] as const) {
+      expect(out(id, 16)[k]).toBeGreaterThan(out(id, 2)[k] * 2.5);
+    }
+    // Mines, foundries and power plants: the planet's deposits matter, not its people.
+    for (const [id, key, k] of [["mine", "metals", "metals"], ["foundry", "metals", "metals"], ["power_plant", "energy", "energy"]] as const) {
+      const poor = { ...body, richness: { ...body.richness, [key]: 0 } };
+      const rich = { ...body, richness: { ...body.richness, [key]: 2 } };
+      expect(out(id, 2, rich)[k]).toBeGreaterThan(out(id, 16, poor)[k] * 2.5);
+      expect(out(id, 2, rich)[k]).toBeCloseTo(out(id, 16, rich)[k], 6);
+    }
+  });
 });

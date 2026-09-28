@@ -19,6 +19,7 @@ import {
   habitability,
   hullCost,
   incomeReport,
+  buildingOutput,
   isBankrupt,
   isBlackout,
   maxDefense,
@@ -660,9 +661,9 @@ export class Hud {
       const dup = d.unique && (c.buildings.some((x) => x.type === d.id) || c.queue.some((x) => x.type === d.id));
       const afford = canAfford(p.resources, d.cost);
       const body = s.bodies[c.bodyId];
-      const rich = d.richness ? 0.4 + 0.6 * body.richness[d.richness] : 1;
-      const y = { ...d.yields };
-      for (const k of Object.keys(y) as (keyof typeof y)[]) y[k] = (y[k] ?? 0) * rich;
+      // What it would actually produce here (deposits, population).
+      const out = buildingOutput(d, body, c.pop);
+      const y = Object.fromEntries(Object.entries(out).filter(([, v]) => v > 0));
       html += `<button class="build-btn" data-action="build:${c.id}:${d.id}" ${full || dup || !afford ? "disabled" : ""} title="${esc(full ? "No free slots — grow population" : dup ? "Only one allowed" : d.description)}">
         <span class="t">${d.icon} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)} · ${d.days}d</span><span class="y">${yieldsHtml(y)}${d.defense ? ` +${d.defense}🛡` : ""}${d.capacity ? ` +${d.capacity} pop cap` : ""}</span></button>`;
     }

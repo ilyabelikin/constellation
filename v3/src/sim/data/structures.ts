@@ -10,7 +10,7 @@ export interface BuildingDef {
   days: number;
   workers: number;
   yields: Yields;
-  /** Extra credits per pop in the colony (trade hub). */
+  /** Extra output per pop in the colony (workforce buildings: trade, research). */
   perPop?: Yields;
   upkeep: Partial<Resources>;
   /** Richness key used to scale output by the planet's deposits. */
@@ -45,9 +45,10 @@ export const BUILDINGS: BuildingDef[] = [
     days: 32,
     workers: 1,
     yields: { energy: 3 },
+    richness: "energy",
     upkeep: {},
     requires: null,
-    description: "Generates energy for buildings, stations and fleets.",
+    description: "Geothermal and fusion power. Output scales with the planet's energy potential (hot, active worlds).",
     icon: "⚡",
   },
   {
@@ -56,10 +57,11 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { credits: 130, metals: 65 },
     days: 40,
     workers: 1,
-    yields: { research: 2 },
+    yields: { research: 0.8 },
+    perPop: { research: 0.15 },
     upkeep: { energy: 0.5 },
     requires: null,
-    description: "Scientists push the boundaries of knowledge.",
+    description: "Universities and institutes. Output grows with population: best on large, populous worlds.",
     icon: "⚗",
   },
   {
@@ -68,11 +70,11 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { credits: 95, metals: 65 },
     days: 32,
     workers: 1,
-    yields: { credits: 2 },
-    perPop: { credits: 0.12 },
+    yields: { credits: 0.8 },
+    perPop: { credits: 0.22 },
     upkeep: { energy: 0.2 },
     requires: null,
-    description: "Markets and logistics. Output grows with population.",
+    description: "Markets and logistics. Output grows with population: modest on a young colony, a fortune on a core world.",
     icon: "₵",
   },
   {
@@ -109,9 +111,10 @@ export const BUILDINGS: BuildingDef[] = [
     days: 44,
     workers: 1,
     yields: { metals: 4 },
+    richness: "metals",
     upkeep: { energy: 1.5 },
     requires: "automated_foundries",
-    description: "Energy-hungry automated smelters. Turns energy into metals.",
+    description: "Energy-hungry automated smelters. Output scales with the planet's metal deposits.",
     icon: "🏭",
   },
   {
@@ -120,10 +123,11 @@ export const BUILDINGS: BuildingDef[] = [
     cost: { credits: 255, metals: 130 },
     days: 60,
     workers: 1,
-    yields: { research: 4 },
+    yields: { research: 1.5 },
+    perPop: { research: 0.3 },
     upkeep: { energy: 1.5 },
     requires: "quantum_computing",
-    description: "Massively parallel quantum research.",
+    description: "Massively parallel quantum research, staffed by the colony's best minds. Scales with population.",
     icon: "⚛",
   },
   {

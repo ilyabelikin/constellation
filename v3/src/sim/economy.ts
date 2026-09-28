@@ -4,7 +4,7 @@
 import { PLANET_TYPE_MAP } from "./data/planets";
 import { STAR_TYPE_MAP } from "./data/stars";
 import { HULL_MAP } from "./data/ships";
-import { BUILDING_MAP, STATION_MAP, SPECIES_MAP, type StationDef } from "./data/structures";
+import { BUILDING_MAP, STATION_MAP, SPECIES_MAP, type BuildingDef, type StationDef } from "./data/structures";
 import { TECHS, TECH_MAP, type TechDef } from "./data/techs";
 import { modifiers, hasTech } from "./modifiers";
 import { clamp, log } from "./util";
@@ -133,11 +133,20 @@ export function colonyProduction(state: GameState, colony: Colony): Required<Yie
   for (const b of colony.buildings) {
     const def = BUILDING_MAP[b.type];
     if (!def) continue;
-    const staff = def.workers > 0 ? employment : 1;
-    const rich = def.richness ? richnessFactor(body.richness[def.richness]) : 1;
-    add(out, def.yields, staff * rich);
-    if (def.perPop) add(out, def.perPop, staff * colony.pop);
+    add(out, buildingOutput(def, body, colony.pop, def.workers > 0 ? employment : 1));
   }
+  return out;
+}
+
+/**
+ * What one building yields on a world: deposit buildings scale with the
+ * planet's richness, workforce buildings (trade, research) with population.
+ */
+export function buildingOutput(def: BuildingDef, body: Body, pop: number, staff = 1): Required<Yields> {
+  const out = zero();
+  const rich = def.richness ? richnessFactor(body.richness[def.richness]) : 1;
+  add(out, def.yields, staff * rich);
+  if (def.perPop) add(out, def.perPop, staff * pop);
   return out;
 }
 

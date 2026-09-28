@@ -6,6 +6,7 @@ import { BUILDING_MAP, STATIONS } from "./data/structures";
 import type { Branch } from "./data/techs";
 import {
   availableTechs,
+  buildingOutput,
   buildingSlots,
   garrison,
   habitability,
@@ -145,7 +146,15 @@ function planBuildings(state: GameState, empire: Empire, colonies: Colony[], rng
         ["fortress", atWar ? 0.6 : 0.1],
       ];
       const valid = options.filter(([id]) => buildingUnlocked(empire, id) && !(BUILDING_MAP[id].unique && has(id)));
-      if (valid.length) choice = rng.weighted(valid, ([, w]) => w)[0];
+      // Weigh by what the building would really produce here: mines on rich
+      // worlds, trade and research where the people are.
+      const body = state.bodies[c.bodyId];
+      const worth = (id: string) => {
+        const o = buildingOutput(BUILDING_MAP[id], body, c.pop);
+        const v = o.credits + o.metals + o.energy + o.research * 1.5 + o.exotics * 20;
+        return v > 0 ? Math.max(0.3, v / 2.5) : 1; // defensive buildings keep their base weight
+      };
+      if (valid.length) choice = rng.weighted(valid, ([id, w]) => w * worth(id))[0];
     }
     if (choice && canAfford(empire.resources, BUILDING_MAP[choice].cost)) queueBuilding(state, empire.id, c.id, choice);
   }
