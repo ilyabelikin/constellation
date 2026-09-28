@@ -87,10 +87,10 @@ test("new game shows HUD, homeworld details and builds things", async ({ page })
   await expect(page.locator("#details .queue-item")).toHaveCount(1);
   await page.locator('#details [data-action$=":corvette"]').click();
   await expect(page.locator("#details .queue-item")).toHaveCount(2);
-  await expect(page.locator("#topbar .res.credits")).toContainText("170");
+  await expect(page.locator("#topbar .res.credits")).toContainText("135"); // 250 − 95 (hub) − 20 (corvette)
 
-  // Run time forward; the building completes and the log says so.
-  await page.evaluate(() => (window as any).__app.game.advance(20));
+  // Run time forward; the building completes (about a month) and the log says so.
+  await page.evaluate(() => (window as any).__app.game.advance(36));
   await expect(page.locator("#details")).toContainText("Trade Hub", { timeout: 10000 });
   await expect(page.locator("#log")).toContainText("Trade Hub completed");
 });
