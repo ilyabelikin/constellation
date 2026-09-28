@@ -840,6 +840,17 @@ describe("queued fleet orders", () => {
     expect(built()).toBe(before + 2);
     expect(builder.order).toBeNull();
     expect(builder.orbitBodyId).toBe(home2.bodyId); // last queued order: return home
+    // Single orders can be cancelled without dropping the rest of the plan.
+    expect(g.moveFleet(builder.id, home2.systemId, { bodyId: sites[0][0] }).ok).toBe(true);
+    g.moveFleet(builder.id, home2.systemId, { bodyId: home2.bodyId }, true);
+    g.moveFleet(builder.id, home2.systemId, { bodyId: sites[1][0] }, true);
+    expect(g.cancelFleetOrder(builder.id, 0, "buildStation").ok).toBe(false); // guard: that slot is a move
+    expect(g.cancelFleetOrder(builder.id, 0, "move").ok).toBe(true);
+    expect(builder.queue).toHaveLength(1);
+    expect(g.cancelFleetOrder(builder.id, -1, "move").ok).toBe(true);
+    expect(builder.order).toBeNull();
+    g.step();
+    expect(builder.order?.kind).toBe("move"); // the next queued order took over
     // A direct order clears the plan.
     g.moveFleet(builder.id, home2.systemId, { bodyId: sites[0][0] });
     g.moveFleet(builder.id, home2.systemId, { bodyId: home2.bodyId }, true);

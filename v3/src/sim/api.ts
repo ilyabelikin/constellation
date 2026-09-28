@@ -15,7 +15,7 @@ export type CommandResult = cmd.CommandResult & { fleetId?: string };
 
 export const PEACE_PROPOSAL_COOLDOWN = 30;
 
-type ArgKind = "id" | "optId" | "int" | "text" | "ids" | "target" | "stance" | "bool" | "amount";
+type ArgKind = "id" | "optId" | "int" | "text" | "ids" | "target" | "stance" | "bool" | "amount" | "order";
 
 interface CommandSpec {
   args: ArgKind[];
@@ -40,6 +40,8 @@ function validArg(kind: ArgKind, v: unknown): boolean {
       return v === "aggressive" || v === "defensive" || v === "passive";
     case "bool":
       return v === undefined || v === null || typeof v === "boolean";
+    case "order":
+      return typeof v === "number" && Number.isInteger(v) && v >= -1 && v < 100;
     case "amount":
       return typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 1_000_000;
     case "target": {
@@ -120,6 +122,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   invade: { args: ["id", "id", "bool"], run: (s, e, f: string, c: string, q?: boolean) => cmd.invadeOrder(s, e, f, c, !!q) },
   attackFleet: { args: ["id", "id"], run: (s, e, f: string, t: string) => cmd.attackFleetOrder(s, e, f, t) },
   stopFleet: { args: ["id"], run: (s, e, f: string) => cmd.stopFleet(s, e, f) },
+  cancelFleetOrder: { args: ["id", "order", "optId"], run: (s, e, f: string, i: number, k?: string | null) => cmd.cancelFleetOrder(s, e, f, i, k) },
   setStance: { args: ["id", "stance"], run: (s, e, f: string, st: Stance) => cmd.setStance(s, e, f, st) },
   renameFleet: { args: ["id", "text"], run: (s, e, f: string, n: string) => cmd.renameFleet(s, e, f, n) },
   mergeFleets: { args: ["id", "id"], run: (s, e, a: string, b: string) => cmd.mergeFleetsCmd(s, e, a, b) },
@@ -137,7 +140,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
 export type CommandName = keyof typeof COMMANDS;
 
 /** Commands whose first argument is a fleet (civilian liners refuse them). */
-const FLEET_COMMANDS = new Set(["moveFleet", "colonize", "buildStation", "invade", "attackFleet", "stopFleet", "setStance", "renameFleet", "mergeFleets", "splitFleet"]);
+const FLEET_COMMANDS = new Set(["moveFleet", "colonize", "buildStation", "invade", "attackFleet", "stopFleet", "cancelFleetOrder", "setStance", "renameFleet", "mergeFleets", "splitFleet"]);
 
 /** Validate and execute a command on behalf of `empireId`. Never throws for bad input. */
 export function execCommand(state: GameState, empireId: string, name: string, args: unknown[]): CommandResult {

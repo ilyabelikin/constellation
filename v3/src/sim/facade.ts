@@ -62,6 +62,10 @@ export abstract class PlayerFacade {
   stopFleet(fleetId: string) {
     return this.exec("stopFleet", fleetId);
   }
+  /** Cancel the current order (index -1) or one queued order. */
+  cancelFleetOrder(fleetId: string, index: number, expectKind?: string) {
+    return this.exec("cancelFleetOrder", fleetId, index, expectKind ?? null);
+  }
   setStance(fleetId: string, stance: Stance) {
     return this.exec("setStance", fleetId, stance);
   }

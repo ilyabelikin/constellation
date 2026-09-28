@@ -621,6 +621,27 @@ export class Hud {
     }
     if (actions.length) html += `<div class="actions">${actions.join("")}</div>`;
 
+    // Stations being built or queued here by our constructors (like a colony's construction queue).
+    const jobs: string[] = [];
+    for (const f of Object.values(s.fleets)) {
+      if (f.empireId !== p.id || f.civilian) continue;
+      const o = f.order;
+      if (o?.kind === "buildStation" && o.bodyId === b.id && o.stationType) {
+        const def = STATION_MAP[o.stationType];
+        const work = o.work ?? 0;
+        const building = work > 0 && !f.transit && o.route.length === 0;
+        const meta = building ? `${Math.max(0, Math.ceil(def.days - work))}d` : "en route";
+        jobs.push(`<div class="queue-item" title="${esc(f.name)}"><span style="width:110px">${esc(def.name)}</span><div class="bar"><div style="width:${building ? Math.min(100, (work / def.days) * 100) : 0}%"></div></div><span class="meta">${meta}</span><button data-action="cancelorder:${f.id}:-1:buildStation" title="Cancel${building ? " & refund" : ""}">✕</button></div>`);
+      }
+      (f.queue ?? []).forEach((q, i) => {
+        if (q.kind !== "buildStation" || q.bodyId !== b.id || !q.stationType) return;
+        const def = STATION_MAP[q.stationType];
+        const ahead = (f.order ? 1 : 0) + i;
+        jobs.push(`<div class="queue-item" title="${esc(f.name)}: ${ahead} job${ahead === 1 ? "" : "s"} ahead"><span style="width:110px">${esc(def.name)}</span><div class="bar"></div><span class="meta">queued</span><button data-action="cancelorder:${f.id}:${i}:buildStation" title="Remove from ${esc(f.name)}'s queue">✕</button></div>`);
+      });
+    }
+    if (jobs.length) html += `<div class="section-title">Station construction</div>${jobs.join("")}`;
+
     // Station construction options
     const options = STATIONS.filter((d) => d.requires !== "__never__" && stationAllowedOn(d, b));
     if (options.length && (!colony || colony.empireId === p.id)) {
@@ -725,7 +746,11 @@ export class Hud {
       : `${esc(s.systems[f.systemId!].name)} system${f.orbitBodyId ? `, orbiting ${esc(s.bodies[f.orbitBodyId].name)}` : ""}`;
     const order =
       (f.order ? describeOrder(g, f, f.order) : "Holding position") +
-      (f.queue?.length ? `<div class="order-queue">${f.queue.map((q) => `<div>then ${describeOrder(g, f, { ...q, route: [] })}</div>`).join("")}</div>` : "");
+      (f.queue?.length
+        ? `<div class="order-queue">${f.queue
+            .map((q, i) => `<div>then ${describeOrder(g, f, { ...q, route: [] })}${mine ? ` <button class="icon-btn" data-action="cancelorder:${f.id}:${i}:${q.kind}" title="Remove from queue">✕</button>` : ""}</div>`)
+            .join("")}</div>`
+        : "");
     const title =
       mine && this.renaming === f.id
         ? `<input id="rename-input" class="rename-input" data-fleet="${f.id}" maxlength="32" value="${esc(f.name)}" style="color:${owner.color}" />`
@@ -1082,6 +1107,9 @@ export class Hud {
         break;
       case "cancel":
         res(g.cancelQueueItem(args[0], Number(args[1]), args[2]));
+        break;
+      case "cancelorder":
+        res(g.cancelFleetOrder(args[0], Number(args[1]), args[2]));
         break;
       case "demolish":
         if (e.shiftKey) res(g.demolishBuilding(args[0], Number(args[1])), "Building demolished");

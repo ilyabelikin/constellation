@@ -213,6 +213,28 @@ export function stopFleet(state: GameState, empireId: string, fleetId: string): 
   return OK;
 }
 
+/**
+ * Cancel one of a fleet's orders: index -1 is the current order (a paid,
+ * unfinished station is refunded and the next queued order starts), otherwise
+ * an entry of its queue. `expectKind` guards against the list having shifted.
+ */
+export function cancelFleetOrder(state: GameState, empireId: string, fleetId: string, index: number, expectKind?: string | null): CommandResult {
+  const f = ownFleet(state, empireId, fleetId);
+  if (!f) return fail("Not your fleet");
+  if (index < 0) {
+    if (!f.order) return fail("No current order");
+    if (expectKind && f.order.kind !== expectKind) return fail("Orders changed");
+    if (f.transit) return fail("Cannot stop inside a tunnel");
+    clearOrder(state, f);
+    return OK;
+  }
+  const q = f.queue?.[index];
+  if (!q) return fail("No such queued order");
+  if (expectKind && q.kind !== expectKind) return fail("Orders changed");
+  f.queue!.splice(index, 1);
+  return OK;
+}
+
 export function setStance(state: GameState, empireId: string, fleetId: string, stance: Stance): CommandResult {
   const f = ownFleet(state, empireId, fleetId);
   if (!f) return fail("Not your fleet");

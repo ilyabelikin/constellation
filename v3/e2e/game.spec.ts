@@ -535,3 +535,37 @@ test("fleets are renamed in place from the pencil next to their name", async ({ 
   expect(await page.evaluate(() => (window as any).__app.view)).toBe("system");
   await expect(page.locator('#details [data-action^="rename:"]:has-text("Rename")')).toHaveCount(0);
 });
+
+test("stations being built or queued show progress in the body panel, like a colony queue", async ({ page }) => {
+  await startGame(page, "station-queue");
+  await page.click('[data-action="speed:0"]');
+  const ids = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const g = app.game;
+    g.player.resources.credits = 9000;
+    g.player.resources.metals = 9000;
+    const b = Object.values(g.state.fleets).find((f: any) => f.empireId === g.playerId && f.ships.some((s: any) => s.hull === "constructor")) as any;
+    const sys = g.state.systems[app.systemId];
+    const sites: [string, string][] = [];
+    for (const id of sys.bodyIds)
+      for (const st of ["mining_station", "gas_harvester", "research_station"])
+        if (sites.length < 2 && !sites.some(([x]) => x === id) && g.buildStation(b.id, id, st, sites.length > 0).ok) sites.push([id, st]);
+    return { builder: b.id, first: sites[0][0], second: sites[1][0] };
+  });
+  // The queued job appears on its body with a cancel button.
+  await page.evaluate((id) => (window as any).__app.select({ kind: "body", id }), ids.second);
+  await expect(page.locator("#details .section-title", { hasText: "Station construction" })).toBeVisible();
+  await expect(page.locator("#details .queue-item")).toContainText("queued");
+  // The active job shows travel, then progress.
+  await page.evaluate((id) => (window as any).__app.select({ kind: "body", id }), ids.first);
+  await expect(page.locator("#details .queue-item")).toHaveCount(1);
+  await page.evaluate(() => (window as any).__app.game.advance(40));
+  await expect
+    .poll(() => page.evaluate(() => (document.querySelector("#details .queue-item .bar > div") as HTMLElement | null)?.style.width ?? "none"))
+    .not.toBe("0%");
+  // Cancelling the queued job removes it from the constructor's plan.
+  await page.evaluate((id) => (window as any).__app.select({ kind: "body", id }), ids.second);
+  await page.locator('#details .queue-item [data-action^="cancelorder:"]').click();
+  await expect(page.locator("#details .queue-item")).toHaveCount(0);
+  expect(await page.evaluate((id) => (window as any).__app.game.state.fleets[id].queue.length, ids.builder)).toBe(0);
+});
