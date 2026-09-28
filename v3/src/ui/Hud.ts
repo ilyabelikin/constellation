@@ -31,10 +31,12 @@ import {
   techCost,
 } from "../sim/economy";
 import { fleetSpeed, findRoute } from "../sim/fleets";
-import type { Game } from "../sim/game";
+import type { PlayerFacade as Game } from "../sim/facade";
 import { buildingUnlocked, hullUnlocked, shipStats, stationUnlocked } from "../sim/modifiers";
 import { dist } from "../sim/orbits";
-import type { Body, Colony, Fleet, ResourceKey } from "../sim/types";
+import type { Body, ChatMessage, Colony, Fleet, ResourceKey } from "../sim/types";
+import type { SessionInfo } from "../net/protocol";
+import { inviteLink } from "./Lobby";
 import { canAfford, canSeeLog } from "../sim/util";
 import { hasMet } from "../sim/knowledge";
 import type { PickResult } from "../render/Engine";
@@ -53,8 +55,18 @@ export interface AppApi {
   systemId: string;
   selection: PickResult | null;
   activeFleetId: string | null;
-  speedIndex: number;
-  paused: boolean;
+  readonly speedIndex: number;
+  readonly paused: boolean;
+  /** May this player change the game speed (always locally; only the host online)? */
+  readonly isHost: boolean;
+  /** Connected to the game server. */
+  readonly online: boolean;
+  /** The online session being played (null in local games). */
+  readonly remote: { info: SessionInfo } | null;
+  readonly chats: ChatMessage[];
+  canChat(empireId: string): boolean;
+  sendChat(to: string, text: string): void;
+  cloudSave(): void;
   select(sel: PickResult | null, focus?: boolean): void;
   enterSystem(id: string, focusSel?: PickResult | null): void;
   showGalaxy(): void;
@@ -68,7 +80,7 @@ export interface AppApi {
   quitToTitle(): void;
 }
 
-type Modal = null | "research" | "empires" | "menu" | "help" | "end" | "colonize";
+type Modal = null | "research" | "empires" | "menu" | "help" | "end" | "colonize" | "chat";
 
 export class Hud {
   private regions: Record<string, HTMLElement> = {};
@@ -82,6 +94,8 @@ export class Hud {
   private opportunities: Opportunity[] = [];
   private dismissed: Partial<Record<OpportunityKind, Set<string>>> = {};
   private colonizeTarget: string | null = null;
+  private chatWith: string | null = null;
+  private seenChats = new Set<string>();
 
   constructor(
     root: HTMLElement,
@@ -105,6 +119,13 @@ export class Hud {
       this.dismissBadge(badge.dataset.action!.split(":")[1] as OpportunityKind);
     });
     modalRoot.addEventListener("click", (e) => this.onClick(e));
+    modalRoot.addEventListener("keydown", (e) => {
+      const t = e.target as HTMLInputElement;
+      if (t.id === "chat-input" && e.key === "Enter") {
+        e.preventDefault();
+        this.submitChat();
+      }
+    });
     root.addEventListener("change", (e) => {
       const t = e.target as HTMLInputElement;
       if (t.dataset.ship) {
@@ -122,10 +143,39 @@ export class Hud {
     if (this.cache[region] === html) return;
     this.cache[region] = html;
     const target = el ?? this.regions[region];
-    // Preserve scroll position across re-renders.
+    // Preserve scroll position, typed text and focus across re-renders.
     const st = target.scrollTop;
+    const inputs = new Map<string, string>();
+    target.querySelectorAll<HTMLInputElement>("input[id]").forEach((i) => inputs.set(i.id, i.value));
+    const focused = document.activeElement && target.contains(document.activeElement) ? document.activeElement.id : "";
     target.innerHTML = html;
     target.scrollTop = st;
+    for (const [id, v] of inputs) {
+      const i = target.querySelector<HTMLInputElement>(`#${id}`);
+      if (i && i.type !== "checkbox") i.value = v;
+    }
+    if (focused) target.querySelector<HTMLElement>(`#${focused}`)?.focus();
+    const log = target.querySelector<HTMLElement>(".chat-log");
+    if (log) log.scrollTop = log.scrollHeight;
+  }
+
+  isChattingWith(empireId: string): boolean {
+    return this.modal === "chat" && this.chatWith === empireId;
+  }
+
+  private unreadFrom(empireId?: string): number {
+    const me = this.game.playerId;
+    return this.app.chats.filter((m) => m.to === me && m.from !== me && (!empireId || m.from === empireId) && !this.seenChats.has(m.id)).length;
+  }
+
+  private submitChat(): void {
+    const input = this.modalRoot.querySelector<HTMLInputElement>("#chat-input");
+    if (!input || !this.chatWith) return;
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    this.app.sendChat(this.chatWith, text);
+    this.render();
   }
 
   invalidate(): void {
@@ -160,6 +210,9 @@ export class Hud {
     const used = commandUsed(g.state, p);
     const capC = commandCapacity(g.state, p);
     const speeds = ["❚❚", "1×", "2×", "4×", "8×"];
+    const unread = this.unreadFrom();
+    const remote = this.app.remote;
+    const players = remote ? remote.info.seats.filter((x) => x.playerName) : [];
     this.set(
       "topbar",
       `<span class="brand">CONSTELLATION</span>
@@ -168,10 +221,14 @@ export class Hud {
       <div class="res cmd ${used >= capC ? "warn" : ""}" title="Fleet command points used / capacity. Found colonies and research hulls to raise it."><span class="icon">⚑</span>${used}/${capC}</div>
       <div class="spacer"></div>
       <button data-action="modal:research" title="Research (R)">⚗ Research</button>
-      <button data-action="modal:empires" title="Empires & diplomacy (E)">☍ Empires</button>
+      <button data-action="modal:empires" title="Empires & diplomacy (E)">☍ Empires${unread ? `<span class="unread">${unread}</span>` : ""}</button>
+      ${remote ? `<div class="res online" title="${esc(players.map((x) => `${x.playerName} — ${x.empireName}${x.online ? "" : " (offline)"}`).join("\n"))}\nInvite code ${esc(remote.info.code)}"><span class="icon">👥</span>${players.filter((x) => x.online).length}/${players.length}</div>` : ""}
       <div class="date">${dateString(g.state.day)}</div>
       <div class="speed">${speeds
-        .map((s, i) => `<button data-action="speed:${i}" class="${(i === 0 && this.app.paused) || (!this.app.paused && i === this.app.speedIndex) ? "active" : ""}" title="${i === 0 ? "Pause (Space)" : `Speed ${s} (${i})`}">${s}</button>`)
+        .map((s, i) => {
+          const locked = i > 0 && !this.app.isHost;
+          return `<button data-action="speed:${i}" class="${(i === 0 && this.app.paused) || (!this.app.paused && i === this.app.speedIndex) ? "active" : ""}" ${locked ? "disabled" : ""} title="${locked ? "Only the host controls the speed" : i === 0 ? "Pause (Space)" : `Speed ${s} (${i})`}">${s}</button>`;
+        })
         .join("")}</div>
       <button data-action="modal:menu" title="Menu (Esc)">☰</button>`,
     );
@@ -712,6 +769,7 @@ export class Hud {
     else if (this.modal === "help") inner = `<header><h2>How to play</h2><button data-action="close">✕</button></header>${helpHtml()}`;
     else if (this.modal === "end") inner = this.endModal();
     else if (this.modal === "colonize") inner = this.colonizeModal();
+    else if (this.modal === "chat") inner = this.chatModal();
     this.set("modal", `<div class="modal-backdrop" data-action="backdrop"><div class="panel modal" data-stop="1">${inner}</div></div>`, this.modalRoot);
   }
 
@@ -763,16 +821,23 @@ export class Hud {
             <div><div style="font-weight:600;font-size:15px;color:var(--muted)">Unknown civilization</div>
             <div class="stats">Not yet contacted — meet them by sharing a system or surveying their territory.</div></div><div></div></div>`;
         const rel = e.id === p.id ? "" : `<span class="tag ${p.relations[e.id]}">${p.relations[e.id] === "war" ? "AT WAR" : "PEACE"}</span>`;
+        const offer = e.id !== p.id && p.peaceOffers?.[e.id] !== undefined;
+        const unread = this.unreadFrom(e.id);
+        const talk = e.id !== p.id && this.app.canChat(e.id) ? `<button data-action="chat:${e.id}">✉ Talk${unread ? `<span class="unread">${unread}</span>` : ""}</button>` : "";
         const btn =
           e.id === p.id || e.isPirate || !met
             ? ""
-            : p.relations[e.id] === "war"
-              ? `<button data-action="peace:${e.id}">☮ Propose peace</button>`
-              : `<button class="danger" data-action="war:${e.id}">⚔ Declare war</button>`;
+            : offer
+              ? `<button class="primary" data-action="acceptpeace:${e.id}">☮ Accept peace</button> <button data-action="rejectpeace:${e.id}">Reject</button>`
+              : p.relations[e.id] === "war"
+                ? `<button data-action="peace:${e.id}">☮ Propose peace</button>`
+                : `<button class="danger" data-action="war:${e.id}">⚔ Declare war</button>`;
+        const seat = this.app.remote?.info.seats.find((x) => x.empireId === e.id);
+        const ruler = seat?.playerName ? `<span class="tag" title="A human player">${seat.online ? "●" : "○"} ${esc(seat.playerName)}</span>` : "";
         return `<div class="empire-card"><div class="swatch" style="background:${e.color}"></div>
-          <div><div style="font-weight:600;font-size:15px;color:${e.color}">${esc(e.name)} ${e.id === p.id ? "(you)" : ""} ${rel}</div>
+          <div><div style="font-weight:600;font-size:15px;color:${e.color}">${esc(e.name)} ${e.id === p.id ? "(you)" : ""} ${rel} ${ruler} ${offer ? `<span class="tag peace">offers peace</span>` : ""}</div>
           <div class="stats">${e.isPirate ? "Lawless raiders · always hostile" : `${esc(SPECIES_MAP[e.speciesId]?.adjective ?? "")} · ${met ? `${cols.length} colonies · ${fmt(pop, 1)} pop · ${systems}/${total} systems (${pct(systems / total)}) · strength ${fmt(empirePower(s, e.id))} · ${e.research.completed.length} techs${e.research.current === "ascension" ? " · <b style='color:var(--warn)'>pursuing Ascension!</b>" : ""}` : "not yet contacted"}`}</div></div>
-          <div>${btn}</div></div>`;
+          <div class="actions">${talk} ${btn}</div></div>`;
       })
       .join("");
     return `<header><h2>Empires of the galaxy</h2><button data-action="close">✕</button></header>${rows}
@@ -780,14 +845,57 @@ export class Hud {
   }
 
   private menuModal(): string {
+    const remote = this.app.remote;
+    if (remote) {
+      const info = remote.info;
+      return `<header><h2>${esc(info.name)}</h2><button data-action="close">✕</button></header>
+        <div class="actions" style="flex-direction:column;align-items:stretch;max-width:360px;margin:auto">
+          <div class="hint" style="text-align:center">Invite code <b style="font-size:20px;letter-spacing:0.15em;color:var(--accent)">${esc(info.code)}</b><br/>The game is saved on the server automatically.</div>
+          <button class="primary" data-action="close">Resume</button>
+          <button data-action="copyinvite">Copy invite link</button>
+          <button data-action="modal:help">How to play</button>
+          <button class="danger" data-action="quit">Leave game</button>
+        </div>`;
+    }
     return `<header><h2>Menu</h2><button data-action="close">✕</button></header>
       <div class="actions" style="flex-direction:column;align-items:stretch;max-width:320px;margin:auto">
         <button class="primary" data-action="close">Resume</button>
         <button data-action="save">Save game</button>
         <button data-action="load">Load last save</button>
+        ${this.app.online ? `<button data-action="cloudsave">Save to cloud</button>` : ""}
         <button data-action="modal:help">How to play</button>
         <button class="danger" data-action="quit">Quit to title</button>
       </div>`;
+  }
+
+  private chatModal(): string {
+    const g = this.game;
+    const other = this.chatWith ? g.state.empires[this.chatWith] : null;
+    if (!other) return `<header><h2>Diplomacy</h2><button data-action="close">✕</button></header>`;
+    const me = g.playerId;
+    const msgs = this.app.chats.filter((m) => (m.from === me && m.to === other.id) || (m.from === other.id && m.to === me));
+    for (const m of msgs) this.seenChats.add(m.id);
+    const human = !!this.app.remote?.info.seats.find((x) => x.empireId === other.id)?.playerName;
+    const actionText: Record<string, string> = {
+      accept_peace: "☮ accepted peace",
+      propose_peace: "☮ proposed peace",
+      declare_war: "⚔ declared war",
+    };
+    const waiting = msgs.length > 0 && msgs[msgs.length - 1].from === me && !human;
+    return `<header><h2 style="color:${other.color}">${esc(other.name)}</h2>
+      <span class="tag ${g.player.relations[other.id]}">${g.player.relations[other.id] === "war" ? "AT WAR" : "PEACE"}</span>
+      <span class="subtitle">${human ? "A human ruler" : "Their ruler answers in character"}</span>
+      <button data-action="modal:empires">← Empires</button><button data-action="close">✕</button></header>
+      <div class="chat-log">${
+        msgs.length
+          ? msgs
+              .map(
+                (m) => `<div class="chat-msg ${m.from === me ? "ours" : ""}"><div class="meta">${m.from === me ? "You" : esc(other.name)} · ${dateString(m.day)}${m.action && m.action !== "none" ? ` · <b>${actionText[m.action] ?? ""}</b>` : ""}</div>${esc(m.text)}</div>`,
+              )
+              .join("")
+          : `<div class="hint">No correspondence yet. Open a channel — propose an alliance, demand tribute, or negotiate a ceasefire.</div>`
+      }${waiting ? `<div class="hint">Awaiting their reply…</div>` : ""}</div>
+      <div class="chat-input"><input id="chat-input" maxlength="500" placeholder="Message to the ${esc(other.name)}…" autocomplete="off" /><button class="primary" data-action="sendchat">Send</button></div>`;
   }
 
   private colonizeModal(): string {
@@ -976,7 +1084,35 @@ export class Hud {
         if (window.confirm(`Declare war on ${g.state.empires[args[0]].name}?`)) res(g.declareWar(args[0]));
         break;
       case "peace":
-        res(g.proposePeace(args[0]), "Peace treaty signed");
+        res(g.proposePeace(args[0]), app.remote ? "Peace proposal sent" : "Peace treaty signed");
+        break;
+      case "acceptpeace":
+        res(g.acceptPeace(args[0]), "Peace treaty signed");
+        break;
+      case "rejectpeace":
+        res(g.rejectPeace(args[0]), "Peace offer rejected");
+        break;
+      case "chat":
+        this.chatWith = args[0];
+        this.modal = "chat";
+        this.render();
+        this.modalRoot.querySelector<HTMLInputElement>("#chat-input")?.focus();
+        return;
+      case "sendchat":
+        this.submitChat();
+        return;
+      case "cloudsave":
+        app.cloudSave();
+        this.modal = null;
+        break;
+      case "copyinvite":
+        if (app.remote) {
+          const link = inviteLink(app.remote.info.code);
+          void navigator.clipboard?.writeText(link).then(
+            () => app.toast("Invite link copied", "good"),
+            () => app.toast(link, "info"),
+          );
+        }
         break;
       case "save":
         app.save();

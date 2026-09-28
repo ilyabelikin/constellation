@@ -1,7 +1,12 @@
 import "./ui/styles.css";
 import * as THREE from "three";
 import { Game, STEP_DAYS } from "./sim/game";
-import type { GameSettings } from "./sim/types";
+import type { PlayerFacade } from "./sim/facade";
+import type { ChatMessage, GameSettings } from "./sim/types";
+import type { PlayerView, StaticView } from "./sim/view";
+import { NetClient } from "./net/NetClient";
+import { NetGame } from "./net/NetGame";
+import { SPEEDS, type CloudSaveSummary, type SessionInfo, type SessionSummary } from "./net/protocol";
 import { Engine, type PickResult } from "./render/Engine";
 import { GalaxyView } from "./render/GalaxyView";
 import { SystemView } from "./render/SystemView";
@@ -31,7 +36,6 @@ function newestSave(): string | null {
     .sort((a, b) => Number(st.getItem(`${b}-time`) ?? 0) - Number(st.getItem(`${a}-time`) ?? 0))[0];
   return pick ? st.getItem(pick) : null;
 }
-const SPEEDS = [0, 1, 2, 4, 8]; // game days per real second
 
 function storage(): Storage | null {
   try {
@@ -42,13 +46,26 @@ function storage(): Storage | null {
 }
 
 class App implements AppApi {
-  game!: Game;
+  game!: PlayerFacade;
+  /** The authoritative game when playing locally (single player). */
+  local: Game | null = null;
+  /** The server-hosted game when playing online. */
+  remote: NetGame | null = null;
   view: "galaxy" | "system" = "system";
   systemId = "";
   selection: PickResult | null = null;
   activeFleetId: string | null = null;
-  speedIndex = 1;
-  paused = true;
+  private localSpeed = 1;
+  private localPaused = true;
+
+  readonly net = new NetClient();
+  session: SessionInfo | null = null;
+  mySessions: SessionSummary[] = [];
+  cloudSaves: CloudSaveSummary[] = [];
+  chatLog: ChatMessage[] = [];
+  private pendingStatic: StaticView | null = null;
+  private pendingView: PlayerView | null = null;
+  private lastViews = -1;
 
   private engine: Engine;
   private galaxyView: GalaxyView | null = null;
@@ -71,7 +88,19 @@ class App implements AppApi {
       onNewGame: (s) => this.newGame(s),
       onContinue: () => this.load(),
       hasSave: () => !!newestSave(),
+      online: () => ({ connected: this.net.welcomed, name: this.net.name, llm: this.net.llmAvailable }),
+      setName: (name) => this.net.setName(name),
+      onHost: (settings) => this.net.send({ t: "create", settings, sessionName: `${settings.playerName ?? "Commander"}'s galaxy` }),
+      onJoin: (code) => this.net.send({ t: "join", code }),
+      sessions: () => this.mySessions,
+      cloudSaves: () => this.cloudSaves,
+      onCloudLoad: (id) => this.net.send({ t: "cloudLoad", id }),
+      onCloudDelete: (id) => this.net.send({ t: "cloudDelete", id }),
+      takeSeat: (empireId) => this.net.send({ t: "takeSeat", empireId }),
+      startSession: () => this.net.send({ t: "start" }),
+      leaveSession: () => this.leaveSession(),
     });
+    this.setupNet();
     this.setupInput();
     this.showTitle();
     requestAnimationFrame(() => this.frame());
@@ -79,35 +108,199 @@ class App implements AppApi {
   }
 
   // ---------------------------------------------------------------- lifecycle
+  get speedIndex(): number {
+    return this.remote ? this.remote.info.speedIndex : this.localSpeed;
+  }
+
+  get paused(): boolean {
+    return this.remote ? this.remote.info.paused : this.localPaused;
+  }
+
+  get isHost(): boolean {
+    return this.remote ? this.remote.info.youAreHost : true;
+  }
+
+  // ---------------------------------------------------------------- network
+  private setupNet(): void {
+    const net = this.net;
+    net.onStatus = (up) => {
+      if (up) {
+        net.send({ t: "mySessions" });
+        net.send({ t: "cloudList" });
+        const code = new URLSearchParams(location.search).get("join");
+        if (code && !this.session) net.send({ t: "join", code });
+        // Back online in the middle of a game: rejoin it.
+        else if (this.session) net.send({ t: "join", code: this.session.code });
+      } else if (this.remote) this.toast("Connection lost — reconnecting…", "error");
+      this.lobby.refreshOnline();
+    };
+    net.on("sessions", (m) => {
+      this.mySessions = m.list;
+      this.lobby.refreshOnline();
+    });
+    net.on("cloudSaves", (m) => {
+      this.cloudSaves = m.list;
+      this.lobby.refreshOnline();
+    });
+    net.on("cloudSaved", () => this.toast("Saved to the cloud", "good"));
+    net.on("cloudData", (m) => {
+      try {
+        this.startLocal(Game.deserialize(m.data));
+        this.toast("Cloud save loaded", "good");
+      } catch (e) {
+        this.toast(`Load failed: ${(e as Error).message}`, "error");
+      }
+    });
+    net.on("error", (m) => this.toast(m.message, "error"));
+    net.on("session", (m) => {
+      const joining = !this.session || this.session.id !== m.info.id;
+      this.session = m.info;
+      if (joining) {
+        this.pendingStatic = null;
+        this.pendingView = null;
+        this.chatLog = [];
+        if (location.search.includes("join=")) history.replaceState(null, "", location.pathname);
+      }
+      if (this.remote) {
+        this.remote.info = m.info;
+        this.hud?.render();
+      } else {
+        this.maybeEnterRemote();
+        if (!this.remote) this.lobby.showRoom(m.info);
+      }
+    });
+    net.on("static", (m) => {
+      this.pendingStatic = m.data;
+      this.maybeEnterRemote();
+    });
+    net.on("view", (m) => {
+      if (this.remote) return; // NetGame consumes views itself
+      this.pendingView = m.data;
+      this.maybeEnterRemote();
+    });
+    net.on("left", () => {
+      this.session = null;
+      if (this.remote) this.showTitle();
+      else this.lobby.show();
+    });
+    net.on("chatHistory", (m) => {
+      this.chatLog = m.messages;
+      this.hud?.render();
+    });
+    net.on("chat", (m) => this.receiveChat(m.message));
+    net.connect();
+  }
+
+  private maybeEnterRemote(): void {
+    const info = this.session;
+    if (this.remote || !info || info.status === "lobby" || !info.yourEmpireId) return;
+    if (!this.pendingStatic || !this.pendingView || this.pendingView.playerId !== info.yourEmpireId) return;
+    const ng = new NetGame(this.net, this.pendingStatic, this.pendingView, info);
+    ng.onError = (msg) => this.toast(msg, "error");
+    this.pendingView = null;
+    this.remote = ng;
+    this.local = null;
+    this.startGame(ng);
+    this.toast(`Joined ${info.name}. Invite code ${info.code}`, "good");
+  }
+
+  leaveSession(): void {
+    this.net.send({ t: "leave" });
+    this.net.send({ t: "mySessions" });
+    this.session = null;
+    if (this.remote) this.showTitle();
+    else this.lobby.show();
+  }
+
+  receiveChat(msg: ChatMessage): void {
+    if (this.chatLog.some((m) => m.id === msg.id)) return;
+    this.chatLog.push(msg);
+    const me = this.game?.playerId;
+    if (this.running && msg.to === me && msg.from !== me) {
+      const from = this.game.state.empires[msg.from];
+      if (!this.hud?.isChattingWith(msg.from)) this.toast(`✉ ${from?.name ?? "Someone"}: ${msg.text.slice(0, 90)}`, "info");
+    }
+    this.hud?.render();
+  }
+
+  get chats(): ChatMessage[] {
+    return this.local ? (this.local.state.chats ?? []) : this.chatLog;
+  }
+
+  /** Can we talk to this empire? Humans always (online); AI rulers need the LLM service. */
+  canChat(empireId: string): boolean {
+    const e = this.game.state.empires[empireId];
+    if (!e || e.isPirate || !e.alive || empireId === this.game.playerId) return false;
+    if (this.remote) {
+      const seat = this.remote.info.seats.find((x) => x.empireId === empireId);
+      return !!seat?.playerName || this.net.llmAvailable;
+    }
+    return false;
+  }
+
+  sendChat(to: string, text: string): void {
+    const clean = text.trim().slice(0, 500);
+    if (!clean) return;
+    if (this.remote) this.net.send({ t: "chat", to, text: clean });
+  }
+
+  cloudSave(): void {
+    if (!this.local) return;
+    if (!this.net.welcomed) {
+      this.toast("Cloud saves need a connection to the game server", "error");
+      return;
+    }
+    const p = this.local.player;
+    this.net.send({ t: "cloudSave", name: `${p.name} — day ${Math.floor(this.local.state.day)}`, data: this.local.serialize() });
+  }
+
+  get online(): boolean {
+    return this.net.welcomed;
+  }
+
+  // ---------------------------------------------------------------- lifecycle
   private showTitle(): void {
+    this.remote?.dispose();
+    this.remote = null;
     this.running = false;
     document.getElementById("hud")!.classList.add("hidden");
     this.labels.clear();
     // Attract mode: a demo galaxy slowly rotating behind the title.
-    this.game = Game.create({ seed: "title-screen", systemCount: 24, aiCount: 3 });
+    this.local = Game.create({ seed: "title-screen", systemCount: 24, aiCount: 3 });
+    this.game = this.local;
     const home = this.game.playerColonies()[0];
     this.systemId = home.systemId;
     this.showSystemInternal(home.systemId);
     this.engine.rig.goalDistance = 150;
     this.engine.rig.goalPitch = 0.35;
     this.engine.rig.snap();
-    this.lobby.show();
+    if (this.session) this.lobby.showRoom(this.session);
+    else this.lobby.show();
   }
 
   newGame(settings: Partial<GameSettings>): void {
-    this.startGame(Game.create(settings));
+    this.startLocal(Game.create(settings));
     this.toast("Welcome, leader. Your homeworld awaits orders.", "good");
   }
 
-  private startGame(game: Game): void {
+  private startLocal(game: Game): void {
+    if (this.session) this.leaveSession();
+    this.remote?.dispose();
+    this.remote = null;
+    this.local = game;
+    this.startGame(game);
+  }
+
+  private startGame(game: PlayerFacade): void {
     this.game = game;
     this.lobby.hide();
     this.selection = null;
     this.activeFleetId = null;
     this.running = true;
-    this.paused = false;
-    this.speedIndex = 1;
+    this.localPaused = false;
+    this.localSpeed = 1;
     this.acc = 0;
+    this.lastViews = -1;
     const hudRoot = document.getElementById("hud")!;
     hudRoot.classList.remove("hidden");
     if (!this.hud) this.hud = new Hud(hudRoot, document.getElementById("modal-root")!, this);
@@ -119,8 +312,12 @@ class App implements AppApi {
   }
 
   save(): void {
+    if (!this.local) {
+      this.toast("Online games are saved on the server automatically", "info");
+      return;
+    }
     try {
-      writeSave(SAVE_KEY, this.game.serialize());
+      writeSave(SAVE_KEY, this.local.serialize());
       this.toast("Game saved", "good");
     } catch (e) {
       this.toast(`Save failed: ${(e as Error).message}`, "error");
@@ -134,7 +331,7 @@ class App implements AppApi {
       return;
     }
     try {
-      this.startGame(Game.deserialize(json));
+      this.startLocal(Game.deserialize(json));
       this.toast("Game loaded", "good");
     } catch (e) {
       this.toast(`Load failed: ${(e as Error).message}`, "error");
@@ -142,7 +339,8 @@ class App implements AppApi {
   }
 
   quitToTitle(): void {
-    this.showTitle();
+    if (this.remote) this.leaveSession();
+    else this.showTitle();
   }
 
   // ---------------------------------------------------------------- views
@@ -250,16 +448,25 @@ class App implements AppApi {
   }
 
   setSpeed(i: number): void {
-    if (i === 0) this.paused = true;
+    if (this.remote) {
+      this.net.send({ t: "speed", index: i });
+      return;
+    }
+    if (i === 0) this.localPaused = true;
     else {
-      this.paused = false;
-      this.speedIndex = i;
+      this.localPaused = false;
+      this.localSpeed = i;
     }
     this.hud?.render();
   }
 
   togglePause(): void {
-    this.paused = !this.paused;
+    if (this.remote) {
+      const info = this.remote.info;
+      this.setSpeed(info.speedIndex > 0 ? 0 : 1);
+      return;
+    }
+    this.localPaused = !this.localPaused;
     this.hud?.render();
   }
 
@@ -458,23 +665,36 @@ class App implements AppApi {
     if (this.keys.has("q")) rig.rotate(-pan, 0);
 
     let steps = 0;
-    if (this.running && !this.paused) {
-      this.acc += dt * SPEEDS[this.speedIndex];
-      while (this.acc >= STEP_DAYS && steps < 120) {
-        this.game.step();
-        this.acc -= STEP_DAYS;
-        steps++;
+    let alpha = 0;
+    let renderDay = this.game.state.day;
+    if (this.remote) {
+      // The server runs the clock; we interpolate between its snapshots.
+      if (this.remote.viewsReceived !== this.lastViews) {
+        this.lastViews = this.remote.viewsReceived;
+        steps = 1;
       }
-      if (steps >= 120) this.acc = 0;
-    } else if (!this.running) {
-      // Title screen: gently orbit.
-      rig.goalYaw += dt * 0.03;
+      alpha = this.remote.alpha(now);
+      renderDay = this.remote.renderDay(now);
+    } else if (this.local) {
+      if (this.running && !this.localPaused) {
+        this.acc += dt * SPEEDS[this.localSpeed];
+        while (this.acc >= STEP_DAYS && steps < 120) {
+          this.local.step();
+          this.acc -= STEP_DAYS;
+          steps++;
+        }
+        if (steps >= 120) this.acc = 0;
+      } else if (!this.running) {
+        // Title screen: gently orbit.
+        rig.goalYaw += dt * 0.03;
+      }
+      alpha = Math.min(1, this.acc / STEP_DAYS);
+      renderDay = this.local.state.day - STEP_DAYS * (1 - alpha);
     }
-    const alpha = Math.min(1, this.acc / STEP_DAYS);
     const events = this.game.drainEvents();
     if (this.systemView) {
       this.systemView.alpha = this.running ? alpha : 0;
-      this.systemView.renderDay = this.running ? this.game.state.day - STEP_DAYS * (1 - alpha) : time * 2;
+      this.systemView.renderDay = this.running ? renderDay : time * 2;
       if (steps > 0) this.systemView.sync();
       this.systemView.handleEvents(events);
     }
@@ -495,11 +715,11 @@ class App implements AppApi {
         this.hudTimer = 0;
         this.hud?.render();
       }
-      if (!this.paused && !this.game.state.winner) this.autosaveTimer += dt;
-      if (this.autosaveTimer > 90) {
+      if (this.local && !this.localPaused && !this.local.state.winner) this.autosaveTimer += dt;
+      if (this.local && this.autosaveTimer > 90) {
         this.autosaveTimer = 0;
         try {
-          writeSave(AUTOSAVE_KEY, this.game.serialize());
+          writeSave(AUTOSAVE_KEY, this.local.serialize());
         } catch {
           /* storage full or unavailable: ignore autosave */
         }

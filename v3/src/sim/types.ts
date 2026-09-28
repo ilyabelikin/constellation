@@ -225,6 +225,36 @@ export interface AiState {
   warStarted?: Record<string, number>;
   /** Day until which peace proposals from an empire are refused outright. */
   peaceRefusedUntil?: Record<string, number>;
+  /** Grand strategy chosen by the empire's (LLM) ruler; steers the utility AI. */
+  directive?: AiDirective;
+  /** Day on which the ruler next reviews its strategy. */
+  llmNext?: number;
+}
+
+export type Posture = "expand" | "consolidate" | "militarize" | "attack" | "defend";
+
+export interface AiDirective {
+  posture: Posture;
+  /** Research branch to favour. */
+  research: string | null;
+  /** Empire to wage war on (declared when the AI next thinks, if at peace). */
+  warTarget: string | null;
+  /** Empires the ruler wants peace with. */
+  seekPeace: string[];
+  summary: string;
+  day: number;
+}
+
+/** A diplomatic message between two empires' rulers. */
+export interface ChatMessage {
+  id: string;
+  from: string; // empire id
+  to: string; // empire id
+  text: string;
+  day: number;
+  at: number; // wall-clock ms
+  /** Diplomatic action the sender took along with the message. */
+  action?: "none" | "accept_peace" | "propose_peace" | "declare_war";
 }
 
 export interface EmpireStats {
@@ -320,6 +350,8 @@ export interface GameState {
   victoryType: string | null;
   /** Next day on which pirates may spawn a raid. */
   nextRaid: number;
+  /** Diplomatic correspondence (local games; sessions keep it server-side). */
+  chats?: ChatMessage[];
 }
 
 /** Ephemeral events emitted by a tick, consumed by the renderer/UI (not saved). */

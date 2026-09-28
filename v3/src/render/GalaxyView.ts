@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { STAR_TYPE_MAP } from "../sim/data/stars";
 import { systemOwnerMap } from "../sim/economy";
 import { sensorSystems } from "../sim/knowledge";
-import type { Game } from "../sim/game";
+import type { PlayerFacade as Game } from "../sim/facade";
 import type { PickResult, View } from "./Engine";
 import { temperatureColor } from "./glsl";
 import { createLinkMaterial, getGlowTexture, glowSprite } from "./materials/misc";

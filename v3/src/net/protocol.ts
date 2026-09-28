@@ -3,6 +3,7 @@
 
 import type { GameSettings, SimEvent } from "../sim/types";
 import type { PlayerView, StaticView } from "../sim/view";
+import type { DecideRequest, DirectiveReply, TalkReply, TalkRequest } from "../llm/types";
 
 export const PROTOCOL_VERSION = 1;
 /** Real-time speed multipliers: game days per real second (index 0 = paused). */
@@ -52,23 +53,8 @@ export interface CloudSaveSummary {
   updatedAt: number;
 }
 
-export interface ChatMessage {
-  id: string;
-  sessionId: string | null;
-  from: string; // empire id
-  to: string; // empire id
-  text: string;
-  day: number;
-  at: number;
-  /** A concrete diplomatic action attached to the message (LLM or human). */
-  action?: DiplomaticAction | null;
-}
-
-export type DiplomaticAction =
-  | { kind: "propose_peace" }
-  | { kind: "accept_peace" }
-  | { kind: "declare_war" }
-  | { kind: "none" };
+export type { ChatMessage } from "../sim/types";
+import type { ChatMessage } from "../sim/types";
 
 export type ClientMessage =
   | { t: "hello"; uuid?: string | null; name?: string; protocol: number }
@@ -85,7 +71,10 @@ export type ClientMessage =
   | { t: "cloudList" }
   | { t: "cloudLoad"; id: string }
   | { t: "cloudDelete"; id: string }
-  | { t: "chat"; to: string; text: string; sessionId?: string | null; state?: string | null }
+  | { t: "chat"; to: string; text: string }
+  /** Single-player games run locally; their LLM rivals are served through the server (which holds the API key). */
+  | { t: "llm"; id: number; kind: "decide"; req: DecideRequest }
+  | { t: "llm"; id: number; kind: "talk"; req: TalkRequest }
   | { t: "ping" };
 
 export type ServerMessage =
@@ -102,4 +91,5 @@ export type ServerMessage =
   | { t: "cloudSaved"; id: string }
   | { t: "chat"; message: ChatMessage }
   | { t: "chatHistory"; messages: ChatMessage[] }
+  | { t: "llmResult"; id: number; ok: boolean; decide?: DirectiveReply; talk?: TalkReply; error?: string }
   | { t: "pong" };

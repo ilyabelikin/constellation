@@ -5,7 +5,7 @@ import { BELT_TYPE_MAP, PLANET_TYPE_MAP } from "../sim/data/planets";
 import { HULL_MAP } from "../sim/data/ships";
 import { STAR_TYPE_MAP } from "../sim/data/stars";
 import { STATION_MAP } from "../sim/data/structures";
-import type { Game } from "../sim/game";
+import type { PlayerFacade as Game } from "../sim/facade";
 import { sensorSystems } from "../sim/knowledge";
 import { orbitPosition } from "../sim/orbits";
 import type { Body, Fleet, SimEvent, Station } from "../sim/types";

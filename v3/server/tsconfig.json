@@ -4,5 +4,5 @@
     "types": ["node"],
     "lib": ["ES2022"]
   },
-  "include": ["./**/*.ts", "../src/sim/**/*.ts", "../src/net/**/*.ts", "../tests/**/*.ts"]
+  "include": ["./**/*.ts", "../src/sim/**/*.ts", "../src/llm/**/*.ts", "../src/net/protocol.ts", "../tests/**/*.ts"]
 }
