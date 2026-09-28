@@ -106,7 +106,11 @@ export interface StarSystem {
   nebula?: string; // colour for a surrounding nebula, if any
 }
 
-export type Stance = "aggressive" | "defensive" | "passive";
+/**
+ * aggressive: engage and pursue · defensive: engage, never pursue ·
+ * passive: hold course, only take fire · evasive: avoid fights, fall back home from danger.
+ */
+export type Stance = "aggressive" | "defensive" | "passive" | "evasive";
 
 export interface Ship {
   id: string;
@@ -169,6 +173,8 @@ export interface Fleet {
   migrants?: number;
   /** Orders to carry out after the current one (shift-queued). */
   queue?: QueuedOrder[];
+  /** Refuge body an evasive fleet is currently falling back to. */
+  evading?: string;
 }
 
 export interface BuildingInstance {

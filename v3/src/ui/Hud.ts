@@ -36,7 +36,7 @@ import { fleetSpeed, findRoute } from "../sim/fleets";
 import type { PlayerFacade as Game } from "../sim/facade";
 import { buildingUnlocked, hullUnlocked, shipStats, stationUnlocked } from "../sim/modifiers";
 import { dist } from "../sim/orbits";
-import type { Body, ChatMessage, Colony, DiploAction, Fleet, GameLogEntry, Order, ResourceKey } from "../sim/types";
+import type { Body, ChatMessage, Colony, DiploAction, Fleet, GameLogEntry, Order, ResourceKey, Stance } from "../sim/types";
 import type { SessionInfo } from "../net/protocol";
 import { inviteLink } from "./Lobby";
 import { morphHtml } from "./morph";
@@ -768,7 +768,7 @@ export class Hud {
       ${f.battleId ? `<div class="k">Status</div><div class="v" style="color:var(--bad)">IN COMBAT</div>` : ""}</div>`;
     if (mine) {
       html += `<div class="actions">
-        ${(["aggressive", "defensive", "passive"] as const).map((st) => `<button data-action="stance:${f.id}:${st}" class="${f.stance === st ? "active" : ""}" title="${st === "aggressive" ? "Engage and pursue enemies" : st === "defensive" ? "Engage, never pursue" : "Avoid combat; only returns fire"}">${st}</button>`).join("")}
+        ${(["aggressive", "defensive", "evasive", "passive"] as const).map((st) => `<button data-action="stance:${f.id}:${st}" class="${f.stance === st ? "active" : ""}" title="${STANCE_TIPS[st]}">${st}</button>`).join("")}
       </div><div class="actions">
         <button data-action="stop:${f.id}" ${f.order && !f.transit ? "" : "disabled"}>■ Stop</button>
         <button data-action="split:${f.id}" ${f.ships.length > 1 ? "" : "disabled"} title="Split checked ships into a new fleet">⑂ Split</button>
@@ -1159,7 +1159,7 @@ export class Hud {
         break;
       }
       case "stance":
-        res(g.setStance(args[0], args[1] as "aggressive"));
+        res(g.setStance(args[0], args[1] as Stance));
         break;
       case "stop":
         res(g.stopFleet(args[0]));
@@ -1276,6 +1276,13 @@ export class Hud {
     this.logCount = 0;
   }
 }
+
+const STANCE_TIPS: Record<Stance, string> = {
+  aggressive: "Engage and pursue enemies",
+  defensive: "Engage enemies that come close; never pursue (default for warships)",
+  evasive: "Never fight: fall back to a safe colony when hostile warships appear, then resume orders (default for civilian ships)",
+  passive: "Hold course and hold fire, whatever happens",
+};
 
 function describeAction(g: Game, a: DiploAction): string {
   const s = g.state;

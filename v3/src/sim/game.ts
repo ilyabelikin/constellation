@@ -12,6 +12,7 @@ import { incomeReport, maxDefense, processColonyDay, processEconomyDay, systemOw
 import { ensureCapital, stepFleets } from "./fleets";
 import { updateContacts } from "./knowledge";
 import { migrationDay } from "./migration";
+import { stepEvasion } from "./evasion";
 import { createGame, makeFleet, makeShip, SAVE_VERSION } from "./galaxy";
 import { clearModifierCache } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
@@ -63,6 +64,7 @@ export class Game extends PlayerFacade {
     s.day = Math.round((s.day + STEP_DAYS) * 1000) / 1000;
     const rng = new Rng(s.rngState);
     stepFleets(s, STEP_DAYS, this.events);
+    stepEvasion(s);
     autoPursue(s);
     stepCombat(s, STEP_DAYS, rng, this.events);
     applySiege(s);
@@ -127,7 +129,8 @@ export class Game extends PlayerFacade {
                 : `Assault Group ${empire.fleetCounter + 1}`;
       fleet = makeFleet(s, empire, colony.systemId, pos, name);
       fleet.orbitBodyId = colony.bodyId;
-      if (hull.role !== "military") fleet.stance = "passive";
+      // Warships hold their ground; everything else keeps out of trouble.
+      fleet.stance = hull.role === "military" ? "defensive" : "evasive";
     }
     fleet.ships.push(ship);
     this.events.push({ type: "shipBuilt", systemId: colony.systemId, fleetId: fleet.id, hull: hullId });

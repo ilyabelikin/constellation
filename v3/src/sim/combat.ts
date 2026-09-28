@@ -105,7 +105,7 @@ function indexBySystem(state: GameState): Map<string, SystemIndex> {
 function entitiesInSystem(state: GameState, ix: SystemIndex): Entity[] {
   const out: Entity[] = [];
   for (const f of ix.fleets) {
-    out.push({ kind: "fleet", id: f.id, empireId: f.empireId, pos: f.pos, armed: fleetArmed(f), passive: f.stance === "passive" });
+    out.push({ kind: "fleet", id: f.id, empireId: f.empireId, pos: f.pos, armed: fleetArmed(f), passive: f.stance === "passive" || f.stance === "evasive" });
   }
   for (const c of ix.colonies) {
     // Colonies whose defenses are down are besieged (see applySiege), not fought.
@@ -356,7 +356,7 @@ export function applySiege(state: GameState): void {
     if (c.defense > 0) continue;
     const at = bodyPosition(state, state.bodies[c.bodyId]);
     for (const f of Object.values(state.fleets)) {
-      if (f.systemId !== c.systemId || f.transit || f.stance === "passive") continue;
+      if (f.systemId !== c.systemId || f.transit || f.stance === "passive" || f.stance === "evasive") continue;
       if (!isHostile(state, f.empireId, c.empireId) || !fleetArmed(f)) continue;
       if (dist(f.pos, at) <= ENGAGE_RANGE) {
         c.lastAttacked = state.day;

@@ -280,6 +280,13 @@ function queuedOrderError(state: GameState, fleet: Fleet, o: QueuedOrder): strin
 /** Start the next still-valid order from the fleet's queue. */
 export function startQueuedOrder(state: GameState, fleet: Fleet): void {
   const empire = state.empires[fleet.empireId];
+  // Evasive ships wait out hostile warships before resuming their jobs.
+  if (fleet.stance === "evasive" && fleet.systemId) {
+    const danger = Object.values(state.fleets).some(
+      (o) => o.systemId === fleet.systemId && empire.relations[o.empireId] === "war" && o.ships.some((sh) => HULL_MAP[sh.hull].weapons.length > 0),
+    );
+    if (danger) return;
+  }
   while (fleet.queue?.length && !fleet.order) {
     const next = fleet.queue.shift()!;
     const err = queuedOrderError(state, fleet, next) ?? issueOrder(state, fleet, next);

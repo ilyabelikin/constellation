@@ -520,6 +520,7 @@ describe("regressions from code review", () => {
     const g = Game.create({ seed: "pursuit" });
     const s = g.state;
     const guard = playerFleet(g, "Home Guard");
+    guard.stance = "aggressive"; // pursuit is what this test is about
     const pir = makeFleet(s, s.empires.pirates, guard.systemId!, { x: guard.pos.x + 3, y: 0, z: guard.pos.z }, "Bait");
     pir.ships.push(makeShip(s, s.empires.pirates, "scout"));
     g.step();
@@ -958,5 +959,67 @@ describe("locatable log entries", () => {
     g.advance(BUILDING_MAP.mine.days + 2);
     const done = g.state.log.find((l) => l.text.includes("completed on"));
     expect(done?.ref).toMatchObject({ kind: "body", id: c.bodyId });
+  });
+});
+
+describe("evasive stance", () => {
+  it("civilian ships fall back home from hostile warships and resume their job; warships default to defensive", () => {
+    const g = Game.create({ seed: "evade", pirates: true });
+    const s = g.state;
+    const scout = playerFleet(g, "Pathfinder");
+    expect(scout.stance).toBe("evasive");
+    expect(playerFleet(g, "Home Guard").stance).toBe("defensive");
+    // Send the scout to a neighbouring system and let it arrive.
+    const home2 = home(g);
+    const next = s.systems[home2.systemId].gates[0].otherSystemId;
+    expect(g.moveFleet(scout.id, next).ok).toBe(true);
+    for (let i = 0; i < 3000 && (scout.order || scout.transit); i++) g.step();
+    expect(scout.systemId).toBe(next);
+    // Give it a job there, then raiders show up.
+    const job = s.systems[next].bodyIds[0];
+    expect(g.moveFleet(scout.id, next, { bodyId: job }).ok).toBe(true);
+    const raiders = makeFleet(s, s.empires.pirates, next, { ...scout.pos }, "Raiders");
+    raiders.ships.push(makeShip(s, s.empires.pirates, "corvette"));
+    g.step();
+    expect(scout.evading).toBe(home2.bodyId);
+    expect(scout.order?.systemId).toBe(home2.systemId); // running for home
+    expect(scout.queue?.[0]).toMatchObject({ kind: "move", systemId: next, bodyId: job }); // job kept for later
+    expect(s.log.some((l) => l.text.includes("falling back"))).toBe(true);
+    // It does not shoot or get dragged into the fight.
+    delete s.fleets[raiders.id];
+    for (let i = 0; i < 4000 && scout.evading; i++) g.step();
+    expect(scout.evading).toBeUndefined();
+    expect(scout.order?.kind).toBe("move"); // resumed the dropped job
+    expect(scout.order?.bodyId).toBe(job);
+    // Newly built warships come out defensive, civilian ships evasive.
+    g.player.resources = { credits: 1e5, metals: 1e5, energy: 1e5, exotics: 0 };
+    playerFleet(g, "Home Guard").orbitBodyId = null; // so the corvette forms its own fleet
+    g.queueShip(home2.id, "corvette");
+    g.queueShip(home2.id, "constructor");
+    g.advance(60);
+    const built = Object.values(s.fleets).filter((f) => f.empireId === g.playerId && f.name !== "Home Guard" && f.name !== "Pathfinder" && f.name !== "Builders");
+    for (const f of built) expect(f.stance).toBe(f.ships.some((sh) => sh.hull === "corvette") ? "defensive" : "evasive");
+    expect(built.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("evasive stance while sheltering", () => {
+  it("waits under the colony's guns until the raiders leave, without flip-flopping", () => {
+    const g = Game.create({ seed: "shelter" });
+    const s = g.state;
+    const builder = playerFleet(g, "Builders");
+    const target = s.systems[home(g).systemId].bodyIds.find((id) => id !== home(g).bodyId)!;
+    expect(g.moveFleet(builder.id, home(g).systemId, { bodyId: target }).ok).toBe(true);
+    const raiders = makeFleet(s, s.empires.pirates, home(g).systemId, { x: 30, y: 0, z: 30 }, "Lurkers");
+    raiders.ships.push(makeShip(s, s.empires.pirates, "corvette"));
+    raiders.stance = "passive"; // they just sit there
+    for (let i = 0; i < 300; i++) g.step();
+    expect(builder.order).toBeNull(); // sheltering at the capital, job on hold
+    expect(builder.queue?.[0]?.bodyId).toBe(target);
+    expect(s.log.filter((l) => l.text.includes("falling back")).length).toBe(1); // no spam
+    delete s.fleets[raiders.id];
+    g.step();
+    g.step();
+    expect(builder.order?.bodyId).toBe(target); // raiders gone: back to work
   });
 });

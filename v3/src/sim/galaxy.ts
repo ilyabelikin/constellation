@@ -763,14 +763,15 @@ export function createGame(partial: Partial<GameSettings> = {}): GameState {
     const at = { x: 0, y: 0, z: 0 };
     const guard = makeFleet(state, emp, sysId, at, "Home Guard");
     guard.orbitBodyId = home.id;
+    guard.stance = "defensive";
     guard.ships.push(makeShip(state, emp, "corvette"), makeShip(state, emp, "corvette"), makeShip(state, emp, "corvette"));
     const scout = makeFleet(state, emp, sysId, at, "Pathfinder");
     scout.orbitBodyId = home.id;
-    scout.stance = "passive";
+    scout.stance = "evasive";
     scout.ships.push(makeShip(state, emp, "scout"));
     const builder = makeFleet(state, emp, sysId, at, "Builders");
     builder.orbitBodyId = home.id;
-    builder.stance = "passive";
+    builder.stance = "evasive";
     builder.ships.push(makeShip(state, emp, "constructor"));
   });
 

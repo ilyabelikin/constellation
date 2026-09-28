@@ -37,7 +37,7 @@ function validArg(kind: ArgKind, v: unknown): boolean {
     case "ids":
       return Array.isArray(v) && v.length <= 500 && v.every((x) => typeof x === "string" && x.length <= MAX_ID);
     case "stance":
-      return v === "aggressive" || v === "defensive" || v === "passive";
+      return v === "aggressive" || v === "defensive" || v === "passive" || v === "evasive";
     case "bool":
       return v === undefined || v === null || typeof v === "boolean";
     case "order":
