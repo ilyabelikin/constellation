@@ -10,7 +10,7 @@ import { sensorSystems } from "../sim/knowledge";
 import { orbitPosition } from "../sim/orbits";
 import type { Body, Fleet, SimEvent, Station } from "../sim/types";
 import { Shuttles } from "./Shuttles";
-import { Effects } from "./Effects";
+import { Effects, type Follow } from "./Effects";
 import type { PickResult, View } from "./Engine";
 import { temperatureColor } from "./glsl";
 import { createGateMaterial, getGlowTexture, glowSprite } from "./materials/misc";
@@ -883,14 +883,55 @@ export class SystemView implements View {
       } else if (e.type === "jump") {
         const m = this.layout.map(e.pos);
         this.effects.jump(new THREE.Vector3(m.x, m.y, m.z), new THREE.Color("#7fc8ff"));
-      } else if (e.type === "colonized" || e.type === "stationBuilt") {
+      } else if (e.type === "colonized") {
         const b = s.bodies[e.bodyId];
-        if (b) this.effects.pulse(this.bodyWorld(b), new THREE.Color(s.empires[e.empireId].color), this.bodyRadius(b.id) * 6);
+        if (b) this.effects.pulse(this.bodyWorld(b), new THREE.Color(s.empires[e.empireId].color), this.bodyRadius(b.id) * 6, this.followBody(b.id));
+      } else if (e.type === "stationBuilt") {
+        const b = s.bodies[e.bodyId];
+        if (!b) continue;
+        // The new station orbits its body: ring and flash ride along with it.
+        const st = Object.values(s.stations).find((x) => x.bodyId === e.bodyId && x.type === e.stationType && x.empireId === e.empireId);
+        const follow = st ? this.followStation(st.id, b.id) : this.followBody(b.id);
+        const at = new THREE.Vector3();
+        follow(at);
+        const color = new THREE.Color(s.empires[e.empireId].color);
+        this.effects.pulse(at, color, Math.max(3, this.bodyRadius(b.id) * 3), follow);
+        this.effects.flash(at, color, 3, 0.8, follow);
       } else if (e.type === "shipBuilt") {
         const f = s.fleets[e.fleetId];
-        if (f) this.effects.flash(this.fleetWorld(f), new THREE.Color("#9fe0ff"), 4, 0.6);
+        if (f) this.effects.flash(this.fleetWorld(f), new THREE.Color("#9fe0ff"), 4, 0.6, this.followFleet(f.id));
       }
     }
+  }
+
+  /** Effect anchors that track moving objects (see Effects.Follow). */
+  private followBody(bodyId: string): Follow {
+    return (out) => {
+      const b = this.game.state.bodies[bodyId];
+      if (!b) return false;
+      this.bodyWorld(b, out);
+      return true;
+    };
+  }
+
+  /** Tracks a station, or its host body until the station's model appears. */
+  private followStation(stationId: string, bodyId: string): Follow {
+    const body = this.followBody(bodyId);
+    return (out) => {
+      const v = this.stations.get(stationId);
+      if (!v) return body(out);
+      out.copy(v.mesh.position);
+      return true;
+    };
+  }
+
+  private followFleet(fleetId: string): Follow {
+    return (out) => {
+      const v = this.fleets.get(fleetId);
+      if (!v) return false;
+      out.copy(v.pos);
+      return true;
+    };
   }
 
   pick(ndc: THREE.Vector2, camera: THREE.Camera): PickResult | null {

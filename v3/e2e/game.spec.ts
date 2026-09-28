@@ -486,3 +486,27 @@ test("species screen shows a turntable of that civilization's ships", async ({ p
   await expect(page.locator("#topbar")).toBeVisible();
   await expect(page.locator("#lb-ship")).toHaveCount(0);
 });
+
+test("creation effects ride along with the object that moves on its orbit", async ({ page }) => {
+  await startGame(page, "follow-fx");
+  await page.click('[data-action="speed:4"]');
+  const r = await page.evaluate(
+    () =>
+      new Promise<{ moved: number; lag: number }>((resolve) => {
+        const app = (window as any).__app;
+        const v = app.systemView;
+        const s = app.game.state;
+        // The fastest-moving planet in the home system.
+        const planet = s.systems[app.systemId].bodyIds.map((id: string) => s.bodies[id]).filter((b: any) => b.kind === "planet").sort((a: any, b: any) => a.orbit.period - b.orbit.period)[0];
+        const start = v.bodyWorld(planet).clone();
+        v.handleEvents([{ type: "colonized", systemId: app.systemId, bodyId: planet.id, empireId: s.playerId }]);
+        const fx = v.effects.effects[v.effects.effects.length - 1];
+        setTimeout(() => {
+          const now = v.bodyWorld(planet);
+          resolve({ moved: now.distanceTo(start), lag: fx.obj.position.distanceTo(now) });
+        }, 1200);
+      }),
+  );
+  expect(r.moved).toBeGreaterThan(0.05); // the planet really moved…
+  expect(r.lag).toBeLessThan(0.05); // …and the pulse moved with it
+});

@@ -12,7 +12,12 @@ interface Effect {
   life: number;
   update(t: number, dt: number): void;
   dispose?(): void;
+  /** Keeps the effect on a moving object (orbiting planet, station, fleet). */
+  follow?: Follow;
 }
+
+/** Writes the current position of whatever the effect is attached to; false once it's gone. */
+export type Follow = (out: THREE.Vector3) => boolean;
 
 const beamGeo = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true);
 beamGeo.translate(0, 0.5, 0);
@@ -53,6 +58,7 @@ export class Effects {
         this.effects.splice(i, 1);
         continue;
       }
+      if (e.follow && !e.follow(e.obj.position)) e.follow = undefined; // object gone: stay put
       e.update(t, dt);
     }
   }
@@ -199,13 +205,14 @@ export class Effects {
     });
   }
 
-  flash(at: THREE.Vector3, color: THREE.Color, size: number, life: number): void {
+  flash(at: THREE.Vector3, color: THREE.Color, size: number, life: number, follow?: Follow): void {
     const s = additiveSprite(color.clone().multiplyScalar(3));
     s.position.copy(at);
     this.add({
       obj: s,
       age: 0,
       life,
+      follow,
       update: (t) => {
         s.scale.setScalar(size * (0.4 + t * 0.9));
         (s.material as THREE.SpriteMaterial).opacity = 1 - t;
@@ -331,7 +338,7 @@ export class Effects {
     });
   }
 
-  pulse(at: THREE.Vector3, color: THREE.Color, size: number): void {
+  pulse(at: THREE.Vector3, color: THREE.Color, size: number, follow?: Follow): void {
     const ringMat = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(2), transparent: true, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
     const ring = new THREE.Mesh(ringGeo, ringMat);
     ring.position.copy(at);
@@ -340,6 +347,7 @@ export class Effects {
       obj: ring,
       age: 0,
       life: 1.6,
+      follow,
       update: (t) => {
         ring.scale.setScalar(size * (0.3 + t));
         ringMat.opacity = (1 - t) * 0.9;
