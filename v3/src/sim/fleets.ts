@@ -14,6 +14,7 @@ import {
 } from "./economy";
 import { modifiers } from "./modifiers";
 import { deliverTrade, TRADE_UNLOAD_DAYS } from "./trade";
+import { deliverSupplies } from "./logistics";
 import { bodyPosition, copyVec } from "./orbits";
 import { bodyRef, fleetRef, log, logTo, nextId, witnesses, withRng } from "./util";
 import type { Colony, Empire, Fleet, GameState, Order, QueuedOrder, SimEvent, Station, Vec3 } from "./types";
@@ -122,6 +123,10 @@ function currentTarget(state: GameState, fleet: Fleet): Vec3 | null {
   const o = fleet.order;
   if (!o || !fleet.systemId) return null;
   if (o.route.length) return gateFor(state, fleet.systemId, o.route[0]).pos;
+  if (o.kind === "resupply" && o.fleetId) {
+    const target = state.fleets[o.fleetId];
+    return target && target.systemId === fleet.systemId ? target.pos : null;
+  }
   if (o.kind === "attack" && o.fleetId) {
     const target = state.fleets[o.fleetId];
     if (!target || target.systemId !== fleet.systemId) return null;
@@ -173,7 +178,7 @@ const ZERO: Vec3 = { x: 0, y: 0, z: 0 };
 function targetVelocity(state: GameState, fleet: Fleet): Vec3 {
   const o = fleet.order;
   if (!o || !fleet.systemId || o.route.length) return ZERO;
-  if (o.kind === "attack" && o.fleetId) return state.fleets[o.fleetId]?.vel ?? ZERO;
+  if ((o.kind === "attack" || o.kind === "resupply") && o.fleetId) return state.fleets[o.fleetId]?.vel ?? ZERO;
   if (o.bodyId) return bodyVelocity(state, o.bodyId);
   return ZERO;
 }
@@ -248,7 +253,8 @@ export function stepFleets(state: GameState, dt: number, events: SimEvent[]): vo
     const target = currentTarget(state, fleet);
     if (!target) {
       // Nothing left to head for (target gone, already here, peace): the order is complete.
-      if (fleet.order) clearOrder(state, fleet);
+      // (A tender whose fleet is elsewhere waits; the daily logistics pass re-routes it.)
+      if (fleet.order && fleet.order.kind !== "resupply") clearOrder(state, fleet);
       followOrbit(state, fleet, dt);
       continue;
     }
@@ -368,6 +374,9 @@ function arrive(state: GameState, fleet: Fleet, dt: number, events: SimEvent[]):
     case "migrate":
       fleet.orbitBodyId = o.bodyId ?? null;
       doMigrate(state, fleet, dt);
+      break;
+    case "resupply":
+      deliverSupplies(state, fleet);
       break;
     case "trade":
       fleet.orbitBodyId = o.bodyId ?? null;

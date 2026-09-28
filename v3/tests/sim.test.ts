@@ -26,6 +26,7 @@ import { BUILDING_MAP, STATION_MAP, STATIONS } from "../src/sim/data/structures"
 import { fleetPower } from "../src/sim/combat";
 import { declareWar } from "../src/sim/commands";
 import { proposeTrade, TRADE_INTERVAL, tradeValue } from "../src/sim/trade";
+import { shipStores, supplyLevel } from "../src/sim/supplies";
 import { canSeeLog } from "../src/sim/util";
 import type { Colony, Fleet, GameState } from "../src/sim/types";
 
@@ -1142,5 +1143,88 @@ describe("empty fleets", () => {
     guard.ships = [];
     g.step();
     expect(s.fleets[guard.id]).toBeUndefined();
+  });
+});
+
+describe("logistics", () => {
+  const empty = (f: Fleet) => f.ships.forEach((sh) => (sh.stores = { metals: 0, energy: 0 }));
+
+  it("ships fire from their stores and a dry fleet cannot fight", () => {
+    const g = Game.create({ seed: "ammo", pirates: true });
+    const s = g.state;
+    const sys = Object.keys(s.systems).find((id) => !Object.values(s.colonies).some((c) => c.systemId === id))!;
+    const ours = makeFleet(s, g.player, sys, { x: 20, y: 0, z: 20 }, "Ours");
+    for (let i = 0; i < 3; i++) ours.ships.push(makeShip(s, g.player, "corvette"));
+    const full = { ...shipStores(ours.ships[0]) };
+    expect(full.metals + full.energy).toBeGreaterThan(0);
+    const foe = makeFleet(s, s.empires.pirates, sys, { x: 20.3, y: 0, z: 20 }, "Foe");
+    foe.ships.push(makeShip(s, s.empires.pirates, "frigate"));
+    for (let i = 0; i < 60; i++) g.step();
+    const after = shipStores(ours.ships[0]);
+    expect(after.metals + after.energy).toBeLessThan(full.metals + full.energy); // munitions spent
+    // Dry ships don't fire.
+    empty(ours);
+    const hp = foe.ships.map((x) => x.hull_hp + x.armor + x.shields).reduce((a, b) => a + b, 0);
+    for (let i = 0; i < 30 && s.fleets[foe.id]; i++) g.step();
+    const hp2 = (s.fleets[foe.id]?.ships ?? []).map((x) => x.hull_hp + x.armor + x.shields).reduce((a, b) => a + b, 0);
+    expect(hp2).toBeGreaterThanOrEqual(hp - 1e-6);
+    expect(s.log.some((l) => l.text.includes("out of munitions"))).toBe(true);
+  });
+
+  it("fleets at home restock from the stockpile", () => {
+    const g = Game.create({ seed: "restock" });
+    const guard = playerFleet(g, "Home Guard");
+    empty(guard);
+    g.player.resources.metals = 500;
+    g.player.resources.energy = 500;
+    g.refreshIncome();
+    const stock = g.player.resources.metals + g.player.resources.energy;
+    g.advance(1.05);
+    expect(supplyLevel(guard.ships).overall).toBeGreaterThan(0.2);
+    expect(g.player.resources.metals + g.player.resources.energy).toBeLessThan(stock); // paid for
+    g.advance(4);
+    expect(supplyLevel(guard.ships).overall).toBeGreaterThan(0.99);
+  });
+
+  it("fleets in the field get a supply tender from the nearest colony", () => {
+    const g = Game.create({ seed: "tender", pirates: false });
+    const s = g.state;
+    const guard = playerFleet(g, "Home Guard");
+    const next = s.systems[guard.systemId!].gates[0].otherSystemId;
+    expect(g.moveFleet(guard.id, next).ok).toBe(true);
+    for (let i = 0; i < 3000 && (guard.order || guard.transit); i++) g.step();
+    expect(guard.systemId).toBe(next);
+    empty(guard);
+    g.player.resources.metals = 800;
+    g.player.resources.energy = 800;
+    g.player.resources.credits = 500;
+    g.advance(1.05);
+    const tender = Object.values(s.fleets).find((f) => f.order?.kind === "resupply" && f.order.fleetId === guard.id);
+    expect(tender).toBeDefined();
+    expect(tender!.civilian).toBe(true);
+    expect(tender!.supplies!.metals + tender!.supplies!.energy).toBeGreaterThan(5);
+    expect(g.player.resources.metals).toBeLessThan(800); // loaded from the stockpile
+    for (let i = 0; i < 4000 && s.fleets[tender!.id]; i++) g.step();
+    expect(s.fleets[tender!.id]).toBeUndefined();
+    expect(supplyLevel(guard.ships).overall).toBeGreaterThan(0.5);
+  });
+
+  it("a tender whose fleet is lost brings its cargo back", () => {
+    const g = Game.create({ seed: "tender-lost", pirates: false });
+    const s = g.state;
+    const guard = playerFleet(g, "Home Guard");
+    const next = s.systems[guard.systemId!].gates[0].otherSystemId;
+    g.moveFleet(guard.id, next);
+    for (let i = 0; i < 3000 && (guard.order || guard.transit); i++) g.step();
+    empty(guard);
+    g.player.resources = { credits: 500, metals: 800, energy: 800, exotics: 0 };
+    g.advance(1.05);
+    const tender = Object.values(s.fleets).find((f) => f.order?.kind === "resupply")!;
+    const carried = tender.supplies!.metals;
+    const before = g.player.resources.metals;
+    delete s.fleets[guard.id];
+    g.advance(1.05);
+    expect(s.fleets[tender.id]).toBeUndefined();
+    expect(g.player.resources.metals).toBeGreaterThan(before + carried * 0.99 - 20);
   });
 });

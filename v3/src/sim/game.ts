@@ -14,6 +14,7 @@ import { updateContacts } from "./knowledge";
 import { migrationDay } from "./migration";
 import { stepEvasion } from "./evasion";
 import { tradeDay } from "./trade";
+import { logisticsDay } from "./logistics";
 import { createGame, makeFleet, makeShip, SAVE_VERSION } from "./galaxy";
 import { clearModifierCache } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
@@ -81,6 +82,7 @@ export class Game extends PlayerFacade {
     repairFleetsDay(s);
     migrationDay(s);
     tradeDay(s);
+    logisticsDay(s);
     for (const [a, b] of updateContacts(s)) this.events.push({ type: "contact", a, b });
     for (const e of Object.values(s.empires)) if (e.ai && e.alive) aiThink(s, e, rng);
     for (const e of Object.values(s.empires)) if (e.alive && !e.isPirate) ensureCapital(s, e.id);

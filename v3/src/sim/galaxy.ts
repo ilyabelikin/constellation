@@ -10,6 +10,7 @@ import { starName, planetName, moonName } from "./names";
 import { orbitalPeriodDays, dist } from "./orbits";
 import { Rng, hashString } from "./rng";
 import { shipStats } from "./modifiers";
+import { storeCapacity } from "./supplies";
 import type {
   Body,
   Colony,
@@ -586,6 +587,7 @@ export function makeShip(state: GameState, empire: Empire, hullId: string, name?
     armor: stats.armor,
     shields: stats.shields,
     xp: 0,
+    ...(hull.weapons.length ? { stores: storeCapacity(hullId) } : {}),
   };
 }
 

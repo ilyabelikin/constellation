@@ -8,7 +8,8 @@ import { isBankrupt, maxDefense, systemOwner } from "./economy";
 import { modifiers, shipStats, weaponDamage } from "./modifiers";
 import { bodyPosition, copyVec, dist } from "./orbits";
 import { Rng } from "./rng";
-import { bodyRef, log, logTo, witnesses } from "./util";
+import { bodyRef, fleetRef, log, logTo, witnesses } from "./util";
+import { REPAIR_METALS_PER_HP, shipStores, shotCost } from "./supplies";
 import type { Battle, Colony, Empire, Fleet, GameState, Ship, SimEvent, Station, Vec3 } from "./types";
 
 export const ENGAGE_RANGE = 1.2;
@@ -308,11 +309,21 @@ function resolveRound(state: GameState, group: Entity[], battle: Battle, dt: num
     const targets = combatants.filter((c) => !dead.has(c) && isHostile(state, shooter.empireId, c.empireId) && targetable(c));
     if (!targets.length) continue;
     const xpMult = shooter.kind === "ship" ? 1 + Math.min(0.25, shooter.ship.xp * 0.02) : 1;
+    // Ships fire from their stores (raiders live off plunder and never run dry).
+    const stores = shooter.kind === "ship" && !empire.isPirate ? shipStores(shooter.ship) : null;
     for (const mount of mounts) {
       const wd = WEAPONS[mount.family];
       const expected = dt / wd.cooldown;
       const shots = Math.floor(expected) + (rng.next() < expected - Math.floor(expected) ? 1 : 0);
+      const cost = stores ? shotCost(mount) : null;
       for (let s = 0; s < shots; s++) {
+        if (stores && cost) {
+          if (stores[cost.res] < cost.amount) {
+            if (shooter.kind === "ship") warnDry(state, shooter.fleet);
+            break;
+          }
+          stores[cost.res] -= cost.amount;
+        }
         const target = rng.weighted(targets, (t) => (dead.has(t) ? 0 : t.weight));
         if (dead.has(target)) continue;
         const intercepted = wd.interceptable && rng.next() < Math.min(0.7, (pd[target.empireId] ?? 0) * 0.04);
@@ -467,10 +478,28 @@ export function repairFleetsDay(state: GameState): void {
     for (const ship of f.ships) {
       const st = shipStats(e, HULL_MAP[ship.hull]);
       ship.shields = Math.min(st.shields, ship.shields + st.shields * 0.5);
-      ship.armor = Math.min(st.armor, ship.armor + st.armor * rate);
-      ship.hull_hp = Math.min(st.hull, ship.hull_hp + st.hull * rate);
+      let armor = Math.min(st.armor - ship.armor, st.armor * rate);
+      let hull = Math.min(st.hull - ship.hull_hp, st.hull * rate);
+      // Field repairs use spare parts from the ship's stores (raiders scavenge).
+      if (!e.isPirate && HULL_MAP[ship.hull].weapons.length && armor + hull > 0) {
+        const stores = shipStores(ship);
+        const afford = Math.min(1, stores.metals / ((armor + hull) * REPAIR_METALS_PER_HP));
+        armor *= afford;
+        hull *= afford;
+        stores.metals -= (armor + hull) * REPAIR_METALS_PER_HP;
+      }
+      ship.armor += Math.max(0, armor);
+      ship.hull_hp += Math.max(0, hull);
     }
   }
+}
+
+/** Tell the player (once per shortage) that a fleet has run out of munitions. */
+function warnDry(state: GameState, fleet: Fleet): void {
+  if (fleet.dryWarned !== undefined) return;
+  fleet.dryWarned = state.day;
+  const e = state.empires[fleet.empireId];
+  if (e.isPlayer) log(state, "danger", `${fleet.name} has run out of munitions! A supply tender is needed, or bring it home to restock.`, e.id, fleet.systemId ?? undefined, fleetRef(fleet));
 }
 
 export function colonyUnderSiege(state: GameState, colony: Colony): boolean {

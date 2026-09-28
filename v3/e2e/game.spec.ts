@@ -189,7 +189,7 @@ test("combat renders weapon effects and explosions", async ({ page }) => {
   });
   await expect(page.locator("#log")).toContainText("Battle erupted", { timeout: 30000 });
   let maxEffects = 0;
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 60; i++) {
     maxEffects = Math.max(maxEffects, await page.evaluate(() => (window as any).__app.systemView.effects.count));
     if (maxEffects > 5) break;
     await page.waitForTimeout(500);

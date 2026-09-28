@@ -120,9 +120,11 @@ export interface Ship {
   armor: number;
   shields: number;
   xp: number;
+  /** Munitions and spares carried (see supplies.ts); missing = full. */
+  stores?: { metals: number; energy: number };
 }
 
-export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack" | "migrate" | "trade";
+export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack" | "migrate" | "trade" | "resupply";
 
 export type QueuedOrder = Omit<Order, "route" | "work">;
 
@@ -175,6 +177,10 @@ export interface Fleet {
   queue?: QueuedOrder[];
   /** Credits a merchant freighter's cargo is worth on delivery. */
   cargo?: number;
+  /** Munitions and spares a supply tender carries to a fleet. */
+  supplies?: { metals: number; energy: number };
+  /** Day this fleet last reported running dry of munitions. */
+  dryWarned?: number;
   /** Refuge body an evasive fleet is currently falling back to. */
   evading?: string;
 }

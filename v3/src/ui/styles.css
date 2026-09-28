@@ -1166,3 +1166,13 @@ kbd {
   border-color: rgba(255, 210, 122, 0.45);
   background: rgba(255, 190, 90, 0.1);
 }
+.supply {
+  color: var(--good);
+}
+.supply.mid {
+  color: var(--warn);
+}
+.supply.low {
+  color: var(--bad);
+  font-weight: 600;
+}

@@ -42,6 +42,7 @@ import { inviteLink } from "./Lobby";
 import { morphHtml } from "./morph";
 import { canAfford, canSeeLog } from "../sim/util";
 import { hasMet } from "../sim/knowledge";
+import { supplyLevel } from "../sim/supplies";
 import type { PickResult } from "../render/Engine";
 import { costHtml, dateString, esc, fmt, pct, RES_ICON, RES_NAME, signed, yieldsHtml } from "./format";
 import { helpHtml } from "./help";
@@ -764,6 +765,7 @@ export class Hud {
       <div class="kv"><div class="k">Location</div><div class="v">${loc}</div>
       <div class="k">Orders</div><div class="v">${order}</div>
       <div class="k">Speed</div><div class="v">${fleetSpeed(s, f).toFixed(2)} AU/d</div>
+      ${supplyRow(s, f)}
       ${f.civilian ? `<div class="k">Passengers</div><div class="v">${fmt(f.migrants ?? 0, 1)} pop of settlers (private charter)</div>` : `<div class="k">Strength</div><div class="v">${fmt(fleetPower(s, f))}</div>`}
       ${f.battleId ? `<div class="k">Status</div><div class="v" style="color:var(--bad)">IN COMBAT</div>` : ""}</div>`;
     if (mine) {
@@ -1306,6 +1308,18 @@ const STANCE_TIPS: Record<Stance, string> = {
   passive: "Hold course and hold fire, whatever happens",
 };
 
+/** Munitions and spares of an armed fleet, plus any tender on its way. */
+function supplyRow(s: Game["state"], f: Fleet): string {
+  if (f.civilian || !f.ships.some((sh) => HULL_MAP[sh.hull].weapons.length)) return "";
+  const lv = supplyLevel(f.ships);
+  const bar = (v: number, icon: string, title: string) =>
+    `<span class="supply ${v < 0.25 ? "low" : v < 0.6 ? "mid" : ""}" title="${title}">${icon} ${pct(v)}</span>`;
+  const tender = Object.values(s.fleets).find((t) => t.order?.kind === "resupply" && t.order.fleetId === f.id);
+  return `<div class="k">Supplies</div><div class="v">${bar(lv.metals, "⚙", "Munitions and spare parts (metals): railguns, missiles, point defence, repairs")} ${bar(lv.energy, "⚡", "Energy cells: lasers and lances")}${
+    tender ? ` · tender en route` : lv.overall < 0.25 ? ` · <b style="color:var(--bad)">low!</b>` : ""
+  }</div>`;
+}
+
 function describeAction(g: Game, a: DiploAction): string {
   const s = g.state;
   switch (a.kind) {
@@ -1354,6 +1368,11 @@ function describeOrder(g: Game, f: Fleet, o: Order): string {
       return `Attacking ${esc(s.fleets[o.fleetId ?? ""]?.name ?? "target")}`;
     case "migrate":
       return (o.work ?? 0) > 0 ? `Shuttling settlers down to ${esc(where ?? "")}` : `Carrying settlers to ${esc(where ?? "")}${hops}`;
+    case "resupply": {
+      const t = s.fleets[o.fleetId ?? ""];
+      const c = f.supplies;
+      return `Resupplying ${esc(t?.name ?? "a fleet")}${hops}${c ? ` · ⚙${fmt(c.metals)} ⚡${fmt(c.energy)}` : ""}`;
+    }
     case "trade":
       return (o.work ?? 0) > 0 ? `Unloading goods at ${esc(where ?? "")}` : `Trade run to ${esc(where ?? "")}${hops} · cargo ₵${fmt(f.cargo ?? 0)}`;
   }
