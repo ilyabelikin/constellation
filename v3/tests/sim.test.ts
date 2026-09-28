@@ -637,3 +637,28 @@ describe("realistic flight", () => {
     expect(days).toBeLessThan(oldDays * 3.5);
   });
 });
+
+describe("moon sizes", () => {
+  it("makes most moons small, with large moons rare", () => {
+    const ratios: number[] = [];
+    const giantMoons: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      const s = createGame({ seed: `moons-${i}`, systemCount: 40, aiCount: 1 });
+      for (const b of Object.values(s.bodies)) {
+        if (b.kind !== "moon") continue;
+        const parent = s.bodies[b.parentId!];
+        if (PLANET_TYPES.find((t) => t.id === parent.type)!.giant) giantMoons.push(b.radius);
+        else ratios.push(b.radius / parent.radius);
+      }
+    }
+    ratios.sort((a, b) => a - b);
+    giantMoons.sort((a, b) => a - b);
+    const median = (xs: number[]) => xs[Math.floor(xs.length / 2)];
+    expect(median(ratios)).toBeLessThan(0.12);
+    expect(ratios.filter((r) => r > 0.3).length / ratios.length).toBeLessThan(0.08);
+    expect(median(giantMoons)).toBeLessThan(0.15); // Earth radii
+    expect(giantMoons.filter((r) => r > 0.4).length / giantMoons.length).toBeLessThan(0.1);
+    // Still a few big ones to discover.
+    expect(giantMoons.some((r) => r > 0.4)).toBe(true);
+  });
+});

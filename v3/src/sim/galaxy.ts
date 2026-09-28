@@ -224,15 +224,17 @@ export function generateSystem(
     else moonCount = rng.chance(0.25) ? 1 : 0;
     let moonA = p.radius * (p.ring ? p.ring.outer + 0.8 : 2.4);
     for (let m = 0; m < moonCount; m++) {
+      const mr = moonRadius(rng, p.radius, pt.giant);
       const mt = rng.weighted(PLANET_TYPES, (t) => {
         if (t.moonWeight <= 0) return 0;
         if (zone === "hot" && (t.id === "arctic" || t.id === "ice_dwarf")) return 0;
-        if ((zone === "outer" || zone === "cold") && ["terran", "ocean", "jungle", "savanna", "arid"].includes(t.id))
-          return 0;
+        const earthlike = ["terran", "ocean", "jungle", "savanna", "arid", "tundra", "toxic"].includes(t.id);
+        if ((zone === "outer" || zone === "cold") && earthlike && t.id !== "tundra") return 0;
+        // Only large moons can hold an atmosphere, oceans or a biosphere.
+        if (earthlike && mr < 0.3) return 0;
         if (t.id === "volcanic") return pt.giant ? 0.8 : zone === "hot" ? 0.6 : 0.05; // tidal heating
         return t.moonWeight;
       });
-      const mr = Math.min(rng.range(mt.radius[0], mt.radius[1]) * 0.6, p.radius * 0.45);
       moonA += Math.max(mr * 3, p.radius * 0.5) + rng.range(0.2, 0.8) * p.radius;
       const moon: Body = {
         id: `${p.id}m${m}`,
@@ -250,8 +252,8 @@ export function generateSystem(
           node: rng.range(0, Math.PI * 2),
           argPeri: 0,
         },
-        radius: Math.max(0.12, mr),
-        size: Math.min(mt.size[1] > 0 ? rng.int(Math.max(1, mt.size[0] - 1), Math.min(2, mt.size[1])) : 0, 2),
+        radius: mr,
+        size: mt.size[1] > 0 ? (mr >= 0.4 ? 2 : mr >= 0.2 ? 1 : 0) : 0,
         richness: richness(rng, mt.richness),
         features: ["tidallyLocked"],
         seed: rng.int(0, 1e9),
@@ -387,6 +389,20 @@ export function generateSystem(
           : undefined,
   };
   return { system, bodies };
+}
+
+/**
+ * Moon radius in Earth radii. Most moons are small next to their planet
+ * (Luna is 0.27 R⊕, Ganymede 4% of Jupiter); large moons are rare.
+ */
+export function moonRadius(rng: Rng, parentRadius: number, parentGiant: boolean): number {
+  const skew = Math.pow(rng.next(), 2.6); // heavily biased towards small
+  if (parentGiant) {
+    if (rng.chance(0.05)) return rng.range(0.4, 0.65); // a rare Titan/Ganymede-class moon
+    return 0.03 + skew * 0.3;
+  }
+  if (rng.chance(0.04)) return parentRadius * rng.range(0.3, 0.5); // rare near-double planet
+  return Math.max(0.02, parentRadius * (0.03 + skew * 0.22));
 }
 
 function decorateFeatures(rng: Rng, body: Body): void {

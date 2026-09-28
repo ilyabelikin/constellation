@@ -19,7 +19,7 @@ import {
   createRingMaterial,
 } from "./materials/planet";
 import { createAccretionDiskMaterial, createBeamMaterial, createCoronaMaterial, createStarMaterial } from "./materials/star";
-import { mapSystemPos, planetVisualRadius, shipVisualLength, starVisualRadius, auToScene } from "./scale";
+import { mapSystemPos, moonVisualRadius, planetVisualRadius, shipVisualLength, starVisualRadius, auToScene } from "./scale";
 import { hullMaterial, radiatorMat, shipModel } from "./ShipModels";
 import { stationGeometry, stationMaterial } from "./StationModels";
 
@@ -218,7 +218,7 @@ export class SystemView implements View {
 
   private buildPlanet(body: Body): void {
     const pt = PLANET_TYPE_MAP[body.type];
-    const r = body.kind === "moon" ? Math.max(0.35, planetVisualRadius(body.radius) * 0.75) : planetVisualRadius(body.radius);
+    const r = body.kind === "moon" ? moonVisualRadius(body.radius) : planetVisualRadius(body.radius);
     const group = new THREE.Group();
     const tilt = new THREE.Group();
     tilt.rotation.z = body.axialTilt;

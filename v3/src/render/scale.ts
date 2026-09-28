@@ -28,6 +28,11 @@ export function planetVisualRadius(earthRadii: number): number {
   return 0.45 + 0.95 * Math.sqrt(earthRadii);
 }
 
+/** Moons skip the planet curve's minimum size so small moons stay small. */
+export function moonVisualRadius(earthRadii: number): number {
+  return Math.max(0.14, 0.85 * Math.sqrt(earthRadii));
+}
+
 export function starVisualRadius(type: string, solarRadii: number): number {
   const st = STAR_TYPE_MAP[type];
   if (st?.special === "neutron") return 0.7;
