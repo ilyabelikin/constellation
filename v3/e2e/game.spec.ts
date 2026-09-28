@@ -510,3 +510,28 @@ test("creation effects ride along with the object that moves on its orbit", asyn
   expect(r.moved).toBeGreaterThan(0.05); // the planet really moved…
   expect(r.lag).toBeLessThan(0.05); // …and the pulse moved with it
 });
+
+test("fleets are renamed in place from the pencil next to their name", async ({ page }) => {
+  await startGame(page, "rename-e2e");
+  await page.click('[data-action="speed:0"]');
+  const id = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const f = Object.values(app.game.state.fleets).find((x: any) => x.empireId === app.game.playerId && x.name === "Home Guard") as any;
+    app.select({ kind: "fleet", id: f.id });
+    return f.id;
+  });
+  await page.locator(`#details .fleet-name [data-action="rename:${id}"]`).click();
+  const input = page.locator("#rename-input");
+  await expect(input).toBeFocused();
+  await input.fill("Iron Wall");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#details .fleet-name")).toContainText("Iron Wall");
+  expect(await page.evaluate((fid) => (window as any).__app.game.state.fleets[fid].name, id)).toBe("Iron Wall");
+  // Escape cancels; typing doesn't trigger hotkeys (G would open the galaxy map).
+  await page.locator(`#details .fleet-name [data-action="rename:${id}"]`).click();
+  await input.fill("Gggg");
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#details .fleet-name")).toContainText("Iron Wall");
+  expect(await page.evaluate(() => (window as any).__app.view)).toBe("system");
+  await expect(page.locator('#details [data-action^="rename:"]:has-text("Rename")')).toHaveCount(0);
+});

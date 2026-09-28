@@ -1091,10 +1091,37 @@ kbd {
   transition: opacity 0.16s ease-in;
 }
 .order-queue {
-  margin: 4px 0 0;
-  padding-left: 18px;
+  margin-top: 3px;
   color: var(--muted);
   font-size: 12px;
+  line-height: 1.5;
+}
+.fleet-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.icon-btn {
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 22px;
+  min-width: 0;
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.55;
+}
+.icon-btn:hover {
+  opacity: 1;
+  border-color: var(--line);
+}
+.rename-input {
+  font: inherit;
+  font-weight: inherit;
+  width: 100%;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0 6px;
 }
 .demand {
   margin: 6px 0;

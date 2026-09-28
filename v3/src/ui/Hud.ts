@@ -100,6 +100,8 @@ export class Hud {
   private colonizeTarget: string | null = null;
   private chatWith: string | null = null;
   private shiftHeld = false;
+  /** Fleet whose name is being edited in place. */
+  private renaming: string | null = null;
   private seenChats = new Set<string>();
 
   constructor(
@@ -131,6 +133,16 @@ export class Hud {
         this.submitChat();
       }
     });
+    root.addEventListener("keydown", (e) => {
+      const t = e.target as HTMLInputElement;
+      if (t.id !== "rename-input") return;
+      e.stopPropagation(); // typing a name must not trigger hotkeys
+      if (e.key === "Enter") this.finishRename(true);
+      else if (e.key === "Escape") this.finishRename(false);
+    });
+    root.addEventListener("focusout", (e) => {
+      if ((e.target as HTMLElement).id === "rename-input") this.finishRename(true);
+    });
     root.addEventListener("change", (e) => {
       const t = e.target as HTMLInputElement;
       if (t.dataset.ship) {
@@ -155,6 +167,20 @@ export class Hud {
     morphHtml(target, html);
     const log = target.querySelector<HTMLElement>(".chat-log");
     if (log && log.childElementCount !== chatLen) log.scrollTop = log.scrollHeight;
+  }
+
+  private finishRename(save: boolean): void {
+    const id = this.renaming;
+    if (!id) return;
+    const input = this.regions.details.querySelector<HTMLInputElement>("#rename-input");
+    this.renaming = null;
+    const name = input?.value.trim() ?? "";
+    if (save && name && name !== this.game.state.fleets[id]?.name) {
+      const r = this.game.renameFleet(id, name);
+      if (!r.ok) this.app.toast(r.error ?? "Cannot rename", "error");
+    }
+    this.invalidate();
+    this.render();
   }
 
   isChattingWith(empireId: string): boolean {
@@ -699,8 +725,12 @@ export class Hud {
       : `${esc(s.systems[f.systemId!].name)} system${f.orbitBodyId ? `, orbiting ${esc(s.bodies[f.orbitBodyId].name)}` : ""}`;
     const order =
       (f.order ? describeOrder(g, f, f.order) : "Holding position") +
-      (f.queue?.length ? `<ol class="order-queue">${f.queue.map((q) => `<li>then ${describeOrder(g, f, { ...q, route: [] })}</li>`).join("")}</ol>` : "");
-    let html = `<h2 style="color:${owner.color}">${esc(f.name)}</h2><div class="subtitle">${esc(owner.name)} · ${f.ships.length} ship${f.ships.length > 1 ? "s" : ""}</div>
+      (f.queue?.length ? `<div class="order-queue">${f.queue.map((q) => `<div>then ${describeOrder(g, f, { ...q, route: [] })}</div>`).join("")}</div>` : "");
+    const title =
+      mine && this.renaming === f.id
+        ? `<input id="rename-input" class="rename-input" data-fleet="${f.id}" maxlength="32" value="${esc(f.name)}" style="color:${owner.color}" />`
+        : `${esc(f.name)}${mine ? ` <button class="icon-btn" data-action="rename:${f.id}" title="Rename">✎</button>` : ""}`;
+    let html = `<h2 class="fleet-name" style="color:${owner.color}">${title}</h2><div class="subtitle">${esc(owner.name)} · ${f.ships.length} ship${f.ships.length > 1 ? "s" : ""}</div>
       <div class="kv"><div class="k">Location</div><div class="v">${loc}</div>
       <div class="k">Orders</div><div class="v">${order}</div>
       <div class="k">Speed</div><div class="v">${fleetSpeed(s, f).toFixed(2)} AU/d</div>
@@ -711,7 +741,6 @@ export class Hud {
         ${(["aggressive", "defensive", "passive"] as const).map((st) => `<button data-action="stance:${f.id}:${st}" class="${f.stance === st ? "active" : ""}" title="${st === "aggressive" ? "Engage and pursue enemies" : st === "defensive" ? "Engage, never pursue" : "Avoid combat; only returns fire"}">${st}</button>`).join("")}
       </div><div class="actions">
         <button data-action="stop:${f.id}" ${f.order && !f.transit ? "" : "disabled"}>■ Stop</button>
-        <button data-action="rename:${f.id}">✎ Rename</button>
         <button data-action="split:${f.id}" ${f.ships.length > 1 ? "" : "disabled"} title="Split checked ships into a new fleet">⑂ Split</button>
         <button data-action="focus">◎ Focus</button>
       </div>`;
@@ -1097,12 +1126,16 @@ export class Hud {
       case "stop":
         res(g.stopFleet(args[0]));
         break;
-      case "rename": {
-        const f = g.state.fleets[args[0]];
-        const name = f ? window.prompt("Fleet name", f.name) : null;
-        if (name) res(g.renameFleet(args[0], name));
-        break;
-      }
+      case "rename":
+        // Edit the name in place (Enter saves, Esc cancels, clicking away saves).
+        this.renaming = args[0];
+        this.render();
+        {
+          const input = this.regions.details.querySelector<HTMLInputElement>("#rename-input");
+          input?.focus();
+          input?.select();
+        }
+        return;
       case "split": {
         const r = g.splitFleet(args[0], [...this.splitSel]);
         res(r, r.ok ? "Fleet split" : undefined);
