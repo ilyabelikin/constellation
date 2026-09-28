@@ -4,7 +4,7 @@
 
 import { HULL_MAP, SLOT_MULT, WEAPONS, type SlotSize, type WeaponFamily, type WeaponMount } from "./data/ships";
 import { PIRATE_HAVEN_BOUNTY, STATION_MAP } from "./data/structures";
-import { maxDefense, systemOwner } from "./economy";
+import { isBankrupt, maxDefense, systemOwner } from "./economy";
 import { modifiers, shipStats, weaponDamage } from "./modifiers";
 import { bodyPosition, copyVec, dist } from "./orbits";
 import { Rng } from "./rng";
@@ -440,6 +440,7 @@ export function repairFleetsDay(state: GameState): void {
   for (const f of Object.values(state.fleets)) {
     if (f.battleId || f.transit || !f.systemId) continue;
     const e = state.empires[f.empireId];
+    if (!e.isPirate && isBankrupt(e)) continue; // unpaid dockworkers
     const m = modifiers(e);
     const owner = systemOwner(state, f.systemId);
     let rate = owner === e.id ? 0.04 : 0.01;

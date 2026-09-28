@@ -10,10 +10,11 @@ import { modifiers, hasTech } from "./modifiers";
 import { clamp, log } from "./util";
 import type { Body, Colony, Empire, GameState, QueueItem, ResourceKey, Resources, Station, Yields } from "./types";
 
-export const CAPITAL_YIELDS: Required<Yields> = { credits: 4, metals: 3, energy: 5, research: 3, exotics: 0 };
+/** A homeworld's own output is modest: growth has to come from buildings, stations and colonies. */
+export const CAPITAL_YIELDS: Required<Yields> = { credits: 2, metals: 1.5, energy: 2.5, research: 1.5, exotics: 0 };
 export const CAPITAL_DEFENSE = 350;
-export const POP_CREDITS = 0.25;
-export const POP_RESEARCH = 0.05;
+export const POP_CREDITS = 0.15;
+export const POP_RESEARCH = 0.04;
 
 // --------------------------------------------------------------------------
 // Habitability & population
@@ -215,6 +216,11 @@ export function incomeReport(state: GameState, empire: Empire): IncomeReport {
 
 export function isBlackout(empire: Empire): boolean {
   return empire.resources.energy <= 0 && empire.income.energy < 0;
+}
+
+/** Out of credits and still spending: crews go unpaid (slower construction, no ship repairs). */
+export function isBankrupt(empire: Empire): boolean {
+  return empire.resources.credits <= 0 && empire.income.credits < 0;
 }
 
 /** Final cost of a hull for an empire: tech discounts, and colony ships get pricier per colony. */
@@ -434,9 +440,13 @@ export function processEconomyDay(state: GameState, empire: Empire): void {
   for (const k of ["credits", "metals", "energy", "exotics"] as ResourceKey[]) {
     res[k] += report.net[k];
   }
-  // Deficits: clamp stockpiles, energy can't go below zero (blackout handles penalty).
+  // Deficits: clamp stockpiles; running out has consequences (blackout, bankruptcy).
   for (const k of ["credits", "metals", "energy", "exotics"] as ResourceKey[]) {
     if (res[k] < 0) res[k] = 0;
+  }
+  if (isBankrupt(empire) && empire.isPlayer && state.day - (empire.bankruptWarnedAt ?? -999) >= 30) {
+    empire.bankruptWarnedAt = state.day;
+    log(state, "danger", "The treasury is empty! Unpaid crews: construction runs at half speed and ships are not repaired. Cut fleet upkeep or raise income.", empire.id);
   }
   // Soft storage cap to keep hoarding in check.
   const cap = storageCap(state, empire);
@@ -464,7 +474,7 @@ export function processColonyDay(
   // Construction queue: one item at a time.
   const item = colony.queue[0];
   if (!item) return;
-  const speed = item.kind === "ship" ? 1 + modifiers(empire).shipBuildSpeed : 1;
+  const speed = (item.kind === "ship" ? 1 + modifiers(empire).shipBuildSpeed : 1) * (isBankrupt(empire) ? 0.5 : 1);
   const besieged = colony.defense <= 0 && state.day - colony.lastAttacked < 2;
   if (besieged) return;
   item.progress += speed;

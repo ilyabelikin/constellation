@@ -314,6 +314,8 @@ export interface Empire {
   contacts?: Record<string, true>;
   /** Pending peace offers from other (human) empires: sender id → day offered. */
   peaceOffers?: Record<string, number>;
+  /** Last day the player was warned about an empty treasury. */
+  bankruptWarnedAt?: number;
   /** Pending demands made of this empire: demander id → demand. */
   demands?: Record<string, Demand>;
 }

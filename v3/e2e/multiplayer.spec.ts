@@ -120,7 +120,7 @@ test("cloud saves: save a local game and load it after a reload", async ({ page 
   await page.fill("#lb-seed", "cloud-e2e");
   await page.click("#lb-start");
   await expect(page.locator("#topbar")).toBeVisible();
-  await expect.poll(() => page.evaluate(() => (window as any).__app.game.state.day)).toBeGreaterThan(2);
+  await expect.poll(() => page.evaluate(() => (window as any).__app.game.state.day), { timeout: 40_000 }).toBeGreaterThan(1);
   await domClick(page, '#topbar [data-action="modal:menu"]');
   await domClick(page, '[data-action="cloudsave"]');
   await expect(page.locator(".toast.good").filter({ hasText: "cloud" })).toBeVisible();

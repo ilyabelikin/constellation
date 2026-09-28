@@ -19,6 +19,7 @@ import {
   habitability,
   hullCost,
   incomeReport,
+  isBankrupt,
   isBlackout,
   maxDefense,
   popCapacity,
@@ -197,8 +198,8 @@ export class Hud {
     const cap = storageCap(g.state, p);
     const report = incomeReport(g.state, p);
     const res = (k: ResourceKey) => {
-      const tip = `${RES_NAME[k]}: ${fmt(r[k], 1)} / ${fmt(cap)}\nProduction ${signed(report.gross[k])}/day\nUpkeep ${signed(-report.upkeep[k])}/day${k === "credits" ? `\n(of which administration ${fmt(adminUpkeep(g.playerColonies().length), 1)})` : ""}`;
-      const warn = k === "energy" && isBlackout(p);
+      const tip = `${RES_NAME[k]}: ${fmt(r[k], 1)} / ${fmt(cap)}\nProduction ${signed(report.gross[k])}/day\nUpkeep ${signed(-report.upkeep[k])}/day${k === "credits" ? " (ships' crews, buildings, administration)" : ""}${k === "credits" ? `\n(of which administration ${fmt(adminUpkeep(g.playerColonies().length), 1)})` : ""}`;
+      const warn = (k === "energy" && isBlackout(p)) || (k === "credits" && isBankrupt(p));
       return `<div class="res ${k} ${warn ? "warn" : ""}" title="${esc(tip)}"><span class="icon">${RES_ICON[k]}</span>${fmt(r[k])}<span class="inc ${inc[k] < 0 ? "neg" : "pos"}">${signed(inc[k])}</span></div>`;
     };
     const cur = p.research.current ? TECH_MAP[p.research.current] : null;

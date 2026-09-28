@@ -8,7 +8,8 @@ export function helpHtml(): string {
       Colonies grow population, which produces ₵ credits and research. Each building needs one worker.
       <b>Constructors</b> build orbital stations anywhere you can reach: mining stations on rocks and belts, gas harvesters on giants,
       solar arrays on stars, research outposts on anomalies, artifacts, pulsars and black holes. Everything costs ⚡ energy upkeep —
-      run out and your economy browns out. Every extra colony adds administration costs and makes research dearer, so grow deliberately.
+      run out and your economy browns out. Ships also cost ₵ credits every day to crew — an empty treasury halves construction and stops repairs.
+      Every extra colony adds administration costs and makes research dearer, so grow deliberately.
       <h3>Research</h3>
       Open the tree with <kbd>R</kbd>. Unlock new hulls, weapons, shields, megastructures (Dyson swarms) and bonuses.
       Clicking a locked tech queues its prerequisites automatically.

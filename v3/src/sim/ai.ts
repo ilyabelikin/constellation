@@ -126,6 +126,7 @@ function planBuildings(state: GameState, empire: Empire, colonies: Colony[], rng
     const count = (t: string) => c.buildings.filter((b) => b.type === t).length;
     let choice: string | null = null;
     if (empire.income.energy < 1.5 && empire.resources.energy < 150) choice = "power_plant";
+    else if (empire.income.credits < 2 && empire.resources.credits < 300 && buildingUnlocked(empire, "trade_hub")) choice = "trade_hub";
     else if (!has("shipyard") && (c.capital || c.pop >= 4)) choice = "shipyard";
     else if ((atWar || state.day > 400) && !has("defense_grid") && c.pop >= 3) choice = "defense_grid";
     else if (workers >= c.pop + 0.5 && buildingUnlocked(empire, "habitat")) choice = "habitat";
@@ -178,9 +179,13 @@ function planShips(state: GameState, empire: Empire, colonies: Colony[], owners:
   const countRole = (role: string) =>
     fleets.reduce((s, f) => s + f.ships.filter((sh) => HULL_MAP[sh.hull].role === role).length, 0) + queuedCount(state, empire.id, role);
   const yard = () => yards.reduce((a, b) => (a.queue.length <= b.queue.length ? a : b));
+  const atWar = Object.entries(empire.relations).some(([id, r]) => r === "war" && !state.empires[id].isPirate && state.empires[id].alive);
   const tryQueue = (hull: string, reserve = 40) => {
     const cost = hullCost(state, empire, hull);
     const res = empire.resources;
+    // Warships must be affordable to run, not just to build (unless a war forces our hand).
+    const upkeep = HULL_MAP[hull].upkeep.credits ?? 0;
+    if (HULL_MAP[hull].role === "military" && !atWar && empire.income.credits - upkeep < 0.4) return false;
     if ((cost.credits ?? 0) + reserve > res.credits || (cost.metals ?? 0) + reserve > res.metals) return false;
     if ((cost.exotics ?? 0) > res.exotics) return false;
     return queueShip(state, empire.id, yard().id, hull).ok;

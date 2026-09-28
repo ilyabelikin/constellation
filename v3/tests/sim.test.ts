@@ -846,3 +846,37 @@ describe("queued fleet orders", () => {
     expect(builder.queue).toEqual([]);
   });
 });
+
+describe("slow, deliberate early economy", () => {
+  it("homeworlds start with modest income and ships cost upkeep", () => {
+    const g = Game.create({ seed: "upkeep" });
+    const r = incomeReport(g.state, g.player);
+    expect(r.net.credits).toBeGreaterThan(0);
+    expect(r.net.credits).toBeLessThan(3); // a colony ship (140 credits) takes months to save for
+    const before = r.upkeep.credits;
+    const guard = Object.values(g.state.fleets).find((f) => f.empireId === g.playerId && f.ships.some((s) => s.hull === "corvette"))!;
+    guard.ships.push(makeShip(g.state, g.player, "cruiser"));
+    expect(incomeReport(g.state, g.player).upkeep.credits).toBeCloseTo(before + HULLS.find((h) => h.id === "cruiser")!.upkeep.credits!, 5);
+  });
+
+  it("an empty treasury halves construction and stops repairs", () => {
+    const g = Game.create({ seed: "bankrupt", pirates: false });
+    const c = home(g);
+    g.player.resources.credits = 5000;
+    g.player.resources.metals = 5000;
+    expect(g.queueBuilding(c.id, "mine").ok).toBe(true);
+    const guard = Object.values(g.state.fleets).find((f) => f.empireId === g.playerId && f.ships.some((s) => s.hull === "corvette"))!;
+    // Bankrupt: huge fleet upkeep, no money left.
+    for (let i = 0; i < 12; i++) guard.ships.push(makeShip(g.state, g.player, "battleship"));
+    g.player.resources.credits = 0;
+    g.refreshIncome();
+    guard.ships[0].hull_hp = 1;
+    const item = c.queue[0];
+    const p0 = item.progress;
+    g.advance(4);
+    expect(g.player.resources.credits).toBe(0);
+    expect(item.progress - p0).toBeLessThanOrEqual(2.1); // half speed
+    expect(guard.ships[0].hull_hp).toBe(1); // no repairs
+    expect(g.state.log.some((l) => l.text.includes("treasury is empty"))).toBe(true);
+  });
+});
