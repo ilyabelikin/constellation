@@ -271,3 +271,22 @@ test("system outline and opportunity badges help explore quickly", async ({ page
   await page.click('[data-action="tab:empire"]');
   await expect(page.locator("#outliner")).toContainText("Colonies");
 });
+
+test("right-click dismisses badges and messages", async ({ page }) => {
+  await startGame(page, "hero7");
+  await page.click('[data-action="speed:0"]');
+  const mining = page.locator('#badges [data-action="badge:mining"]');
+  await expect(mining).toBeVisible();
+  await mining.click({ button: "right" });
+  await expect(mining).toHaveCount(0);
+  // Other badges are unaffected, and the dismissal survives re-renders.
+  await expect(page.locator('#badges [data-action="badge:energy"]')).toBeVisible();
+  await page.waitForTimeout(800);
+  await expect(mining).toHaveCount(0);
+  // Toasts close on right-click.
+  await page.evaluate(() => (window as any).__app.toast("Test message", "info"));
+  const toast = page.locator(".toast", { hasText: "Test message" });
+  await expect(toast).toBeVisible();
+  await toast.click({ button: "right" });
+  await expect(toast).toHaveCount(0);
+});

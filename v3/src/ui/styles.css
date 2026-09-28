@@ -668,6 +668,7 @@ kbd {
   pointer-events: none;
 }
 .toast {
+  pointer-events: auto;
   padding: 8px 14px;
   border-radius: 8px;
   background: rgba(10, 16, 30, 0.92);

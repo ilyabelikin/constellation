@@ -268,6 +268,11 @@ class App implements AppApi {
     const el = document.createElement("div");
     el.className = `toast ${kind}`;
     el.textContent = msg;
+    el.title = "Right-click to dismiss";
+    el.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      el.remove();
+    });
     root.appendChild(el);
     setTimeout(() => el.remove(), kind === "error" ? 3200 : 2400);
     while (root.children.length > 4) root.firstChild?.remove();

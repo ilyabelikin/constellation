@@ -39,7 +39,11 @@ import { canAfford } from "../sim/util";
 import type { PickResult } from "../render/Engine";
 import { costHtml, dateString, esc, fmt, pct, RES_ICON, RES_NAME, signed, yieldsHtml } from "./format";
 import { helpHtml } from "./help";
-import { findOpportunities, OPPORTUNITY_META, type Opportunity, type OpportunityKind } from "./opportunities";
+import { findOpportunities, OPPORTUNITY_META, type Opportunity, type OpportunityKind, type OpportunityTarget } from "./opportunities";
+
+function targetKey(t: OpportunityTarget): string {
+  return `${t.kind}:${t.id}`;
+}
 
 export interface AppApi {
   game: Game;
@@ -74,6 +78,7 @@ export class Hud {
   outlinerTab: "system" | "empire" = "system";
   private badgeIndex: Partial<Record<OpportunityKind, number>> = {};
   private opportunities: Opportunity[] = [];
+  private dismissed: Partial<Record<OpportunityKind, Set<string>>> = {};
 
   constructor(
     root: HTMLElement,
@@ -90,6 +95,12 @@ export class Hud {
       <div id="minihelp" class="panel">Right-click to command the active fleet · <kbd>?</kbd> help</div>`;
     for (const id of ["topbar", "badges", "outliner", "details", "log", "viewbar"]) this.regions[id] = root.querySelector(`#${id}`)!;
     root.addEventListener("click", (e) => this.onClick(e));
+    root.addEventListener("contextmenu", (e) => {
+      const badge = (e.target as HTMLElement).closest<HTMLElement>('[data-action^="badge:"]');
+      if (!badge) return;
+      e.preventDefault();
+      this.dismissBadge(badge.dataset.action!.split(":")[1] as OpportunityKind);
+    });
     modalRoot.addEventListener("click", (e) => this.onClick(e));
     root.addEventListener("change", (e) => {
       const t = e.target as HTMLInputElement;
@@ -291,16 +302,34 @@ export class Hud {
   private renderBadges(): void {
     const g = this.game;
     const scope = this.app.view === "system" ? [this.app.systemId] : Object.keys(g.state.systems);
-    this.opportunities = findOpportunities(g, scope);
+    const all = findOpportunities(g, scope);
+    // Dismissed targets stay hidden; a badge reappears only for new targets.
+    // Once a kind has nothing at all, forget its dismissals so it can return later.
+    for (const kind of Object.keys(this.dismissed) as OpportunityKind[]) {
+      if (!all.some((o) => o.kind === kind)) delete this.dismissed[kind];
+    }
+    this.opportunities = all
+      .map((o) => ({ ...o, targets: o.targets.filter((t) => !this.dismissed[o.kind]?.has(targetKey(t))) }))
+      .filter((o) => o.targets.length > 0);
     const where = this.app.view === "system" ? `in ${g.state.systems[this.app.systemId].name}` : "across explored space";
     const html = this.opportunities
       .map((o) => {
         const site = !["idleShips", "freeSlots", "researchIdle"].includes(o.kind);
-        const tip = `${o.title}${site ? ` ${where}` : ""}:\n${o.targets.slice(0, 8).map((t) => "• " + t.label).join("\n")}${o.targets.length > 8 ? `\n…and ${o.targets.length - 8} more` : ""}\n(click to cycle)`;
+        const tip = `${o.title}${site ? ` ${where}` : ""}:\n${o.targets.slice(0, 8).map((t) => "• " + t.label).join("\n")}${o.targets.length > 8 ? `\n…and ${o.targets.length - 8} more` : ""}\n(click to cycle · right-click to dismiss)`;
         return `<button class="badge" data-action="badge:${o.kind}" title="${esc(tip)}" style="--bc:${o.color}"><span class="bi">${o.icon}</span>${o.kind === "researchIdle" ? "" : `<span class="bn">${o.targets.length}</span>`}</button>`;
       })
       .join("");
     this.set("badges", html);
+  }
+
+  /** Hide a badge's current targets until something new shows up. */
+  dismissBadge(kind: OpportunityKind): void {
+    const o = this.opportunities.find((x) => x.kind === kind);
+    if (!o) return;
+    const set = (this.dismissed[kind] ??= new Set());
+    for (const t of o.targets) set.add(targetKey(t));
+    delete this.badgeIndex[kind];
+    this.renderBadges();
   }
 
   private cycleBadge(kind: OpportunityKind): void {
@@ -919,6 +948,8 @@ export class Hud {
 
   reset(): void {
     this.modal = null;
+    this.dismissed = {};
+    this.badgeIndex = {};
     this.endShown = false;
     this.invalidate();
     this.logCount = 0;

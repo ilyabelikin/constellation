@@ -24,7 +24,7 @@ export function helpHtml(): string {
       <h3>Controls</h3>
       <kbd>Left-drag</kbd> rotate · <kbd>Right-drag</kbd>/<kbd>WASD</kbd> pan · <kbd>Wheel</kbd> zoom · <kbd>Click</kbd> select ·
       <kbd>Double-click</kbd> focus / enter system · <kbd>Space</kbd> pause · <kbd>1</kbd>–<kbd>4</kbd> speed · <kbd>G</kbd> galaxy map ·
-      <kbd>H</kbd> home · <kbd>R</kbd> research · <kbd>E</kbd> empires · <kbd>F</kbd> focus selection · <kbd>Esc</kbd> menu
+      <kbd>H</kbd> home · <kbd>R</kbd> research · <kbd>E</kbd> empires · <kbd>F</kbd> focus selection · <kbd>Esc</kbd> menu · <kbd>Right-click</kbd> a badge or message to dismiss it
     </div>
   </div>`;
 }
