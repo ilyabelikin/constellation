@@ -220,6 +220,7 @@ export function splitFleet(state: GameState, empireId: string, fleetId: string, 
   const nf = makeFleet(state, empire, f.systemId, f.pos);
   nf.orbitBodyId = f.orbitBodyId;
   nf.stance = f.stance;
+  nf.vel = { ...f.vel };
   nf.ships = moving;
   f.ships = f.ships.filter((s) => !shipIds.includes(s.id));
   return { ok: true, fleetId: nf.id };

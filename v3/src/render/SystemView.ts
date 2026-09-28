@@ -704,18 +704,32 @@ export class SystemView implements View {
       }
       sv.mesh.rotation.y = -a;
     }
-    // Fleets
+    // Fleets: ships point along their thrust, so they visibly flip to brake;
+    // coasting ships face their velocity and idle ones follow their orbit.
+    const want = new THREE.Vector3();
     for (const v of this.fleets.values()) {
+      const f = v.fleet;
       const prev = v.pos.clone();
-      this.fleetWorld(v.fleet, v.pos);
-      const vel = v.pos.clone().sub(prev);
-      if (vel.lengthSq() > 1e-6) v.heading.lerp(vel.normalize(), 1 - Math.exp(-dt * 5)).normalize();
+      this.fleetWorld(f, v.pos);
+      // Glide (rather than snap) when switching between orbit-holding and flight positions.
+      if (prev.distanceTo(v.pos) > 1.5) v.pos.lerpVectors(prev, v.pos, 1 - Math.exp(-dt * 4));
+      const burn = f.thrust ? Math.hypot(f.thrust.x, f.thrust.y, f.thrust.z) : 0;
+      const speed = f.vel ? Math.hypot(f.vel.x, f.vel.y, f.vel.z) : 0;
+      const inFlight = !!f.order;
+      if (inFlight && burn > 0.05) want.set(f.thrust.x, f.thrust.y, f.thrust.z).normalize();
+      else if (inFlight && speed > 1e-3) want.set(f.vel.x, f.vel.y, f.vel.z).normalize();
+      else want.copy(v.pos).sub(prev);
+      if (want.lengthSq() > 1e-8) v.heading.lerp(want.normalize(), 1 - Math.exp(-dt * 2.5)).normalize();
       v.group.position.copy(v.pos);
-      const look = v.pos.clone().add(v.heading);
-      v.group.lookAt(look);
-      const moving = !!v.fleet.order;
-      const flicker = 0.85 + Math.random() * 0.15;
-      for (const e of v.engines) (e.material as THREE.SpriteMaterial).opacity = (moving ? 1 : 0.45) * flicker;
+      v.group.lookAt(v.pos.clone().add(v.heading));
+      // Engine plumes: bright and long under full burn, a faint pilot glow otherwise.
+      const glow = inFlight ? 0.2 + burn * 0.8 : 0.3;
+      const flicker = 0.88 + Math.random() * 0.12;
+      for (const e of v.engines) {
+        const base = (e.userData.base ??= e.scale.x) as number;
+        e.scale.setScalar(base * (0.55 + glow * 0.9) * flicker);
+        (e.material as THREE.SpriteMaterial).opacity = glow * flicker;
+      }
     }
     this.updatePaths();
     this.updateBattles(time);

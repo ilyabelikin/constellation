@@ -590,3 +590,50 @@ describe("regressions from code review", () => {
     expect(g.demolishBuilding(c.id, yard).ok).toBe(true);
   });
 });
+
+describe("realistic flight", () => {
+  it("accelerates, never exceeds cruise speed, brakes and arrives matching the planet's motion", async () => {
+    const { fleetSpeed, bodyVelocity } = await import("../src/sim/fleets");
+    const g = Game.create({ seed: "flight" });
+    const s = g.state;
+    const f = playerFleet(g, "Home Guard");
+    const sys = s.systems[home(g).systemId];
+    const target = sys.bodyIds.map((id) => s.bodies[id]).filter((b) => b.kind === "planet").sort((a, b) => b.orbit!.a - a.orbit!.a)[0];
+    g.moveFleet(f.id, sys.id, { bodyId: target.id });
+    const vmax = fleetSpeed(s, f);
+    const speeds: number[] = [];
+    let braking = false;
+    for (let i = 0; i < 3000 && f.order; i++) {
+      g.step();
+      const v = Math.hypot(f.vel.x, f.vel.y, f.vel.z);
+      speeds.push(v);
+      expect(v).toBeLessThanOrEqual(vmax * 1.001 + Math.hypot(...Object.values(bodyVelocity(s, target.id))));
+      // A braking burn points against our velocity.
+      if (f.thrust.x * f.vel.x + f.thrust.y * f.vel.y + f.thrust.z * f.vel.z < -0.01) braking = true;
+    }
+    expect(f.order).toBeNull();
+    expect(f.orbitBodyId).toBe(target.id);
+    expect(braking).toBe(true);
+    // Gradual acceleration: the first step is well below cruise speed.
+    expect(speeds[0]).toBeLessThan(vmax * 0.2);
+    expect(Math.max(...speeds)).toBeGreaterThan(vmax * 0.6);
+  });
+
+  it("is roughly half as fast as the original constant-speed model", () => {
+    const g = Game.create({ seed: "flight2" });
+    const s = g.state;
+    const f = playerFleet(g, "Home Guard");
+    const sys = s.systems[home(g).systemId];
+    const gate = sys.gates[0];
+    const startDist = Math.hypot(gate.pos.x - f.pos.x, gate.pos.y - f.pos.y, gate.pos.z - f.pos.z);
+    g.moveFleet(f.id, sys.id, { pos: { ...gate.pos } });
+    let days = 0;
+    while (f.order && days < 400) {
+      g.step();
+      days += 0.1;
+    }
+    const oldDays = startDist / 2; // corvettes used to cruise at 2 AU/day with no acceleration
+    expect(days).toBeGreaterThan(oldDays * 1.8);
+    expect(days).toBeLessThan(oldDays * 3.5);
+  });
+});

@@ -251,3 +251,23 @@ test("a long game keeps running and rendering without errors", async ({ page }) 
   const stats = await canvasStats(page);
   expect(stats.distinct).toBeGreaterThan(30);
 });
+
+test("system outline and opportunity badges help explore quickly", async ({ page }) => {
+  await startGame(page, "hero7");
+  await page.click('[data-action="speed:0"]');
+  // The outline lists the star, the homeworld and tunnel gates.
+  await expect(page.locator("#outliner .tabs button.active")).toContainText("System");
+  await expect(page.locator("#outliner")).toContainText("Terran World");
+  await expect(page.locator("#outliner")).toContainText("Tunnels");
+  // Clicking a row selects that body.
+  const row = page.locator("#outliner .orow", { hasText: "Gas Giant" }).first();
+  await row.click();
+  await expect(page.locator("#details .subtitle")).toContainText("Gas Giant");
+  // Badges show recommended actions; the energy badge jumps to an energy site.
+  await expect(page.locator('#badges [data-action="badge:energy"]')).toBeVisible();
+  await page.click('#badges [data-action="badge:energy"]');
+  await expect(page.locator("#details")).toContainText(/Solar Array|Gas Harvester/);
+  // Empire tab still lists colonies and fleets.
+  await page.click('[data-action="tab:empire"]');
+  await expect(page.locator("#outliner")).toContainText("Colonies");
+});
