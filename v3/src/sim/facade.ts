@@ -43,17 +43,18 @@ export abstract class PlayerFacade {
   setResearch(techId: string) {
     return this.exec("setResearch", techId);
   }
-  moveFleet(fleetId: string, systemId: string, target: { bodyId?: string; pos?: Vec3 } = {}) {
-    return this.exec("moveFleet", fleetId, systemId, target);
+  /** Fleet orders take `queued` to run after the fleet's current order (Shift). */
+  moveFleet(fleetId: string, systemId: string, target: { bodyId?: string; pos?: Vec3 } = {}, queued = false) {
+    return this.exec("moveFleet", fleetId, systemId, target, queued);
   }
-  colonize(fleetId: string, bodyId: string) {
-    return this.exec("colonize", fleetId, bodyId);
+  colonize(fleetId: string, bodyId: string, queued = false) {
+    return this.exec("colonize", fleetId, bodyId, queued);
   }
-  buildStation(fleetId: string, bodyId: string, type: string) {
-    return this.exec("buildStation", fleetId, bodyId, type);
+  buildStation(fleetId: string, bodyId: string, type: string, queued = false) {
+    return this.exec("buildStation", fleetId, bodyId, type, queued);
   }
-  invade(fleetId: string, colonyId: string) {
-    return this.exec("invade", fleetId, colonyId);
+  invade(fleetId: string, colonyId: string, queued = false) {
+    return this.exec("invade", fleetId, colonyId, queued);
   }
   attackFleet(fleetId: string, targetId: string) {
     return this.exec("attackFleet", fleetId, targetId);

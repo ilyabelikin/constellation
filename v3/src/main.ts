@@ -590,7 +590,8 @@ class App implements AppApi {
   }
 
   // ---------------------------------------------------------------- orders
-  private commandAt(pick: PickResult | null): void {
+  /** Right-click order for the active fleet; with Shift it is queued after its current orders. */
+  private commandAt(pick: PickResult | null, queued = false): void {
     const g = this.game;
     const s = g.state;
     const fid = this.activeFleetId;
@@ -605,19 +606,19 @@ class App implements AppApi {
     const roles = new Set(fleet.ships.map((sh) => HULL_MAP[sh.hull].role));
     if (pick.kind === "system") {
       const sys = s.systems[pick.id];
-      r = g.moveFleet(fleet.id, sys.id, { bodyId: sys.starIds[0] });
+      r = g.moveFleet(fleet.id, sys.id, { bodyId: sys.starIds[0] }, queued);
       msg = `${fleet.name} → ${sys.name}`;
     } else if (pick.kind === "body") {
       const body = s.bodies[pick.id];
       const colony = Object.values(s.colonies).find((c) => c.bodyId === body.id);
       if (roles.has("colony") && !colony && canColonize(g.player, body)) {
-        r = g.colonize(fleet.id, body.id);
+        r = g.colonize(fleet.id, body.id, queued);
         msg = `${fleet.name} will colonize ${body.name}`;
       } else if (roles.has("transport") && colony && colony.empireId !== g.playerId) {
-        r = g.invade(fleet.id, colony.id);
+        r = g.invade(fleet.id, colony.id, queued);
         msg = `${fleet.name} will invade ${body.name}`;
       } else {
-        r = g.moveFleet(fleet.id, body.systemId, { bodyId: body.id });
+        r = g.moveFleet(fleet.id, body.systemId, { bodyId: body.id }, queued);
         msg = `${fleet.name} → ${body.name}`;
       }
     } else if (pick.kind === "fleet") {
@@ -627,20 +628,20 @@ class App implements AppApi {
         r = g.attackFleet(fleet.id, target.id);
         msg = `${fleet.name} engaging ${target.name}`;
       } else if (target.systemId) {
-        r = g.moveFleet(fleet.id, target.systemId, { pos: { ...target.pos } });
+        r = g.moveFleet(fleet.id, target.systemId, { pos: { ...target.pos } }, queued);
         msg = `${fleet.name} joining ${target.name}`;
       }
     } else if (pick.kind === "gate") {
       const t = s.tunnels[pick.id];
       const to = t.a === this.systemId ? t.b : t.a;
-      r = g.moveFleet(fleet.id, to);
+      r = g.moveFleet(fleet.id, to, {}, queued);
       msg = `${fleet.name} jumping to ${s.systems[to].name}`;
     } else if (pick.kind === "point" && pick.point && this.systemView) {
-      r = g.moveFleet(fleet.id, this.systemId, { pos: this.systemView.sceneToSystem(pick.point) });
+      r = g.moveFleet(fleet.id, this.systemId, { pos: this.systemView.sceneToSystem(pick.point) }, queued);
       msg = `${fleet.name} moving`;
     }
     if (!r.ok) this.toast(r.error ?? "Cannot do that", "error");
-    else this.toast(msg, "good");
+    else this.toast(queued && (fleet.order || fleet.transit || fleet.queue?.length) ? `Queued: ${msg}` : msg, "good");
     this.hud?.invalidate();
     this.hud?.render();
   }
@@ -677,7 +678,7 @@ class App implements AppApi {
       down = null;
       if (!d || d.moved || !this.running || this.gateJump) return;
       const pick = this.engine.pick(e.clientX, e.clientY);
-      if (d.button === 2) this.commandAt(pick);
+      if (d.button === 2) this.commandAt(pick, e.shiftKey);
       else if (d.button === 0) {
         if (!pick || pick.kind === "point") this.select(null);
         else this.select(pick);

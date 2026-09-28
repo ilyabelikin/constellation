@@ -16,7 +16,7 @@ export function helpHtml(): string {
     <div>
       <h3>Fleets</h3>
       Build ships at colonies with an <b>Orbital Shipyard</b>. Select a fleet, then <b>right-click</b> a planet, gate, point in space or enemy
-      fleet to move or attack. Right-click a system on the galaxy map to travel there through tunnels.
+      fleet to move or attack. Right-click a system on the galaxy map to travel there through tunnels. Hold <b>Shift</b> to queue orders (also on station and colonize buttons) — busy builders take jobs in line.
       Your fleet capacity grows with colonies and hull research.
       <h3>Combat</h3>
       Hostile fleets fight automatically when they meet. Lasers shred shields, railguns crack armour, missiles hit hard but point defense

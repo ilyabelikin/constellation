@@ -14,7 +14,7 @@ export type CommandResult = cmd.CommandResult & { fleetId?: string };
 
 export const PEACE_PROPOSAL_COOLDOWN = 30;
 
-type ArgKind = "id" | "optId" | "int" | "text" | "ids" | "target" | "stance";
+type ArgKind = "id" | "optId" | "int" | "text" | "ids" | "target" | "stance" | "bool";
 
 interface CommandSpec {
   args: ArgKind[];
@@ -37,6 +37,8 @@ function validArg(kind: ArgKind, v: unknown): boolean {
       return Array.isArray(v) && v.length <= 500 && v.every((x) => typeof x === "string" && x.length <= MAX_ID);
     case "stance":
       return v === "aggressive" || v === "defensive" || v === "passive";
+    case "bool":
+      return v === undefined || v === null || typeof v === "boolean";
     case "target": {
       if (v === undefined || v === null) return true;
       if (typeof v !== "object") return false;
@@ -107,12 +109,12 @@ export const COMMANDS: Record<string, CommandSpec> = {
   demolishBuilding: { args: ["id", "int"], run: (s, e, c: string, i: number) => cmd.demolishBuilding(s, e, c, i) },
   setResearch: { args: ["id"], run: (s, e, t: string) => cmd.setResearch(s, e, t) },
   moveFleet: {
-    args: ["id", "id", "target"],
-    run: (s, e, f: string, sys: string, t?: { bodyId?: string; pos?: Vec3 } | null) => cmd.moveFleet(s, e, f, sys, t ?? {}),
+    args: ["id", "id", "target", "bool"],
+    run: (s, e, f: string, sys: string, t?: { bodyId?: string; pos?: Vec3 } | null, q?: boolean) => cmd.moveFleet(s, e, f, sys, t ?? {}, !!q),
   },
-  colonize: { args: ["id", "id"], run: (s, e, f: string, b: string) => cmd.colonizeOrder(s, e, f, b) },
-  buildStation: { args: ["id", "id", "id"], run: (s, e, f: string, b: string, t: string) => cmd.buildStationOrder(s, e, f, b, t) },
-  invade: { args: ["id", "id"], run: (s, e, f: string, c: string) => cmd.invadeOrder(s, e, f, c) },
+  colonize: { args: ["id", "id", "bool"], run: (s, e, f: string, b: string, q?: boolean) => cmd.colonizeOrder(s, e, f, b, !!q) },
+  buildStation: { args: ["id", "id", "id", "bool"], run: (s, e, f: string, b: string, t: string, q?: boolean) => cmd.buildStationOrder(s, e, f, b, t, !!q) },
+  invade: { args: ["id", "id", "bool"], run: (s, e, f: string, c: string, q?: boolean) => cmd.invadeOrder(s, e, f, c, !!q) },
   attackFleet: { args: ["id", "id"], run: (s, e, f: string, t: string) => cmd.attackFleetOrder(s, e, f, t) },
   stopFleet: { args: ["id"], run: (s, e, f: string) => cmd.stopFleet(s, e, f) },
   setStance: { args: ["id", "stance"], run: (s, e, f: string, st: Stance) => cmd.setStance(s, e, f, st) },

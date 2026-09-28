@@ -120,6 +120,8 @@ export interface Ship {
 
 export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack" | "migrate";
 
+export type QueuedOrder = Omit<Order, "route" | "work">;
+
 export interface Order {
   kind: OrderKind;
   systemId: string;
@@ -165,6 +167,8 @@ export interface Fleet {
   civilian?: boolean;
   /** Colonists aboard a migrant liner. */
   migrants?: number;
+  /** Orders to carry out after the current one (shift-queued). */
+  queue?: QueuedOrder[];
 }
 
 export interface BuildingInstance {

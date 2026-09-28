@@ -15,7 +15,7 @@ import {
 import { modifiers } from "./modifiers";
 import { bodyPosition, copyVec } from "./orbits";
 import { log, logTo, nextId, witnesses, withRng } from "./util";
-import type { Colony, Empire, Fleet, GameState, Order, SimEvent, Station, Vec3 } from "./types";
+import type { Colony, Empire, Fleet, GameState, Order, QueuedOrder, SimEvent, Station, Vec3 } from "./types";
 
 export const ARRIVE_EPS = 0.02;
 export const COLONIZE_DAYS = 4;
@@ -248,6 +248,42 @@ export function stepFleets(state: GameState, dt: number, events: SimEvent[]): vo
     }
     const vmax = fleetSpeed(state, fleet) * (fleet.battleId ? 0.5 : 1);
     if (steer(fleet, target, targetVelocity(state, fleet), vmax, fleetAccel(state, fleet), dt)) arrive(state, fleet, dt, events);
+  }
+  for (const fleet of Object.values(state.fleets)) if (!fleet.order && !fleet.transit && fleet.systemId && fleet.queue?.length) startQueuedOrder(state, fleet);
+}
+
+/** Why a queued order can no longer be carried out (checked when it comes up). */
+function queuedOrderError(state: GameState, fleet: Fleet, o: QueuedOrder): string | null {
+  const empire = state.empires[fleet.empireId];
+  const has = (role: string) => fleet.ships.some((s) => HULL_MAP[s.hull].role === role);
+  const body = o.bodyId ? state.bodies[o.bodyId] : null;
+  switch (o.kind) {
+    case "colonize":
+      if (!has("colony") || !body) return "no colony ship";
+      if (Object.values(state.colonies).some((c) => c.bodyId === body.id)) return `${body.name} is already colonised`;
+      return canColonize(empire, body) ? null : `${body.name} is uninhabitable`;
+    case "buildStation":
+      if (!has("constructor") || !body || !o.stationType) return "no constructor";
+      return stationBuildError(state, empire, o.stationType, body);
+    case "invade": {
+      const c = o.colonyId ? state.colonies[o.colonyId] : null;
+      if (!c || c.empireId === empire.id) return "target colony is gone";
+      return empire.relations[c.empireId] === "war" ? null : "we are no longer at war";
+    }
+    case "attack":
+      return o.fleetId && state.fleets[o.fleetId] ? null : "target is gone";
+    default:
+      return state.systems[o.systemId] ? null : "unknown destination";
+  }
+}
+
+/** Start the next still-valid order from the fleet's queue. */
+export function startQueuedOrder(state: GameState, fleet: Fleet): void {
+  const empire = state.empires[fleet.empireId];
+  while (fleet.queue?.length && !fleet.order) {
+    const next = fleet.queue.shift()!;
+    const err = queuedOrderError(state, fleet, next) ?? issueOrder(state, fleet, next);
+    if (err && empire.isPlayer) log(state, "info", `${fleet.name} skipped a queued order: ${err}.`, empire.id, fleet.systemId ?? undefined);
   }
 }
 

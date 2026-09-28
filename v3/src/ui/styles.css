@@ -1090,3 +1090,9 @@ kbd {
   opacity: 1;
   transition: opacity 0.16s ease-in;
 }
+.order-queue {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 12px;
+}

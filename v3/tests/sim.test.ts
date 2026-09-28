@@ -811,3 +811,38 @@ describe("population and migration", () => {
     expect(HULLS.find((h) => h.id === "liner")!.command).toBe(0);
   });
 });
+
+describe("queued fleet orders", () => {
+  it("runs shift-queued orders one after another and skips ones that became impossible", () => {
+    const g = Game.create({ seed: "queue", pirates: false });
+    const builder = playerFleet(g, "Construction Crew 3") ?? Object.values(g.state.fleets).find((f) => f.empireId === g.playerId && f.ships.some((s) => s.hull === "constructor"))!;
+    g.player.resources.credits = 9000;
+    g.player.resources.metals = 9000;
+    g.player.resources.energy = 9000;
+    const sys = g.state.systems[home(g).systemId];
+    const sites: [string, string][] = [];
+    for (const id of sys.bodyIds)
+      for (const st of STATIONS)
+        if (sites.length < 3 && !sites.some(([b]) => b === id) && !stationBuildError(g.state, g.player, st.id, g.state.bodies[id])) sites.push([id, st.id]);
+    expect(sites.length).toBeGreaterThanOrEqual(2);
+    expect(g.buildStation(builder.id, sites[0][0], sites[0][1]).ok).toBe(true);
+    // Without Shift a new order replaces the current one; with Shift it waits in line.
+    expect(g.buildStation(builder.id, sites[1][0], sites[1][1], true).ok).toBe(true);
+    expect(builder.queue).toHaveLength(1);
+    expect(g.buildStation(builder.id, sites[1][0], sites[1][1], true).ok).toBe(false); // no duplicates
+    const home2 = home(g);
+    expect(g.moveFleet(builder.id, home2.systemId, { bodyId: home2.bodyId }, true).ok).toBe(true);
+    expect(builder.order?.kind).toBe("buildStation");
+    const built = () => Object.values(g.state.stations).filter((s) => s.empireId === g.playerId).length;
+    const before = built();
+    for (let i = 0; i < 4000 && (builder.order || builder.queue?.length); i++) g.step();
+    expect(built()).toBe(before + 2);
+    expect(builder.order).toBeNull();
+    expect(builder.orbitBodyId).toBe(home2.bodyId); // last queued order: return home
+    // A direct order clears the plan.
+    g.moveFleet(builder.id, home2.systemId, { bodyId: sites[0][0] });
+    g.moveFleet(builder.id, home2.systemId, { bodyId: home2.bodyId }, true);
+    g.stopFleet(builder.id);
+    expect(builder.queue).toEqual([]);
+  });
+});

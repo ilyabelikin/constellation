@@ -34,7 +34,7 @@ import { fleetSpeed, findRoute } from "../sim/fleets";
 import type { PlayerFacade as Game } from "../sim/facade";
 import { buildingUnlocked, hullUnlocked, shipStats, stationUnlocked } from "../sim/modifiers";
 import { dist } from "../sim/orbits";
-import type { Body, ChatMessage, Colony, Fleet, ResourceKey } from "../sim/types";
+import type { Body, ChatMessage, Colony, Fleet, Order, ResourceKey } from "../sim/types";
 import type { SessionInfo } from "../net/protocol";
 import { inviteLink } from "./Lobby";
 import { canAfford, canSeeLog } from "../sim/util";
@@ -96,6 +96,7 @@ export class Hud {
   private dismissed: Partial<Record<OpportunityKind, Set<string>>> = {};
   private colonizeTarget: string | null = null;
   private chatWith: string | null = null;
+  private shiftHeld = false;
   private seenChats = new Set<string>();
 
   constructor(
@@ -110,7 +111,7 @@ export class Hud {
       <div id="details" class="panel hidden"></div>
       <div id="log" class="panel"></div>
       <div id="viewbar" class="panel"></div>
-      <div id="minihelp" class="panel">Right-click to command the active fleet · <kbd>?</kbd> help</div>`;
+      <div id="minihelp" class="panel">Right-click to command the active fleet · <kbd>Shift</kbd> queues orders · <kbd>?</kbd> help</div>`;
     for (const id of ["topbar", "badges", "outliner", "details", "log", "viewbar"]) this.regions[id] = root.querySelector(`#${id}`)!;
     root.addEventListener("click", (e) => this.onClick(e));
     root.addEventListener("contextmenu", (e) => {
@@ -459,6 +460,36 @@ export class Hud {
     this.set("details", html || `<div class="hint">Nothing selected.</div>`);
   }
 
+  /**
+   * The ship to task with a job: the selected fleet if it can do it, else the
+   * nearest idle one, else a busy one (the job can then be Shift-queued).
+   */
+  private fleetFor(role: string, systemId: string): { fleet: Fleet; busy: boolean } | null {
+    const s = this.game.state;
+    const hasRole = (f: Fleet) => f.empireId === s.playerId && !f.civilian && f.ships.some((sh) => HULL_MAP[sh.hull].role === role);
+    const active = this.app.activeFleetId ? s.fleets[this.app.activeFleetId] : null;
+    if (active && hasRole(active)) return { fleet: active, busy: !!(active.order || active.transit) };
+    const idle = this.nearestIdleFleet(role, systemId);
+    if (idle) return { fleet: idle, busy: false };
+    const busy = Object.values(s.fleets)
+      .filter(hasRole)
+      .sort((a, b) => (a.queue?.length ?? 0) - (b.queue?.length ?? 0))[0];
+    return busy ? { fleet: busy, busy: true } : null;
+  }
+
+  /** Give a job to a fleet: immediately when idle, queued with Shift when busy. */
+  private dispatch(pick: { fleet: Fleet; busy: boolean }, run: (queued: boolean) => { ok: boolean; error?: string }, what: string): void {
+    const { fleet, busy } = pick;
+    if (busy && !this.shiftHeld) {
+      this.app.toast(`${fleet.name} is busy — Shift+click to queue this after its current orders`, "info");
+      return;
+    }
+    const r = run(this.shiftHeld);
+    if (!r.ok) this.app.toast(r.error ?? "Cannot do that", "error");
+    else this.app.toast(busy ? `Queued for ${fleet.name}: ${what}` : `${fleet.name}: ${what}`, "good");
+    this.invalidate();
+  }
+
   private nearestIdleFleet(role: string, bodySystemId: string): Fleet | null {
     const s = this.game.state;
     let best: Fleet | null = null;
@@ -561,9 +592,9 @@ export class Hud {
         );
     }
     if (colony && colony.empireId !== p.id && p.relations[colony.empireId] === "war") {
-      const f = this.nearestIdleFleet("transport", b.systemId);
+      const t = this.fleetFor("transport", b.systemId);
       actions.push(
-        `<button class="danger" data-action="invade:${colony.id}" ${f ? "" : "disabled"} title="${f ? "Troops land once planetary defenses are down" : "Requires Troop Transports (Ground Forces tech)"}">⚔ Invade${f ? ` · ${esc(f.name)}` : ""}</button>`,
+        `<button class="danger" data-action="invade:${colony.id}" ${t ? "" : "disabled"} title="${t ? (t.busy ? `${esc(t.fleet.name)} is busy — Shift+click to queue` : "Troops land once planetary defenses are down") : "Requires Troop Transports (Ground Forces tech)"}">⚔ Invade${t ? ` · ${esc(t.fleet.name)}${t.busy ? " (busy)" : ""}` : ""}</button>`,
       );
     }
     if (actions.length) html += `<div class="actions">${actions.join("")}</div>`;
@@ -571,14 +602,25 @@ export class Hud {
     // Station construction options
     const options = STATIONS.filter((d) => d.requires !== "__never__" && stationAllowedOn(d, b));
     if (options.length && (!colony || colony.empireId === p.id)) {
-      const cons = this.nearestIdleFleet("constructor", b.systemId);
-      html += `<div class="section-title"><span>Build station</span><span>${cons ? esc(cons.name) : "no constructor"}</span></div><div class="grid-buttons">`;
+      const pick = this.fleetFor("constructor", b.systemId);
+      const cons = pick?.fleet;
+      const queued = cons?.queue?.length ?? 0;
+      html += `<div class="section-title"><span>Build station</span><span>${cons ? `${esc(cons.name)}${pick!.busy ? ` · busy${queued ? ` (+${queued} queued)` : ""} · Shift+click to queue` : ""}` : "no constructor"}</span></div><div class="grid-buttons">`;
       for (const d of options) {
         const unlocked = stationUnlocked(p, d.id);
         const err = unlocked ? stationBuildError(s, p, d.id, b) : "Requires research";
         const est = estimateStation(g, d.id, b);
-        const disabled = !!err || !cons || !canAfford(p.resources, d.cost);
-        const title = err ?? (!cons ? "Build a Constructor first" : !canAfford(p.resources, d.cost) ? "Not enough resources" : d.description);
+        // A busy constructor can still take jobs (Shift queues them); resources are paid when work starts.
+        const disabled = !!err || !cons || (!pick!.busy && !canAfford(p.resources, d.cost));
+        const title =
+          err ??
+          (!cons
+            ? "Build a Constructor first"
+            : pick!.busy
+              ? `${cons.name} is busy — Shift+click to queue after its current orders`
+              : !canAfford(p.resources, d.cost)
+                ? "Not enough resources"
+                : d.description);
         html += `<button class="build-btn" data-action="station:${b.id}:${d.id}" ${disabled ? "disabled" : ""} title="${esc(title)}">
           <span class="t">${d.icon} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)}</span><span class="y">${est}</span></button>`;
       }
@@ -659,7 +701,9 @@ export class Hud {
     const loc = f.transit
       ? `In tunnel to ${esc(s.systems[f.transit.to].name)} (${Math.max(0, f.transit.total - f.transit.progress).toFixed(0)}d)`
       : `${esc(s.systems[f.systemId!].name)} system${f.orbitBodyId ? `, orbiting ${esc(s.bodies[f.orbitBodyId].name)}` : ""}`;
-    const order = f.order ? describeOrder(g, f) : "Holding position";
+    const order =
+      (f.order ? describeOrder(g, f, f.order) : "Holding position") +
+      (f.queue?.length ? `<ol class="order-queue">${f.queue.map((q) => `<li>then ${describeOrder(g, f, { ...q, route: [] })}</li>`).join("")}</ol>` : "");
     let html = `<h2 style="color:${owner.color}">${esc(f.name)}</h2><div class="subtitle">${esc(owner.name)} · ${f.ships.length} ship${f.ships.length > 1 ? "s" : ""}</div>
       <div class="kv"><div class="k">Location</div><div class="v">${loc}</div>
       <div class="k">Orders</div><div class="v">${order}</div>
@@ -949,6 +993,7 @@ export class Hud {
     const [action, ...args] = target.dataset.action!.split(":");
     const g = this.game;
     const app = this.app;
+    this.shiftHeld = e.shiftKey;
     const res = (r: { ok: boolean; error?: string }, okMsg?: string) => {
       if (!r.ok) app.toast(r.error ?? "Cannot do that", "error");
       else if (okMsg) app.toast(okMsg, "good");
@@ -1011,8 +1056,8 @@ export class Hud {
         break;
       case "colonize": {
         const b = g.state.bodies[args[0]];
-        const f = this.nearestIdleFleet("colony", b.systemId);
-        if (f) res(g.colonize(f.id, b.id), `${f.name} en route to ${b.name}`);
+        const pick = this.fleetFor("colony", b.systemId);
+        if (pick) this.dispatch(pick, (q) => g.colonize(pick.fleet.id, b.id, q), `colonize ${b.name}`);
         else {
           // No colony ship available: offer to build one at the best shipyard.
           this.colonizeTarget = b.id;
@@ -1033,14 +1078,14 @@ export class Hud {
       }
       case "invade": {
         const c = g.state.colonies[args[0]];
-        const f = this.nearestIdleFleet("transport", c.systemId);
-        if (f) res(g.invade(f.id, c.id), `${f.name} will land when defenses fall`);
+        const pick = this.fleetFor("transport", c.systemId);
+        if (pick) this.dispatch(pick, (q) => g.invade(pick.fleet.id, c.id, q), `invade ${c.name} when defenses fall`);
         break;
       }
       case "station": {
         const b = g.state.bodies[args[0]];
-        const f = this.nearestIdleFleet("constructor", b.systemId);
-        if (f) res(g.buildStation(f.id, b.id, args[1]), `${f.name} dispatched`);
+        const pick = this.fleetFor("constructor", b.systemId);
+        if (pick) this.dispatch(pick, (q) => g.buildStation(pick.fleet.id, b.id, args[1], q), `build ${STATION_MAP[args[1]]?.name ?? "station"} at ${b.name}`);
         break;
       }
       case "stance":
@@ -1149,9 +1194,9 @@ export class Hud {
   }
 }
 
-function describeOrder(g: Game, f: Fleet): string {
+function describeOrder(g: Game, f: Fleet, o: Order): string {
   const s = g.state;
-  const o = f.order!;
+  void f;
   const where = o.bodyId ? s.bodies[o.bodyId]?.name : s.systems[o.systemId]?.name;
   const hops = o.route.length ? ` (${o.route.length} jump${o.route.length > 1 ? "s" : ""})` : "";
   switch (o.kind) {
