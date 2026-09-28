@@ -255,6 +255,8 @@ export interface Empire {
   homelessSince?: number;
   /** Empires this one has met (shared a system, or surveyed one of theirs). */
   contacts?: Record<string, true>;
+  /** Pending peace offers from other (human) empires: sender id → day offered. */
+  peaceOffers?: Record<string, number>;
 }
 
 export interface Battle {
