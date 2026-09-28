@@ -7,14 +7,16 @@ module.exports = {
       cwd: __dirname,
       script: "server/main.ts",
       interpreter: "node",
-      interpreter_args: "--env-file=.env --import tsx",
+      // --experimental-sqlite: node:sqlite is behind a flag before Node 22.13 (the
+      // server runs 22.12); newer Node accepts the flag as a no-op.
+      interpreter_args: "--experimental-sqlite --env-file=.env --import tsx",
       instances: 1,
       autorestart: true,
       max_memory_restart: "1G",
       kill_timeout: 10000,
       env: {
         NODE_ENV: "production",
-        PORT: "8787",
+        PORT: "8790", // 8787 is taken by another service on the server
         DB_PATH: "./data/constellation.db",
       },
       time: true,

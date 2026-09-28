@@ -3,7 +3,7 @@
 # Constellation Deployment Script
 # Deploys the latest v3 from GitHub to the server.
 # Caddy serves $REMOTE_DIR/v3/dist and proxies /ws and /api to the v3 game
-# server (pm2 process "constellation-v3" on 127.0.0.1:8787).
+# server (pm2 process "constellation-v3" on 127.0.0.1:8790).
 #
 # Usage:
 #   ./deploy.sh

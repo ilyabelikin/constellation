@@ -23,7 +23,7 @@ The game is live at https://constell.space as soon as the script finishes.
 - Pulls the latest `main` from GitHub (fast-forward only)
 - Runs `npm ci` in `v3/`
 - Builds `v3/` into `v3/dist/`
-- Starts or reloads the game server with pm2 (`v3/ecosystem.config.cjs`, process `constellation-v3`, port 8787, SQLite database in `v3/data/`)
+- Starts or reloads the game server with pm2 (`v3/ecosystem.config.cjs`, process `constellation-v3`, port 8790, SQLite database in `v3/data/`)
 
 Caddy serves `v3/dist/` and proxies the WebSocket (`/ws`) and health check (`/api/health`) to the game server. Running games are saved on shutdown and every 30 seconds, so a reload doesn't lose them.
 
@@ -46,10 +46,10 @@ The Caddy site block:
 constell.space, www.constell.space {
 	encode gzip zstd
 	handle /ws {
-		reverse_proxy 127.0.0.1:8787
+		reverse_proxy 127.0.0.1:8790
 	}
 	handle /api/* {
-		reverse_proxy 127.0.0.1:8787
+		reverse_proxy 127.0.0.1:8790
 	}
 	handle {
 		root * /opt/constellation/v3/dist
@@ -70,7 +70,7 @@ ssh root@5.223.89.26
 cd /opt/constellation/v3
 nano .env            # OPENROUTER_API_KEY=sk-or-...   (see .env.example for other options)
 pm2 reload constellation-v3 --update-env
-curl -s localhost:8787/health   # "llm": true
+curl -s localhost:8790/health   # "llm": true
 ```
 
 Without a key the game works as before, with rule-based rivals and no AI diplomacy chat. Optional settings: `LLM_MODEL`, `LLM_BASE_URL`, `LLM_MAX_CALLS_PER_HOUR` (global safety cap, default 2000).
