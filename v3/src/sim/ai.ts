@@ -31,8 +31,9 @@ import { findRoute, mergeFleets } from "./fleets";
 import { hasMet } from "./knowledge";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
-import type { Rng } from "./rng";
 import { canAfford, logTo } from "./util";
+import { proposeTrade } from "./trade";
+import { Rng } from "./rng";
 import type { AiDirective, AiState, Colony, Empire, Fleet, GameState, Posture } from "./types";
 
 const THINK_INTERVAL = 5;
@@ -101,6 +102,7 @@ export function aiThink(state: GameState, empire: Empire, rng: Rng): void {
   directCivilians(state, empire, owners, rng);
   directMilitary(state, empire, owners);
   diplomacy(state, empire, owners, rng);
+  seekTrade(state, empire, rng);
 }
 
 function chooseResearch(state: GameState, empire: Empire, rng: Rng): void {
@@ -511,12 +513,38 @@ function directedDiplomacy(state: GameState, empire: Empire, d: AiDirective, rng
     if (state.day - since < 20) continue;
     if (other.ai) {
       if (aiAcceptsPeace(state, other, empire.id, rng)) makePeace(state, empire.id, id);
-    } else if (state.day - (ai.peaceProposedAt?.[id] ?? -999) > 45 && !other.peaceOffers?.[empire.id]) {
+    } else if (state.day - (ai.peaceProposedAt?.[id] ?? -999) > 45 && other.peaceOffers?.[empire.id] === undefined) {
       // Human rulers decide for themselves: send a formal offer.
       (other.peaceOffers ??= {})[empire.id] = state.day;
       (ai.peaceProposedAt ??= {})[id] = state.day;
       logTo(state, "diplomacy", `The ${empire.name} proposes peace. Accept it in the Empires screen.`, [id, empire.id]);
     }
+  }
+}
+
+/** Does the AI open its markets to `fromId`? Traders love it; militarists are wary. */
+export function aiAcceptsTrade(state: GameState, empire: Empire, fromId: string): boolean {
+  if (!empire.ai || empire.relations[fromId] === "war") return false;
+  const d = activeDirective(state, empire);
+  if (d?.warTarget === fromId) return false;
+  if (d?.seekPeace.includes(fromId)) return true;
+  if ((empire.ai.tradeRefusedUntil?.[fromId] ?? -1) > state.day) return false;
+  const p = { trader: 0.95, scholar: 0.75, expansionist: 0.6, militarist: 0.35 }[empire.ai.personality];
+  const rng = new Rng(state.rngState ^ Math.floor(state.day * 7919));
+  const yes = rng.chance(p);
+  if (!yes) (empire.ai.tradeRefusedUntil ??= {})[fromId] = state.day + 60;
+  return yes;
+}
+
+/** AI rulers occasionally offer trade to peaceful neighbours they know. */
+function seekTrade(state: GameState, empire: Empire, rng: Rng): void {
+  const eager = { trader: 0.06, scholar: 0.04, expansionist: 0.03, militarist: 0.015 }[empire.ai!.personality];
+  if (!coloniesOf(state, empire.id).some((c) => c.buildings.some((b) => b.type === "trade_hub"))) return;
+  for (const other of Object.values(state.empires)) {
+    if (other.id === empire.id || other.isPirate || !other.alive || !hasMet(state, empire.id, other.id)) continue;
+    if (empire.relations[other.id] === "war" || empire.tradePartners?.[other.id] !== undefined || other.tradeOffers?.[empire.id] !== undefined) continue;
+    if (activeDirective(state, empire)?.warTarget === other.id) continue;
+    if (rng.chance(eager)) proposeTrade(state, empire.id, other.id);
   }
 }
 

@@ -7,6 +7,7 @@ import { aiAcceptsPeace } from "./ai";
 import * as cmd from "./commands";
 import { colonyShipOptions } from "./planning";
 import { acceptDemand, cedeColony, isResource, rejectDemand, sendTribute } from "./diplomacy";
+import { acceptTrade, cancelTrade, proposeTrade, rejectTrade } from "./trade";
 import { Rng } from "./rng";
 import { log, logTo } from "./util";
 import type { GameState, Stance, Vec3 } from "./types";
@@ -86,14 +87,14 @@ function proposePeace(state: GameState, fromId: string, targetId: string): Comma
 
 function acceptPeace(state: GameState, empireId: string, fromId: string): CommandResult {
   const me = state.empires[empireId];
-  if (!me?.peaceOffers?.[fromId]) return { ok: false, error: "No peace offer from them" };
+  if (me?.peaceOffers?.[fromId] === undefined) return { ok: false, error: "No peace offer from them" };
   delete me.peaceOffers[fromId];
   return cmd.makePeace(state, empireId, fromId);
 }
 
 function rejectPeace(state: GameState, empireId: string, fromId: string): CommandResult {
   const me = state.empires[empireId];
-  if (!me?.peaceOffers?.[fromId]) return { ok: false, error: "No peace offer from them" };
+  if (me?.peaceOffers?.[fromId] === undefined) return { ok: false, error: "No peace offer from them" };
   delete me.peaceOffers[fromId];
   logTo(state, "diplomacy", `The ${me.name} rejected the peace offer of the ${state.empires[fromId].name}.`, [empireId, fromId]);
   return { ok: true };
@@ -134,6 +135,10 @@ export const COMMANDS: Record<string, CommandSpec> = {
   sendTribute: { args: ["id", "id", "amount"], run: (s, e, to: string, res: string, n: number) => (isResource(res) ? sendTribute(s, e, to, res, n) : { ok: false, error: "Unknown resource" }) },
   cedeColony: { args: ["id", "id"], run: (s, e, c: string, to: string) => cedeColony(s, e, c, to) },
   acceptDemand: { args: ["id"], run: (s, e, from: string) => acceptDemand(s, e, from) },
+  proposeTrade: { args: ["id"], run: (s, e, to: string) => proposeTrade(s, e, to) },
+  acceptTrade: { args: ["id"], run: (s, e, from: string) => acceptTrade(s, e, from) },
+  rejectTrade: { args: ["id"], run: (s, e, from: string) => rejectTrade(s, e, from) },
+  cancelTrade: { args: ["id"], run: (s, e, other: string) => cancelTrade(s, e, other) },
   rejectDemand: { args: ["id"], run: (s, e, from: string) => rejectDemand(s, e, from) },
 };
 

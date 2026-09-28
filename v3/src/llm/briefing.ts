@@ -44,7 +44,7 @@ export function buildBriefing(state: GameState, empireId: string, isHuman: (id: 
   const total = Object.keys(state.systems).length;
   lines.push(`DAY ${Math.floor(state.day)}. Systems: you own ${ownedSystems}/${total}, explored ${Object.keys(me.explored).length}.`);
   lines.push(
-    `ECONOMY credits ${n0(r.credits)} (${signed(inc.credits)}/d), metals ${n0(r.metals)} (${signed(inc.metals)}), energy ${n0(r.energy)} (${signed(inc.energy)}), exotics ${n0(r.exotics)} (${signed(inc.exotics)}); research ${n1(inc.research)}/d, ${me.research.completed.length} techs${cur ? `, researching ${cur}` : ""}.`,
+    `ECONOMY credits ${n0(r.credits)} (${signed(inc.credits)}/d${me.tradeRate ? `, merchants ~${signed(me.tradeRate)}/d` : ""}), metals ${n0(r.metals)} (${signed(inc.metals)}), energy ${n0(r.energy)} (${signed(inc.energy)}), exotics ${n0(r.exotics)} (${signed(inc.exotics)}); research ${n1(inc.research)}/d, ${me.research.completed.length} techs${cur ? `, researching ${cur}` : ""}.`,
   );
   lines.push(
     `COLONIES (${colonies.length}): ` +
@@ -77,7 +77,8 @@ export function buildBriefing(state: GameState, empireId: string, isHuman: (id: 
     }
     const human = isHuman(e.id);
     const relation = me.relations[e.id] === "war" ? "war" : "peace";
-    rivals.push({ id: e.id, name: e.name, human, relation });
+    const trade = me.tradePartners?.[e.id] !== undefined;
+    rivals.push({ id: e.id, name: e.name, human, relation, trade });
     const theirs = Object.values(state.colonies).filter((c) => c.empireId === e.id && me.explored[c.systemId]);
     for (const c of theirs) knownColonies.push({ id: c.id, name: c.name, ownerId: e.id });
     const border = Object.keys(owners).some(
@@ -98,6 +99,8 @@ export function buildBriefing(state: GameState, empireId: string, isHuman: (id: 
         : "no colonies known",
     ];
     if (me.peaceOffers?.[e.id] !== undefined) bits.push("THEY OFFER PEACE (pending)");
+    if (trade) bits.push("TRADE PARTNER (merchants fly between us)");
+    else if (me.tradeOffers?.[e.id] !== undefined) bits.push("THEY OFFER A TRADE AGREEMENT (pending)");
     const theirDemand = me.demands?.[e.id];
     if (theirDemand) bits.push(`THEY DEMAND ${theirDemand.kind === "colony" ? state.colonies[theirDemand.colonyId]?.name : `${theirDemand.amount} ${theirDemand.resource}`}`);
     const ourDemand = e.demands?.[empireId];

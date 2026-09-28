@@ -99,6 +99,18 @@ export abstract class PlayerFacade {
   acceptDemand(fromId: string) {
     return this.exec("acceptDemand", fromId);
   }
+  proposeTrade(toId: string) {
+    return this.exec("proposeTrade", toId);
+  }
+  acceptTrade(fromId: string) {
+    return this.exec("acceptTrade", fromId);
+  }
+  rejectTrade(fromId: string) {
+    return this.exec("rejectTrade", fromId);
+  }
+  cancelTrade(otherId: string) {
+    return this.exec("cancelTrade", otherId);
+  }
   rejectDemand(fromId: string) {
     return this.exec("rejectDemand", fromId);
   }

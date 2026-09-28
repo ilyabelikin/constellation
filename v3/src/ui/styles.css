@@ -1161,3 +1161,8 @@ kbd {
   letter-spacing: 0.06em;
   color: var(--muted);
 }
+.tag.trade {
+  color: #ffd27a;
+  border-color: rgba(255, 210, 122, 0.45);
+  background: rgba(255, 190, 90, 0.1);
+}

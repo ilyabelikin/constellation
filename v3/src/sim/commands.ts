@@ -7,6 +7,7 @@ import { TECH_MAP } from "./data/techs";
 import { buildingSlots, canColonize, commandCapacity, commandUsed, hullCost, stationBuildError } from "./economy";
 import { clearOrder, issueOrder, mergeFleets } from "./fleets";
 import { makeFleet } from "./galaxy";
+import { cancelTrade } from "./trade";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
 import { acquaintances, canAfford, logTo, pay, refund } from "./util";
 import type { Empire, Fleet, GameState, QueuedOrder, Stance, Vec3 } from "./types";
@@ -284,6 +285,10 @@ export function declareWar(state: GameState, empireId: string, targetId: string)
   if (!a.contacts?.[targetId] && !b.isPirate) return fail("We have not met them yet");
   a.relations[targetId] = "war";
   b.relations[empireId] = "war";
+  // War ends trade: agreements lapse and merchants in flight turn back.
+  if (a.tradePartners?.[targetId] !== undefined) cancelTrade(state, empireId, targetId, true);
+  delete a.tradeOffers?.[targetId];
+  delete b.tradeOffers?.[empireId];
   if (b.ai) {
     b.ai.warCooldown = 0;
     (b.ai.warStarted ??= {})[empireId] = state.day;

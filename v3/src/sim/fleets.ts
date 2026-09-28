@@ -13,6 +13,7 @@ import {
   systemOwner,
 } from "./economy";
 import { modifiers } from "./modifiers";
+import { deliverTrade, TRADE_UNLOAD_DAYS } from "./trade";
 import { bodyPosition, copyVec } from "./orbits";
 import { bodyRef, fleetRef, log, logTo, nextId, witnesses, withRng } from "./util";
 import type { Colony, Empire, Fleet, GameState, Order, QueuedOrder, SimEvent, Station, Vec3 } from "./types";
@@ -362,6 +363,11 @@ function arrive(state: GameState, fleet: Fleet, dt: number, events: SimEvent[]):
     case "migrate":
       fleet.orbitBodyId = o.bodyId ?? null;
       doMigrate(state, fleet, dt);
+      break;
+    case "trade":
+      fleet.orbitBodyId = o.bodyId ?? null;
+      o.work = (o.work ?? 0) + dt;
+      if (o.work >= TRADE_UNLOAD_DAYS && !fleet.battleId) deliverTrade(state, fleet);
       break;
   }
 }

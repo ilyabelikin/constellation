@@ -6,6 +6,7 @@ import { empirePower } from "./ai";
 import { makePeace, declareWar } from "./commands";
 import { hasMet } from "./knowledge";
 import { acquaintances, logTo } from "./util";
+import { agreeTrade, cancelTrade } from "./trade";
 import type { CommandResult } from "./api";
 import type { Demand, DiploAction, GameState, ResourceKey } from "./types";
 import { RESOURCE_KEYS } from "./types";
@@ -148,6 +149,20 @@ export function aiDiplomaticAction(state: GameState, aiId: string, partnerId: st
     case "demand_tribute":
       if (!isResource(action.resource)) return fail("Unknown resource");
       return makeDemand(state, aiId, partnerId, { kind: "tribute", resource: action.resource, amount: Math.max(1, Math.min(2000, Math.floor(action.amount ?? 100))), day: state.day });
+    case "propose_trade":
+      if (atWar || other.tradePartners?.[aiId] !== undefined) return fail("Not now");
+      if (!other.ai) {
+        (other.tradeOffers ??= {})[aiId] = state.day;
+        logTo(state, "diplomacy", `The ${me.name} proposes a trade agreement. Accept it in the Empires screen.`, [partnerId, aiId]);
+        return OK;
+      }
+      return agreeTrade(state, aiId, partnerId);
+    case "accept_trade":
+      // Agreed in conversation (or answering a formal offer).
+      delete me.tradeOffers?.[partnerId];
+      return agreeTrade(state, aiId, partnerId);
+    case "cancel_trade":
+      return cancelTrade(state, aiId, partnerId);
     case "demand_colony": {
       const c = action.colonyId ? state.colonies[action.colonyId] : null;
       if (!c || !me.explored[c.systemId]) return fail("Unknown colony");

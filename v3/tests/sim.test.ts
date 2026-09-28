@@ -25,6 +25,7 @@ import { HULLS } from "../src/sim/data/ships";
 import { BUILDING_MAP, STATION_MAP, STATIONS } from "../src/sim/data/structures";
 import { fleetPower } from "../src/sim/combat";
 import { declareWar } from "../src/sim/commands";
+import { proposeTrade, tradeValue } from "../src/sim/trade";
 import { canSeeLog } from "../src/sim/util";
 import type { Colony, Fleet, GameState } from "../src/sim/types";
 
@@ -1021,5 +1022,85 @@ describe("evasive stance while sheltering", () => {
     g.step();
     g.step();
     expect(builder.order?.bodyId).toBe(target); // raiders gone: back to work
+  });
+});
+
+describe("merchant trade", () => {
+  function tradeGame() {
+    const g = Game.create({ seed: "trade", aiCount: 1, pirates: false });
+    const s = g.state;
+    const cap = home(g);
+    const other = Object.values(s.bodies).find((b) => b.systemId === cap.systemId && b.id !== cap.bodyId && canColonize(g.player, b))!;
+    const second = foundColony(s, g.player, other.id, 6);
+    for (const c of [cap, second]) c.buildings.push({ type: "trade_hub" });
+    return { g, s, cap, second };
+  }
+
+  it("trade hubs send freighters that pay credits on delivery", () => {
+    const { g, s, cap } = tradeGame();
+    let freighter: Fleet | undefined;
+    for (let i = 0; i < 40 && !freighter; i++) {
+      g.step();
+      freighter = Object.values(s.fleets).find((f) => f.ships.some((sh) => sh.hull === "freighter"));
+    }
+    expect(freighter).toBeDefined();
+    expect(freighter!.civilian).toBe(true);
+    expect(freighter!.order?.kind).toBe("trade");
+    expect(freighter!.cargo).toBeGreaterThan(3);
+    // Freighters take no orders.
+    expect(g.moveFleet(freighter!.id, cap.systemId).ok).toBe(false);
+    const id = freighter!.id;
+    const cargo = freighter!.cargo!;
+    g.player.resources.credits = 0;
+    g.refreshIncome();
+    const expectedBase = g.player.income.credits;
+    for (let i = 0; i < 3000 && s.fleets[id]; i++) g.step();
+    expect(s.fleets[id]).toBeUndefined();
+    expect(g.player.resources.credits).toBeGreaterThan(cargo * 0.99); // delivery paid (plus normal income)
+    expect(expectedBase).toBeDefined();
+    g.advance(30);
+    expect(g.player.tradeRate).toBeGreaterThan(0);
+  });
+
+  it("agreements open foreign routes, pay both sides, and war ends them", () => {
+    const { g, s } = tradeGame();
+    const ai = Object.values(s.empires).find((e) => e.ai && !e.isPirate)!;
+    const aiCap = Object.values(s.colonies).find((c) => c.empireId === ai.id)!;
+    aiCap.buildings.push({ type: "trade_hub" });
+    aiCap.pop = 14;
+    expect(g.proposeTrade(ai.id).ok).toBe(false); // not met
+    (g.player.contacts ??= {})[ai.id] = true;
+    (ai.contacts ??= {})[g.playerId] = true;
+    ai.ai!.personality = "trader";
+    // Traders say yes (almost always); retry a few days if not.
+    let r = g.proposeTrade(ai.id);
+    for (let i = 0; i < 5 && !r.ok; i++) {
+      delete ai.ai!.tradeRefusedUntil;
+      s.day += 1;
+      r = g.proposeTrade(ai.id);
+    }
+    expect(r.ok).toBe(true);
+    expect(g.player.tradePartners?.[ai.id]).toBeDefined();
+    expect(ai.tradePartners?.[g.playerId]).toBeDefined();
+    g.player.explored[aiCap.systemId] = true;
+    // A foreign run is worth more than a domestic one of the same size.
+    expect(tradeValue(home(g), aiCap, 2, true)).toBeGreaterThan(tradeValue(home(g), aiCap, 2, false) * 1.5);
+    // War cancels the agreement and recalls merchants.
+    declareWar(s, g.playerId, ai.id);
+    expect(g.player.tradePartners?.[ai.id]).toBeUndefined();
+    expect(Object.values(s.fleets).some((f) => f.order?.kind === "trade" && s.colonies[f.order.colonyId!]?.empireId === ai.id && f.empireId === g.playerId)).toBe(false);
+  });
+
+  it("human rulers get a trade offer to accept or decline", () => {
+    const { g, s } = tradeGame();
+    const ai = Object.values(s.empires).find((e) => e.ai && !e.isPirate)!;
+    (g.player.contacts ??= {})[ai.id] = true;
+    (ai.contacts ??= {})[g.playerId] = true;
+    expect(proposeTrade(s, ai.id, g.playerId).ok).toBe(true);
+    expect(g.player.tradeOffers?.[ai.id]).toBeDefined();
+    expect(g.acceptTrade(ai.id).ok).toBe(true);
+    expect(g.player.tradePartners?.[ai.id]).toBeDefined();
+    expect(g.cancelTrade(ai.id).ok).toBe(true);
+    expect(ai.tradePartners?.[g.playerId]).toBeUndefined();
   });
 });

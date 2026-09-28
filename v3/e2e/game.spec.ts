@@ -39,6 +39,12 @@ async function bodyScreenPos(page: Page, bodyId: string) {
   }, bodyId);
 }
 
+/** The HUD re-renders several times a second, so click through the DOM directly. */
+async function domClick(page: Page, selector: string) {
+  await expect(page.locator(selector).first()).toBeVisible();
+  await page.evaluate((sel) => (document.querySelector(sel) as HTMLElement).click(), selector);
+}
+
 async function startGame(page: Page, seed = "e2e-seed") {
   page.on("console", (m) => {
     if (m.type() === "error" && !m.text().includes("ERR_CERT") && !m.text().includes("fonts.g")) consoleErrors.push(m.text());
@@ -604,4 +610,31 @@ test("clicking a log entry locates what it is about, or where it was last seen",
   await page.locator("#log .log-entry", { hasText: "LOC-C" }).click();
   await expect.poll(() => page.evaluate(() => (window as any).__app.view)).toBe("galaxy");
   await expect.poll(() => page.evaluate(() => (window as any).__app.selection?.id)).toBe(ids.unexplored);
+});
+
+test("trade agreements are signed from the Empires screen", async ({ page }) => {
+  await startGame(page, "trade-e2e");
+  await page.click('[data-action="speed:0"]');
+  const rival = await page.evaluate(() => {
+    const g = (window as any).__app.game;
+    const e = Object.values(g.state.empires).find((x: any) => x.ai && !x.isPirate) as any;
+    (g.player.contacts ??= {})[e.id] = true;
+    (e.contacts ??= {})[g.playerId] = true;
+    e.ai.personality = "trader";
+    return e.id;
+  });
+  await domClick(page, '#topbar [data-action="modal:empires"]');
+  // Traders almost always agree; retry once on the rare refusal.
+  for (let i = 0; i < 3; i++) {
+    const has = await page.evaluate((id) => (window as any).__app.game.player.tradePartners?.[id] !== undefined, rival);
+    if (has) break;
+    await page.evaluate((id) => {
+      const s = (window as any).__app.game.state;
+      delete s.empires[id].ai.tradeRefusedUntil;
+      s.day += 1;
+    }, rival);
+    await domClick(page, `[data-action="proposetrade:${rival}"]`);
+  }
+  await expect(page.locator(".empire-card .tag.trade")).toContainText("trade partner");
+  await expect(page.locator(`[data-action="endtrade:${rival}"]`)).toBeVisible();
 });

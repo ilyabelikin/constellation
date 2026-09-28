@@ -122,7 +122,7 @@ export interface Ship {
   xp: number;
 }
 
-export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack" | "migrate";
+export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack" | "migrate" | "trade";
 
 export type QueuedOrder = Omit<Order, "route" | "work">;
 
@@ -173,6 +173,8 @@ export interface Fleet {
   migrants?: number;
   /** Orders to carry out after the current one (shift-queued). */
   queue?: QueuedOrder[];
+  /** Credits a merchant freighter's cargo is worth on delivery. */
+  cargo?: number;
   /** Refuge body an evasive fleet is currently falling back to. */
   evading?: string;
 }
@@ -210,6 +212,8 @@ export interface Colony {
   capital: boolean;
   /** Day before which no new migrant liner departs from this colony. */
   nextMigration?: number;
+  /** Day the colony's trade hub dispatches its next freighter. */
+  nextTrade?: number;
 }
 
 export interface Station {
@@ -249,6 +253,8 @@ export interface AiState {
   persona?: string;
   /** Last day a peace proposal was sent to each (human) empire. */
   peaceProposedAt?: Record<string, number>;
+  /** Day until which trade proposals from an empire are declined. */
+  tradeRefusedUntil?: Record<string, number>;
 }
 
 /** A formal demand one empire has made of another, awaiting an answer. */
@@ -258,7 +264,18 @@ export type Demand =
 
 /** A concrete diplomatic act attached to a message. */
 export interface DiploAction {
-  kind: "none" | "accept_peace" | "propose_peace" | "declare_war" | "offer_tribute" | "cede_colony" | "demand_tribute" | "demand_colony";
+  kind:
+    | "none"
+    | "accept_peace"
+    | "propose_peace"
+    | "declare_war"
+    | "offer_tribute"
+    | "cede_colony"
+    | "demand_tribute"
+    | "demand_colony"
+    | "propose_trade"
+    | "accept_trade"
+    | "cancel_trade";
   resource?: ResourceKey;
   amount?: number;
   colonyId?: string;
@@ -320,6 +337,13 @@ export interface Empire {
   contacts?: Record<string, true>;
   /** Pending peace offers from other (human) empires: sender id → day offered. */
   peaceOffers?: Record<string, number>;
+  /** Empires we have a trade agreement with (id → day signed). */
+  tradePartners?: Record<string, number>;
+  /** Pending trade agreement proposals from other (human) empires. */
+  tradeOffers?: Record<string, number>;
+  /** Merchant income: smoothed credits per day, and today's takings. */
+  tradeRate?: number;
+  tradeToday?: number;
   /** Last day the player was warned about an empty treasury. */
   bankruptWarnedAt?: number;
   /** Pending demands made of this empire: demander id → demand. */

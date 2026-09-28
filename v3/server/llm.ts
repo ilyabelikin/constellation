@@ -108,6 +108,7 @@ export class MockLlm implements LlmClient {
     let action: Record<string, unknown> = { kind: "none" };
     if (said.includes("peace")) action = { kind: "accept_peace" };
     else if (said.includes("gift") || said.includes("tribute")) action = { kind: "offer_tribute", resource: "credits", amount: 50 };
+    else if (said.includes("trade")) action = { kind: "accept_trade" };
     else if (said.includes("war")) action = { kind: "declare_war" };
     return JSON.stringify({ reply: `${who} acknowledges your words.`, action });
   }

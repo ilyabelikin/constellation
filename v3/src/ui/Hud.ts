@@ -228,7 +228,7 @@ export class Hud {
     const cap = storageCap(g.state, p);
     const report = incomeReport(g.state, p);
     const res = (k: ResourceKey) => {
-      const tip = `${RES_NAME[k]}: ${fmt(r[k], 1)} / ${fmt(cap)}\nProduction ${signed(report.gross[k])}/day\nUpkeep ${signed(-report.upkeep[k])}/day${k === "credits" ? " (ships' crews, buildings, administration)" : ""}${k === "credits" ? `\n(of which administration ${fmt(adminUpkeep(g.playerColonies().length), 1)})` : ""}`;
+      const tip = `${RES_NAME[k]}: ${fmt(r[k], 1)} / ${fmt(cap)}\nProduction ${signed(report.gross[k])}/day\nUpkeep ${signed(-report.upkeep[k])}/day${k === "credits" ? ` (ships' crews, buildings, administration)\nMerchant trade ~${signed(p.tradeRate ?? 0)}/day (paid on delivery)` : ""}${k === "credits" ? `\n(of which administration ${fmt(adminUpkeep(g.playerColonies().length), 1)})` : ""}`;
       const warn = (k === "energy" && isBlackout(p)) || (k === "credits" && isBankrupt(p));
       return `<div class="res ${k} ${warn ? "warn" : ""}" title="${esc(tip)}"><span class="icon">${RES_ICON[k]}</span>${fmt(r[k])}<span class="inc ${inc[k] < 0 ? "neg" : "pos"}">${signed(inc[k])}</span></div>`;
     };
@@ -928,6 +928,16 @@ export class Hud {
               <button class="primary" data-action="acceptdemand:${e.id}">Give</button> <button class="danger" data-action="rejectdemand:${e.id}">Refuse</button></div>`
           : "";
         const unread = this.unreadFrom(e.id);
+        const trading = p.tradePartners?.[e.id] !== undefined;
+        const tradeOffer = e.id !== p.id && p.tradeOffers?.[e.id] !== undefined;
+        const tradeBtn =
+          e.id === p.id || e.isPirate || !met || p.relations[e.id] === "war"
+            ? ""
+            : trading
+              ? `<button data-action="endtrade:${e.id}" title="Merchants fly between your trade hubs. End the agreement?">⇄ End trade</button>`
+              : tradeOffer
+                ? `<button class="primary" data-action="accepttrade:${e.id}">⇄ Accept trade</button> <button data-action="rejecttrade:${e.id}">Decline</button>`
+                : `<button data-action="proposetrade:${e.id}" title="Open markets: merchant freighters will fly between your trade hubs, enriching both">⇄ Propose trade</button>`;
         const talk = e.id !== p.id && this.app.canChat(e.id) ? `<button data-action="chat:${e.id}">✉ Talk${unread ? `<span class="unread">${unread}</span>` : ""}</button>` : "";
         const btn =
           e.id === p.id || e.isPirate || !met
@@ -940,9 +950,9 @@ export class Hud {
         const seat = this.app.remote?.info.seats.find((x) => x.empireId === e.id);
         const ruler = seat?.playerName ? `<span class="tag" title="A human player">${seat.online ? "●" : "○"} ${esc(seat.playerName)}</span>` : "";
         return `<div class="empire-card"><div class="swatch" style="background:${e.color}"></div>
-          <div><div style="font-weight:600;font-size:15px;color:${e.color}">${esc(e.name)} ${e.id === p.id ? "(you)" : ""} ${rel} ${ruler} ${offer ? `<span class="tag peace">offers peace</span>` : ""}</div>
+          <div><div style="font-weight:600;font-size:15px;color:${e.color}">${esc(e.name)} ${e.id === p.id ? "(you)" : ""} ${rel} ${ruler} ${offer ? `<span class="tag peace">offers peace</span>` : ""} ${trading ? `<span class="tag trade">trade partner</span>` : tradeOffer ? `<span class="tag trade">offers trade</span>` : ""}</div>
           <div class="stats">${e.isPirate ? "Lawless raiders · always hostile" : `${esc(SPECIES_MAP[e.speciesId]?.adjective ?? "")} · ${met ? `${cols.length} colonies · ${fmt(pop, 1)} pop · ${systems}/${total} systems (${pct(systems / total)}) · strength ${fmt(empirePower(s, e.id))} · ${e.research.completed.length} techs${e.research.current === "ascension" ? " · <b style='color:var(--warn)'>pursuing Ascension!</b>" : ""}` : "not yet contacted"}`}</div></div>
-          <div class="actions">${talk} ${btn}${demandHtml}</div></div>`;
+          <div class="actions">${talk} ${tradeBtn} ${btn}${demandHtml}</div></div>`;
       })
       .join("");
     return `<header><h2>Empires of the galaxy</h2><button data-action="close">✕</button></header>${rows}
@@ -1001,7 +1011,7 @@ export class Hud {
           : `<div class="hint">No correspondence yet. Open a channel — propose an alliance, demand tribute, or negotiate a ceasefire.</div>`
       }${waiting ? `<div class="hint">Awaiting their reply…</div>` : ""}</div>
       ${demand ? `<div class="demand">⚠ They demand ${esc(demand.kind === "colony" ? (g.state.colonies[demand.colonyId]?.name ?? "a colony") : `${demand.amount} ${demand.resource}`)} <button class="primary" data-action="acceptdemand:${other.id}">Give</button> <button class="danger" data-action="rejectdemand:${other.id}">Refuse</button></div>` : ""}
-      <div class="chat-tools">${gifts}${g.player.peaceOffers?.[other.id] !== undefined ? `<button class="primary" data-action="acceptpeace:${other.id}">☮ Accept their peace offer</button>` : ""}${this.app.remote ? "" : `<span class="hint">The game is paused while you write.</span>`}</div>
+      <div class="chat-tools">${gifts}${g.player.relations[other.id] === "peace" && g.player.tradePartners?.[other.id] === undefined ? `<button data-action="proposetrade:${other.id}">⇄ Propose trade</button>` : ""}${g.player.peaceOffers?.[other.id] !== undefined ? `<button class="primary" data-action="acceptpeace:${other.id}">☮ Accept their peace offer</button>` : ""}${this.app.remote ? "" : `<span class="hint">The game is paused while you write.</span>`}</div>
       <div class="chat-input"><input id="chat-input" maxlength="500" placeholder="Message to the ${esc(other.name)}…" autocomplete="off" /><button class="primary" data-action="sendchat">Send</button></div>`;
   }
 
@@ -1212,6 +1222,18 @@ export class Hud {
       case "acceptpeace":
         res(g.acceptPeace(args[0]), "Peace treaty signed");
         break;
+      case "proposetrade":
+        res(g.proposeTrade(args[0]), app.remote && !g.state.empires[args[0]]?.ai ? "Trade proposal sent" : "Trade agreement signed — merchants will start flying");
+        break;
+      case "accepttrade":
+        res(g.acceptTrade(args[0]), "Trade agreement signed");
+        break;
+      case "rejecttrade":
+        res(g.rejectTrade(args[0]), "Trade offer declined");
+        break;
+      case "endtrade":
+        if (window.confirm(`End the trade agreement with the ${g.state.empires[args[0]].name}?`)) res(g.cancelTrade(args[0]), "Trade agreement ended");
+        break;
       case "acceptdemand":
         if (window.confirm("Give them what they demand?")) res(g.acceptDemand(args[0]), "Demand met");
         break;
@@ -1301,6 +1323,12 @@ function describeAction(g: Game, a: DiploAction): string {
       return `⚠ demands ${a.amount ?? ""} ${a.resource ?? ""}`;
     case "demand_colony":
       return `⚠ demands ${s.colonies[a.colonyId ?? ""]?.name ?? "a colony"}`;
+    case "propose_trade":
+      return "⇄ proposed trade";
+    case "accept_trade":
+      return "⇄ signed a trade agreement";
+    case "cancel_trade":
+      return "⇄ ended trade";
     default:
       return "";
   }
@@ -1326,6 +1354,8 @@ function describeOrder(g: Game, f: Fleet, o: Order): string {
       return `Attacking ${esc(s.fleets[o.fleetId ?? ""]?.name ?? "target")}`;
     case "migrate":
       return (o.work ?? 0) > 0 ? `Shuttling settlers down to ${esc(where ?? "")}` : `Carrying settlers to ${esc(where ?? "")}${hops}`;
+    case "trade":
+      return (o.work ?? 0) > 0 ? `Unloading goods at ${esc(where ?? "")}` : `Trade run to ${esc(where ?? "")}${hops} · cargo ₵${fmt(f.cargo ?? 0)}`;
   }
 }
 

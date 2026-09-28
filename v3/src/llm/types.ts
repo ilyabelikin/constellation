@@ -19,7 +19,7 @@ export interface Briefing {
   personaId: string;
   /** Compact, knowledge-limited situation report (see briefing.ts). */
   dump: string;
-  rivals: { id: string; name: string; human: boolean; relation: "peace" | "war" }[];
+  rivals: { id: string; name: string; human: boolean; relation: "peace" | "war"; trade?: boolean }[];
   ownColonies: { id: string; name: string; capital: boolean }[];
   knownColonies: { id: string; name: string; ownerId: string }[];
 }
