@@ -127,6 +127,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
 
 export type CommandName = keyof typeof COMMANDS;
 
+/** Commands whose first argument is a fleet (civilian liners refuse them). */
+const FLEET_COMMANDS = new Set(["moveFleet", "colonize", "buildStation", "invade", "attackFleet", "stopFleet", "setStance", "renameFleet", "mergeFleets", "splitFleet"]);
+
 /** Validate and execute a command on behalf of `empireId`. Never throws for bad input. */
 export function execCommand(state: GameState, empireId: string, name: string, args: unknown[]): CommandResult {
   const spec = Object.prototype.hasOwnProperty.call(COMMANDS, name) ? COMMANDS[name] : undefined;
@@ -135,6 +138,10 @@ export function execCommand(state: GameState, empireId: string, name: string, ar
   for (let i = 0; i < spec.args.length; i++) if (!validArg(spec.args[i], args[i])) return { ok: false, error: "Bad arguments" };
   const empire = state.empires[empireId];
   if (!empire || !empire.alive) return { ok: false, error: "Your empire has fallen" };
+  if (FLEET_COMMANDS.has(name)) {
+    const fleetIds = name === "mergeFleets" ? [args[0], args[1]] : [args[0]];
+    if (fleetIds.some((id) => state.fleets[id as string]?.civilian)) return { ok: false, error: "Private liners follow their own course" };
+  }
   try {
     return (spec.run as (s: GameState, e: string, ...a: unknown[]) => CommandResult)(state, empireId, ...args);
   } catch (err) {

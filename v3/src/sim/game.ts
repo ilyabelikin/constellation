@@ -11,6 +11,7 @@ import { PlayerFacade } from "./facade";
 import { incomeReport, maxDefense, processColonyDay, processEconomyDay, systemOwnerMap } from "./economy";
 import { ensureCapital, stepFleets } from "./fleets";
 import { updateContacts } from "./knowledge";
+import { migrationDay } from "./migration";
 import { createGame, makeFleet, makeShip, SAVE_VERSION } from "./galaxy";
 import { clearModifierCache } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
@@ -75,6 +76,7 @@ export class Game extends PlayerFacade {
     for (const c of Object.values(s.colonies)) processColonyDay(s, c, (col, item) => this.onShipBuilt(col, item));
     for (const e of Object.values(s.empires)) processEconomyDay(s, e);
     repairFleetsDay(s);
+    migrationDay(s);
     for (const [a, b] of updateContacts(s)) this.events.push({ type: "contact", a, b });
     for (const e of Object.values(s.empires)) if (e.ai && e.alive) aiThink(s, e, rng);
     for (const e of Object.values(s.empires)) if (e.alive && !e.isPirate) ensureCapital(s, e.id);

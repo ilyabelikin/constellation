@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Rng } from "../src/sim/rng";
 import { Game } from "../src/sim/game";
 import { createGame, isConnected, makeFleet, makeShip } from "../src/sim/galaxy";
-import { findRoute } from "../src/sim/fleets";
+import { findRoute, foundColony } from "../src/sim/fleets";
 import { orbitPosition, solveKepler } from "../src/sim/orbits";
 import {
   buildingSlots,
@@ -11,7 +11,9 @@ import {
   habitability,
   hullCost,
   incomeReport,
+  growPopulation,
   maxDefense,
+  popCapacity,
   stationBuildError,
   systemOwner,
 } from "../src/sim/economy";
@@ -187,7 +189,7 @@ describe("data tables", () => {
     }
   });
   it("only requires existing techs for hulls and stations", () => {
-    for (const h of HULLS) if (h.requires) expect(TECH_MAP[h.requires]).toBeDefined();
+    for (const h of HULLS) if (h.requires && h.requires !== "__never__") expect(TECH_MAP[h.requires]).toBeDefined();
     for (const s of STATIONS) if (s.requires && s.requires !== "__never__") expect(TECH_MAP[s.requires]).toBeDefined();
   });
 });
@@ -742,5 +744,70 @@ describe("colony ship planning", () => {
     expect(g.buildColonyShipFor(target.id).ok).toBe(true);
     expect(home(g).queue.at(-1)).toMatchObject({ type: "colony", then: { kind: "colonize", bodyId: target.id } });
     expect(runUntil(g, () => Object.values(g.state.colonies).some((c) => c.bodyId === target.id), 200)).toBe(true);
+  });
+});
+
+describe("population and migration", () => {
+  it("grows slowly from a handful of settlers, then faster, then levels off (S-curve)", () => {
+    const g = Game.create({ seed: "pop-s", aiCount: 1 });
+    const c = home(g);
+    c.pop = 1;
+    c.nextMigration = 1e9;
+    const cap = popCapacity(g.state, c);
+    const samples: number[] = [];
+    for (let d = 0; d < 1200; d++) {
+      growPopulation(g.state, c, 1);
+      if (d % 100 === 0) samples.push(c.pop);
+    }
+    const gains = samples.slice(1).map((p, i) => p - samples[i]);
+    // Early gains are small, the middle is the fastest, the end slows down.
+    const peak = gains.indexOf(Math.max(...gains));
+    expect(peak).toBeGreaterThan(0);
+    expect(peak).toBeLessThan(gains.length - 1);
+    expect(gains[0]).toBeLessThan(Math.max(...gains) * 0.5);
+    expect(gains[gains.length - 1]).toBeLessThan(Math.max(...gains) * 0.5);
+    expect(c.pop).toBeLessThanOrEqual(cap + 1e-9);
+    // A new colony needs years, not weeks, to become a city.
+    const fresh = { ...c, pop: 1 };
+    for (let d = 0; d < 100; d++) growPopulation(g.state, fresh, 1);
+    expect(fresh.pop).toBeLessThan(2.6); // even on an ideal homeworld
+  });
+
+  it("sends private liners from crowded worlds to colonies with room", () => {
+    const g = Game.create({ seed: "migrate", aiCount: 1, pirates: false });
+    const capital = home(g);
+    const target = Object.values(g.state.bodies).find(
+      (b) => b.systemId === capital.systemId && b.id !== capital.bodyId && canColonize(g.player, b) && !Object.values(g.state.colonies).some((c) => c.bodyId === b.id),
+    );
+    expect(target).toBeDefined();
+    const young = foundColony(g.state, g.player, target!.id, 1);
+    young.nextMigration = 1e9;
+    capital.pop = popCapacity(g.state, capital);
+    const before = capital.pop + young.pop;
+    let liner: Fleet | undefined;
+    for (let i = 0; i < 20 && !liner; i++) {
+      g.step();
+      liner = Object.values(g.state.fleets).find((f) => f.civilian);
+    }
+    expect(liner).toBeDefined();
+    expect(liner!.order?.kind).toBe("migrate");
+    expect(liner!.order?.colonyId).toBe(young.id);
+    expect(liner!.migrants).toBeGreaterThan(0);
+    // The player cannot commandeer a private liner.
+    expect(g.moveFleet(liner!.id, capital.systemId).ok).toBe(false);
+    expect(g.stopFleet(liner!.id).ok).toBe(false);
+    const aboard = liner!.migrants!;
+    const id = liner!.id;
+    for (let i = 0; i < 3000 && g.state.fleets[id]; i++) g.step();
+    expect(g.state.fleets[id]).toBeUndefined(); // released after unloading
+    expect(young.pop).toBeGreaterThan(1 + aboard * 0.9);
+    // Settlers are moved, not created (growth over the trip is small).
+    expect(capital.pop + young.pop).toBeLessThan(before + 1.5);
+  });
+
+  it("liners never appear in shipyards and do not use command points", () => {
+    const g = Game.create({ seed: "liner-yard" });
+    expect(g.queueShip(home(g).id, "liner").ok).toBe(false);
+    expect(HULLS.find((h) => h.id === "liner")!.command).toBe(0);
   });
 });

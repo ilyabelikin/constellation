@@ -72,6 +72,9 @@ export function garrison(state: GameState, colony: Colony): number {
   return g;
 }
 
+/** Intrinsic population growth rate per day (per pop, before habitability and techs). */
+export const POP_GROWTH_RATE = 0.0065;
+
 export function growPopulation(state: GameState, colony: Colony, days = 1): void {
   const empire = state.empires[colony.empireId];
   const body = state.bodies[colony.bodyId];
@@ -82,8 +85,12 @@ export function growPopulation(state: GameState, colony: Colony, days = 1): void
     colony.pop = Math.max(cap, colony.pop - colony.pop * 0.01 * days);
     return;
   }
-  const rate = (0.025 + 0.01 * colony.pop) * (0.5 + hab) * Math.max(0.1, 1 + m.popGrowth);
-  colony.pop = Math.min(cap, colony.pop + rate * (1 - colony.pop / cap) * days);
+  // Logistic growth: slow while a colony is tiny, fastest around half of
+  // capacity, levelling off as the world fills up. A trickle of births keeps
+  // even a handful of settlers growing.
+  const r = POP_GROWTH_RATE * (0.5 + hab) * Math.max(0.1, 1 + m.popGrowth);
+  const rate = r * Math.max(colony.pop, 0.25) * (1 - colony.pop / cap);
+  colony.pop = Math.min(cap, colony.pop + rate * days);
 }
 
 // --------------------------------------------------------------------------

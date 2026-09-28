@@ -8,6 +8,7 @@ import {
   garrison,
   habitability,
   maxDefense,
+  popCapacity,
   stationBuildError,
   systemOwner,
 } from "./economy";
@@ -18,6 +19,8 @@ import type { Colony, Empire, Fleet, GameState, Order, SimEvent, Station, Vec3 }
 
 export const ARRIVE_EPS = 0.02;
 export const COLONIZE_DAYS = 4;
+/** Days a migrant liner's shuttles need to ferry its settlers down. */
+export const UNLOAD_DAYS = 3;
 
 export function fleetSpeed(state: GameState, fleet: Fleet): number {
   const empire = state.empires[fleet.empireId];
@@ -313,7 +316,23 @@ function arrive(state: GameState, fleet: Fleet, dt: number, events: SimEvent[]):
       fleet.orbitBodyId = o.bodyId ?? null;
       doInvade(state, fleet);
       break;
+    case "migrate":
+      fleet.orbitBodyId = o.bodyId ?? null;
+      doMigrate(state, fleet, dt);
+      break;
   }
+}
+
+/** Shuttles ferry the liner's settlers down; then the chartered liner is released (leaves play). */
+function doMigrate(state: GameState, fleet: Fleet, dt: number): void {
+  const o = fleet.order!;
+  o.work = (o.work ?? 0) + dt;
+  if (o.work < UNLOAD_DAYS || fleet.battleId) return;
+  let colony: Colony | undefined = o.colonyId ? state.colonies[o.colonyId] : undefined;
+  if (!colony || colony.empireId !== fleet.empireId)
+    colony = Object.values(state.colonies).find((c) => c.empireId === fleet.empireId && c.systemId === fleet.systemId);
+  if (colony) colony.pop = Math.min(popCapacity(state, colony), colony.pop + (fleet.migrants ?? 0));
+  delete state.fleets[fleet.id];
 }
 
 function removeShipOfRole(fleet: Fleet, role: string): boolean {

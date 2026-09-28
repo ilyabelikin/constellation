@@ -9,6 +9,7 @@ import type { PlayerFacade as Game } from "../sim/facade";
 import { sensorSystems } from "../sim/knowledge";
 import { orbitPosition } from "../sim/orbits";
 import type { Body, Fleet, SimEvent, Station } from "../sim/types";
+import { Shuttles } from "./Shuttles";
 import { Effects } from "./Effects";
 import type { PickResult, View } from "./Engine";
 import { temperatureColor } from "./glsl";
@@ -46,6 +47,8 @@ interface FleetVisual {
   pos: THREE.Vector3;
   pick: THREE.Mesh;
   radius: number;
+  /** Seconds until the next landing shuttle leaves (while unloading). */
+  shuttleTimer?: number;
 }
 
 interface StationVisual {
@@ -59,6 +62,7 @@ const tmpV = { x: 0, y: 0, z: 0 };
 export class SystemView implements View {
   readonly scene = new THREE.Scene();
   readonly effects = new Effects();
+  readonly shuttles = new Shuttles();
   private bodies = new Map<string, BodyVisual>();
   private fleets = new Map<string, FleetVisual>();
   private stations = new Map<string, StationVisual>();
@@ -91,7 +95,7 @@ export class SystemView implements View {
       this.scene.environmentIntensity = 0.28;
     }
     this.scene.add(new THREE.AmbientLight(0x8090b0, 0.18));
-    this.scene.add(this.orbitLines, this.pathLines, this.battleMarkers, this.effects.group);
+    this.scene.add(this.orbitLines, this.pathLines, this.battleMarkers, this.effects.group, this.shuttles.group);
     for (const sid of sys.starIds) this.buildStar(game.state.bodies[sid]);
     for (const bid of sys.bodyIds) {
       const b = game.state.bodies[bid];
@@ -602,20 +606,43 @@ export class SystemView implements View {
     return this.bodies.get(bodyId)?.radius ?? 1;
   }
 
-  /** Visual position of a fleet: interpolated, orbiting its anchor body when idle. */
+  /** The body a fleet holds orbit around, or is on final approach to (in this system). */
+  private anchorBody(f: Fleet): Body | null {
+    const s = this.game.state;
+    const id = !f.order ? f.orbitBodyId : f.order.route.length === 0 && f.order.systemId === this.systemId ? (f.order.bodyId ?? null) : null;
+    const body = id ? s.bodies[id] : null;
+    return body && body.systemId === this.systemId && body.kind !== "belt" ? body : null;
+  }
+
+  /** The fleet's parking-orbit slot around a body (scene space). */
+  private orbitSlot(f: Fleet, body: Body, out: THREE.Vector3): THREE.Vector3 {
+    this.bodyWorld(body, out);
+    const r = this.bodyRadius(body.id) * (body.kind === "star" ? 2.4 : 2.1) + 1.8 + (hashId(f.id) % 3) * 0.9;
+    const a = this.renderDay * 0.35 + (hashId(f.id) % 628) / 100;
+    return out.set(out.x + Math.cos(a) * r, out.y + 0.6 + (hashId(f.id) % 5) * 0.25, out.z + Math.sin(a) * r);
+  }
+
+  /**
+   * Visual position of a fleet: interpolated flight, holding a parking orbit
+   * around its anchor body when idle. Ships heading for a body steer into
+   * their orbit slot on final approach instead of flying into the planet.
+   */
   fleetWorld(f: Fleet, out = new THREE.Vector3()): THREE.Vector3 {
-    if (f.orbitBodyId && !f.order && this.game.state.bodies[f.orbitBodyId]?.systemId === this.systemId) {
-      const body = this.game.state.bodies[f.orbitBodyId];
-      this.bodyWorld(body, out);
-      const r = this.bodyRadius(body.id) * (body.kind === "star" ? 2.4 : 2.1) + 1.8 + (hashId(f.id) % 3) * 0.9;
-      const a = this.renderDay * 0.35 + (hashId(f.id) % 628) / 100;
-      return out.set(out.x + Math.cos(a) * r, out.y + 0.6 + (hashId(f.id) % 5) * 0.25, out.z + Math.sin(a) * r);
-    }
+    const body = this.anchorBody(f);
+    if (body && !f.order) return this.orbitSlot(f, body, out);
     const x = f.prevPos.x + (f.pos.x - f.prevPos.x) * this.alpha;
     const y = f.prevPos.y + (f.pos.y - f.prevPos.y) * this.alpha;
     const z = f.prevPos.z + (f.pos.z - f.prevPos.z) * this.alpha;
     const m = mapSystemPos({ x, y, z });
-    return out.set(m.x, m.y + 0.6, m.z);
+    out.set(m.x, m.y + 0.6, m.z);
+    if (body) {
+      const center = this.bodyWorld(body, new THREE.Vector3());
+      const slot = this.orbitSlot(f, body, new THREE.Vector3());
+      const reach = slot.distanceTo(center) * 4;
+      const k = Math.min(1, Math.max(0, 1 - out.distanceTo(center) / reach));
+      out.addScaledVector(slot.sub(center), k * k * (3 - 2 * k));
+    }
+    return out;
   }
 
   refWorld(ref: string, out = new THREE.Vector3()): THREE.Vector3 | null {
@@ -729,10 +756,33 @@ export class SystemView implements View {
         (e.material as THREE.SpriteMaterial).opacity = glow * flicker;
       }
     }
+    this.updateShuttles(dt);
     this.updatePaths();
     this.updateBattles(time);
     this.updateRings();
     this.effects.update(dt);
+  }
+
+  /** Ships founding a colony or unloading settlers send shuttles down to the surface. */
+  private updateShuttles(dt: number): void {
+    const s = this.game.state;
+    const center = new THREE.Vector3();
+    for (const v of this.fleets.values()) {
+      const o = v.fleet.order;
+      if (!o || (o.kind !== "colonize" && o.kind !== "migrate") || !(o.work && o.work > 0) || !o.bodyId || o.route.length) continue;
+      const body = s.bodies[o.bodyId];
+      if (!body || body.systemId !== this.systemId) continue;
+      v.shuttleTimer = (v.shuttleTimer ?? 0) - dt;
+      if (v.shuttleTimer > 0) continue;
+      v.shuttleTimer = 0.35 + Math.random() * 0.45;
+      this.shuttles.launch(v.pos, body.id, this.bodyWorld(body, center));
+    }
+    this.shuttles.update(dt, (bodyId, out) => {
+      const b = s.bodies[bodyId];
+      if (!b) return null;
+      this.bodyWorld(b, out);
+      return this.bodyRadius(bodyId);
+    });
   }
 
   private updatePaths(): void {
@@ -924,6 +974,7 @@ export class SystemView implements View {
       if (mat && !Array.isArray(mat) && (mat instanceof THREE.ShaderMaterial || !mat.userData.shared)) mat.dispose();
     });
     this.effects.clear();
+    this.shuttles.clear();
   }
 }
 

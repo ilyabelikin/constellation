@@ -66,6 +66,9 @@ class App implements AppApi {
   private pendingStatic: StaticView | null = null;
   private pendingView: PlayerView | null = null;
   private lastViews = -1;
+  /** Camera flight through a tunnel gate into the connected system. */
+  private gateJump: { tunnelId: string; to: string; t: number; phase: "dive" | "emerge"; gate: THREE.Vector3; out: THREE.Vector3; fired: boolean } | null = null;
+  private baseFov = 50;
 
   private engine: Engine;
   private galaxyView: GalaxyView | null = null;
@@ -360,8 +363,16 @@ class App implements AppApi {
     this.labels.clear();
   }
 
+  /** Only systems the player has surveyed can be viewed up close. */
+  private canView(id: string): boolean {
+    if (this.game.player?.explored[id]) return true;
+    this.toast("Unsurveyed system — send a ship there to reveal it", "error");
+    return false;
+  }
+
   enterSystem(id: string, focusSel: PickResult | null = null): void {
     if (this.view !== "system" || this.systemId !== id) {
+      if (!this.canView(id)) return;
       if (!focusSel && this.selection && !this.selectionInSystem(this.selection, id)) this.select(null);
       this.galaxyView?.dispose();
       this.galaxyView = null;
@@ -379,6 +390,99 @@ class App implements AppApi {
     if (sel.kind === "fleet") return s.fleets[sel.id]?.systemId === systemId;
     if (sel.kind === "gate") return s.systems[systemId].gates.some((g) => g.tunnelId === sel.id);
     return false;
+  }
+
+  // ---------------------------------------------------------------- gate flight
+  /** Nearest equivalent of `angle` to `ref` (so eased yaw never spins the long way round). */
+  private closestAngle(angle: number, ref: number): number {
+    return angle + Math.round((ref - angle) / (Math.PI * 2)) * Math.PI * 2;
+  }
+
+  /** Dive through a gate, emerge from its twin in the connected system and pull back to a side view. */
+  jumpThroughGate(tunnelId: string): void {
+    if (!this.systemView || this.gateJump) return;
+    const t = this.game.state.tunnels[tunnelId];
+    const gate = this.systemView.gateWorld(tunnelId);
+    if (!t || !gate) return;
+    const to = t.a === this.systemId ? t.b : t.a;
+    if (!this.canView(to)) return;
+    const out = gate.clone().normalize(); // gates face the star; "out" leads through the ring
+    const rig = this.engine.rig;
+    rig.follow = null;
+    rig.minDistance = 0.3;
+    // Line up on the star side of the ring, looking out through it.
+    rig.goalYaw = this.closestAngle(Math.atan2(-out.x, -out.z), rig.yaw);
+    rig.goalPitch = 0.05;
+    rig.focus(gate, 18);
+    this.baseFov = this.engine.camera.fov;
+    this.select(null);
+    this.gateJump = { tunnelId, to, t: 0, phase: "dive", gate, out, fired: false };
+  }
+
+  private warpFlash(on: boolean): void {
+    let el = document.getElementById("warp-flash");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "warp-flash";
+      document.body.appendChild(el);
+    }
+    el.classList.toggle("on", on);
+  }
+
+  private stepGateJump(dt: number): void {
+    const j = this.gateJump!;
+    const rig = this.engine.rig;
+    const cam = this.engine.camera;
+    j.t += dt;
+    if (j.phase === "dive") {
+      if (j.t > 0.8 && !j.fired) {
+        // Punch through the membrane.
+        j.fired = true;
+        rig.focus(j.gate.clone().addScaledVector(j.out, 40), 0.4);
+        this.systemView?.effects.jump(j.gate, new THREE.Color("#7fc8ff"));
+      }
+      if (j.fired) cam.fov = THREE.MathUtils.lerp(cam.fov, this.baseFov + 45, 1 - Math.exp(-dt * 4));
+      if (j.t > 1.15) this.warpFlash(true);
+      if (j.t > 1.35) {
+        this.enterSystem(j.to);
+        const exit = this.systemView?.gateWorld(j.tunnelId);
+        if (!exit) {
+          this.endGateJump();
+          return;
+        }
+        const out = exit.clone().normalize();
+        // Arrive just outside the twin gate, looking in towards the star...
+        rig.minDistance = 0.3;
+        rig.follow = null;
+        rig.goalYaw = Math.atan2(out.x, out.z);
+        rig.goalPitch = 0.04;
+        rig.focus(exit.clone().addScaledVector(out, -6), 9);
+        rig.snap();
+        this.systemView!.effects.jump(exit, new THREE.Color("#7fc8ff"));
+        this.gateJump = { ...j, phase: "emerge", t: 0, gate: exit, out, fired: false };
+        this.warpFlash(false);
+      }
+    } else {
+      cam.fov = THREE.MathUtils.lerp(cam.fov, this.baseFov, 1 - Math.exp(-dt * 2.5));
+      if (j.t > 0.35 && !j.fired) {
+        // ...then pull back to take in the whole system from the side.
+        j.fired = true;
+        const sys = this.game.state.systems[j.to];
+        rig.focus(new THREE.Vector3(), auToScene(sys.extent) * 1.9);
+        rig.goalPitch = 0.2;
+      }
+      if (j.t > 2.6) this.endGateJump();
+    }
+    cam.updateProjectionMatrix();
+  }
+
+  private endGateJump(): void {
+    const cam = this.engine.camera;
+    cam.fov = this.baseFov;
+    cam.updateProjectionMatrix();
+    this.engine.rig.minDistance = 3;
+    this.warpFlash(false);
+    this.gateJump = null;
   }
 
   showGalaxy(): void {
@@ -414,7 +518,7 @@ class App implements AppApi {
     this.selection = sel;
     if (sel?.kind === "fleet") {
       const f = this.game.state.fleets[sel.id];
-      if (f && f.empireId === this.game.playerId) this.activeFleetId = sel.id;
+      if (f && f.empireId === this.game.playerId && !f.civilian) this.activeFleetId = sel.id;
     }
     if (this.systemView) this.systemView.selected = sel;
     if (this.galaxyView) this.galaxyView.selected = sel;
@@ -571,7 +675,7 @@ class App implements AppApi {
     canvas.addEventListener("pointerup", (e) => {
       const d = down;
       down = null;
-      if (!d || d.moved || !this.running) return;
+      if (!d || d.moved || !this.running || this.gateJump) return;
       const pick = this.engine.pick(e.clientX, e.clientY);
       if (d.button === 2) this.commandAt(pick);
       else if (d.button === 0) {
@@ -580,10 +684,11 @@ class App implements AppApi {
       }
     });
     canvas.addEventListener("dblclick", (e) => {
-      if (!this.running) return;
+      if (!this.running || this.gateJump) return;
       const pick = this.engine.pick(e.clientX, e.clientY);
       if (!pick || pick.kind === "point") return;
       if (pick.kind === "system") this.enterSystem(pick.id);
+      else if (pick.kind === "gate") this.jumpThroughGate(pick.id);
       else {
         this.select(pick, true);
       }
@@ -706,6 +811,7 @@ class App implements AppApi {
     if (this.selection?.kind === "fleet" && !this.game.state.fleets[this.selection.id]) this.select(null);
     if (this.activeFleetId && !this.game.state.fleets[this.activeFleetId]) this.activeFleetId = null;
 
+    if (this.gateJump) this.stepGateJump(dt);
     this.engine.render(dt, time);
     if (this.running) {
       const anchors = this.systemView ? this.systemView.labelAnchors() : this.galaxyView ? this.galaxyView.labelAnchors() : [];

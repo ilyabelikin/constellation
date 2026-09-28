@@ -118,7 +118,7 @@ export interface Ship {
   xp: number;
 }
 
-export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack";
+export type OrderKind = "move" | "colonize" | "buildStation" | "invade" | "attack" | "migrate";
 
 export interface Order {
   kind: OrderKind;
@@ -161,6 +161,10 @@ export interface Fleet {
   transit: Transit | null;
   stance: Stance;
   battleId: string | null;
+  /** Privately run vessel (migrant liner): follows its own course, not player orders. */
+  civilian?: boolean;
+  /** Colonists aboard a migrant liner. */
+  migrants?: number;
 }
 
 export interface BuildingInstance {
@@ -194,6 +198,8 @@ export interface Colony {
   /** Days since last combat damage; defenses regenerate after a delay. */
   lastAttacked: number;
   capital: boolean;
+  /** Day before which no new migrant liner departs from this colony. */
+  nextMigration?: number;
 }
 
 export interface Station {

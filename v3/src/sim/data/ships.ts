@@ -93,7 +93,7 @@ export const WEAPONS: Record<WeaponFamily, WeaponFamilyDef> = {
   },
 };
 
-export type HullRole = "military" | "scout" | "constructor" | "colony" | "transport";
+export type HullRole = "military" | "scout" | "constructor" | "colony" | "transport" | "civilian";
 
 export interface HullDef {
   id: string;
@@ -118,7 +118,28 @@ export interface HullDef {
   description: string;
 }
 
+/** Tech id nobody can research: hulls that require it are never built in shipyards. */
+export const NOT_BUILDABLE = "__never__";
+
 export const HULLS: HullDef[] = [
+  {
+    id: "liner",
+    command: 0,
+    name: "Migrant Liner",
+    role: "civilian",
+    cost: {},
+    buildDays: 0,
+    upkeep: {},
+    hull: 40,
+    armor: 0,
+    shields: 0,
+    speed: 0.5,
+    evasion: 0.1,
+    weapons: [],
+    requires: NOT_BUILDABLE,
+    length: 110,
+    description: "A privately chartered liner carrying settlers from crowded worlds to young colonies.",
+  },
   {
     id: "scout",
     command: 0,

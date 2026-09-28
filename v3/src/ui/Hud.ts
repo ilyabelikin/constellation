@@ -69,6 +69,7 @@ export interface AppApi {
   cloudSave(): void;
   select(sel: PickResult | null, focus?: boolean): void;
   enterSystem(id: string, focusSel?: PickResult | null): void;
+  jumpThroughGate(tunnelId: string): void;
   showGalaxy(): void;
   goHome(): void;
   setSpeed(i: number): void;
@@ -654,7 +655,7 @@ export class Hud {
     const f = s.fleets[id];
     if (!f) return `<div class="hint">Fleet destroyed.</div>`;
     const owner = s.empires[f.empireId];
-    const mine = f.empireId === s.playerId;
+    const mine = f.empireId === s.playerId && !f.civilian;
     const loc = f.transit
       ? `In tunnel to ${esc(s.systems[f.transit.to].name)} (${Math.max(0, f.transit.total - f.transit.progress).toFixed(0)}d)`
       : `${esc(s.systems[f.systemId!].name)} system${f.orbitBodyId ? `, orbiting ${esc(s.bodies[f.orbitBodyId].name)}` : ""}`;
@@ -663,7 +664,7 @@ export class Hud {
       <div class="kv"><div class="k">Location</div><div class="v">${loc}</div>
       <div class="k">Orders</div><div class="v">${order}</div>
       <div class="k">Speed</div><div class="v">${fleetSpeed(s, f).toFixed(2)} AU/d</div>
-      <div class="k">Strength</div><div class="v">${fmt(fleetPower(s, f))}</div>
+      ${f.civilian ? `<div class="k">Passengers</div><div class="v">${fmt(f.migrants ?? 0, 1)} pop of settlers (private charter)</div>` : `<div class="k">Strength</div><div class="v">${fmt(fleetPower(s, f))}</div>`}
       ${f.battleId ? `<div class="k">Status</div><div class="v" style="color:var(--bad)">IN COMBAT</div>` : ""}</div>`;
     if (mine) {
       html += `<div class="actions">
@@ -709,7 +710,7 @@ export class Hud {
     return `<h2>Tunnel Gate</h2><div class="subtitle">${esc(s.systems[here].name)} ⟶ ${explored ? esc(s.systems[to].name) : "Unexplored system"}</div>
       <p class="desc">An ancient gate anchoring a stable tunnel through subspace. Fleets entering it emerge ${t.length.toFixed(1)} light years away.</p>
       <div class="kv"><div class="k">Distance</div><div class="v">${t.length.toFixed(1)} ly</div><div class="k">Transit time</div><div class="v">${t.travelDays.toFixed(0)} days</div></div>
-      <div class="actions"><button data-action="enter:${to}">View destination</button>
+      <div class="actions"><button data-action="jumpgate:${tunnelId}" ${explored ? "" : `disabled title="Survey it first: send any ship through the gate"`}>⟶ Look through the gate</button>
       ${this.app.activeFleetId ? `<button class="primary" data-action="send:${to}">Send ${esc(s.fleets[this.app.activeFleetId]?.name ?? "fleet")}</button>` : ""}</div>`;
   }
 
@@ -744,7 +745,7 @@ export class Hud {
       const from = f.transit ? f.transit.to : f.systemId!;
       return findRoute(s, from, id, p);
     })() : null;
-    html += `<div class="actions"><button class="primary" data-action="enter:${id}">☉ Enter system</button>
+    html += `<div class="actions"><button class="primary" data-action="enter:${id}" ${p.explored[id] ? "" : `disabled title="Survey the system first: send any ship there"`}>☉ Enter system</button>
       ${this.app.activeFleetId && s.fleets[this.app.activeFleetId] ? `<button data-action="send:${id}">Send ${esc(s.fleets[this.app.activeFleetId].name)}${route ? ` (${route.length} jumps)` : ""}</button>` : ""}</div>
       <div class="hint">Double-click a star to enter it. Right-click to send the active fleet.</div>`;
     return html;
@@ -1070,6 +1071,9 @@ export class Hud {
       case "enter":
         app.enterSystem(args[0]);
         break;
+      case "jumpgate":
+        app.jumpThroughGate(args[0]);
+        break;
       case "send": {
         const fid = app.activeFleetId;
         if (!fid) break;
@@ -1163,6 +1167,8 @@ function describeOrder(g: Game, f: Fleet): string {
       return `Invading ${esc(where ?? "")}${hops}`;
     case "attack":
       return `Attacking ${esc(s.fleets[o.fleetId ?? ""]?.name ?? "target")}`;
+    case "migrate":
+      return (o.work ?? 0) > 0 ? `Shuttling settlers down to ${esc(where ?? "")}` : `Carrying settlers to ${esc(where ?? "")}${hops}`;
   }
 }
 

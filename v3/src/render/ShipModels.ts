@@ -264,6 +264,24 @@ function build(hull: string): ShipModel {
       length = 12;
       break;
     }
+    case "liner": {
+      // Passenger liner: long streamlined hull with window bands and a spin ring.
+      P(cyl(0.25, 0.75, 1.2, 12), 1);
+      P(at(cyl(0.75, 0.75, 5, 14), 0, 0, -3.1), 0.95);
+      for (let i = 0; i < 4; i++) P(at(new THREE.TorusGeometry(0.77, 0.05, 4, 20), 0, 0, -1.3 - i * 1.2), 1.6);
+      P(at(new THREE.TorusGeometry(1.5, 0.16, 6, 28), 0, 0, -3.4), 0.8);
+      for (let i = 0; i < 4; i++) {
+        const spoke = box(0.12, 3.0, 0.12);
+        spoke.rotateZ((i * Math.PI) / 4);
+        P(at(spoke, 0, 0, -3.4), 0.6);
+      }
+      P(at(cyl(0.55, 0.55, 1.2, 12), 0, 0, -6.2), 0.85);
+      P(at(bell(0.45, 0.8), 0, 0, -7.0), 0.5);
+      rad.push(...radiatorPair(1.0, 1.0, -5.8, 0.7));
+      engines.push(new THREE.Vector3(0, 0, -7.8));
+      length = 9;
+      break;
+    }
     case "transport":
     default: {
       P(cyl(0.3, 0.8, 1.2, 10), 1);

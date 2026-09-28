@@ -1075,3 +1075,18 @@ kbd {
   font-size: 11px;
   text-align: center;
 }
+
+/* Tunnel jump flash (camera flying through a gate). */
+#warp-flash {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+  opacity: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(235, 248, 255, 0.95), rgba(120, 190, 255, 0.75) 35%, rgba(40, 80, 200, 0.2) 75%, transparent);
+  transition: opacity 0.55s ease-out;
+}
+#warp-flash.on {
+  opacity: 1;
+  transition: opacity 0.16s ease-in;
+}

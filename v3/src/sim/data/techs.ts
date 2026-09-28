@@ -50,7 +50,7 @@ export const BRANCH_INFO: Record<Branch, { name: string; color: string }> = {
   defense: { name: "Defense", color: "#b48cff" },
 };
 
-export const TIER_COST = [0, 200, 750, 1900, 4500, 9500, 90000];
+export const TIER_COST = [0, 2000, 7500, 19000, 45000, 95000, 600000];
 
 function t(
   id: string,
