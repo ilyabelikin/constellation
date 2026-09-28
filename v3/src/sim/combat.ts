@@ -147,7 +147,10 @@ export function autoPursue(state: GameState): void {
         bestD = d;
       }
     }
-    if (best) f.order = { kind: "attack", systemId: f.systemId, fleetId: best.id, route: [] };
+    if (best) {
+      f.order = { kind: "attack", systemId: f.systemId, fleetId: best.id, route: [] };
+      f.orbitBodyId = null;
+    }
   }
 }
 

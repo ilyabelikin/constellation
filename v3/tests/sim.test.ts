@@ -473,3 +473,120 @@ describe("long-running AI game", () => {
     expect(Object.values(g.state.stations).filter((s) => s.empireId !== "pirates").length).toBeGreaterThan(10);
   }, 180000);
 });
+
+describe("regressions from code review", () => {
+  it("refunds a paid, unfinished station when the constructor is re-tasked", () => {
+    const g = Game.create({ seed: "refund" });
+    const cons = playerFleet(g, "Builders");
+    const star = g.state.bodies[g.state.systems[home(g).systemId].starIds[0]];
+    g.buildStation(cons.id, star.id, "solar_array");
+    expect(runUntil(g, () => (cons.order?.work ?? 0) > 0, 100)).toBe(true);
+    const paid = { ...g.player.resources };
+    expect(g.stopFleet(cons.id).ok).toBe(true);
+    expect(g.player.resources.credits).toBeCloseTo(paid.credits + 40, 5);
+    expect(g.player.resources.metals).toBeCloseTo(paid.metals + 70, 5);
+  });
+
+  it("clears a move order that targets the fleet's own system", () => {
+    const g = Game.create({ seed: "selfmove" });
+    const guard = playerFleet(g, "Home Guard");
+    expect(g.moveFleet(guard.id, guard.systemId!).ok).toBe(true);
+    g.advance(0.3);
+    expect(guard.order).toBeNull();
+  });
+
+  it("does not teleport a fleet back to its orbit after pursuit", () => {
+    const g = Game.create({ seed: "pursuit" });
+    const s = g.state;
+    const guard = playerFleet(g, "Home Guard");
+    const pir = makeFleet(s, s.empires.pirates, guard.systemId!, { x: guard.pos.x + 3, y: 0, z: guard.pos.z }, "Bait");
+    pir.ships.push(makeShip(s, s.empires.pirates, "scout"));
+    g.step();
+    expect(guard.order?.kind).toBe("attack");
+    expect(guard.orbitBodyId).toBeNull();
+    g.advance(1);
+    delete s.fleets[pir.id];
+    guard.orbitBodyId = home(g).bodyId; // as if ordered back to orbit
+    for (let i = 0; i < 20; i++) {
+      const before = { ...guard.pos };
+      g.step();
+      const moved = Math.hypot(guard.pos.x - before.x, guard.pos.y - before.y, guard.pos.z - before.z);
+      expect(moved).toBeLessThan(1.5);
+    }
+  });
+
+  it("clears attack orders when peace is signed", () => {
+    const g = Game.create({ seed: "peacechase" });
+    const s = g.state;
+    const other = Object.values(s.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    g.declareWar(other.id);
+    const guard = playerFleet(g, "Home Guard");
+    const t = makeFleet(s, other, guard.systemId!, { x: guard.pos.x + 3, y: 0, z: guard.pos.z }, "Target");
+    t.ships.push(makeShip(s, other, "scout"));
+    t.stance = "passive";
+    expect(g.attackFleet(guard.id, t.id).ok).toBe(true);
+    g.state.empires[other.id].ai!.warStarted = { [g.playerId]: -1000 };
+    const peace = (): void => {
+      // Force the treaty directly to avoid RNG.
+      g.state.empires[g.playerId].relations[other.id] = "peace";
+      g.state.empires[other.id].relations[g.playerId] = "peace";
+    };
+    peace();
+    g.step();
+    expect(guard.order).toBeNull();
+  });
+
+  it("refuses repeated peace proposals for a while", () => {
+    const g = Game.create({ seed: "peacespam" });
+    const other = Object.values(g.state.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    g.declareWar(other.id);
+    // Make them strong so they refuse.
+    for (const f of Object.values(g.state.fleets)) if (f.empireId === other.id) for (let i = 0; i < 20; i++) f.ships.push(makeShip(g.state, other, "corvette"));
+    const first = g.proposePeace(other.id);
+    expect(first.ok).toBe(false);
+    const second = g.proposePeace(other.id);
+    expect(second.ok).toBe(false);
+    expect((second as { error: string }).error).toMatch(/will not hear/);
+  });
+
+  it("relocates the capital when it is captured", () => {
+    const g = Game.create({ seed: "capital" });
+    const s = g.state;
+    const cap = home(g);
+    const other = Object.values(s.bodies).find((b) => b.kind === "planet" && b.id !== cap.bodyId)!;
+    s.colonies.second = { ...cap, id: "second", bodyId: other.id, systemId: other.systemId, capital: false, pop: 3, buildings: [], queue: [] };
+    cap.empireId = Object.values(s.empires).find((e) => !e.isPlayer && !e.isPirate)!.id;
+    cap.capital = false;
+    g.advance(1.1);
+    expect(s.colonies.second.capital).toBe(true);
+  });
+
+  it("eliminates a homeless empire after the grace period so conquest can finish", () => {
+    const g = Game.create({ seed: "homeless", aiCount: 1 });
+    const s = g.state;
+    const ai = Object.values(s.empires).find((e) => e.ai)!;
+    for (const c of Object.values(s.colonies)) if (c.empireId === ai.id) delete s.colonies[c.id];
+    for (const f of Object.values(s.fleets)) if (f.empireId === ai.id) delete s.fleets[f.id];
+    // Park a lone colony ship in a system with nothing habitable.
+    const barren = Object.values(s.systems).find((sys) => sys.bodyIds.every((b) => !canColonize(ai, s.bodies[b])))!;
+    const f = makeFleet(s, ai, barren.id, { x: 0, y: 0, z: 0 }, "Ark");
+    f.ships.push(makeShip(s, ai, "colony"));
+    ai.ai = null; // disable resettling for this check
+    g.advance(60);
+    expect(ai.alive).toBe(true);
+    g.advance(80);
+    expect(ai.alive).toBe(false);
+    expect(s.winner).toBe(g.playerId);
+  });
+
+  it("guards the queue against stale cancels and shipyard demolition", () => {
+    const g = Game.create({ seed: "queue" });
+    const c = home(g);
+    g.queueShip(c.id, "scout");
+    expect(g.cancelQueueItem(c.id, 0, "corvette").ok).toBe(false);
+    const yard = c.buildings.findIndex((b) => b.type === "shipyard");
+    expect(g.demolishBuilding(c.id, yard).ok).toBe(false);
+    expect(g.cancelQueueItem(c.id, 0, "scout").ok).toBe(true);
+    expect(g.demolishBuilding(c.id, yard).ok).toBe(true);
+  });
+});

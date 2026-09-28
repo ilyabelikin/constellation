@@ -5,7 +5,7 @@ import { HULL_MAP } from "./data/ships";
 import { BUILDING_MAP, STATION_MAP } from "./data/structures";
 import { TECH_MAP } from "./data/techs";
 import { buildingSlots, canColonize, commandCapacity, commandUsed, hullCost, stationBuildError } from "./economy";
-import { issueOrder, mergeFleets } from "./fleets";
+import { clearOrder, issueOrder, mergeFleets } from "./fleets";
 import { makeFleet } from "./galaxy";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
 import { canAfford, log, pay, refund } from "./util";
@@ -56,12 +56,13 @@ export function queueShip(state: GameState, empireId: string, colonyId: string, 
   return OK;
 }
 
-export function cancelQueueItem(state: GameState, empireId: string, colonyId: string, index: number): CommandResult {
+export function cancelQueueItem(state: GameState, empireId: string, colonyId: string, index: number, expectType?: string): CommandResult {
   const colony = state.colonies[colonyId];
   const empire = state.empires[empireId];
   if (!colony || colony.empireId !== empireId) return fail("Not your colony");
   const item = colony.queue[index];
   if (!item) return fail("No such item");
+  if (expectType && item.type !== expectType) return fail("Queue changed — try again");
   colony.queue.splice(index, 1);
   const cost = item.kind === "ship" ? (item.paid ?? HULL_MAP[item.type].cost) : BUILDING_MAP[item.type].cost;
   refund(empire.resources, cost);
@@ -72,6 +73,8 @@ export function demolishBuilding(state: GameState, empireId: string, colonyId: s
   const colony = state.colonies[colonyId];
   if (!colony || colony.empireId !== empireId) return fail("Not your colony");
   if (!colony.buildings[index]) return fail("No such building");
+  if (colony.buildings[index].type === "shipyard" && colony.queue.some((q) => q.kind === "ship"))
+    return fail("Cancel queued ships before demolishing the shipyard");
   colony.buildings.splice(index, 1);
   return OK;
 }
@@ -178,7 +181,7 @@ export function stopFleet(state: GameState, empireId: string, fleetId: string): 
   const f = ownFleet(state, empireId, fleetId);
   if (!f) return fail("Not your fleet");
   if (f.transit) return fail("Cannot stop inside a tunnel");
-  f.order = null;
+  clearOrder(state, f);
   return OK;
 }
 

@@ -211,6 +211,8 @@ export interface AiState {
   warCooldown: number;
   /** Day each current war started, keyed by enemy empire id. */
   warStarted?: Record<string, number>;
+  /** Day until which peace proposals from an empire are refused outright. */
+  peaceRefusedUntil?: Record<string, number>;
 }
 
 export interface EmpireStats {
@@ -237,6 +239,8 @@ export interface Empire {
   income: Required<Yields>;
   stats: EmpireStats;
   fleetCounter: number;
+  /** Day the empire lost its last colony (cleared when it has one again). */
+  homelessSince?: number;
 }
 
 export interface Battle {

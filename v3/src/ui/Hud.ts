@@ -241,9 +241,9 @@ export class Hud {
     let bestHops = Infinity;
     for (const f of Object.values(s.fleets)) {
       if (f.empireId !== s.playerId || !f.ships.some((sh) => HULL_MAP[sh.hull].role === role)) continue;
-      const busy = !!f.order || !!f.transit;
-      const from = f.transit ? f.transit.to : f.systemId!;
-      const hops = (findRoute(s, from, bodySystemId)?.length ?? 99) + (busy ? 50 : 0);
+      // Never silently re-task a fleet that is already busy.
+      if (f.order || f.transit) continue;
+      const hops = findRoute(s, f.systemId!, bodySystemId)?.length ?? 99;
       if (hops < bestHops) {
         best = f;
         bestHops = hops;
@@ -382,7 +382,7 @@ export class Hud {
       html += `<div class="section-title">Construction queue</div>`;
       c.queue.forEach((q, i) => {
         const name = q.kind === "ship" ? HULL_MAP[q.type].name : BUILDING_MAP[q.type].name;
-        html += `<div class="queue-item"><span style="width:110px">${esc(name)}</span><div class="bar"><div style="width:${(q.progress / q.total) * 100}%"></div></div><span class="meta">${Math.ceil(q.total - q.progress)}d</span><button data-action="cancel:${c.id}:${i}" title="Cancel & refund">✕</button></div>`;
+        html += `<div class="queue-item"><span style="width:110px">${esc(name)}</span><div class="bar"><div style="width:${(q.progress / q.total) * 100}%"></div></div><span class="meta">${Math.ceil(q.total - q.progress)}d</span><button data-action="cancel:${c.id}:${i}:${q.type}" title="Cancel & refund">✕</button></div>`;
       });
     }
     html += `<div class="section-title">Construct building</div><div class="grid-buttons">`;
@@ -684,7 +684,7 @@ export class Hud {
         res(g.queueShip(args[0], args[1]));
         break;
       case "cancel":
-        res(g.cancelQueueItem(args[0], Number(args[1])));
+        res(g.cancelQueueItem(args[0], Number(args[1]), args[2]));
         break;
       case "demolish":
         if (e.shiftKey) res(g.demolishBuilding(args[0], Number(args[1])), "Building demolished");

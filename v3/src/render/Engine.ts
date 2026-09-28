@@ -8,6 +8,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { FXAAShader } from "three/examples/jsm/shaders/FXAAShader.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { CameraRig } from "./CameraRig";
 import { createSkyMaterial, createStarfield } from "./materials/misc";
 
@@ -36,7 +37,8 @@ export class Engine {
   private sky: THREE.Mesh;
   private stars: THREE.Points;
   private background = new THREE.Scene();
-  quality: "high" | "low" = "high";
+  /** Soft studio-like reflections so metal hulls and rocks read well in space. */
+  readonly envMap: THREE.Texture;
 
   constructor(readonly container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
@@ -47,6 +49,10 @@ export class Engine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.autoClear = false;
     container.appendChild(this.renderer.domElement);
+
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
 
     this.camera = new THREE.PerspectiveCamera(50, container.clientWidth / container.clientHeight, 0.05, 20000);
     this.rig = new CameraRig(this.camera);

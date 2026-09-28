@@ -7,7 +7,7 @@ import { aiAcceptsPeace, aiThink, coloniesOf } from "./ai";
 import { applySiege, autoPursue, repairFleetsDay, stepCombat } from "./combat";
 import * as cmd from "./commands";
 import { incomeReport, maxDefense, processColonyDay, processEconomyDay, systemOwnerMap } from "./economy";
-import { stepFleets } from "./fleets";
+import { ensureCapital, stepFleets } from "./fleets";
 import { createGame, makeFleet, makeShip, SAVE_VERSION } from "./galaxy";
 import { clearModifierCache } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
@@ -18,6 +18,8 @@ import type { Colony, GameSettings, GameState, SimEvent } from "./types";
 
 export const STEP_DAYS = 0.1;
 export const DOMINATION_SHARE = 0.6;
+export const HOMELESS_GRACE_DAYS = 120;
+export const PEACE_PROPOSAL_COOLDOWN = 30;
 
 export class Game {
   state: GameState;
@@ -35,6 +37,13 @@ export class Game {
     const g = new Game(createGame(settings));
     const player = g.player;
     log(g.state, "info", `The ${player.name} takes its first steps among the stars. Build, expand and prevail!`, player.id);
+    const tips = [
+      "Tip: select your star or gas giant — the Builders can raise a Solar Array or Gas Harvester there for energy.",
+      "Tip: send the Pathfinder scout through a tunnel gate (select it, right-click a gate) to survey neighbouring systems.",
+      "Tip: queue a Colony Ship at your capital, then right-click a habitable world (green habitability) to settle it.",
+      "Tip: press R to pick research. Void Raiders will raid within a few months — keep some warships at home.",
+    ];
+    for (const t of tips) log(g.state, "info", t, player.id);
     return g;
   }
 
@@ -72,6 +81,7 @@ export class Game {
     for (const e of Object.values(s.empires)) processEconomyDay(s, e);
     repairFleetsDay(s);
     for (const e of Object.values(s.empires)) if (e.ai && e.alive) aiThink(s, e, rng);
+    for (const e of Object.values(s.empires)) if (e.alive && !e.isPirate) ensureCapital(s, e.id);
     pirateDay(s, rng);
     s.rngState = rng.state;
     this.checkEliminations();
@@ -133,8 +143,19 @@ export class Game {
       const hasColonyShip = Object.values(s.fleets).some(
         (f) => f.empireId === e.id && f.ships.some((sh) => HULL_MAP[sh.hull].role === "colony"),
       );
-      if (hasColony || hasColonyShip) continue;
+      if (hasColony) {
+        delete e.homelessSince;
+        continue;
+      }
+      // A lone colony ship buys time to resettle, but not forever.
+      e.homelessSince ??= s.day;
+      if (hasColonyShip && s.day - e.homelessSince < HOMELESS_GRACE_DAYS) continue;
       e.alive = false;
+      for (const other of Object.values(s.empires)) {
+        if (other.id === e.id || other.isPirate) continue;
+        other.relations[e.id] = "peace";
+        e.relations[other.id] = "peace";
+      }
       for (const f of Object.values(s.fleets)) if (f.empireId === e.id) delete s.fleets[f.id];
       for (const st of Object.values(s.stations)) if (st.empireId === e.id) delete s.stations[st.id];
       log(s, e.isPlayer ? "defeat" : "victory", `The ${e.name} has collapsed.`, null);
@@ -187,8 +208,8 @@ export class Game {
   queueShip(colonyId: string, hull: string) {
     return this.after(cmd.queueShip(this.state, this.playerId, colonyId, hull));
   }
-  cancelQueueItem(colonyId: string, index: number) {
-    return this.after(cmd.cancelQueueItem(this.state, this.playerId, colonyId, index));
+  cancelQueueItem(colonyId: string, index: number, expectType?: string) {
+    return this.after(cmd.cancelQueueItem(this.state, this.playerId, colonyId, index, expectType));
   }
   demolishBuilding(colonyId: string, index: number) {
     return this.after(cmd.demolishBuilding(this.state, this.playerId, colonyId, index));
@@ -233,10 +254,14 @@ export class Game {
     const target = this.state.empires[targetId];
     if (!target || target.isPirate) return { ok: false, error: "They will not negotiate" };
     if (this.player.relations[targetId] !== "war") return { ok: false, error: "Not at war" };
+    const until = target.ai?.peaceRefusedUntil?.[this.playerId] ?? -1;
+    if (this.state.day < until)
+      return { ok: false, error: `${target.name} will not hear new proposals for ${Math.ceil(until - this.state.day)} days` };
     const rng = new Rng(this.state.rngState);
     const accepted = aiAcceptsPeace(this.state, target, this.playerId, rng);
     this.state.rngState = rng.state;
     if (!accepted) {
+      if (target.ai) (target.ai.peaceRefusedUntil ??= {})[this.playerId] = this.state.day + PEACE_PROPOSAL_COOLDOWN;
       log(this.state, "diplomacy", `${target.name} rejected our peace proposal.`, this.playerId);
       return { ok: false, error: `${target.name} rejected peace` };
     }

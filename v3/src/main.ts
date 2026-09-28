@@ -13,6 +13,24 @@ import { HULL_MAP } from "./sim/data/ships";
 import { canColonize } from "./sim/economy";
 
 const SAVE_KEY = "constellation-v3-save";
+const AUTOSAVE_KEY = "constellation-v3-autosave";
+
+function writeSave(key: string, json: string): void {
+  const st = storage();
+  if (!st) throw new Error("Storage unavailable");
+  st.setItem(key, json);
+  st.setItem(`${key}-time`, String(Date.now()));
+}
+
+/** The newest of the manual save and the autosave. */
+function newestSave(): string | null {
+  const st = storage();
+  if (!st) return null;
+  const pick = [SAVE_KEY, AUTOSAVE_KEY]
+    .filter((k) => st.getItem(k))
+    .sort((a, b) => Number(st.getItem(`${b}-time`) ?? 0) - Number(st.getItem(`${a}-time`) ?? 0))[0];
+  return pick ? st.getItem(pick) : null;
+}
 const SPEEDS = [0, 1, 2, 4, 8]; // game days per real second
 
 function storage(): Storage | null {
@@ -52,7 +70,7 @@ class App implements AppApi {
     this.lobby = new Lobby(document.getElementById("lobby")!, {
       onNewGame: (s) => this.newGame(s),
       onContinue: () => this.load(),
-      hasSave: () => !!storage()?.getItem(SAVE_KEY),
+      hasSave: () => !!newestSave(),
     });
     this.setupInput();
     this.showTitle();
@@ -102,7 +120,7 @@ class App implements AppApi {
 
   save(): void {
     try {
-      storage()?.setItem(SAVE_KEY, this.game.serialize());
+      writeSave(SAVE_KEY, this.game.serialize());
       this.toast("Game saved", "good");
     } catch (e) {
       this.toast(`Save failed: ${(e as Error).message}`, "error");
@@ -110,7 +128,7 @@ class App implements AppApi {
   }
 
   load(): void {
-    const json = storage()?.getItem(SAVE_KEY);
+    const json = newestSave();
     if (!json) {
       this.toast("No saved game found", "error");
       return;
@@ -131,7 +149,7 @@ class App implements AppApi {
   private showSystemInternal(id: string): void {
     this.systemId = id;
     this.view = "system";
-    this.systemView = new SystemView(this.game, id, this.engine.camera);
+    this.systemView = new SystemView(this.game, id, this.engine.camera, this.engine.envMap);
     this.engine.setView(this.systemView);
     const sys = this.game.state.systems[id];
     this.engine.setSky(sys.nebula, (Number(id.replace(/\D/g, "")) % 50) * 0.37);
@@ -472,11 +490,11 @@ class App implements AppApi {
         this.hudTimer = 0;
         this.hud?.render();
       }
-      this.autosaveTimer += dt;
+      if (!this.paused && !this.game.state.winner) this.autosaveTimer += dt;
       if (this.autosaveTimer > 90) {
         this.autosaveTimer = 0;
         try {
-          storage()?.setItem(SAVE_KEY, this.game.serialize());
+          writeSave(AUTOSAVE_KEY, this.game.serialize());
         } catch {
           /* storage full or unavailable: ignore autosave */
         }

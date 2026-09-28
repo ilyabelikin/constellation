@@ -103,6 +103,8 @@ function currentTarget(state: GameState, fleet: Fleet): Vec3 | null {
   if (o.kind === "attack" && o.fleetId) {
     const target = state.fleets[o.fleetId];
     if (!target || target.systemId !== fleet.systemId) return null;
+    // Peace signed mid-chase: stand down.
+    if (state.empires[fleet.empireId].relations[target.empireId] !== "war") return null;
     return target.pos;
   }
   if (o.bodyId) return bodyPosition(state, state.bodies[o.bodyId]);
@@ -111,11 +113,26 @@ function currentTarget(state: GameState, fleet: Fleet): Vec3 | null {
   return null;
 }
 
+/**
+ * Drop a fleet's current order. A station already paid for but not finished
+ * is refunded, so re-tasking a constructor never loses resources.
+ */
+export function clearOrder(state: GameState, fleet: Fleet): void {
+  const o = fleet.order;
+  if (o && o.kind === "buildStation" && (o.work ?? 0) > 0 && o.stationType) {
+    const def = STATION_MAP[o.stationType];
+    const res = state.empires[fleet.empireId].resources as Record<string, number>;
+    for (const [k, v] of Object.entries(def.cost)) res[k] += v ?? 0;
+  }
+  fleet.order = null;
+}
+
 export function issueOrder(state: GameState, fleet: Fleet, order: Omit<Order, "route">): string | null {
   const from = fleet.transit ? fleet.transit.to : fleet.systemId;
   if (!from) return "Fleet location unknown";
   const route = findRoute(state, from, order.systemId);
   if (!route) return "No tunnel route to destination";
+  clearOrder(state, fleet);
   fleet.order = { ...order, route, work: 0 };
   fleet.orbitBodyId = null;
   return null;
@@ -132,8 +149,9 @@ export function stepFleets(state: GameState, dt: number, events: SimEvent[]): vo
     if (!fleet.systemId) continue;
     const target = currentTarget(state, fleet);
     if (!target) {
-      if (fleet.order && fleet.order.kind === "attack") fleet.order = null;
-      followOrbit(state, fleet);
+      // Nothing left to head for (target gone, already here, peace): the order is complete.
+      if (fleet.order) clearOrder(state, fleet);
+      followOrbit(state, fleet, dt);
       continue;
     }
     const speed = fleetSpeed(state, fleet) * (fleet.battleId ? 0.5 : 1);
@@ -153,10 +171,17 @@ export function stepFleets(state: GameState, dt: number, events: SimEvent[]): vo
   }
 }
 
-function followOrbit(state: GameState, fleet: Fleet): void {
-  if (fleet.orbitBodyId) {
-    const body = state.bodies[fleet.orbitBodyId];
-    if (body && body.systemId === fleet.systemId) fleet.pos = bodyPosition(state, body);
+function followOrbit(state: GameState, fleet: Fleet, dt: number): void {
+  if (!fleet.orbitBodyId) return;
+  const body = state.bodies[fleet.orbitBodyId];
+  if (!body || body.systemId !== fleet.systemId) return;
+  const at = bodyPosition(state, body);
+  const d = dist(fleet.pos, at);
+  const step = fleetSpeed(state, fleet) * dt * 1.5; // a little faster than orbital drift
+  if (d <= step) fleet.pos = at;
+  else {
+    const k = step / d;
+    fleet.pos = { x: fleet.pos.x + (at.x - fleet.pos.x) * k, y: fleet.pos.y + (at.y - fleet.pos.y) * k, z: fleet.pos.z + (at.z - fleet.pos.z) * k };
   }
 }
 
@@ -359,8 +384,7 @@ function doInvade(state: GameState, fleet: Fleet): void {
     colony.defense = 0;
     colony.lastAttacked = state.day;
     log(state, "combat", `${empire.name} invaded and captured ${colony.name} from ${victim.name}!`, null, colony.systemId);
-    // Stations of the old owner in this system are lost too if nothing else holds the system.
-    void oldOwner;
+    ensureCapital(state, oldOwner);
   } else {
     colony.pop = Math.max(0.5, colony.pop * 0.95);
     log(state, "combat", `${empire.name}'s invasion of ${colony.name} was repulsed.`, empire.isPlayer || victim.isPlayer ? null : empire.id, colony.systemId);
@@ -368,7 +392,18 @@ function doInvade(state: GameState, fleet: Fleet): void {
   fleet.order = null;
 }
 
+/** Promote the most populous colony to capital if an empire has lost its capital. */
+export function ensureCapital(state: GameState, empireId: string): void {
+  const cols = Object.values(state.colonies).filter((c) => c.empireId === empireId);
+  if (!cols.length || cols.some((c) => c.capital)) return;
+  cols.sort((a, b) => b.pop - a.pop);
+  cols[0].capital = true;
+  const e = state.empires[empireId];
+  log(state, "colony", `${e.name} relocated its capital to ${cols[0].name}.`, e.isPlayer ? e.id : null, cols[0].systemId);
+}
+
 export function mergeFleets(state: GameState, into: Fleet, from: Fleet): void {
+  clearOrder(state, from);
   into.ships.push(...from.ships);
   from.ships = [];
   delete state.fleets[from.id];

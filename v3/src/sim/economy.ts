@@ -379,20 +379,40 @@ export function systemOwnerMap(state: GameState): Record<string, string | null> 
   return out;
 }
 
+/** Optional precomputed lookups so hot callers (the AI) avoid rescanning all stations/colonies. */
+export interface SiteContext {
+  owners: Record<string, string | null>;
+  stationsByBody: Map<string, Station[]>;
+  colonyByBody: Map<string, Colony>;
+}
+
+export function siteContext(state: GameState): SiteContext {
+  const stationsByBody = new Map<string, Station[]>();
+  for (const st of Object.values(state.stations)) {
+    const list = stationsByBody.get(st.bodyId);
+    if (list) list.push(st);
+    else stationsByBody.set(st.bodyId, [st]);
+  }
+  const colonyByBody = new Map<string, Colony>();
+  for (const c of Object.values(state.colonies)) colonyByBody.set(c.bodyId, c);
+  return { owners: systemOwnerMap(state), stationsByBody, colonyByBody };
+}
+
 /** Can `empire` build station `type` on `body`? Returns an error string or null. */
-export function stationBuildError(state: GameState, empire: Empire, type: string, body: Body): string | null {
+export function stationBuildError(state: GameState, empire: Empire, type: string, body: Body, ctx?: SiteContext): string | null {
   const def = STATION_MAP[type];
   if (!def) return "Unknown station";
   if (!hasTech(empire, def.requires) || def.requires === "__never__") return "Technology required";
   if (!stationAllowedOn(def, body)) return `A ${def.name} cannot be built on ${body.name}`;
-  const owner = systemOwner(state, body.systemId);
+  const owner = ctx ? ctx.owners[body.systemId] : systemOwner(state, body.systemId);
   if (owner && owner !== empire.id && !state.empires[owner]?.isPirate) return "System is claimed by another empire";
-  const existing = stationsOnBody(state, body.id);
+  const existing = ctx ? (ctx.stationsByBody.get(body.id) ?? []) : stationsOnBody(state, body.id);
   if (def.upgradeOf) {
     if (!existing.some((s) => s.type === def.upgradeOf && s.empireId === empire.id)) return `Requires a ${STATION_MAP[def.upgradeOf].name} here first`;
   } else if (existing.some((s) => s.type === type)) return "Already built here";
   else if (existing.some((s) => s.empireId !== empire.id)) return "Another empire has a station here";
-  if (Object.values(state.colonies).some((c) => c.bodyId === body.id && c.empireId !== empire.id)) return "Colonised by another empire";
+  const colony = ctx ? ctx.colonyByBody.get(body.id) : Object.values(state.colonies).find((c) => c.bodyId === body.id);
+  if (colony && colony.empireId !== empire.id) return "Colonised by another empire";
   return null;
 }
 

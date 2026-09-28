@@ -1,4 +1,8 @@
-# Constellation v2
+# Constellation
+
+> **New: [Constellation v3](v3/README.md)** is a standalone 3D grand strategy rewrite with fleets, real-time combat, a deeper economy, AI rivals and much richer graphics. Run it with `cd v3 && npm install && npm run dev`. The v2 multiplayer client and server below are unchanged.
+
+## Constellation v2
 
 A multiplayer space exploration game with realistic orbital mechanics, procedural galaxy generation, and real-time physics simulation.
 

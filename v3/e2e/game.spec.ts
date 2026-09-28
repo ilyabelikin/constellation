@@ -218,3 +218,36 @@ test("empires screen lists rivals and supports declaring war", async ({ page }) 
   await expect(page.locator(".empire-card .tag.war").first()).toBeVisible();
   await expect(page.locator("#log")).toContainText("declared war");
 });
+
+test("station panel dispatches the constructor to build a solar array", async ({ page }) => {
+  await startGame(page, "e2e-station");
+  await page.click('[data-action="speed:0"]');
+  await page.evaluate(() => {
+    const a = (window as any).__app;
+    const s = a.game.state;
+    a.select({ kind: "body", id: s.systems[a.systemId].starIds[0] });
+  });
+  const btn = page.locator('#details [data-action$=":solar_array"]');
+  await expect(btn).toBeEnabled();
+  await btn.click();
+  await expect(page.locator(".toast.good").last()).toContainText("Builders dispatched");
+  await page.evaluate(() => (window as any).__app.game.advance(60));
+  await expect(page.locator("#log")).toContainText("Solar Array completed", { timeout: 10000 });
+});
+
+test("a long game keeps running and rendering without errors", async ({ page }) => {
+  await startGame(page, "e2e-long");
+  for (let i = 0; i < 6; i++) {
+    await page.evaluate(() => (window as any).__app.game.advance(100));
+    await page.keyboard.press(i % 2 ? "g" : "h");
+    await page.waitForTimeout(800);
+  }
+  const summary = await page.evaluate(() => {
+    const s = (window as any).__app.game.state;
+    return { day: s.day, empires: Object.values(s.empires).filter((e: any) => e.alive).length, colonies: Object.keys(s.colonies).length };
+  });
+  expect(summary.day).toBeGreaterThanOrEqual(600);
+  expect(summary.colonies).toBeGreaterThan(4);
+  const stats = await canvasStats(page);
+  expect(stats.distinct).toBeGreaterThan(30);
+});

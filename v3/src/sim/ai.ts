@@ -11,6 +11,7 @@ import {
   habitability,
   hullCost,
   storageCap,
+  siteContext,
   stationBuildError,
   systemOwnerMap,
 } from "./economy";
@@ -77,8 +78,12 @@ export function aiThink(state: GameState, empire: Empire, rng: Rng): void {
   ai.nextThink = state.day + THINK_INTERVAL + rng.range(0, 2);
   ai.warCooldown = Math.max(0, ai.warCooldown - THINK_INTERVAL);
   const colonies = coloniesOf(state, empire.id);
-  if (!colonies.length) return;
   const owners = systemOwnerMap(state);
+  if (!colonies.length) {
+    // Homeless: try to resettle with any surviving colony ship.
+    directCivilians(state, empire, owners, rng);
+    return;
+  }
   chooseResearch(state, empire, rng);
   planBuildings(state, empire, colonies, rng);
   planShips(state, empire, colonies, owners, rng);
@@ -102,7 +107,7 @@ function chooseResearch(state: GameState, empire: Empire, rng: Rng): void {
 
 function planBuildings(state: GameState, empire: Empire, colonies: Colony[], rng: Rng): void {
   const pers = empire.ai!.personality;
-  const atWar = Object.entries(empire.relations).some(([id, r]) => r === "war" && !state.empires[id].isPirate);
+  const atWar = Object.entries(empire.relations).some(([id, r]) => r === "war" && !state.empires[id].isPirate && state.empires[id].alive);
   for (const c of colonies) {
     if (c.queue.some((q) => q.kind === "building")) continue;
     if (c.buildings.length >= buildingSlots(state, c)) continue;
@@ -193,7 +198,9 @@ function planShips(state: GameState, empire: Empire, colonies: Colony[], owners:
 }
 
 function bestColonySite(state: GameState, empire: Empire, owners: Record<string, string | null>): { bodyId: string; score: number } | null {
-  const homes = ownedSystemIds(state, empire.id, owners);
+  let homes = ownedSystemIds(state, empire.id, owners);
+  const homeless = homes.length === 0;
+  if (homeless) homes = [...new Set(fleetsOf(state, empire.id).map((f) => f.systemId ?? f.transit?.to).filter((x): x is string => !!x))];
   if (!homes.length) return null;
   const taken = new Set(Object.values(state.colonies).map((c) => c.bodyId));
   const targeted = new Set(
@@ -207,13 +214,13 @@ function bestColonySite(state: GameState, empire: Empire, owners: Record<string,
     if (owner && owner !== empire.id && !state.empires[owner].isPirate) continue;
     if (Object.values(state.stations).some((s) => s.systemId === sysId && state.empires[s.empireId].isPirate)) continue;
     const hops = Math.min(...homes.map((h) => findRoute(state, h, sysId)?.length ?? 99));
-    if (hops > 4) continue;
+    if (hops > (homeless ? 12 : 4)) continue;
     for (const bid of state.systems[sysId].bodyIds) {
       const b = state.bodies[bid];
       if (taken.has(bid) || targeted.has(bid)) continue;
       if (Object.values(state.stations).some((s) => s.bodyId === bid && s.empireId !== empire.id)) continue;
       const h = habitability(empire, b);
-      if (h < 0.35) continue;
+      if (h < (homeless ? 0.2 : 0.35)) continue;
       const score = (h * b.size) / (1 + hops * 0.6);
       if (!best || score > best.score) best = { bodyId: bid, score };
     }
@@ -254,6 +261,7 @@ function bestStationSite(
       .filter((f) => f.empireId === empire.id && f.order?.kind === "buildStation")
       .map((f) => `${f.order!.bodyId}|${f.order!.stationType}`),
   );
+  const ctx = siteContext(state);
   let best: { bodyId: string; type: string; score: number } | null = null;
   for (const sysId of Object.keys(empire.explored)) {
     const owner = owners[sysId];
@@ -267,7 +275,7 @@ function bestStationSite(
       for (const def of STATIONS) {
         if (def.requires === "__never__") continue;
         if (targeted.has(`${bid}|${def.id}`)) continue;
-        if (stationBuildError(state, empire, def.id, body)) continue;
+        if (stationBuildError(state, empire, def.id, body, ctx)) continue;
         const rich = def.richness ? body.richness[def.richness] : 1;
         const score = (stationValue(empire, def.id) * (0.4 + 0.6 * rich)) / (1 + hops * 0.7);
         if (!best || score > best.score) best = { bodyId: bid, type: def.id, score };
@@ -283,7 +291,15 @@ function invasionTarget(state: GameState, empire: Empire): Colony | null {
   let bestScore = -Infinity;
   for (const c of Object.values(state.colonies)) {
     if (!isHostile(state, empire.id, c.empireId) || state.empires[c.empireId].isPirate) continue;
-    const score = -c.defense / 50 - garrison(state, c) + c.pop * 0.3;
+    let score = -c.defense / 50 - garrison(state, c) + c.pop * 0.3;
+    // Strongly prefer the colony our warships are already besieging.
+    if (c.defense <= 0) {
+      const at = bodyPosition(state, state.bodies[c.bodyId]);
+      const besieging = Object.values(state.fleets).some(
+        (f) => f.empireId === empire.id && f.systemId === c.systemId && fleetArmed(f) && dist(f.pos, at) < 2,
+      );
+      score += besieging ? 1000 : 100;
+    }
     if (score > bestScore) {
       best = c;
       bestScore = score;
@@ -375,6 +391,8 @@ function directMilitary(state: GameState, empire: Empire, owners: Record<string,
     .map(([id]) => state.empires[id]);
   let bestTarget: { systemId: string; bodyId: string; score: number } | null = null;
   const from = main.systemId!;
+  const haveTroops = fleetsOf(state, empire.id).some((f) => f.ships.some((sh) => HULL_MAP[sh.hull].role === "transport"));
+  const invTarget = haveTroops ? invasionTarget(state, empire) : null;
   for (const enemy of enemies) {
     if (enemy.isPirate) {
       for (const s of Object.values(state.stations)) {
@@ -395,7 +413,7 @@ function directMilitary(state: GameState, empire: Empire, owners: Record<string,
       const garrisonFleets = Object.values(state.fleets).filter((g) => g.empireId === enemy.id && g.systemId === c.systemId).reduce((p, g) => p + fleetPower(state, g), 0);
       const needed = garrisonFleets + colonyPower(state, c);
       if (mainPower < needed * 1.3) continue;
-      const score = (c.pop + 2) / (1 + r.length) / (1 + needed / 500);
+      const score = ((c.pop + 2) / (1 + r.length) / (1 + needed / 500)) * (c.id === invTarget?.id ? 3 : 1);
       if (!bestTarget || score > bestTarget.score) bestTarget = { systemId: c.systemId, bodyId: c.bodyId, score };
     }
   }
@@ -447,6 +465,8 @@ function diplomacy(state: GameState, empire: Empire, owners: Record<string, stri
 export function aiAcceptsPeace(state: GameState, empire: Empire, fromId: string, rng: Rng): boolean {
   if (!empire.ai) return true;
   const ratio = (empirePower(state, empire.id) + 1) / (empirePower(state, fromId) + 1);
+  const started = empire.ai.warStarted?.[fromId];
+  if (started !== undefined && state.day - started < 30 && ratio >= 0.5) return false; // too soon
   if (ratio < 0.8) return true;
   const since = empire.ai.warStarted?.[fromId];
   if (since !== undefined && state.day - since > 300 && ratio < 1.3) return true;

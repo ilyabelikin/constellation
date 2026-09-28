@@ -77,15 +77,19 @@ export class SystemView implements View {
   hovered: PickResult | null = null;
   renderDay = 0;
   alpha = 0;
-  private time = 0;
 
   constructor(
     readonly game: Game,
     readonly systemId: string,
     private camera: THREE.Camera,
+    envMap?: THREE.Texture,
   ) {
     const sys = game.state.systems[systemId];
-    this.scene.add(new THREE.AmbientLight(0x8090b0, 0.12));
+    if (envMap) {
+      this.scene.environment = envMap;
+      this.scene.environmentIntensity = 0.28;
+    }
+    this.scene.add(new THREE.AmbientLight(0x8090b0, 0.18));
     this.scene.add(this.orbitLines, this.pathLines, this.battleMarkers, this.effects.group);
     for (const sid of sys.starIds) this.buildStar(game.state.bodies[sid]);
     for (const bid of sys.bodyIds) {
@@ -132,7 +136,7 @@ export class SystemView implements View {
       const horizon = new THREE.Mesh(new THREE.SphereGeometry(r, 48, 32), new THREE.MeshBasicMaterial({ color: 0x000000 }));
       spin.add(horizon);
       const diskMat = createAccretionDiskMaterial(r * 1.6, r * 7);
-      diskMat.uniforms.uGain.value = 0.8;
+      diskMat.uniforms.uGain.value = 0.42;
       const disk = new THREE.Mesh(new THREE.RingGeometry(r * 1.6, r * 7, 128, 4), diskMat);
       disk.rotation.x = -Math.PI / 2 + 0.25;
       group.add(disk);
@@ -140,11 +144,12 @@ export class SystemView implements View {
       const halo = new THREE.Mesh(new THREE.RingGeometry(r * 1.25, r * 2.2, 96, 2), diskMat.clone());
       (halo.material as THREE.ShaderMaterial).uniforms.uInner.value = r * 1.25;
       (halo.material as THREE.ShaderMaterial).uniforms.uOuter.value = r * 2.2;
+      (halo.material as THREE.ShaderMaterial).uniforms.uGain.value = 0.3;
       group.add(halo);
       materials.push(diskMat, halo.material as THREE.ShaderMaterial);
-      const photon = new THREE.Mesh(new THREE.TorusGeometry(r * 1.08, r * 0.03, 8, 96), new THREE.MeshBasicMaterial({ color: new THREE.Color("#ffd9a0").multiplyScalar(4) }));
-      group.add(photon);
-      group.add(glowSprite("#ff9a4a", r * 12, 0.2));
+      const photon = new THREE.Mesh(new THREE.TorusGeometry(r * 1.08, r * 0.025, 8, 96), new THREE.MeshBasicMaterial({ color: new THREE.Color("#ffd9a0").multiplyScalar(1.6) }));
+      halo.add(photon); // billboarded with the lensed halo
+      group.add(glowSprite("#ff9a4a", r * 12, 0.08));
       lightColor = new THREE.Color("#ffb070");
       lightIntensity = 1.4;
       (halo as THREE.Mesh).userData.billboard = true;
@@ -293,7 +298,7 @@ export class SystemView implements View {
     const a = body.orbit!.a;
     const w = body.radius;
     for (let i = 0; i < count; i++) {
-      const rr = a + (rnd() + rnd() + rnd() - 1.5) * w * 1.3;
+      const rr = a + (rnd() + rnd() + rnd() - 1.5) * w * 0.8;
       const ang = rnd() * Math.PI * 2;
       const rs = auToScene(rr);
       const y = (rnd() - 0.5) * (auToScene(a + w) - auToScene(a - w)) * 0.18;
@@ -488,11 +493,12 @@ export class SystemView implements View {
     const engines: THREE.Sprite[] = [];
     const shown = f.ships.slice(0, 24);
     let maxLen = 0;
+    for (const sh of shown) maxLen = Math.max(maxLen, shipVisualLength(HULL_MAP[sh.hull].length));
+    const spacing = Math.max(1.6, maxLen * 0.75);
     shown.forEach((ship, i) => {
       const hull = HULL_MAP[ship.hull];
       const model = shipModel(ship.hull);
       const len = shipVisualLength(hull.length);
-      maxLen = Math.max(maxLen, len);
       const scale = len / model.length;
       const sg = new THREE.Group();
       const hm = new THREE.Mesh(model.hull, hullMaterial(color));
@@ -509,17 +515,17 @@ export class SystemView implements View {
       if (i > 0) {
         const ring = Math.ceil(i / 6);
         const a = ((i - 1) % 6) / 6 * Math.PI * 2 + ring * 0.5;
-        sg.position.set(Math.cos(a) * ring * 1.6, Math.sin(a) * ring * 0.7, -ring * 1.3);
+        sg.position.set(Math.cos(a) * ring * spacing, Math.sin(a) * ring * spacing * 0.45, -ring * spacing * 0.8);
       }
       group.add(sg);
       ships.push(sg);
     });
-    const radius = Math.max(1.6, maxLen * 1.2 + Math.ceil((shown.length - 1) / 6) * 1.6);
+    const radius = Math.max(1.6, maxLen * 0.8 + Math.ceil((shown.length - 1) / 6) * spacing);
     const pick = new THREE.Mesh(new THREE.SphereGeometry(radius, 10, 8), new THREE.MeshBasicMaterial({ visible: false }));
     pick.userData.pick = { kind: "fleet", id: f.id } as PickResult;
     group.add(pick);
     // Empire-coloured marker so fleets read at a distance.
-    const marker = glowSprite(color, radius * 1.6, 0.25);
+    const marker = glowSprite(color, radius * 1.3, 0.1);
     group.add(marker);
     this.scene.add(group);
     this.pickables.push(pick);
@@ -604,7 +610,7 @@ export class SystemView implements View {
       const body = this.game.state.bodies[f.orbitBodyId];
       this.bodyWorld(body, out);
       const r = this.bodyRadius(body.id) * (body.kind === "star" ? 2.4 : 2.1) + 1.8 + (hashId(f.id) % 3) * 0.9;
-      const a = this.time * 0.12 + (hashId(f.id) % 628) / 100;
+      const a = this.renderDay * 0.35 + (hashId(f.id) % 628) / 100;
       return out.set(out.x + Math.cos(a) * r, out.y + 0.6 + (hashId(f.id) % 5) * 0.25, out.z + Math.sin(a) * r);
     }
     const x = f.prevPos.x + (f.pos.x - f.prevPos.x) * this.alpha;
@@ -645,7 +651,6 @@ export class SystemView implements View {
 
   // ------------------------------------------------------------------ frame
   update(dt: number, time: number): void {
-    this.time = time;
     const s = this.game.state;
     const tmp = new THREE.Vector3();
     for (const bv of this.bodies.values()) {
@@ -689,7 +694,7 @@ export class SystemView implements View {
       const body = s.bodies[sv.station.bodyId];
       this.bodyWorld(body, tmp);
       const r = body.kind === "belt" ? 0 : this.bodyRadius(body.id) * (body.kind === "star" ? 1.6 : 1.5) + 1.2;
-      const a = sv.angle + time * 0.15;
+      const a = sv.angle + this.renderDay * 0.25;
       if (body.kind === "belt") {
         const ang = sv.angle;
         const rr = auToScene(body.orbit!.a);

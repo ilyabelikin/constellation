@@ -277,6 +277,7 @@ export function generateSystem(
       r = (orbits[orbits.length - 1] ?? 1) * rng.range(1.3, 1.7);
     }
     if (beltOrbits.some((o) => Math.abs(o - r) / r < 0.2)) continue;
+    if (orbits.some((o) => Math.abs(o - r) / r < 0.14)) continue; // keep belts clear of planet orbits
     beltOrbits.push(r);
     const zone = zoneFor(r, luminosity);
     const bt = rng.weighted(BELT_TYPES, (t) => t.zones[zone] ?? 0);
@@ -296,7 +297,7 @@ export function generateSystem(
         node: rng.range(0, Math.PI * 2),
         argPeri: 0,
       },
-      radius: r * rng.range(0.08, 0.16),
+      radius: r * rng.range(0.05, 0.09),
       size: 0,
       richness: richness(rng, bt.richness),
       features: rng.chance(0.08) ? ["anomaly"] : [],
