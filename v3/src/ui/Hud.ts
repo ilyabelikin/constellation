@@ -36,7 +36,7 @@ import { fleetSpeed, findRoute } from "../sim/fleets";
 import type { PlayerFacade as Game } from "../sim/facade";
 import { buildingUnlocked, hullUnlocked, shipStats, stationUnlocked } from "../sim/modifiers";
 import { dist } from "../sim/orbits";
-import type { Body, ChatMessage, Colony, DiploAction, Fleet, Order, ResourceKey } from "../sim/types";
+import type { Body, ChatMessage, Colony, DiploAction, Fleet, GameLogEntry, Order, ResourceKey } from "../sim/types";
 import type { SessionInfo } from "../net/protocol";
 import { inviteLink } from "./Lobby";
 import { morphHtml } from "./morph";
@@ -73,6 +73,8 @@ export interface AppApi {
   select(sel: PickResult | null, focus?: boolean): void;
   enterSystem(id: string, focusSel?: PickResult | null): void;
   jumpThroughGate(tunnelId: string): void;
+  /** Show what a log entry is about (or where it was last seen). */
+  locateLog(entry: GameLogEntry): void;
   showGalaxy(): void;
   goHome(): void;
   setSpeed(i: number): void;
@@ -93,6 +95,7 @@ export class Hud {
   private endShown = false;
   private splitSel = new Set<string>();
   private logCount = 0;
+  private logEntries: GameLogEntry[] = [];
   outlinerTab: "system" | "empire" = "system";
   private badgeIndex: Partial<Record<OpportunityKind, number>> = {};
   private opportunities: Opportunity[] = [];
@@ -451,12 +454,14 @@ export class Hud {
   private renderLog(): void {
     const s = this.game.state;
     const entries = s.log.filter((l) => canSeeLog(l, s.playerId)).slice(-60);
-    if (entries.length !== this.logCount || this.cache.log === undefined) {
+    const last = entries[entries.length - 1];
+    if (entries.length !== this.logCount || last !== this.logEntries[this.logEntries.length - 1] || this.cache.log === undefined) {
       this.logCount = entries.length;
+      this.logEntries = entries;
       const html = entries
         .map(
-          (l) =>
-            `<div class="log-entry ${l.kind}" ${l.systemId ? `data-action="goto:system:${l.systemId}" data-system="1"` : ""}><span class="d">${dateString(l.day).slice(0, 7)}</span><span class="t">${esc(l.text)}</span></div>`,
+          (l, i) =>
+            `<div class="log-entry ${l.kind}" ${l.ref || l.systemId ? `data-action="log:${i}" data-system="1" title="Click to locate"` : ""}><span class="d">${dateString(l.day).slice(0, 7)}</span><span class="t">${esc(l.text)}</span></div>`,
         )
         .join("");
       this.set("log", html);
@@ -1108,6 +1113,11 @@ export class Hud {
       case "cancel":
         res(g.cancelQueueItem(args[0], Number(args[1]), args[2]));
         break;
+      case "log": {
+        const entry = this.logEntries[Number(args[0])];
+        if (entry) app.locateLog(entry);
+        return;
+      }
       case "cancelorder":
         res(g.cancelFleetOrder(args[0], Number(args[1]), args[2]));
         break;

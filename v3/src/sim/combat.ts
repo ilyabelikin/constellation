@@ -8,7 +8,7 @@ import { isBankrupt, maxDefense, systemOwner } from "./economy";
 import { modifiers, shipStats, weaponDamage } from "./modifiers";
 import { bodyPosition, copyVec, dist } from "./orbits";
 import { Rng } from "./rng";
-import { log, logTo, witnesses } from "./util";
+import { bodyRef, log, logTo, witnesses } from "./util";
 import type { Battle, Colony, Empire, Fleet, GameState, Ship, SimEvent, Station, Vec3 } from "./types";
 
 export const ENGAGE_RANGE = 1.2;
@@ -235,7 +235,12 @@ function announceBattle(state: GameState, battle: Battle): void {
     const e = state.empires[id];
     if (!e?.isPlayer) continue;
     const foes = battle.empireIds.filter((x) => x !== id).map((x) => state.empires[x].name);
-    log(state, "combat", `Battle erupted in ${state.systems[battle.systemId].name} against ${foes.join(", ")}!`, id, battle.systemId);
+    log(state, "combat", `Battle erupted in ${state.systems[battle.systemId].name} against ${foes.join(", ")}!`, id, battle.systemId, {
+      kind: "point",
+      id: "",
+      systemId: battle.systemId,
+      pos: { ...battle.pos },
+    });
   }
 }
 
@@ -252,6 +257,7 @@ function concludeBattle(state: GameState, battle: Battle): void {
         : `The battle in ${state.systems[battle.systemId].name} is over.`,
       id,
       battle.systemId,
+      { kind: "point", id: "", systemId: battle.systemId, pos: { ...battle.pos } },
     );
   }
 }
@@ -422,6 +428,7 @@ function onKilled(state: GameState, target: Combatant, killer: Combatant, battle
         `${killerEmpire.name} destroyed a Raider Haven in ${state.systems[st.systemId].name} and seized its hoard!`,
         [killerEmpire.id, ...witnesses(state, st.systemId)],
         st.systemId,
+        bodyRef(state, st.bodyId),
       );
     } else {
       logTo(
@@ -430,6 +437,7 @@ function onKilled(state: GameState, target: Combatant, killer: Combatant, battle
         `${state.empires[st.empireId].name}'s ${name} in ${state.systems[st.systemId].name} was destroyed.`,
         [st.empireId, killerEmpire.id, ...witnesses(state, st.systemId)],
         st.systemId,
+        bodyRef(state, st.bodyId),
       );
     }
   }

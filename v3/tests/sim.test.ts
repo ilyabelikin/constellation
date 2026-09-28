@@ -934,3 +934,29 @@ describe("where to build", () => {
     }
   });
 });
+
+describe("locatable log entries", () => {
+  it("raid warnings point at the warband, completions at the world", () => {
+    let raid;
+    for (let i = 0; i < 6 && !raid; i++) {
+      const g = Game.create({ seed: `raid-ref-${i}` });
+      g.state.nextRaid = 0;
+      g.advance(3);
+      raid = g.state.log.find((l) => l.text.includes("warband"));
+      if (raid) {
+        expect(raid.ref?.kind).toBe("fleet");
+        expect(g.state.fleets[raid.ref!.id]?.empireId).toBe("pirates");
+        expect(raid.ref!.pos).toBeDefined();
+      }
+    }
+    expect(raid).toBeDefined();
+    const g = Game.create({ seed: "build-ref" });
+    const c = home(g);
+    g.player.resources.credits = 5000;
+    g.player.resources.metals = 5000;
+    g.queueBuilding(c.id, "mine");
+    g.advance(BUILDING_MAP.mine.days + 2);
+    const done = g.state.log.find((l) => l.text.includes("completed on"));
+    expect(done?.ref).toMatchObject({ kind: "body", id: c.bodyId });
+  });
+});

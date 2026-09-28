@@ -1,5 +1,5 @@
 import { Rng } from "./rng";
-import type { GameEventKind, GameLogEntry, GameState, Resources } from "./types";
+import type { Fleet, GameEventKind, GameLogEntry, GameState, LogRef, Resources } from "./types";
 
 export function nextId(state: GameState, prefix: string): string {
   state.idCounter += 1;
@@ -20,8 +20,9 @@ export function log(
   text: string,
   empireId: string | null,
   systemId?: string,
+  ref?: LogRef,
 ): void {
-  state.log.push({ day: state.day, kind, text, empireId, systemId });
+  state.log.push({ day: state.day, kind, text, empireId, systemId, ...(ref ? { ref } : {}) });
   if (state.log.length > 600) state.log.splice(0, state.log.length - 600);
 }
 
@@ -32,11 +33,23 @@ export function logTo(
   text: string,
   audience: Iterable<string>,
   systemId?: string,
+  ref?: LogRef,
 ): void {
   const ids = [...new Set(audience)].filter((id) => state.empires[id]);
   if (!ids.length) return;
-  state.log.push({ day: state.day, kind, text, empireId: null, audience: ids, systemId });
+  state.log.push({ day: state.day, kind, text, empireId: null, audience: ids, systemId, ...(ref ? { ref } : {}) });
   if (state.log.length > 600) state.log.splice(0, state.log.length - 600);
+}
+
+/** Log reference to a fleet where it is now. */
+export function fleetRef(fleet: Fleet): LogRef | undefined {
+  return fleet.systemId ? { kind: "fleet", id: fleet.id, systemId: fleet.systemId, pos: { ...fleet.pos } } : undefined;
+}
+
+/** Log reference to a planet, moon, belt or star. */
+export function bodyRef(state: GameState, bodyId: string): LogRef | undefined {
+  const b = state.bodies[bodyId];
+  return b ? { kind: "body", id: b.id, systemId: b.systemId } : undefined;
 }
 
 /** Whether `empireId` may see a log entry. */

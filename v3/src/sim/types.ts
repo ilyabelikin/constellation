@@ -348,6 +348,17 @@ export interface GameLogEntry {
   /** Empires that know about this event (when absent and empireId is null: public news). */
   audience?: string[];
   systemId?: string;
+  /** What the entry is about, and where it was seen at the time (clicking the entry locates it). */
+  ref?: LogRef;
+}
+
+export interface LogRef {
+  kind: "fleet" | "body" | "point";
+  /** Fleet or body id (empty for a point). */
+  id: string;
+  systemId: string;
+  /** Position in the system (AU) when the entry was written. */
+  pos?: Vec3;
 }
 
 export interface GameSettings {

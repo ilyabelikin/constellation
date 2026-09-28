@@ -904,6 +904,13 @@ export class SystemView implements View {
     }
   }
 
+  /** Mark a remembered spot (e.g. where a fleet was last seen) with a few slow pulses. */
+  markSpot(p: THREE.Vector3): void {
+    const color = new THREE.Color("#ffd27a");
+    for (let i = 0; i < 3; i++) setTimeout(() => this.effects.pulse(p.clone(), color, 6), i * 450);
+    this.effects.flash(p.clone(), color, 5, 1.6);
+  }
+
   /** Effect anchors that track moving objects (see Effects.Follow). */
   private followBody(bodyId: string): Follow {
     return (out) => {

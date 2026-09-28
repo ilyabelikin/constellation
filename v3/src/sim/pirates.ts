@@ -104,5 +104,7 @@ export function pirateDay(state: GameState, rng: Rng): void {
     `Void Raiders launched a ${size}-ship warband towards ${state.systems[target.systemId].name}! (strength ${Math.round(fleetPower(state, raid))})`,
     victimEmpire?.id ?? null,
     target.systemId,
+    // Where the warband was spotted: its haven.
+    { kind: "fleet", id: raid.id, systemId: haven.systemId, pos: { ...raid.pos } },
   );
 }

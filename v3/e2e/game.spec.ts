@@ -569,3 +569,39 @@ test("stations being built or queued show progress in the body panel, like a col
   await expect(page.locator("#details .queue-item")).toHaveCount(0);
   expect(await page.evaluate((id) => (window as any).__app.game.state.fleets[id].queue.length, ids.builder)).toBe(0);
 });
+
+test("clicking a log entry locates what it is about, or where it was last seen", async ({ page }) => {
+  await startGame(page, "log-locate");
+  await page.click('[data-action="speed:0"]');
+  const ids = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const s = app.game.state;
+    const guard = Object.values(s.fleets).find((f: any) => f.empireId === s.playerId && f.name === "Home Guard") as any;
+    const unexplored = Object.keys(s.systems).find((id) => !s.empires[s.playerId].explored[id])!;
+    const day = s.day;
+    s.log.push(
+      { day, kind: "info", text: "LOC-A our guard", empireId: s.playerId, ref: { kind: "fleet", id: guard.id, systemId: guard.systemId, pos: guard.pos } },
+      { day, kind: "danger", text: "LOC-B raiders spotted", empireId: s.playerId, systemId: app.systemId, ref: { kind: "fleet", id: "f-gone", systemId: app.systemId, pos: { x: 3, y: 0, z: 1 } } },
+      { day, kind: "danger", text: "LOC-C far away", empireId: s.playerId, systemId: unexplored, ref: { kind: "fleet", id: "f-far", systemId: unexplored, pos: { x: 1, y: 0, z: 0 } } },
+    );
+    app.select(null);
+    return { guard: guard.id, unexplored };
+  });
+  // A fleet we can see: selected.
+  await page.locator("#log .log-entry", { hasText: "LOC-A" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__app.selection?.id)).toBe(ids.guard);
+  // Gone from sight: the camera flies to where it was last seen, and says so.
+  await page.locator("#log .log-entry", { hasText: "LOC-B" }).click();
+  await expect(page.locator(".toast").last()).toContainText("Last seen");
+  const target = await page.evaluate(() => {
+    const a = (window as any).__app;
+    const m = a.systemView.layout.map({ x: 3, y: 0, z: 1 });
+    const t = a.engine.rig.goalTarget;
+    return Math.hypot(t.x - m.x, t.y - m.y, t.z - m.z);
+  });
+  expect(target).toBeLessThan(0.01);
+  // In a system we have not surveyed: shown on the galaxy map instead.
+  await page.locator("#log .log-entry", { hasText: "LOC-C" }).click();
+  await expect.poll(() => page.evaluate(() => (window as any).__app.view)).toBe("galaxy");
+  await expect.poll(() => page.evaluate(() => (window as any).__app.selection?.id)).toBe(ids.unexplored);
+});

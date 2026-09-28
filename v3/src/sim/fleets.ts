@@ -14,7 +14,7 @@ import {
 } from "./economy";
 import { modifiers } from "./modifiers";
 import { bodyPosition, copyVec } from "./orbits";
-import { log, logTo, nextId, witnesses, withRng } from "./util";
+import { bodyRef, fleetRef, log, logTo, nextId, witnesses, withRng } from "./util";
 import type { Colony, Empire, Fleet, GameState, Order, QueuedOrder, SimEvent, Station, Vec3 } from "./types";
 
 export const ARRIVE_EPS = 0.02;
@@ -283,7 +283,7 @@ export function startQueuedOrder(state: GameState, fleet: Fleet): void {
   while (fleet.queue?.length && !fleet.order) {
     const next = fleet.queue.shift()!;
     const err = queuedOrderError(state, fleet, next) ?? issueOrder(state, fleet, next);
-    if (err && empire.isPlayer) log(state, "info", `${fleet.name} skipped a queued order: ${err}.`, empire.id, fleet.systemId ?? undefined);
+    if (err && empire.isPlayer) log(state, "info", `${fleet.name} skipped a queued order: ${err}.`, empire.id, fleet.systemId ?? undefined, fleetRef(fleet));
   }
 }
 
@@ -311,7 +311,7 @@ function stepTransit(state: GameState, fleet: Fleet, dt: number, events: SimEven
   const empire = state.empires[fleet.empireId];
   if (!empire.explored[tr.to]) {
     empire.explored[tr.to] = true;
-    if (empire.isPlayer) log(state, "info", `${fleet.name} surveyed the ${state.systems[tr.to].name} system.`, empire.id, tr.to);
+    if (empire.isPlayer) log(state, "info", `${fleet.name} surveyed the ${state.systems[tr.to].name} system.`, empire.id, tr.to, fleetRef(fleet));
   }
   events.push({ type: "jump", systemId: tr.to, pos: copyVec(gate.pos), fleetId: fleet.id, entering: false });
   if (fleet.order && fleet.order.route.length === 0 && !fleet.order.bodyId && !fleet.order.pos && fleet.order.kind === "move") {
@@ -383,7 +383,7 @@ function doColonize(state: GameState, fleet: Fleet, dt: number, events: SimEvent
   const body = state.bodies[o.bodyId!];
   const empire = state.empires[fleet.empireId];
   const fail = (msg: string) => {
-    if (empire.isPlayer) log(state, "colony", msg, empire.id, body.systemId);
+    if (empire.isPlayer) log(state, "colony", msg, empire.id, body.systemId, bodyRef(state, body.id));
     fleet.order = null;
   };
   if (!fleet.ships.some((s) => HULL_MAP[s.hull].role === "colony")) return fail(`${fleet.name} has no colony ship.`);
@@ -437,7 +437,7 @@ function doBuildStation(state: GameState, fleet: Fleet, dt: number, events: SimE
   const empire = state.empires[fleet.empireId];
   const def = stationDef(o.stationType!);
   const fail = (msg: string) => {
-    if (empire.isPlayer) log(state, "construction", msg, empire.id, body.systemId);
+    if (empire.isPlayer) log(state, "construction", msg, empire.id, body.systemId, bodyRef(state, body.id));
     fleet.order = null;
   };
   if (!fleet.ships.some((s) => HULL_MAP[s.hull].role === "constructor")) return fail(`${fleet.name} has no constructor.`);
@@ -476,7 +476,7 @@ function doBuildStation(state: GameState, fleet: Fleet, dt: number, events: SimE
   state.stations[st.id] = st;
   empire.explored[body.systemId] = true;
   events.push({ type: "stationBuilt", systemId: body.systemId, bodyId: body.id, empireId: empire.id, stationType: def.id });
-  if (empire.isPlayer) log(state, "construction", `${def.name} completed at ${body.name}.`, empire.id, body.systemId);
+  if (empire.isPlayer) log(state, "construction", `${def.name} completed at ${body.name}.`, empire.id, body.systemId, bodyRef(state, body.id));
   fleet.order = null;
 }
 
@@ -489,7 +489,7 @@ function doInvade(state: GameState, fleet: Fleet): void {
   const colony = o.colonyId ? state.colonies[o.colonyId] : undefined;
   const empire = state.empires[fleet.empireId];
   const done = (msg: string, kind: "combat" | "danger" = "combat") => {
-    if (empire.isPlayer) log(state, kind, msg, empire.id, fleet.systemId ?? undefined);
+    if (empire.isPlayer) log(state, kind, msg, empire.id, fleet.systemId ?? undefined, colony ? bodyRef(state, colony.bodyId) : fleetRef(fleet));
     fleet.order = null;
   };
   if (!colony || colony.empireId === empire.id) return done("Invasion target no longer valid.");
@@ -513,11 +513,11 @@ function doInvade(state: GameState, fleet: Fleet): void {
     colony.capital = false;
     colony.defense = 0;
     colony.lastAttacked = state.day;
-    logTo(state, "combat", `${empire.name} invaded and captured ${colony.name} from ${victim.name}!`, [oldOwner, ...witnesses(state, colony.systemId)], colony.systemId);
+    logTo(state, "combat", `${empire.name} invaded and captured ${colony.name} from ${victim.name}!`, [oldOwner, ...witnesses(state, colony.systemId)], colony.systemId, bodyRef(state, colony.bodyId));
     ensureCapital(state, oldOwner);
   } else {
     colony.pop = Math.max(0.5, colony.pop * 0.95);
-    logTo(state, "combat", `${empire.name}'s invasion of ${colony.name} was repulsed.`, [empire.id, ...witnesses(state, colony.systemId)], colony.systemId);
+    logTo(state, "combat", `${empire.name}'s invasion of ${colony.name} was repulsed.`, [empire.id, ...witnesses(state, colony.systemId)], colony.systemId, bodyRef(state, colony.bodyId));
   }
   fleet.order = null;
 }
@@ -529,7 +529,7 @@ export function ensureCapital(state: GameState, empireId: string): void {
   cols.sort((a, b) => b.pop - a.pop);
   cols[0].capital = true;
   const e = state.empires[empireId];
-  log(state, "colony", `${e.name} relocated its capital to ${cols[0].name}.`, e.id, cols[0].systemId);
+  log(state, "colony", `${e.name} relocated its capital to ${cols[0].name}.`, e.id, cols[0].systemId, bodyRef(state, cols[0].bodyId));
 }
 
 export function mergeFleets(state: GameState, into: Fleet, from: Fleet): void {

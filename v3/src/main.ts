@@ -8,7 +8,8 @@ import { NetClient } from "./net/NetClient";
 import { NetGame } from "./net/NetGame";
 import { NetLlmTransport } from "./net/NetLlm";
 import { RivalDirector } from "./llm/director";
-import { hasMet } from "./sim/knowledge";
+import { hasMet, sensorSystems } from "./sim/knowledge";
+import type { GameLogEntry, Vec3 } from "./sim/types";
 import { SPEEDS, type CloudSaveSummary, type SessionInfo, type SessionSummary } from "./net/protocol";
 import { Engine, type PickResult } from "./render/Engine";
 import { GalaxyView } from "./render/GalaxyView";
@@ -16,6 +17,7 @@ import { SystemView } from "./render/SystemView";
 import { Hud, type AppApi } from "./ui/Hud";
 import { Labels } from "./ui/Labels";
 import { Lobby } from "./ui/Lobby";
+import { dateString } from "./ui/format";
 import { HULL_MAP } from "./sim/data/ships";
 import { canColonize } from "./sim/economy";
 
@@ -74,6 +76,8 @@ class App implements AppApi {
   private directorTimer = 0;
   /** The game was paused automatically while the player writes a message. */
   private chatPaused = false;
+  /** Where we last saw each foreign fleet (for "locate" from the log). */
+  private lastSeen = new Map<string, { systemId: string; pos: Vec3; day: number }>();
   /** Camera flight through a tunnel gate into the connected system. */
   private gateJump: { tunnelId: string; to: string; t: number; phase: "dive" | "emerge"; gate: THREE.Vector3; out: THREE.Vector3; fired: boolean } | null = null;
   private baseFov = 50;
@@ -343,6 +347,7 @@ class App implements AppApi {
 
   private startGame(game: PlayerFacade): void {
     this.dropDirector();
+    this.lastSeen.clear();
     this.chatPaused = false;
     this.game = game;
     this.lobby.hide();
@@ -440,6 +445,70 @@ class App implements AppApi {
     if (sel.kind === "fleet") return s.fleets[sel.id]?.systemId === systemId;
     if (sel.kind === "gate") return s.systems[systemId].gates.some((g) => g.tunnelId === sel.id);
     return false;
+  }
+
+  // ---------------------------------------------------------------- log
+  /** Remember where foreign fleets were last seen by our sensors. */
+  private recordSightings(): void {
+    const s = this.game.state;
+    const eyes = sensorSystems(s, s.playerId);
+    for (const f of Object.values(s.fleets))
+      if (f.empireId !== s.playerId && f.systemId && eyes.has(f.systemId)) this.lastSeen.set(f.id, { systemId: f.systemId, pos: { ...f.pos }, day: s.day });
+  }
+
+  /** Show what a log entry is about: the fleet or body, or where it was last seen. */
+  locateLog(entry: GameLogEntry): void {
+    const s = this.game.state;
+    const me = s.playerId;
+    const ref = entry.ref;
+    if (ref?.kind === "fleet") {
+      const f = s.fleets[ref.id];
+      const visible = f && (f.empireId === me || (f.systemId && sensorSystems(s, me).has(f.systemId)));
+      if (f && visible && f.systemId) {
+        this.enterSystem(f.systemId, { kind: "fleet", id: f.id });
+        return;
+      }
+      if (f && f.empireId === me && f.transit) {
+        this.showGalaxy();
+        this.select({ kind: "fleet", id: f.id });
+        return;
+      }
+      const seen = this.lastSeen.get(ref.id);
+      const at = seen && seen.day >= entry.day ? seen : { systemId: ref.systemId, pos: ref.pos, day: entry.day };
+      this.showLastSeen(at.systemId, at.pos, `Last seen ${at.day >= s.day - 0.5 ? "just now" : dateString(at.day)}`);
+      return;
+    }
+    if (ref?.kind === "body" && s.bodies[ref.id]) {
+      if (s.empires[me].explored[ref.systemId]) this.enterSystem(ref.systemId, { kind: "body", id: ref.id });
+      else this.showLastSeen(ref.systemId, undefined, s.bodies[ref.id].name);
+      return;
+    }
+    if (ref?.kind === "point") {
+      this.showLastSeen(ref.systemId, ref.pos, "Here");
+      return;
+    }
+    if (entry.systemId) this.showLastSeen(entry.systemId, undefined, s.systems[entry.systemId]?.name ?? "");
+  }
+
+  /** Fly to a spot in a system and mark it; unsurveyed systems are shown on the galaxy map. */
+  private showLastSeen(systemId: string, pos: Vec3 | undefined, label: string): void {
+    const s = this.game.state;
+    if (!s.empires[s.playerId].explored[systemId]) {
+      this.showGalaxy();
+      this.select({ kind: "system", id: systemId }, true);
+      this.toast(`${label} — ${s.systems[systemId]?.name ?? "unknown"} system (not surveyed)`, "info");
+      return;
+    }
+    if (this.view !== "system" || this.systemId !== systemId) this.enterSystem(systemId);
+    else this.select(null);
+    if (pos && this.systemView) {
+      const m = this.systemView.layout.map(pos);
+      const p = new THREE.Vector3(m.x, m.y, m.z);
+      this.engine.rig.follow = null;
+      this.engine.rig.focus(p, 45);
+      this.systemView.markSpot(p);
+      this.toast(label, "info");
+    }
   }
 
   // ---------------------------------------------------------------- gate flight
@@ -889,6 +958,7 @@ class App implements AppApi {
       this.hudTimer += dt;
       if (this.hudTimer > 0.25) {
         this.hudTimer = 0;
+        this.recordSightings();
         this.hud?.render();
       }
       if (this.local && !this.localPaused && !this.local.state.winner) this.autosaveTimer += dt;

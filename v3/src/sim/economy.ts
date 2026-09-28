@@ -492,7 +492,7 @@ export function processColonyDay(
     if (item.kind === "building") {
       colony.buildings.push({ type: item.type });
       if (empire.isPlayer)
-        log(state, "construction", `${BUILDING_MAP[item.type].name} completed on ${colony.name}.`, empire.id, colony.systemId);
+        log(state, "construction", `${BUILDING_MAP[item.type].name} completed on ${colony.name}.`, empire.id, colony.systemId, { kind: "body", id: colony.bodyId, systemId: colony.systemId });
       if (BUILDING_MAP[item.type].defense) colony.defense = Math.min(maxDefense(state, colony), colony.defense + BUILDING_MAP[item.type].defense!);
     } else {
       onShipBuilt(colony, item);

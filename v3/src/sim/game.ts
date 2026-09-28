@@ -17,7 +17,7 @@ import { clearModifierCache } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
 import { pirateDay } from "./pirates";
 import { Rng } from "./rng";
-import { acquaintances, log, logTo } from "./util";
+import { acquaintances, fleetRef, log, logTo } from "./util";
 import type { Colony, GameSettings, GameState, QueueItem, SimEvent } from "./types";
 
 export const STEP_DAYS = 0.1;
@@ -131,7 +131,7 @@ export class Game extends PlayerFacade {
     }
     fleet.ships.push(ship);
     this.events.push({ type: "shipBuilt", systemId: colony.systemId, fleetId: fleet.id, hull: hullId });
-    if (empire.isPlayer) log(s, "construction", `${hull.name} ${ship.name.split(" ").pop()} launched at ${colony.name}.`, empire.id, colony.systemId);
+    if (empire.isPlayer) log(s, "construction", `${hull.name} ${ship.name.split(" ").pop()} launched at ${colony.name}.`, empire.id, colony.systemId, fleetRef(fleet));
     if (item.then?.kind === "colonize") {
       const target = s.bodies[item.then.bodyId];
       const r = cmd.colonizeOrder(s, empire.id, fleet.id, item.then.bodyId);
