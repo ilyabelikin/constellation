@@ -76,6 +76,8 @@ class App implements AppApi {
   private directorTimer = 0;
   /** The game was paused automatically while the player writes a message. */
   private chatPaused = false;
+  /** Battles already noticed (auto-slow triggers once per battle). */
+  private seenBattles = new Set<string>();
   /** Where we last saw each foreign fleet (for "locate" from the log). */
   private lastSeen = new Map<string, { systemId: string; pos: Vec3; day: number }>();
   /** Camera flight through a tunnel gate into the connected system. */
@@ -445,6 +447,22 @@ class App implements AppApi {
     if (sel.kind === "fleet") return s.fleets[sel.id]?.systemId === systemId;
     if (sel.kind === "gate") return s.systems[systemId].gates.some((g) => g.tunnelId === sel.id);
     return false;
+  }
+
+  // ---------------------------------------------------------------- battles
+  /** A battle of ours starting in the system we're watching: drop to 1× so it can be followed. */
+  private watchBattles(): void {
+    const s = this.game.state;
+    for (const b of Object.values(s.battles)) {
+      if (this.seenBattles.has(b.id)) continue;
+      this.seenBattles.add(b.id);
+      if (!this.local || this.localPaused || this.localSpeed <= 1) continue;
+      if (this.view !== "system" || b.systemId !== this.systemId || !b.empireIds.includes(s.playerId)) continue;
+      this.localSpeed = 1;
+      this.toast("Battle! Slowing to 1× — press 2–4 to speed up again", "info");
+      this.hud?.render();
+    }
+    for (const id of this.seenBattles) if (!s.battles[id]) this.seenBattles.delete(id);
   }
 
   // ---------------------------------------------------------------- log
@@ -959,6 +977,7 @@ class App implements AppApi {
       if (this.hudTimer > 0.25) {
         this.hudTimer = 0;
         this.recordSightings();
+        this.watchBattles();
         this.hud?.render();
       }
       if (this.local && !this.localPaused && !this.local.state.winner) this.autosaveTimer += dt;

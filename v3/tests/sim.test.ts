@@ -398,8 +398,15 @@ describe("combat", () => {
     for (let i = 0; i < 12; i++) strike.ships.push(makeShip(s, g.player, "corvette"));
     strike.orbitBodyId = haven.bodyId;
     const credits = g.player.resources.credits;
-    expect(runUntil(g, () => !s.stations[haven.id], 100)).toBe(true);
-    expect(g.player.resources.credits).toBeGreaterThan(credits + 200);
+    let before = credits;
+    const done = runUntil(g, () => {
+      if (s.stations[haven.id]) before = g.player.resources.credits;
+      return !s.stations[haven.id];
+    }, 200);
+    expect(done).toBe(true);
+    // The hoard is paid the moment the haven falls (crew upkeep during the siege aside).
+    expect(g.player.resources.credits).toBeGreaterThan(before + 150);
+    expect(s.log.some((l) => l.text.includes("seized its hoard"))).toBe(true);
   });
 
   it("sieges planetary defenses and captures colonies by invasion", () => {

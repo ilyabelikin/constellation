@@ -13,6 +13,12 @@ import type { Battle, Colony, Empire, Fleet, GameState, Ship, SimEvent, Station,
 
 export const ENGAGE_RANGE = 1.2;
 export const PURSUIT_RANGE = 4;
+/**
+ * Battles run slower than the rest of the simulation so exchanges of fire are
+ * watchable: every weapon fires, and shields recharge, at this fraction of the
+ * game clock. Outcomes are unchanged; only their duration stretches.
+ */
+export const COMBAT_PACE = 0.25;
 const MAX_SHOT_EVENTS = 40;
 
 type Combatant =
@@ -207,7 +213,7 @@ export function stepCombat(state: GameState, dt: number, rng: Rng, events: SimEv
       battle.pos = center;
       battle.empireIds = empireIds;
       battle.rounds++;
-      resolveRound(state, group, battle, dt, rng, events);
+      resolveRound(state, group, battle, dt * COMBAT_PACE, rng, events);
     }
   }
   // Close finished battles.
