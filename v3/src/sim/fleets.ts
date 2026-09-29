@@ -471,10 +471,15 @@ function doBuildStation(state: GameState, fleet: Fleet, dt: number, events: SimE
   if ((o.work ?? 0) === 0) {
     const err = stationBuildError(state, empire, def.id, body);
     if (err) return fail(`Cannot build ${def.name} at ${body.name}: ${err}.`);
-    // Pay on arrival.
+    // Pay on arrival; short of resources, the crew waits on site until they come in.
     for (const [k, v] of Object.entries(def.cost)) {
-      if ((empire.resources as Record<string, number>)[k] + 1e-9 < (v ?? 0)) return fail(`Not enough resources for ${def.name}.`);
+      if ((empire.resources as Record<string, number>)[k] + 1e-9 < (v ?? 0)) {
+        if (!o.waiting && empire.isPlayer) log(state, "construction", `${fleet.name} is waiting at ${body.name} for the resources to build a ${def.name}.`, empire.id, body.systemId, bodyRef(state, body.id));
+        o.waiting = true;
+        return;
+      }
     }
+    delete o.waiting;
     for (const [k, v] of Object.entries(def.cost)) (empire.resources as Record<string, number>)[k] -= v ?? 0;
     o.work = 1e-6;
   }

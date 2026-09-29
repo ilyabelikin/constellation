@@ -7,7 +7,7 @@ import { HULL_MAP } from "./data/ships";
 import { BUILDING_MAP, STATION_MAP, SPECIES_MAP, type BuildingDef, type StationDef } from "./data/structures";
 import { TECHS, TECH_MAP, type TechDef } from "./data/techs";
 import { modifiers, hasTech } from "./modifiers";
-import { clamp, log } from "./util";
+import { canAfford, clamp, log, pay } from "./util";
 import type { Body, Colony, Empire, GameState, QueueItem, ResourceKey, Resources, Station, Yields } from "./types";
 
 /** A homeworld's own output is modest: growth has to come from buildings, stations and colonies. */
@@ -536,15 +536,34 @@ export function processColonyDay(
   const maxD = maxDefense(state, colony);
   if (state.day - colony.lastAttacked > 3) colony.defense = Math.min(maxD, colony.defense + maxD * 0.08);
   colony.defense = Math.min(colony.defense, maxD);
-  // Construction queue: one item at a time.
-  const item = colony.queue[0];
+  // Construction queue: one item at a time. Items queued before they were
+  // affordable are paid when their turn comes; while one waits for resources,
+  // the next item that can go ahead does.
+  let item: QueueItem | undefined;
+  for (const q of colony.queue) {
+    if (q.unpaid) {
+      const cost = q.kind === "ship" ? hullCost(state, empire, q.type) : BUILDING_MAP[q.type].cost;
+      if (!canAfford(empire.resources, cost)) {
+        if (!q.waiting && empire.isPlayer)
+          log(state, "construction", `${colony.name}: ${q.kind === "ship" ? HULL_MAP[q.type].name : BUILDING_MAP[q.type].name} is waiting for resources.`, empire.id, colony.systemId, { kind: "body", id: colony.bodyId, systemId: colony.systemId });
+        q.waiting = true;
+        continue;
+      }
+      pay(empire.resources, cost);
+      if (q.kind === "ship") q.paid = cost;
+      delete q.unpaid;
+      delete q.waiting;
+    }
+    item = q;
+    break;
+  }
   if (!item) return;
   const speed = (item.kind === "ship" ? 1 + modifiers(empire).shipBuildSpeed : 1) * (isBankrupt(empire) ? 0.5 : 1);
   const besieged = colony.defense <= 0 && state.day - colony.lastAttacked < 2;
   if (besieged) return;
   item.progress += speed;
   if (item.progress + 1e-9 >= item.total) {
-    colony.queue.shift();
+    colony.queue.splice(colony.queue.indexOf(item), 1);
     if (item.kind === "building") {
       colony.buildings.push({ type: item.type });
       if (empire.isPlayer)

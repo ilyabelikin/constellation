@@ -141,6 +141,8 @@ export interface Order {
   route: string[];
   /** Progress (days) of an on-site action such as building a station. */
   work?: number;
+  /** On site but waiting for the resources to start (already reported). */
+  waiting?: boolean;
 }
 
 export interface Transit {
@@ -202,13 +204,26 @@ export interface BuildingInstance {
 }
 
 export type QueueItem =
-  | { kind: "building"; type: string; progress: number; total: number }
+  | {
+      kind: "building";
+      type: string;
+      progress: number;
+      total: number;
+      /** Queued before we could afford it: paid when its turn comes and the resources exist. */
+      unpaid?: boolean;
+      /** Waiting for resources (already reported). */
+      waiting?: boolean;
+    }
   | {
       kind: "ship";
       type: string;
       progress: number;
       total: number;
       paid?: Partial<Resources>;
+      /** Queued before we could afford it: paid when its turn comes and the resources exist. */
+      unpaid?: boolean;
+      /** Waiting for resources (already reported). */
+      waiting?: boolean;
       /** Standing order the new ship executes on launch (e.g. colonise a chosen world). */
       then?: ShipStandingOrder;
     };

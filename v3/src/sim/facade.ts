@@ -24,11 +24,12 @@ export abstract class PlayerFacade {
     return Object.values(this.state.colonies).filter((c) => c.empireId === this.state.playerId);
   }
 
-  queueBuilding(colonyId: string, type: string) {
-    return this.exec("queueBuilding", colonyId, type);
+  /** `deferred` (Shift+click): queue it even if unaffordable; it is paid when its turn comes. */
+  queueBuilding(colonyId: string, type: string, deferred = false) {
+    return this.exec("queueBuilding", colonyId, type, deferred);
   }
-  queueShip(colonyId: string, hull: string) {
-    return this.exec("queueShip", colonyId, hull);
+  queueShip(colonyId: string, hull: string, deferred = false) {
+    return this.exec("queueShip", colonyId, hull, deferred);
   }
   /** Queue a colony ship (at `colonyId`, or the best shipyard) that will settle `bodyId` on launch. */
   buildColonyShipFor(bodyId: string, colonyId?: string) {

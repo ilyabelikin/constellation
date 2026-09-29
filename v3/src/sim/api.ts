@@ -130,8 +130,8 @@ function buildInvasionFor(state: GameState, empireId: string, colonyId: string, 
 }
 
 export const COMMANDS: Record<string, CommandSpec> = {
-  queueBuilding: { args: ["id", "id"], run: (s, e, c: string, t: string) => cmd.queueBuilding(s, e, c, t) },
-  queueShip: { args: ["id", "id"], run: (s, e, c: string, h: string) => cmd.queueShip(s, e, c, h) },
+  queueBuilding: { args: ["id", "id", "bool"], run: (s, e, c: string, t: string, d?: boolean) => cmd.queueBuilding(s, e, c, t, !!d) },
+  queueShip: { args: ["id", "id", "bool"], run: (s, e, c: string, h: string, d?: boolean) => cmd.queueShip(s, e, c, h, undefined, !!d) },
   buildColonyShipFor: { args: ["id", "optId"], run: (s, e, b: string, c?: string | null) => buildColonyShipFor(s, e, b, c) },
   buildInvasionFor: { args: ["id", "optId"], run: (s, e, c: string, y?: string | null) => buildInvasionFor(s, e, c, y) },
   cancelQueueItem: { args: ["id", "int", "optId"], run: (s, e, c: string, i: number, t?: string) => cmd.cancelQueueItem(s, e, c, i, t ?? undefined) },

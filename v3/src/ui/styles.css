@@ -1254,3 +1254,16 @@ svg.i.bad {
   gap: 2px;
   white-space: nowrap;
 }
+.build-btn.short {
+  border-style: dashed;
+  opacity: 0.75;
+}
+.build-btn.short .c {
+  opacity: 0.9;
+}
+.queue-item.unpaid {
+  opacity: 0.8;
+}
+.meta.warn {
+  color: var(--warn);
+}

@@ -319,6 +319,51 @@ describe("economy", () => {
   });
 });
 
+describe("durable agenda", () => {
+  it("Shift-queued buildings and ships wait for resources instead of being refused, then start on their own", () => {
+    const g = Game.create({ seed: "agenda", pirates: false });
+    const s = g.state;
+    const cap = home(g);
+    cap.buildings = cap.buildings.filter((b) => b.type === "shipyard");
+    cap.pop = 30;
+    g.player.resources = { credits: 0, metals: 0, energy: 0, exotics: 0 };
+    expect(g.queueBuilding(cap.id, "mine").ok).toBe(false); // a plain click still says no
+    expect(g.queueBuilding(cap.id, "mine", true).ok).toBe(true);
+    expect(g.queueShip(cap.id, "corvette", true).ok).toBe(true);
+    expect(cap.queue.map((q) => [q.type, !!q.unpaid])).toEqual([["mine", true], ["corvette", true]]);
+    g.advance(3);
+    expect(cap.queue[0].progress).toBe(0); // nothing to pay with yet
+    expect(s.log.some((l) => l.text.includes("Deep Mine is waiting for resources"))).toBe(true);
+    // Removing an unpaid item refunds nothing.
+    const credits = g.player.resources.credits;
+    expect(g.cancelQueueItem(cap.id, 1, "corvette").ok).toBe(true);
+    expect(g.player.resources.credits).toBe(credits);
+    // Once the treasury fills, the mine is paid for and built without another click.
+    g.player.resources = { credits: 5000, metals: 5000, energy: 5000, exotics: 0 };
+    g.advance(2);
+    expect(cap.queue[0]?.unpaid).toBeFalsy();
+    expect(g.player.resources.metals).toBeLessThan(5000);
+    g.advance(80);
+    expect(cap.buildings.some((b) => b.type === "mine")).toBe(true);
+  });
+
+  it("a constructor short of resources waits on site and builds once they come in", () => {
+    const g = Game.create({ seed: "agenda-st", pirates: false });
+    const s = g.state;
+    const builder = playerFleet(g, "Builders");
+    const sys = s.systems[home(g).systemId];
+    const site = sys.bodyIds.map((id) => s.bodies[id]).find((b) => b.id !== home(g).bodyId && g.buildStation(builder.id, b.id, "mining_station").ok);
+    expect(site).toBeDefined();
+    g.player.resources = { credits: 0, metals: 0, energy: 0, exotics: 0 };
+    for (let i = 0; i < 600 && !builder.order?.waiting; i++) g.step();
+    expect(builder.order?.kind).toBe("buildStation"); // still on the job
+    expect(builder.order?.waiting).toBe(true);
+    g.player.resources = { credits: 5000, metals: 5000, energy: 5000, exotics: 0 };
+    g.advance(60);
+    expect(Object.values(s.stations).some((st) => st.bodyId === site!.id && st.type === "mining_station")).toBe(true);
+  });
+});
+
 describe("research", () => {
   it("completes techs and queues prerequisites", () => {
     const g = Game.create({ seed: "res" });

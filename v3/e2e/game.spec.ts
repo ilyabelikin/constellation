@@ -759,3 +759,21 @@ test("a colony ship already bound for a world is not offered for another: Coloni
   await domClick(page, `#details [data-action="colonize:${target}"]`);
   await expect(page.locator(".modal h2")).toContainText("Colonize");
 });
+
+test("Shift+click queues a building we can't afford yet; it waits for resources in the queue", async ({ page }) => {
+  await startGame(page, "agenda-e2e");
+  await page.click('[data-action="speed:0"]');
+  const colony = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const g = app.game;
+    g.player.resources = { credits: 0, metals: 0, energy: 0, exotics: 0 };
+    const c = g.playerColonies()[0];
+    app.select({ kind: "body", id: c.bodyId });
+    return c.id;
+  });
+  const btn = page.locator(`#details [data-action="build:${colony}:research_lab"]`);
+  await expect(btn).toHaveClass(/short/);
+  await btn.click({ modifiers: ["Shift"] });
+  await expect(page.locator("#details .queue-item.unpaid")).toContainText("awaiting");
+  expect(await page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue[0].unpaid, colony)).toBe(true);
+});

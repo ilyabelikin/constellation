@@ -40,7 +40,7 @@ import { fleetSpeed, findRoute } from "../sim/fleets";
 import type { PlayerFacade as Game } from "../sim/facade";
 import { buildingUnlocked, hullUnlocked, shipStats, stationUnlocked } from "../sim/modifiers";
 import { dist } from "../sim/orbits";
-import type { Body, ChatMessage, Colony, DiploAction, Fleet, GameLogEntry, Order, ResourceKey, Stance } from "../sim/types";
+import type { Body, ChatMessage, Colony, DiploAction, Fleet, GameLogEntry, Order, ResourceKey, Resources, Stance } from "../sim/types";
 import type { SessionInfo } from "../net/protocol";
 import { inviteLink } from "./Lobby";
 import { morphHtml } from "./morph";
@@ -698,8 +698,9 @@ export class Hud {
         const unlocked = stationUnlocked(p, d.id);
         const err = unlocked ? stationBuildError(s, p, d.id, b) : "Requires research";
         const est = estimateStation(g, d.id, b);
-        // A busy constructor can still take jobs (Shift queues them); resources are paid when work starts.
-        const disabled = !!err || !cons || (!pick!.busy && !canAfford(p.resources, d.cost));
+        // A busy constructor can still take jobs (Shift queues them); resources are paid when work
+        // starts, and a crew short of them waits on site until they come in.
+        const disabled = !!err || !cons;
         const title =
           err ??
           (!cons
@@ -707,9 +708,9 @@ export class Hud {
             : pick!.busy
               ? `${cons.name} is busy — Shift+click to queue after its current orders`
               : !canAfford(p.resources, d.cost)
-                ? "Not enough resources"
+                ? "Not enough resources yet — the crew will wait on site until they come in"
                 : d.description);
-        html += `<button class="build-btn" data-action="station:${b.id}:${d.id}" ${disabled ? "disabled" : ""} title="${esc(title)}">
+        html += `<button class="build-btn ${!disabled && !canAfford(p.resources, d.cost) ? "short" : ""}" data-action="station:${b.id}:${d.id}" ${disabled ? "disabled" : ""} title="${esc(title)}">
           <span class="t">${icon(d.icon)} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)}</span><span class="y">${est}</span></button>`;
       }
       html += `</div>`;
@@ -749,7 +750,8 @@ export class Hud {
       html += `<div class="section-title">Construction queue</div>`;
       c.queue.forEach((q, i) => {
         const name = q.kind === "ship" ? HULL_MAP[q.type].name : BUILDING_MAP[q.type].name;
-        html += `<div class="queue-item"><span style="width:110px">${esc(name)}</span><div class="bar"><div style="width:${(q.progress / q.total) * 100}%"></div></div><span class="meta">${Math.ceil(q.total - q.progress)}d</span><button data-action="cancel:${c.id}:${i}:${q.type}" title="Cancel & refund">${icon("close")}</button></div>`;
+        const waiting = q.unpaid ? `<span class="meta warn" title="Queued before it was affordable: it is paid and started once the resources come in">awaiting ${esc(shortfall(p.resources, q.kind === "ship" ? hullCost(s, p, q.type) : BUILDING_MAP[q.type].cost))}</span>` : "";
+        html += `<div class="queue-item ${q.unpaid ? "unpaid" : ""}"><span style="width:110px">${esc(name)}</span>${waiting || `<div class="bar"><div style="width:${(q.progress / q.total) * 100}%"></div></div><span class="meta">${Math.ceil(q.total - q.progress)}d</span>`}<button data-action="cancel:${c.id}:${i}:${q.type}" title="${q.unpaid ? "Remove from queue" : "Cancel & refund"}">${icon("close")}</button></div>`;
       });
     }
     html += `<div class="section-title">Construct building</div><div class="grid-buttons">`;
@@ -762,7 +764,7 @@ export class Hud {
       // What it would actually produce here (deposits, population).
       const out = buildingOutput(d, body, c.pop);
       const y = Object.fromEntries(Object.entries(out).filter(([, v]) => v > 0));
-      html += `<button class="build-btn" data-action="build:${c.id}:${d.id}" ${full || dup || !afford ? "disabled" : ""} title="${esc(full ? "No free slots — grow population" : dup ? "Only one allowed" : d.description)}">
+      html += `<button class="build-btn ${afford ? "" : "short"}" data-action="build:${c.id}:${d.id}" ${full || dup ? "disabled" : ""} title="${esc(full ? "No free slots — grow population" : dup ? "Only one allowed" : afford ? d.description : `${d.description}\nNot enough resources yet — Shift+click to queue it; it starts once they come in.`)}">
         <span class="t">${icon(d.icon)} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)} · ${d.days}d</span><span class="y">${yieldsHtml(y)}${d.defense ? ` +${d.defense}${icon("defense")}` : ""}${d.capacity ? ` +${d.capacity} pop cap` : ""}</span></button>`;
     }
     html += `</div>`;
@@ -775,7 +777,7 @@ export class Hud {
         const cost = hullCost(s, p, h.id);
         const overCap = h.command > 0 && used + h.command > capC;
         const afford = canAfford(p.resources, cost);
-        html += `<button class="build-btn" data-action="ship:${c.id}:${h.id}" ${afford && !overCap ? "" : "disabled"} title="${esc(overCap ? "Fleet command capacity reached" : h.description)}">
+        html += `<button class="build-btn ${afford ? "" : "short"}" data-action="ship:${c.id}:${h.id}" ${overCap ? "disabled" : ""} title="${esc(overCap ? "Fleet command capacity reached" : afford ? h.description : `${h.description}\nNot enough resources yet — Shift+click to queue it; it starts once they come in.`)}">
           <span class="t">${esc(h.name)}</span><span class="c">${costHtml(cost, p.resources)} · ${h.buildDays}d${h.command ? ` · ${icon("command")}${h.command}` : ""}</span></button>`;
       }
       html += `</div>`;
@@ -1202,10 +1204,10 @@ export class Hud {
         break;
       }
       case "build":
-        res(g.queueBuilding(args[0], args[1]));
+        res(g.queueBuilding(args[0], args[1], e.shiftKey));
         break;
       case "ship":
-        res(g.queueShip(args[0], args[1]));
+        res(g.queueShip(args[0], args[1], e.shiftKey));
         break;
       case "cancel":
         res(g.cancelQueueItem(args[0], Number(args[1]), args[2]));
@@ -1500,6 +1502,7 @@ function describeOrder(g: Game, f: Fleet, o: Order): string {
       return (o.work ?? 0) > 0 ? `Establishing colony (${Math.min(100, Math.round(((o.work ?? 0) / 4) * 100))}%)` : `Colonizing ${esc(where ?? "")}${hops}`;
     case "buildStation": {
       const def = STATION_MAP[o.stationType!];
+      if (o.waiting) return `Waiting at ${esc(where ?? "")} for ${esc(shortfall(g.player.resources, def.cost))} to build ${esc(def.name)}`;
       return (o.work ?? 0) > 0 ? `Building ${esc(def.name)} (${Math.min(100, Math.round(((o.work ?? 0) / def.days) * 100))}%)` : `Building ${esc(def.name)} at ${esc(where ?? "")}${hops}`;
     }
     case "invade":
@@ -1533,4 +1536,13 @@ function spareColonyShips(f: Fleet): number {
   const ships = f.ships.filter((sh) => HULL_MAP[sh.hull].role === "colony").length;
   const promised = (f.order?.kind === "colonize" ? 1 : 0) + (f.queue ?? []).filter((q) => q.kind === "colonize").length;
   return ships - promised;
+}
+
+/** What we are still short of for a cost, e.g. "40 metals, 12 energy". */
+function shortfall(have: Resources, cost: Partial<Resources>): string {
+  const miss = Object.entries(cost)
+    .map(([k, v]) => [k, (v ?? 0) - have[k as keyof Resources]] as const)
+    .filter(([, d]) => d > 0.5)
+    .map(([k, d]) => `${Math.ceil(d)} ${k}`);
+  return miss.length ? miss.join(", ") : "its turn";
 }

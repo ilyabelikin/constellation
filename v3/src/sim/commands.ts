@@ -22,7 +22,8 @@ function ownFleet(state: GameState, empireId: string, fleetId: string): Fleet | 
   return f && f.empireId === empireId ? f : null;
 }
 
-export function queueBuilding(state: GameState, empireId: string, colonyId: string, type: string): CommandResult {
+/** Queue a building; `deferred` (Shift) accepts it unpaid, to be paid when its turn comes. */
+export function queueBuilding(state: GameState, empireId: string, colonyId: string, type: string, deferred = false): CommandResult {
   const colony = state.colonies[colonyId];
   const empire = state.empires[empireId];
   if (!colony || colony.empireId !== empireId) return fail("Not your colony");
@@ -33,7 +34,11 @@ export function queueBuilding(state: GameState, empireId: string, colonyId: stri
   if (colony.buildings.length + queued >= buildingSlots(state, colony)) return fail("No free building slots (grow population)");
   if (def.unique && (colony.buildings.some((b) => b.type === type) || colony.queue.some((q) => q.type === type)))
     return fail("Only one per colony");
-  if (!canAfford(empire.resources, def.cost)) return fail("Not enough resources");
+  if (!canAfford(empire.resources, def.cost)) {
+    if (!deferred) return fail("Not enough resources (Shift+click to queue it until they are)");
+    colony.queue.push({ kind: "building", type, progress: 0, total: def.days, unpaid: true });
+    return OK;
+  }
   pay(empire.resources, def.cost);
   colony.queue.push({ kind: "building", type, progress: 0, total: def.days });
   return OK;
@@ -45,6 +50,7 @@ export function queueShip(
   colonyId: string,
   hullId: string,
   then?: ShipStandingOrder,
+  deferred = false,
 ): CommandResult {
   const colony = state.colonies[colonyId];
   const empire = state.empires[empireId];
@@ -57,7 +63,11 @@ export function queueShip(
   if (hull.command > 0 && commandUsed(state, empire) + hull.command > commandCapacity(state, empire))
     return fail("Fleet command capacity reached (found more colonies or research new hulls)");
   const cost = hullCost(state, empire, hullId);
-  if (!canAfford(empire.resources, cost)) return fail("Not enough resources");
+  if (!canAfford(empire.resources, cost)) {
+    if (!deferred) return fail("Not enough resources (Shift+click to queue it until they are)");
+    colony.queue.push({ kind: "ship", type: hullId, progress: 0, total: hull.buildDays, unpaid: true, ...(then ? { then } : {}) });
+    return OK;
+  }
   pay(empire.resources, cost);
   colony.queue.push({ kind: "ship", type: hullId, progress: 0, total: hull.buildDays, paid: cost, ...(then ? { then } : {}) });
   return OK;
@@ -71,8 +81,7 @@ export function cancelQueueItem(state: GameState, empireId: string, colonyId: st
   if (!item) return fail("No such item");
   if (expectType && item.type !== expectType) return fail("Queue changed — try again");
   colony.queue.splice(index, 1);
-  const cost = item.kind === "ship" ? (item.paid ?? HULL_MAP[item.type].cost) : BUILDING_MAP[item.type].cost;
-  refund(empire.resources, cost);
+  if (!item.unpaid) refund(empire.resources, item.kind === "ship" ? (item.paid ?? HULL_MAP[item.type].cost) : BUILDING_MAP[item.type].cost);
   // The last pending transport of an invasion cancelled: the transports already built are free for orders.
   if (item.kind === "ship" && item.then?.kind === "invade") {
     const group = item.then.group;
