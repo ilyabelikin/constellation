@@ -352,6 +352,11 @@ export interface Empire {
   /** Merchant income: smoothed credits per day, and today's takings. */
   tradeRate?: number;
   tradeToday?: number;
+  /** Merchant income per day earned through each trade partner (smoothed). */
+  tradeWith?: Record<string, number>;
+  tradeWithToday?: Record<string, number>;
+  /** Merchant income per day an ended agreement used to bring (what peace and a new treaty would restore). */
+  tradeLost?: Record<string, number>;
   /** Last day the player was warned about an empty treasury. */
   bankruptWarnedAt?: number;
   /** Pending demands made of this empire: demander id → demand. */

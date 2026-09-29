@@ -960,7 +960,7 @@ export class Hud {
         const seat = this.app.remote?.info.seats.find((x) => x.empireId === e.id);
         const ruler = seat?.playerName ? `<span class="tag" title="A human player">${seat.online ? "●" : "○"} ${esc(seat.playerName)}</span>` : "";
         return `<div class="empire-card"><div class="swatch" style="background:${e.color}"></div>
-          <div><div style="font-weight:600;font-size:15px;color:${e.color}">${esc(e.name)} ${e.id === p.id ? "(you)" : ""} ${rel} ${ruler} ${offer ? `<span class="tag peace">offers peace</span>` : ""} ${trading ? `<span class="tag trade">trade partner</span>` : tradeOffer ? `<span class="tag trade">offers trade</span>` : ""}</div>
+          <div><div style="font-weight:600;font-size:15px;color:${e.color}">${esc(e.name)} ${e.id === p.id ? "(you)" : ""} ${rel} ${ruler} ${offer ? `<span class="tag peace">offers peace</span>` : ""} ${trading ? `<span class="tag trade" title="Merchant income from this partnership">trade partner · +${(p.tradeWith?.[e.id] ?? 0).toFixed(1)}/d</span>` : tradeOffer ? `<span class="tag trade">offers trade</span>` : ""}</div>
           <div class="stats">${e.isPirate ? "Lawless raiders · always hostile" : `${esc(SPECIES_MAP[e.speciesId]?.adjective ?? "")} · ${met ? `${cols.length} colonies · ${fmt(pop, 1)} pop · ${systems}/${total} systems (${pct(systems / total)}) · strength ${fmt(empirePower(s, e.id))} · ${e.research.completed.length} techs${e.research.current === "ascension" ? " · <b style='color:var(--warn)'>pursuing Ascension!</b>" : ""}` : "not yet contacted"}`}</div></div>
           <div class="actions">${talk} ${tradeBtn} ${btn}${demandHtml}</div></div>`;
       })

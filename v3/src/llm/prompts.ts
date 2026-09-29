@@ -53,7 +53,7 @@ Decide your empire's grand strategy for the coming months. Reply with ONE JSON o
  "summary": "<your private reasoning, max 25 words>",
  "messages": [{"to": "<id of a HUMAN ruler>", "text": "<max 60 words, in character>",
    "action": {"kind": "none"|"propose_peace"|"propose_trade"|"offer_tribute"|"demand_tribute"|"demand_colony", "resource": "credits"|"metals"|"energy"|"exotics", "amount": <number>, "colony": "<colony id>"}}]}
-Be shrewd: do not start wars against much stronger rivals; demand tribute or colonies only from rivals weaker than you; a demand refused is a fine reason for war.
+Be shrewd: do not start wars against much stronger rivals; weigh the trade income a war would cost you (or peace would restore) — merchants only fly between empires at peace with a trade agreement; demand tribute or colonies only from rivals weaker than you; a demand refused is a fine reason for war.
 Send messages only when the occasion calls for it (first contact, war, a threat, a demand or an offer); for a routine review usually send none. No markdown.`;
   return [
     { role: "system", content: system },

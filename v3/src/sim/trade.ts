@@ -58,6 +58,11 @@ export function tradeDay(state: GameState): Fleet[] {
     // Average merchant income per day (smoothed over about a month).
     e.tradeRate = (e.tradeRate ?? 0) * 0.965 + (e.tradeToday ?? 0) * 0.035;
     e.tradeToday = 0;
+    for (const id of Object.keys(e.tradePartners ?? {})) {
+      e.tradeWith ??= {};
+      e.tradeWith[id] = (e.tradeWith[id] ?? 0) * 0.965 + (e.tradeWithToday?.[id] ?? 0) * 0.035;
+    }
+    e.tradeWithToday = {};
   }
   for (const c of Object.values(state.colonies)) {
     if (!hasHub(c) || (c.nextTrade ?? 0) > state.day) continue;
@@ -90,15 +95,29 @@ export function deliverTrade(state: GameState, fleet: Fleet): void {
   const owner = state.empires[fleet.empireId];
   const value = fleet.cargo ?? 0;
   if (dest && owner?.alive) {
-    pay(owner, value);
-    if (dest.empireId !== owner.id && isTradePartner(state, owner.id, dest.empireId)) pay(state.empires[dest.empireId], value * RECEIVER_SHARE);
+    const foreign = dest.empireId !== owner.id && isTradePartner(state, owner.id, dest.empireId);
+    pay(owner, value, foreign ? dest.empireId : null);
+    if (foreign) pay(state.empires[dest.empireId], value * RECEIVER_SHARE, owner.id);
   }
   delete state.fleets[fleet.id];
 }
 
-function pay(e: Empire, credits: number): void {
+function pay(e: Empire, credits: number, partnerId: string | null): void {
   e.resources.credits += credits;
   e.tradeToday = (e.tradeToday ?? 0) + credits;
+  if (partnerId) (e.tradeWithToday ??= {})[partnerId] = (e.tradeWithToday[partnerId] ?? 0) + credits;
+}
+
+/**
+ * What trade with `otherId` is worth to `e` in credits per day: what it earns
+ * now (`current`) or what the lapsed agreement used to earn (`lost`), and that
+ * value as a share of e's credit income (so AI rulers can weigh it).
+ */
+export function tradeStake(e: Empire, otherId: string): { current: number; lost: number; share: number } {
+  const current = e.tradePartners?.[otherId] !== undefined ? (e.tradeWith?.[otherId] ?? 0) : 0;
+  const lost = current ? 0 : (e.tradeLost?.[otherId] ?? 0);
+  const income = Math.max(3, Math.max(0, e.income?.credits ?? 0) + (e.tradeRate ?? 0));
+  return { current, lost, share: (current || lost) / income };
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +129,12 @@ const fail = (error: string): CommandResult => ({ ok: false, error });
 function establish(state: GameState, a: string, b: string): void {
   (state.empires[a].tradePartners ??= {})[b] = state.day;
   (state.empires[b].tradePartners ??= {})[a] = state.day;
+  for (const [x, y] of [[a, b], [b, a]]) {
+    const e = state.empires[x];
+    // Merchants take time to find their routes again: start from what the old agreement earned.
+    if (e.tradeLost?.[y] !== undefined) (e.tradeWith ??= {})[y] = e.tradeLost[y] * 0.5;
+    delete e.tradeLost?.[y];
+  }
   delete state.empires[a].tradeOffers?.[b];
   delete state.empires[b].tradeOffers?.[a];
   logTo(state, "diplomacy", `The ${state.empires[a].name} and the ${state.empires[b].name} signed a trade agreement: merchants may now fly between their trade hubs.`, [...acquaintances(state, a), ...acquaintances(state, b), a, b]);
@@ -153,6 +178,12 @@ export function cancelTrade(state: GameState, a: string, b: string, quiet = fals
   if (!isTradePartner(state, a, b)) return fail("No trade agreement with them");
   delete state.empires[a].tradePartners![b];
   delete state.empires[b].tradePartners?.[a];
+  for (const [x, y] of [[a, b], [b, a]]) {
+    const e = state.empires[x];
+    const was = e.tradeWith?.[y] ?? 0;
+    if (was > 0.05) (e.tradeLost ??= {})[y] = was;
+    delete e.tradeWith?.[y];
+  }
   for (const f of Object.values(state.fleets)) {
     const dest = f.order?.kind === "trade" && f.order.colonyId ? state.colonies[f.order.colonyId] : null;
     if (!dest) continue;

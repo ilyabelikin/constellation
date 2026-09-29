@@ -32,7 +32,7 @@ import { hasMet } from "./knowledge";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
 import { bodyPosition, dist } from "./orbits";
 import { canAfford, logTo } from "./util";
-import { proposeTrade } from "./trade";
+import { proposeTrade, tradeStake } from "./trade";
 import { Rng } from "./rng";
 import type { AiDirective, AiState, Colony, Empire, Fleet, GameState, Posture } from "./types";
 
@@ -481,17 +481,23 @@ function diplomacy(state: GameState, empire: Empire, owners: Record<string, stri
       );
       if (!neighbour) continue;
       const aggression = ai.personality === "militarist" ? 1.0 : ai.personality === "expansionist" ? 1.3 : 1.8;
-      if (ratio > aggression && rng.chance(0.12)) {
+      // A profitable trade partner is worth more alive: war would end the merchants' income.
+      const stake = tradeStake(empire, other.id).share;
+      if (ratio > aggression * (1 + 2.5 * stake) && rng.chance(0.12)) {
         declareWar(state, empire.id, other.id);
         ai.warCooldown = 150;
         (ai.warStarted ??= {})[other.id] = state.day;
       }
-    } else if (rel === "war" && !other.isPlayer) {
+    } else if (rel === "war") {
       const since = ai.warStarted?.[other.id] ?? state.day;
       const weary = state.day - since > 350 && rng.chance(0.08);
-      if (((ratio < 0.7 && ai.warCooldown <= 0 && rng.chance(0.3)) || weary) && other.ai && aiAcceptsPeace(state, other, empire.id, rng)) {
-        makePeace(state, empire.id, other.id);
-      }
+      // The trade this war cost us is a reason to end it.
+      const lost = tradeStake(empire, other.id).share;
+      const poorer = lost > 0.12 && state.day - since > 60 && ratio < 2 && rng.chance(0.03 + lost * 0.1);
+      if (!((ratio < 0.7 && ai.warCooldown <= 0 && rng.chance(0.3)) || weary || poorer)) continue;
+      if (other.ai) {
+        if (aiAcceptsPeace(state, other, empire.id, rng)) makePeace(state, empire.id, other.id);
+      } else offerPeace(state, empire, other.id);
     }
   }
 }
@@ -513,13 +519,18 @@ function directedDiplomacy(state: GameState, empire: Empire, d: AiDirective, rng
     if (state.day - since < 20) continue;
     if (other.ai) {
       if (aiAcceptsPeace(state, other, empire.id, rng)) makePeace(state, empire.id, id);
-    } else if (state.day - (ai.peaceProposedAt?.[id] ?? -999) > 45 && other.peaceOffers?.[empire.id] === undefined) {
-      // Human rulers decide for themselves: send a formal offer.
-      (other.peaceOffers ??= {})[empire.id] = state.day;
-      (ai.peaceProposedAt ??= {})[id] = state.day;
-      logTo(state, "diplomacy", `The ${empire.name} proposes peace. Accept it in the Empires screen.`, [id, empire.id]);
-    }
+    } else offerPeace(state, empire, id);
   }
+}
+
+/** Human rulers decide for themselves: send a formal peace offer (at most every 45 days). */
+function offerPeace(state: GameState, empire: Empire, id: string): void {
+  const ai = empire.ai!;
+  const other = state.empires[id];
+  if (state.day - (ai.peaceProposedAt?.[id] ?? -999) <= 45 || other.peaceOffers?.[empire.id] !== undefined) return;
+  (other.peaceOffers ??= {})[empire.id] = state.day;
+  (ai.peaceProposedAt ??= {})[id] = state.day;
+  logTo(state, "diplomacy", `The ${empire.name} proposes peace. Accept it in the Empires screen.`, [id, empire.id]);
 }
 
 /** Does the AI open its markets to `fromId`? Traders love it; militarists are wary. */
@@ -529,7 +540,8 @@ export function aiAcceptsTrade(state: GameState, empire: Empire, fromId: string)
   if (d?.warTarget === fromId) return false;
   if (d?.seekPeace.includes(fromId)) return true;
   if ((empire.ai.tradeRefusedUntil?.[fromId] ?? -1) > state.day) return false;
-  const p = { trader: 0.95, scholar: 0.75, expansionist: 0.6, militarist: 0.35 }[empire.ai.personality];
+  let p = { trader: 0.95, scholar: 0.75, expansionist: 0.6, militarist: 0.35 }[empire.ai.personality];
+  if (tradeStake(empire, fromId).lost > 0) p = Math.max(p, 0.9); // an old partnership worth restoring
   const rng = new Rng(state.rngState ^ Math.floor(state.day * 7919));
   const yes = rng.chance(p);
   if (!yes) (empire.ai.tradeRefusedUntil ??= {})[fromId] = state.day + 60;
@@ -538,13 +550,15 @@ export function aiAcceptsTrade(state: GameState, empire: Empire, fromId: string)
 
 /** AI rulers occasionally offer trade to peaceful neighbours they know. */
 function seekTrade(state: GameState, empire: Empire, rng: Rng): void {
-  const eager = { trader: 0.06, scholar: 0.04, expansionist: 0.03, militarist: 0.015 }[empire.ai!.personality];
+  const base = { trader: 0.06, scholar: 0.04, expansionist: 0.03, militarist: 0.015 }[empire.ai!.personality];
   if (!coloniesOf(state, empire.id).some((c) => c.buildings.some((b) => b.type === "trade_hub"))) return;
   for (const other of Object.values(state.empires)) {
     if (other.id === empire.id || other.isPirate || !other.alive || !hasMet(state, empire.id, other.id)) continue;
     if (empire.relations[other.id] === "war" || empire.tradePartners?.[other.id] !== undefined || other.tradeOffers?.[empire.id] !== undefined) continue;
     if (activeDirective(state, empire)?.warTarget === other.id) continue;
-    if (rng.chance(eager)) proposeTrade(state, empire.id, other.id);
+    // Partners whose trade we lost (to war) are courted again eagerly.
+    const eager = base * (1 + 8 * tradeStake(empire, other.id).share);
+    if (rng.chance(Math.min(0.5, eager))) proposeTrade(state, empire.id, other.id);
   }
 }
 
@@ -559,6 +573,9 @@ export function aiAcceptsPeace(state: GameState, empire: Empire, fromId: string,
   const started = empire.ai.warStarted?.[fromId];
   if (started !== undefined && state.day - started < 30 && ratio >= 0.5) return false; // too soon
   if (ratio < 0.8) return true;
+  // Peace would let the merchants (and their income) return.
+  const lost = tradeStake(empire, fromId).share;
+  if (lost > 0.15 && ratio < 1.5 + lost * 2) return true;
   const since = empire.ai.warStarted?.[fromId];
   if (since !== undefined && state.day - since > 300 && ratio < 1.3) return true;
   if (empire.ai.warCooldown <= 0 && ratio < 1.5) return rng.chance(0.5);

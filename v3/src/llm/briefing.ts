@@ -11,6 +11,7 @@ import { SPECIES_MAP } from "../sim/data/structures";
 import { TECH_MAP } from "../sim/data/techs";
 import { popCapacity, systemOwnerMap } from "../sim/economy";
 import { hasMet, sensorSystems } from "../sim/knowledge";
+import { tradeStake } from "../sim/trade";
 import type { Empire, GameState } from "../sim/types";
 import { canSeeLog } from "../sim/util";
 import type { Briefing } from "./types";
@@ -99,8 +100,12 @@ export function buildBriefing(state: GameState, empireId: string, isHuman: (id: 
         : "no colonies known",
     ];
     if (me.peaceOffers?.[e.id] !== undefined) bits.push("THEY OFFER PEACE (pending)");
-    if (trade) bits.push("TRADE PARTNER (merchants fly between us)");
-    else if (me.tradeOffers?.[e.id] !== undefined) bits.push("THEY OFFER A TRADE AGREEMENT (pending)");
+    const stake = tradeStake(me, e.id);
+    const pct = (v: number) => `${Math.round(v * 100)}% of our credit income`;
+    if (trade) bits.push(`TRADE PARTNER: merchants earn us ~${n1(stake.current)} credits/day from them (${pct(stake.share)}); war would end it`);
+    else if (stake.lost > 0)
+      bits.push(`trade with them used to earn us ~${n1(stake.lost)} credits/day (${pct(stake.share)})${relation === "war" ? "; peace and a new agreement would restore it" : "; a new agreement would restore it"}`);
+    if (me.tradeOffers?.[e.id] !== undefined && !trade) bits.push("THEY OFFER A TRADE AGREEMENT (pending)");
     const theirDemand = me.demands?.[e.id];
     if (theirDemand) bits.push(`THEY DEMAND ${theirDemand.kind === "colony" ? state.colonies[theirDemand.colonyId]?.name : `${theirDemand.amount} ${theirDemand.resource}`}`);
     const ourDemand = e.demands?.[empireId];

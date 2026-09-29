@@ -27,7 +27,10 @@ import { HULLS } from "../src/sim/data/ships";
 import { BUILDING_MAP, STATION_MAP, STATIONS } from "../src/sim/data/structures";
 import { fleetPower } from "../src/sim/combat";
 import { declareWar } from "../src/sim/commands";
-import { proposeTrade, TRADE_INTERVAL, tradeValue } from "../src/sim/trade";
+import { deliverTrade, proposeTrade, TRADE_INTERVAL, tradeStake, tradeValue } from "../src/sim/trade";
+import { aiAcceptsPeace } from "../src/sim/ai";
+import { buildBriefing } from "../src/llm/briefing";
+import { makePeace } from "../src/sim/commands";
 import { shipStores, supplyLevel } from "../src/sim/supplies";
 import { cedeColony } from "../src/sim/diplomacy";
 import { canSeeLog } from "../src/sim/util";
@@ -1100,6 +1103,60 @@ describe("merchant trade", () => {
     declareWar(s, g.playerId, ai.id);
     expect(g.player.tradePartners?.[ai.id]).toBeUndefined();
     expect(Object.values(s.fleets).some((f) => f.order?.kind === "trade" && s.colonies[f.order.colonyId!]?.empireId === ai.id && f.empireId === g.playerId)).toBe(false);
+  });
+
+  it("rulers know what trade with each partner earns, what a war costs, and weigh it", () => {
+    const { g, s } = tradeGame();
+    const ai = Object.values(s.empires).find((e) => e.ai && !e.isPirate)!;
+    const aiCap = Object.values(s.colonies).find((c) => c.empireId === ai.id)!;
+    aiCap.buildings.push({ type: "trade_hub" });
+    (g.player.contacts ??= {})[ai.id] = true;
+    (ai.contacts ??= {})[g.playerId] = true;
+    g.player.explored[aiCap.systemId] = ai.explored[home(g).systemId] = true;
+    ai.ai!.personality = "trader";
+    let r = g.proposeTrade(ai.id);
+    for (let i = 0; i < 5 && !r.ok; i++) {
+      delete ai.ai!.tradeRefusedUntil;
+      s.day += 1;
+      r = g.proposeTrade(ai.id);
+    }
+    expect(r.ok).toBe(true);
+    // Merchants flying between the two empires are credited to the partnership (both sides).
+    const f = makeFleet(s, g.player, aiCap.systemId, { x: 0, y: 0, z: 0 }, "Merchant");
+    f.order = { kind: "trade", systemId: aiCap.systemId, bodyId: aiCap.bodyId, colonyId: aiCap.id, route: [] } as Fleet["order"];
+    f.cargo = 20;
+    deliverTrade(s, f);
+    g.advance(2);
+    expect(g.player.tradeWith?.[ai.id] ?? 0).toBeGreaterThan(0.5);
+    expect(ai.tradeWith?.[g.playerId] ?? 0).toBeGreaterThan(0.1);
+    ai.tradeWith![g.playerId] = 6; // make it a big deal for the test
+    ai.income.credits = 6;
+    expect(tradeStake(ai, g.playerId).share).toBeCloseTo(6 / (6 + (ai.tradeRate ?? 0)), 5);
+    expect(buildBriefing(s, ai.id, (id) => id === g.playerId).dump).toMatch(/TRADE PARTNER: merchants earn us ~6 credits\/day/);
+    // War ends it, and the lost income is remembered...
+    declareWar(s, g.playerId, ai.id);
+    expect(ai.tradeLost?.[g.playerId]).toBe(6);
+    expect(buildBriefing(s, ai.id, (id) => id === g.playerId).dump).toMatch(/used to earn us ~6 credits\/day.*peace and a new agreement would restore it/);
+    // ...so a ruler who is as strong as its enemy still wants peace back.
+    s.day += 60;
+    ai.ai!.warCooldown = 100;
+    ai.ai!.directive = undefined;
+    const rng = new Rng("peace");
+    expect(aiAcceptsPeace(s, ai, g.playerId, rng)).toBe(true);
+    delete ai.tradeLost;
+    expect([0, 1, 2, 3, 4].some(() => aiAcceptsPeace(s, ai, g.playerId, rng))).toBe(false);
+    // A restored agreement starts from part of the old income.
+    ai.tradeLost = { [g.playerId]: 6 };
+    makePeace(s, g.playerId, ai.id);
+    r = g.proposeTrade(ai.id);
+    for (let i = 0; i < 5 && !r.ok; i++) {
+      delete ai.ai!.tradeRefusedUntil;
+      s.day += 1;
+      r = g.proposeTrade(ai.id);
+    }
+    expect(r.ok).toBe(true);
+    expect(ai.tradeWith?.[g.playerId]).toBe(3);
+    expect(ai.tradeLost?.[g.playerId]).toBeUndefined();
   });
 
   it("Galactic Market makes merchant trade richer, not credits in general", () => {
