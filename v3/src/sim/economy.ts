@@ -173,6 +173,20 @@ export function stationUpkeep(station: Station): Yields {
   return STATION_MAP[station.type]?.upkeep ?? {};
 }
 
+/** Days a new colony leans on the empire before it supports itself. */
+export const SETTLEMENT_DAYS = 240;
+/** What a brand-new colony draws from the treasury each day (fading to nothing over SETTLEMENT_DAYS). */
+export const SETTLEMENT_UPKEEP: Required<Yields> = { credits: 1.2, metals: 0.6, energy: 0.5, exotics: 0, research: 0 };
+
+/** Supplies a young colony still needs shipped in (zero once it is established). */
+export function settlementUpkeep(state: GameState, colony: Colony): Required<Yields> {
+  const out = zero();
+  if (colony.capital) return out;
+  const f = 1 - (state.day - colony.founded) / SETTLEMENT_DAYS;
+  if (f > 0) add(out, SETTLEMENT_UPKEEP, f);
+  return out;
+}
+
 /** Total credits/day of administrative overhead for `n` colonies. */
 export function adminUpkeep(n: number): number {
   if (n <= 1) return 0;
@@ -193,6 +207,7 @@ export function incomeReport(state: GameState, empire: Empire): IncomeReport {
     add(gross, p);
     lines.push({ source: c.name, yields: p });
     for (const b of c.buildings) add(upkeep, BUILDING_MAP[b.type]?.upkeep ?? {});
+    add(upkeep, settlementUpkeep(state, c));
   }
   // Administration: every colony costs upkeep that grows with empire size, curbing sprawl.
   upkeep.credits += adminUpkeep(colonyCount);

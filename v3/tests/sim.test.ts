@@ -12,6 +12,8 @@ import {
   habitability,
   hullCost,
   incomeReport,
+  settlementUpkeep,
+  SETTLEMENT_DAYS,
   growPopulation,
   maxDefense,
   popCapacity,
@@ -204,6 +206,24 @@ describe("data tables", () => {
 });
 
 describe("economy", () => {
+  it("new colonies draw supplies from the empire until they are established", () => {
+    const g = Game.create({ seed: "settle", pirates: false });
+    const s = g.state;
+    const cap = Object.values(s.colonies).find((c) => c.empireId === g.playerId)!;
+    expect(settlementUpkeep(s, cap).credits).toBe(0); // the homeworld is long settled
+    const before = incomeReport(s, g.player).upkeep;
+    const target = Object.values(s.bodies).find((b) => b.systemId === cap.systemId && b.id !== cap.bodyId && canColonize(g.player, b))!;
+    const col = foundColony(s, g.player, target.id, 1);
+    const fresh = settlementUpkeep(s, col);
+    expect(fresh.credits).toBeGreaterThan(1);
+    expect(fresh.metals).toBeGreaterThan(0);
+    expect(incomeReport(s, g.player).upkeep.metals).toBeCloseTo(before.metals + fresh.metals, 5);
+    s.day += SETTLEMENT_DAYS / 2;
+    expect(settlementUpkeep(s, col).credits).toBeCloseTo(fresh.credits / 2, 5);
+    s.day += SETTLEMENT_DAYS;
+    expect(settlementUpkeep(s, col).credits).toBe(0);
+  });
+
   it("starts with positive income in every resource that matters", () => {
     const g = Game.create({ seed: "eco" });
     const r = incomeReport(g.state, g.player);

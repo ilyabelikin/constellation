@@ -16,6 +16,9 @@ import {
   commandCapacity,
   commandUsed,
   garrison,
+  settlementUpkeep,
+  SETTLEMENT_DAYS,
+  SETTLEMENT_UPKEEP,
   habitability,
   hullCost,
   incomeReport,
@@ -695,6 +698,12 @@ export class Hud {
       <div class="kv"><div class="k">Planetary defense</div><div class="v">${fmt(c.defense)} / ${fmt(maxD)}</div><div class="k">Garrison</div><div class="v">${garrison(s, c).toFixed(1)} troops</div></div>
       <div class="bar shield"><div style="width:${(c.defense / Math.max(1, maxD)) * 100}%"></div></div>`;
     if (c.empireId !== p.id) return html;
+    const settling = settlementUpkeep(s, c);
+    if (settling.credits > 0.005) {
+      const left = SETTLEMENT_DAYS - (s.day - c.founded);
+      html += `<div class="kv" title="A young colony needs supplies shipped in until it can stand on its own. The cost fades as it settles."><div class="k">Settling in</div><div class="v">${yieldsHtml(settling, -1)} · ${Math.ceil(left)}d left</div></div>
+        <div class="bar"><div style="width:${Math.min(100, (1 - left / SETTLEMENT_DAYS) * 100)}%"></div></div>`;
+    }
     const slots = buildingSlots(s, c);
     const queuedB = c.queue.filter((q) => q.kind === "building").length;
     html += `<div class="section-title"><span>Buildings</span><span>${c.buildings.length + queuedB}/${slots} slots</span></div><div class="chips">`;
@@ -1043,7 +1052,8 @@ export class Hud {
       .join("");
     return `<header><h2>Colonize ${esc(body.name)}</h2><button data-action="close">✕</button></header>
       <p class="desc">No colony ship is available. Build one at a shipyard and it will fly to <b>${esc(body.name)}</b>
-      (${esc(PLANET_TYPE_MAP[body.type]?.name ?? body.type)}, habitability ${pct(h)}, size ${body.size}) and settle it as soon as it launches.</p>
+      (${esc(PLANET_TYPE_MAP[body.type]?.name ?? body.type)}, habitability ${pct(h)}, size ${body.size}) and settle it as soon as it launches.
+      A new colony needs supplies shipped in at first (${yieldsHtml(SETTLEMENT_UPKEEP, -1)} per day, fading over ${SETTLEMENT_DAYS} days) before it stands on its own.</p>
       ${rows || `<div class="hint">None of your colonies has an Orbital Shipyard with a known route there. Build a shipyard first.</div>`}`;
   }
 
