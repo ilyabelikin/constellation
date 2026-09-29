@@ -784,7 +784,7 @@ export class SystemView implements View {
       if (!body || body.systemId !== this.systemId) continue;
       v.shuttleTimer = (v.shuttleTimer ?? 0) - dt;
       if (v.shuttleTimer > 0) continue;
-      v.shuttleTimer = 0.35 + Math.random() * 0.45;
+      v.shuttleTimer = 0.8 + Math.random() * 0.8;
       this.shuttles.launch(v.pos, body.id, this.bodyWorld(body, center));
     }
     this.shuttles.update(dt, (bodyId, out) => {

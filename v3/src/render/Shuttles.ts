@@ -16,7 +16,8 @@ interface Shuttle {
   dur: number;
 }
 
-const hullGeo = new THREE.CapsuleGeometry(0.06, 0.16, 3, 6);
+// Tiny next to the ship that carries them: a gentle ferry, not a missile salvo.
+const hullGeo = new THREE.CapsuleGeometry(0.022, 0.05, 3, 6);
 hullGeo.rotateX(Math.PI / 2);
 const hullMat = new THREE.MeshStandardMaterial({ color: 0xdfe6f0, metalness: 0.5, roughness: 0.4 });
 
@@ -25,7 +26,7 @@ export class Shuttles {
   private list: Shuttle[] = [];
   private glowMat = new THREE.SpriteMaterial({
     map: getGlowTexture(),
-    color: new THREE.Color(1.6, 1.2, 0.7),
+    color: new THREE.Color(1.0, 0.9, 0.75),
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
@@ -41,14 +42,14 @@ export class Shuttles {
     const obj = new THREE.Group();
     obj.add(new THREE.Mesh(hullGeo, hullMat));
     const glow = new THREE.Sprite(this.glowMat.clone());
-    glow.scale.setScalar(0.35);
-    glow.position.z = -0.14;
+    glow.scale.setScalar(0.12);
+    glow.position.z = -0.05;
     obj.add(glow);
     const dir = from.clone().sub(center).normalize();
     const side = new THREE.Vector3(dir.z, 0, -dir.x).normalize().multiplyScalar((Math.random() - 0.5) * 0.9);
     obj.position.copy(from);
     this.group.add(obj);
-    this.list.push({ obj, glow, from: from.clone(), dir, side, bodyId, t: 0, dur: 1.4 + Math.random() * 0.6 });
+    this.list.push({ obj, glow, from: from.clone(), dir, side, bodyId, t: 0, dur: 2.6 + Math.random() * 1.2 });
   }
 
   /** Advance; `locate` gives each target body's current centre and visual radius. */
@@ -74,10 +75,10 @@ export class Shuttles {
       bezier(s.from, ctrl, target, t, s.obj.position);
       bezier(s.from, ctrl, target, Math.min(1, t + 0.02), next);
       s.obj.lookAt(next);
-      // Retro-burn glow brightens on final descent, then the craft fades into the atmosphere.
-      const fade = s.t > 0.85 ? (1 - s.t) / 0.15 : 1;
-      s.obj.scale.setScalar(Math.max(0.2, fade));
-      (s.glow.material as THREE.SpriteMaterial).opacity = (0.5 + 0.5 * s.t) * fade;
+      // The craft dwindles as it sinks towards the surface and softly fades into the atmosphere.
+      const fade = s.t > 0.8 ? (1 - s.t) / 0.2 : 1;
+      s.obj.scale.setScalar(Math.max(0.05, (1 - 0.7 * t) * fade));
+      (s.glow.material as THREE.SpriteMaterial).opacity = 0.35 * fade;
     }
   }
 
