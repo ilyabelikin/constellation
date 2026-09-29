@@ -73,6 +73,9 @@ export abstract class PlayerFacade {
   setStance(fleetId: string, stance: Stance) {
     return this.exec("setStance", fleetId, stance);
   }
+  setAutoExplore(fleetId: string, on: boolean) {
+    return this.exec("setAutoExplore", fleetId, on);
+  }
   renameFleet(fleetId: string, name: string) {
     return this.exec("renameFleet", fleetId, name);
   }

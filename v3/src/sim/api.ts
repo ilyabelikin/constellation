@@ -148,6 +148,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   stopFleet: { args: ["id"], run: (s, e, f: string) => cmd.stopFleet(s, e, f) },
   cancelFleetOrder: { args: ["id", "order", "optId"], run: (s, e, f: string, i: number, k?: string | null) => cmd.cancelFleetOrder(s, e, f, i, k) },
   setStance: { args: ["id", "stance"], run: (s, e, f: string, st: Stance) => cmd.setStance(s, e, f, st) },
+  setAutoExplore: { args: ["id", "bool"], run: (s, e, f: string, on: boolean) => cmd.setAutoExplore(s, e, f, !!on) },
   renameFleet: { args: ["id", "text"], run: (s, e, f: string, n: string) => cmd.renameFleet(s, e, f, n) },
   mergeFleets: { args: ["id", "id"], run: (s, e, a: string, b: string) => cmd.mergeFleetsCmd(s, e, a, b) },
   splitFleet: { args: ["id", "ids"], run: (s, e, f: string, ids: string[]) => cmd.splitFleet(s, e, f, ids) },
@@ -168,7 +169,9 @@ export const COMMANDS: Record<string, CommandSpec> = {
 export type CommandName = keyof typeof COMMANDS;
 
 /** Commands whose first argument is a fleet (civilian liners refuse them). */
-const FLEET_COMMANDS = new Set(["moveFleet", "colonize", "buildStation", "invade", "attackFleet", "stopFleet", "cancelFleetOrder", "setStance", "renameFleet", "mergeFleets", "splitFleet"]);
+const FLEET_COMMANDS = new Set(["moveFleet", "colonize", "buildStation", "invade", "attackFleet", "stopFleet", "cancelFleetOrder", "setStance", "renameFleet", "mergeFleets", "splitFleet", "setAutoExplore"]);
+/** Direct orders that take a fleet off auto-explore. */
+const MANUAL_ORDERS = new Set(["moveFleet", "colonize", "buildStation", "invade", "attackFleet", "stopFleet"]);
 
 /** Validate and execute a command on behalf of `empireId`. Never throws for bad input. */
 export function execCommand(state: GameState, empireId: string, name: string, args: unknown[]): CommandResult {
@@ -183,7 +186,13 @@ export function execCommand(state: GameState, empireId: string, name: string, ar
     if (fleetIds.some((id) => state.fleets[id as string]?.civilian)) return { ok: false, error: "Private liners follow their own course" };
   }
   try {
-    return (spec.run as (s: GameState, e: string, ...a: unknown[]) => CommandResult)(state, empireId, ...args);
+    const r = (spec.run as (s: GameState, e: string, ...a: unknown[]) => CommandResult)(state, empireId, ...args);
+    const f = MANUAL_ORDERS.has(name) ? state.fleets[args[0] as string] : undefined;
+    if (r.ok && f?.autoExplore && f.empireId === empireId) {
+      f.autoExplore = false;
+      f.exploreTarget = undefined;
+    }
+    return r;
   } catch (err) {
     return { ok: false, error: `Command failed: ${(err as Error).message}` };
   }

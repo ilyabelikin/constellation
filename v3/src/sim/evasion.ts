@@ -8,7 +8,7 @@ import { findRoute, issueOrder } from "./fleets";
 import type { Fleet, GameState, QueuedOrder } from "./types";
 import { fleetRef, log } from "./util";
 
-function threatsIn(state: GameState, empireId: string, systemId: string): Fleet[] {
+export function threatsIn(state: GameState, empireId: string, systemId: string): Fleet[] {
   return Object.values(state.fleets).filter(
     (o) => o.systemId === systemId && o.ships.length > 0 && isHostile(state, empireId, o.empireId) && fleetArmed(o),
   );

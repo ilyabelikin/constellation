@@ -152,6 +152,12 @@ export interface Transit {
 }
 
 export interface Fleet {
+  /** Surveys unexplored systems on its own, one after another. */
+  autoExplore?: boolean;
+  /** The system an auto-exploring fleet is heading for. */
+  exploreTarget?: string;
+  /** Systems an auto-explorer was chased out of, and the day it may try again. */
+  exploreAvoid?: Record<string, number>;
   /** Invasion force gathering at its shipyard until all its transports launch. */
   staging?: string;
   id: string;

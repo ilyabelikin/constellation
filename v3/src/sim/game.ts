@@ -13,6 +13,7 @@ import { ensureCapital, stepFleets } from "./fleets";
 import { updateContacts } from "./knowledge";
 import { migrationDay } from "./migration";
 import { stepEvasion } from "./evasion";
+import { stepExplore } from "./explore";
 import { tradeDay } from "./trade";
 import { logisticsDay } from "./logistics";
 import { createGame, makeFleet, makeShip, SAVE_VERSION } from "./galaxy";
@@ -46,7 +47,7 @@ export class Game extends PlayerFacade {
     log(g.state, "info", `The ${player.name} takes its first steps among the stars. Build, expand and prevail!`, player.id);
     const tips = [
       "Tip: select your star or gas giant — the Builders can raise a Solar Array or Gas Harvester there for energy.",
-      "Tip: send the Pathfinder scout through a tunnel gate (select it, right-click a gate) to survey neighbouring systems.",
+      "Tip: your Pathfinder scout is surveying nearby systems on its own (auto-explore); give it any order, or untick 🧭 Auto-explore, to take the helm.",
       "Tip: queue a Colony Ship at your capital, then right-click a habitable world (green habitability) to settle it.",
       "Tip: press R to pick research. Void Raiders will raid within a few months — keep some warships at home.",
     ];
@@ -67,6 +68,7 @@ export class Game extends PlayerFacade {
     const rng = new Rng(s.rngState);
     stepFleets(s, STEP_DAYS, this.events);
     stepEvasion(s);
+    stepExplore(s);
     autoPursue(s);
     stepCombat(s, STEP_DAYS, rng, this.events);
     applySiege(s);

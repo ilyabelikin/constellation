@@ -249,6 +249,15 @@ export function setStance(state: GameState, empireId: string, fleetId: string, s
   return OK;
 }
 
+export function setAutoExplore(state: GameState, empireId: string, fleetId: string, on: boolean): CommandResult {
+  const f = ownFleet(state, empireId, fleetId);
+  if (!f) return fail("Not your fleet");
+  f.autoExplore = on;
+  if (!on) f.exploreTarget = undefined;
+  else f.exploreAvoid = undefined;
+  return OK;
+}
+
 export function renameFleet(state: GameState, empireId: string, fleetId: string, name: string): CommandResult {
   const f = ownFleet(state, empireId, fleetId);
   if (!f) return fail("Not your fleet");

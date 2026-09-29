@@ -123,6 +123,9 @@ export class Session {
     if (this.seats.has(empireId)) return "Another player controls that empire";
     e.isPlayer = true;
     e.ai = null;
+    // Like in a single-player start, a new ruler's scout sets out exploring on its own.
+    if (this.game.state.day < 1)
+      for (const f of Object.values(this.game.state.fleets)) if (f.empireId === empireId && f.ships.some((sh) => sh.hull === "scout")) f.autoExplore = true;
     this.seats.set(empireId, uuid);
     this.db.setSeat(this.id, empireId, uuid);
     this.lastActivity = Date.now();

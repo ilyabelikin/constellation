@@ -108,7 +108,8 @@ test("host a galaxy, a friend joins by link, takes a seat and both play", async 
 
   // Resume puts the guest straight back into their empire.
   await guest.locator('.lobby-row button:has-text("Resume")').click();
-  await expect(guest.locator("#topbar")).toBeVisible();
+  // Two software-rendered clients share one CPU here, so allow the rejoin some time.
+  await expect(guest.locator("#topbar")).toBeVisible({ timeout: 90_000 });
   expect(await guest.evaluate(() => (window as any).__app.game.playerId)).toBe(guestEmpire);
 
   await hostCtx.close();

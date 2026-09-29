@@ -770,6 +770,7 @@ export function createGame(partial: Partial<GameSettings> = {}): GameState {
     const scout = makeFleet(state, emp, sysId, at, "Pathfinder");
     scout.orbitBodyId = home.id;
     scout.stance = "evasive";
+    scout.autoExplore = emp.isPlayer;
     scout.ships.push(makeShip(state, emp, "scout"));
     const builder = makeFleet(state, emp, sysId, at, "Builders");
     builder.orbitBodyId = home.id;

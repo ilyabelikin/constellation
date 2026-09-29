@@ -1071,6 +1071,36 @@ describe("evasive stance", () => {
   });
 });
 
+describe("auto-explore", () => {
+  it("the starting Pathfinder surveys systems on its own until a direct order takes it off", () => {
+    const g = Game.create({ seed: "explore", pirates: false });
+    const s = g.state;
+    const scout = playerFleet(g, "Pathfinder");
+    expect(scout.autoExplore).toBe(true);
+    // AI empires' scouts are driven by their own logic.
+    for (const f of Object.values(s.fleets)) if (f.empireId !== g.playerId) expect(f.autoExplore).toBeFalsy();
+    const before = Object.keys(g.player.explored).length;
+    g.step();
+    expect(scout.order?.kind).toBe("move");
+    const first = scout.exploreTarget!;
+    expect(g.player.explored[first]).toBeFalsy();
+    g.advance(250);
+    expect(Object.keys(g.player.explored).length).toBeGreaterThan(before + 2); // it keeps going
+    // A direct order takes the helm back; the toggle turns it on again.
+    expect(g.moveFleet(scout.id, home(g).systemId, { bodyId: home(g).bodyId }).ok).toBe(true);
+    expect(scout.autoExplore).toBe(false);
+    expect(g.setAutoExplore(scout.id, true).ok).toBe(true);
+    expect(scout.autoExplore).toBe(true);
+    // Given long enough, it runs out of reachable systems and switches itself off.
+    g.player.explored = Object.fromEntries(Object.keys(s.systems).map((id) => [id, true]));
+    scout.order = null;
+    scout.transit = null;
+    scout.queue = [];
+    g.step();
+    expect(scout.autoExplore).toBe(false);
+  });
+});
+
 describe("evasive stance while sheltering", () => {
   it("waits under the colony's guns until the raiders leave, without flip-flopping", () => {
     const g = Game.create({ seed: "shelter" });
@@ -1084,7 +1114,8 @@ describe("evasive stance while sheltering", () => {
     for (let i = 0; i < 300; i++) g.step();
     expect(builder.order).toBeNull(); // sheltering at the capital, job on hold
     expect(builder.queue?.[0]?.bodyId).toBe(target);
-    expect(s.log.filter((l) => l.text.includes("falling back")).length).toBe(1); // no spam
+    expect(s.log.filter((l) => l.text.includes("falling back") && l.text.includes(builder.name)).length).toBe(1); // no spam
+    expect(s.log.filter((l) => l.text.includes("falling back")).length).toBeLessThanOrEqual(2); // the exploring Pathfinder shelters too, once
     delete s.fleets[raiders.id];
     g.step();
     g.step();

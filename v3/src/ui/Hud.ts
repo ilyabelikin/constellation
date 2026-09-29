@@ -517,7 +517,8 @@ export class Hud {
    */
   private fleetFor(role: string, systemId: string): { fleet: Fleet; busy: boolean } | null {
     const s = this.game.state;
-    const hasRole = (f: Fleet) => f.empireId === s.playerId && !f.civilian && f.ships.some((sh) => HULL_MAP[sh.hull].role === role);
+    const hasRole = (f: Fleet) =>
+      f.empireId === s.playerId && !f.civilian && f.ships.some((sh) => HULL_MAP[sh.hull].role === role) && (role !== "colony" || spareColonyShips(f) > 0);
     const active = this.app.activeFleetId ? s.fleets[this.app.activeFleetId] : null;
     if (active && hasRole(active)) return { fleet: active, busy: !!(active.order || active.transit) };
     const idle = this.nearestIdleFleet(role, systemId);
@@ -547,6 +548,7 @@ export class Hud {
     let bestHops = Infinity;
     for (const f of Object.values(s.fleets)) {
       if (f.empireId !== s.playerId || !f.ships.some((sh) => HULL_MAP[sh.hull].role === role)) continue;
+      if (role === "colony" && spareColonyShips(f) <= 0) continue; // already promised to a world
       // Never silently re-task a fleet that is already busy.
       if (f.order || f.transit) continue;
       const hops = findRoute(s, f.systemId!, bodySystemId, this.game.player)?.length ?? 99;
@@ -817,6 +819,7 @@ export class Hud {
         <button data-action="stop:${f.id}" ${f.order && !f.transit ? "" : "disabled"}>■ Stop</button>
         <button data-action="split:${f.id}" ${f.ships.length > 1 ? "" : "disabled"} title="Split checked ships into a new fleet">⑂ Split</button>
         <button data-action="focus">◎ Focus</button>
+        <button data-action="autoexplore:${f.id}:${f.autoExplore ? 0 : 1}" class="${f.autoExplore ? "active" : ""}" title="${f.autoExplore ? "Exploring on its own — click to stop (any direct order also stops it)" : "Survey unexplored systems on its own, nearest first"}">🧭 Auto-explore</button>
       </div>`;
       const nearby = Object.values(s.fleets).filter((o) => o.id !== f.id && o.empireId === f.empireId && o.systemId && o.systemId === f.systemId && !o.transit && dist(o.pos, f.pos) < 1.5);
       if (nearby.length)
@@ -1267,6 +1270,9 @@ export class Hud {
         if (pick) this.dispatch(pick, (q) => g.buildStation(pick.fleet.id, b.id, args[1], q), `build ${STATION_MAP[args[1]]?.name ?? "station"} at ${b.name}`);
         break;
       }
+      case "autoexplore":
+        res(g.setAutoExplore(args[0], args[1] === "1"), args[1] === "1" ? "Auto-explore on" : "Auto-explore off");
+        break;
       case "stance":
         res(g.setStance(args[0], args[1] as Stance));
         break;
@@ -1517,4 +1523,11 @@ function estimateStation(g: Game, type: string, b: Body): string {
   const txt = yieldsHtml(y);
   const up = Object.entries(def.upkeep).map(([k, v]) => `<span style="color:var(--bad)">-${v}${RES_ICON[k]}</span>`).join(" ");
   return `${txt}${up ? " " + up : ""}${def.weapons ? " armed" : ""}`;
+}
+
+/** Colony ships in a fleet not yet promised to a world (each colonisation uses one up). */
+function spareColonyShips(f: Fleet): number {
+  const ships = f.ships.filter((sh) => HULL_MAP[sh.hull].role === "colony").length;
+  const promised = (f.order?.kind === "colonize" ? 1 : 0) + (f.queue ?? []).filter((q) => q.kind === "colonize").length;
+  return ships - promised;
 }

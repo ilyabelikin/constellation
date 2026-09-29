@@ -732,3 +732,26 @@ test("invade without troops at hand offers to build enough transports at the bes
   await expect(page.locator(".modal")).toHaveCount(0);
   await expect(page.locator("#details")).toContainText("Troop transports being built");
 });
+
+test("a colony ship already bound for a world is not offered for another: Colonize offers to build one", async ({ page }) => {
+  await startGame(page, "hero7");
+  await page.click('[data-action="speed:0"]');
+  // Pick a colonizable world via the opportunity badge.
+  await page.click('#badges [data-action="badge:colonize"]');
+  const btn = page.locator('#details [data-action^="colonize:"]');
+  await expect(btn).toBeVisible();
+  const target = (await btn.getAttribute("data-action"))!.split(":")[1];
+  // Our only colony ship is already on its way to settle a different world.
+  const sent = await page.evaluate((target) => {
+    const g = (window as any).__app.game;
+    const s = g.state;
+    g.player.resources.credits = g.player.resources.metals = g.player.resources.energy = 5000;
+    const f = Object.values(s.fleets).find((x: any) => x.empireId === g.playerId && x.name === "Builders") as any;
+    f.ships = [{ ...f.ships[0], id: f.ships[0].id + "c", hull: "colony" }];
+    return Object.values(s.bodies).some((b: any) => b.id !== target && g.colonize(f.id, b.id).ok);
+  }, target);
+  expect(sent).toBe(true);
+  await expect(btn).not.toContainText("Builders");
+  await domClick(page, `#details [data-action="colonize:${target}"]`);
+  await expect(page.locator(".modal h2")).toContainText("Colonize");
+});
