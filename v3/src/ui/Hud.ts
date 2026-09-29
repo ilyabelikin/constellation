@@ -1033,7 +1033,7 @@ export class Hud {
       .join("");
     return `<header><h2 style="color:${other.color}">${esc(other.name)}</h2>
       <span class="tag ${g.player.relations[other.id]}">${g.player.relations[other.id] === "war" ? "AT WAR" : "PEACE"}</span>
-      <span class="subtitle">${human ? "A human ruler" : "Their ruler answers in character"}</span>
+      ${human ? `<span class="subtitle">A human ruler</span>` : ""}
       <button data-action="modal:empires">← Empires</button><button data-action="close">✕</button></header>
       <div class="chat-log">${
         msgs.length
@@ -1045,7 +1045,7 @@ export class Hud {
           : `<div class="hint">No correspondence yet. Open a channel — propose an alliance, demand tribute, or negotiate a ceasefire.</div>`
       }${waiting ? `<div class="hint">Awaiting their reply…</div>` : ""}</div>
       ${demand ? `<div class="demand">⚠ They demand ${esc(demand.kind === "colony" ? (g.state.colonies[demand.colonyId]?.name ?? "a colony") : `${demand.amount} ${demand.resource}`)} <button class="primary" data-action="acceptdemand:${other.id}">Give</button> <button class="danger" data-action="rejectdemand:${other.id}">Refuse</button></div>` : ""}
-      <div class="chat-tools">${gifts}${g.player.relations[other.id] === "peace" && g.player.tradePartners?.[other.id] === undefined ? `<button data-action="proposetrade:${other.id}">⇄ Propose trade</button>` : ""}${g.player.peaceOffers?.[other.id] !== undefined ? `<button class="primary" data-action="acceptpeace:${other.id}">☮ Accept their peace offer</button>` : ""}${this.app.remote ? "" : `<span class="hint">The game is paused while you write.</span>`}</div>
+      <div class="chat-tools">${gifts}${g.player.relations[other.id] === "peace" && g.player.tradePartners?.[other.id] === undefined ? (g.player.tradeOffers?.[other.id] !== undefined ? `<button class="primary" data-action="accepttrade:${other.id}">⇄ Accept their trade offer</button><button data-action="rejecttrade:${other.id}">Decline</button>` : `<button data-action="proposetrade:${other.id}">⇄ Propose trade</button>`) : ""}${g.player.peaceOffers?.[other.id] !== undefined ? `<button class="primary" data-action="acceptpeace:${other.id}">☮ Accept their peace offer</button>` : ""}${this.app.remote ? "" : `<span class="hint">The game is paused while you write.</span>`}</div>
       <div class="chat-input"><input id="chat-input" maxlength="500" placeholder="Message to the ${esc(other.name)}…" autocomplete="off" /><button class="primary" data-action="sendchat">Send</button></div>`;
   }
 
