@@ -10,7 +10,6 @@ import { BRANCH_INFO, TECHS, TECH_MAP, type Branch } from "../sim/data/techs";
 import { empirePower } from "../sim/ai";
 import { fleetArmed, fleetPower, healthFraction } from "../sim/combat";
 import {
-  adminUpkeep,
   buildingSlots,
   canColonize,
   commandCapacity,
@@ -236,7 +235,12 @@ export class Hud {
     const cap = storageCap(g.state, p);
     const report = incomeReport(g.state, p);
     const res = (k: ResourceKey) => {
-      const tip = `${RES_NAME[k]}: ${fmt(r[k], 1)} / ${fmt(cap)}\nProduction ${signed(report.gross[k])}/day\nUpkeep ${signed(-report.upkeep[k])}/day${k === "credits" ? ` (ships' crews, buildings, administration)\nMerchant trade ~${signed(p.tradeRate ?? 0)}/day (paid on delivery)` : ""}${k === "credits" ? `\n(of which administration ${fmt(adminUpkeep(g.playerColonies().length), 1)})` : ""}`;
+      const parts = Object.entries(report.upkeepBy)
+        .filter(([, y]) => y[k] >= 0.05)
+        .sort((a, b) => b[1][k] - a[1][k])
+        .map(([what, y]) => `\n   ${what} ${signed(-y[k])}`)
+        .join("");
+      const tip = `${RES_NAME[k]}: ${fmt(r[k], 1)} / ${fmt(cap)}\nProduction ${signed(report.gross[k])}/day\nUpkeep ${signed(-report.upkeep[k])}/day${parts}${k === "credits" ? `\nMerchant trade ~${signed(p.tradeRate ?? 0)}/day (paid on delivery)` : ""}`;
       const warn = (k === "energy" && isBlackout(p)) || (k === "credits" && isBankrupt(p));
       return `<div class="res ${k} ${warn ? "warn" : ""}" title="${esc(tip)}"><span class="icon">${RES_ICON[k]}</span>${fmt(r[k])}<span class="inc ${inc[k] < 0 ? "neg" : "pos"}">${signed(inc[k])}</span></div>`;
     };

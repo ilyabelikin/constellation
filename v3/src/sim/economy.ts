@@ -11,7 +11,9 @@ import { clamp, log } from "./util";
 import type { Body, Colony, Empire, GameState, QueueItem, ResourceKey, Resources, Station, Yields } from "./types";
 
 /** A homeworld's own output is modest: growth has to come from buildings, stations and colonies. */
-export const CAPITAL_YIELDS: Required<Yields> = { credits: 2, metals: 1.5, energy: 2.5, research: 1.5, exotics: 0 };
+export const CAPITAL_YIELDS: Required<Yields> = { credits: 3, metals: 2, energy: 2, research: 1.5, exotics: 0 };
+/** What each unit of population consumes per day: services (credits), consumer goods (metals) and life support (energy). */
+export const POP_UPKEEP: Required<Yields> = { credits: 0, metals: 0.06, energy: 0.1, research: 0, exotics: 0 };
 export const CAPITAL_DEFENSE = 350;
 export const POP_CREDITS = 0.15;
 export const POP_RESEARCH = 0.06;
@@ -107,6 +109,8 @@ export interface IncomeReport {
   upkeep: Required<Yields>;
   net: Required<Yields>;
   lines: IncomeLine[];
+  /** Where the upkeep goes: population, buildings, stations, fleet, new colonies settling in, administration. */
+  upkeepBy: Record<string, Required<Yields>>;
 }
 
 function zero(): Required<Yields> {
@@ -190,7 +194,7 @@ export function settlementUpkeep(state: GameState, colony: Colony): Required<Yie
 /** Total credits/day of administrative overhead for `n` colonies. */
 export function adminUpkeep(n: number): number {
   if (n <= 1) return 0;
-  return (n - 1) * (0.8 + 0.12 * (n - 1));
+  return (n - 1) * (0.8 + 0.16 * (n - 1));
 }
 
 /** Full per-day income report for an empire. */
@@ -199,6 +203,11 @@ export function incomeReport(state: GameState, empire: Empire): IncomeReport {
   const upkeep = zero();
   const lines: IncomeLine[] = [];
   const m = modifiers(empire);
+  const upkeepBy: Record<string, Required<Yields>> = {};
+  const spend = (what: string, y: Yields, mult = 1) => {
+    add(upkeep, y, mult);
+    add((upkeepBy[what] ??= zero()), y, mult);
+  };
   let colonyCount = 0;
   for (const c of Object.values(state.colonies)) {
     if (c.empireId !== empire.id) continue;
@@ -206,20 +215,21 @@ export function incomeReport(state: GameState, empire: Empire): IncomeReport {
     const p = colonyProduction(state, c);
     add(gross, p);
     lines.push({ source: c.name, yields: p });
-    for (const b of c.buildings) add(upkeep, BUILDING_MAP[b.type]?.upkeep ?? {});
-    add(upkeep, settlementUpkeep(state, c));
+    for (const b of c.buildings) spend("Buildings", BUILDING_MAP[b.type]?.upkeep ?? {});
+    spend("New colonies settling in", settlementUpkeep(state, c));
+    spend("Population", POP_UPKEEP, c.pop);
   }
   // Administration: every colony costs upkeep that grows with empire size, curbing sprawl.
-  upkeep.credits += adminUpkeep(colonyCount);
+  spend("Administration", { credits: adminUpkeep(colonyCount) });
   for (const s of Object.values(state.stations)) {
     if (s.empireId !== empire.id) continue;
     const p = stationProduction(state, s);
     add(gross, p);
-    add(upkeep, stationUpkeep(s));
+    spend("Stations", stationUpkeep(s));
   }
   for (const f of Object.values(state.fleets)) {
     if (f.empireId !== empire.id) continue;
-    for (const ship of f.ships) add(upkeep, HULL_MAP[ship.hull]?.upkeep ?? {});
+    for (const ship of f.ships) spend("Fleet", HULL_MAP[ship.hull]?.upkeep ?? {});
   }
   // Empire-wide multipliers apply to gross production.
   gross.credits *= 1 + m.credits;
@@ -235,7 +245,7 @@ export function incomeReport(state: GameState, empire: Empire): IncomeReport {
   }
   const net = zero();
   for (const k of Object.keys(net) as (keyof Yields)[]) net[k] = gross[k] - upkeep[k];
-  return { gross, upkeep, net, lines };
+  return { gross, upkeep, net, lines, upkeepBy };
 }
 
 export function isBlackout(empire: Empire): boolean {
@@ -494,7 +504,7 @@ export function processEconomyDay(state: GameState, empire: Empire): void {
 export function storageCap(state: GameState, empire: Empire): number {
   let colonies = 0;
   for (const c of Object.values(state.colonies)) if (c.empireId === empire.id) colonies++;
-  return 2000 + colonies * 750;
+  return 1000 + colonies * 400;
 }
 
 export function processColonyDay(

@@ -332,6 +332,7 @@ test("colonize without a colony ship offers to build one at the best shipyard", 
     const g = (window as any).__app.game;
     g.player.resources.credits = 5000;
     g.player.resources.metals = 5000;
+    g.player.resources.energy = 5000;
   });
   // Pick a colonizable world via the opportunity badge instead of guessing.
   await page.click('#badges [data-action="badge:colonize"]');
@@ -351,6 +352,7 @@ test("colony ships park in orbit and send shuttles down instead of flying into t
     const g = app.game;
     g.player.resources.credits = 5000;
     g.player.resources.metals = 5000;
+    g.player.resources.energy = 5000;
     const cap = g.playerColonies()[0];
     const taken = new Set(Object.values(g.state.colonies).map((c: any) => c.bodyId));
     const hab = (window as any).__app.game.state.systems[cap.systemId].bodyIds
@@ -569,6 +571,7 @@ test("stations being built or queued show progress in the body panel, like a col
     const g = app.game;
     g.player.resources.credits = 9000;
     g.player.resources.metals = 9000;
+    g.player.resources.energy = 9000;
     const b = Object.values(g.state.fleets).find((f: any) => f.empireId === g.playerId && f.ships.some((s: any) => s.hull === "constructor")) as any;
     const sys = g.state.systems[app.systemId];
     const sites: [string, string][] = [];
@@ -714,6 +717,7 @@ test("invade without troops at hand offers to build enough transports at the bes
     g.declareWar(enemy.id);
     g.player.resources.credits = 5000;
     g.player.resources.metals = 5000;
+    g.player.resources.energy = 5000;
     app.enterSystem(cap.systemId);
     app.select({ kind: "body", id: cap.bodyId });
     return { colonyId: cap.id, name: cap.name };

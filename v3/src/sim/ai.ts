@@ -130,7 +130,8 @@ function planBuildings(state: GameState, empire: Empire, colonies: Colony[], rng
     const has = (t: string) => c.buildings.some((b) => b.type === t);
     const count = (t: string) => c.buildings.filter((b) => b.type === t).length;
     let choice: string | null = null;
-    if (empire.income.energy < 1.5 && empire.resources.energy < 150) choice = "power_plant";
+    if (empire.income.energy < 2 && empire.resources.energy < 250) choice = "power_plant";
+    else if (empire.income.metals < 1.5 && empire.resources.metals < 250) choice = buildingUnlocked(empire, "foundry") && empire.income.energy > 3 ? "foundry" : "mine";
     else if (empire.income.credits < 2 && empire.resources.credits < 300 && buildingUnlocked(empire, "trade_hub")) choice = "trade_hub";
     else if (!has("shipyard") && (c.capital || c.pop >= 4)) choice = "shipyard";
     else if ((atWar || state.day > 400) && !has("defense_grid") && c.pop >= 3) choice = "defense_grid";
@@ -200,7 +201,7 @@ function planShips(state: GameState, empire: Empire, colonies: Colony[], owners:
     const upkeep = HULL_MAP[hull].upkeep.credits ?? 0;
     if (HULL_MAP[hull].role === "military" && !atWar && empire.income.credits - upkeep < 0.4) return false;
     if ((cost.credits ?? 0) + reserve > res.credits || (cost.metals ?? 0) + reserve > res.metals) return false;
-    if ((cost.exotics ?? 0) > res.exotics) return false;
+    if ((cost.exotics ?? 0) > res.exotics || (cost.energy ?? 0) + reserve / 2 > res.energy) return false;
     return queueShip(state, empire.id, yard().id, hull).ok;
   };
   const unexplored = Object.keys(state.systems).filter((id) => !empire.explored[id]);
@@ -208,7 +209,7 @@ function planShips(state: GameState, empire: Empire, colonies: Colony[], owners:
   const wantConstructors = Math.min(3, 1 + Math.floor(colonies.length / 3));
   if (countRole("constructor") < wantConstructors && bestStationSite(state, empire, owners)) tryQueue("constructor", 20);
   const colonyCap = (empire.ai!.personality === "expansionist" ? 2 : 1) + (activeDirective(state, empire)?.posture === "expand" ? 1 : 0);
-  if (countRole("colony") < colonyCap && empire.income.credits > 3 && bestColonySite(state, empire, owners)) tryQueue("colony", 30);
+  if (countRole("colony") < colonyCap && empire.income.credits > 1.2 && bestColonySite(state, empire, owners)) tryQueue("colony", 30);
   const atWarWithMajor = Object.entries(empire.relations).some(([id, r]) => r === "war" && !state.empires[id].isPirate && state.empires[id].alive);
   if (atWarWithMajor && hullUnlocked(empire, "transport")) {
     const target = invasionTarget(state, empire);

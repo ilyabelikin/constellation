@@ -13,6 +13,7 @@ import {
   hullCost,
   incomeReport,
   settlementUpkeep,
+  POP_UPKEEP,
   SETTLEMENT_DAYS,
   garrison,
   growPopulation,
@@ -219,7 +220,7 @@ describe("economy", () => {
     const fresh = settlementUpkeep(s, col);
     expect(fresh.credits).toBeGreaterThan(1);
     expect(fresh.metals).toBeGreaterThan(0);
-    expect(incomeReport(s, g.player).upkeep.metals).toBeCloseTo(before.metals + fresh.metals, 5);
+    expect(incomeReport(s, g.player).upkeep.metals).toBeCloseTo(before.metals + fresh.metals + POP_UPKEEP.metals * col.pop, 5);
     s.day += SETTLEMENT_DAYS / 2;
     expect(settlementUpkeep(s, col).credits).toBeCloseTo(fresh.credits / 2, 5);
     s.day += SETTLEMENT_DAYS;
@@ -474,7 +475,7 @@ describe("combat", () => {
     expect(g.declareWar(enemy.id).ok).toBe(true);
     expect((g.buildInvasionFor(target.id) as { error: string }).error).toMatch(/Ground Forces/);
     g.player.research.completed.push("ground_forces");
-    g.player.resources.credits = g.player.resources.metals = 5000;
+    g.player.resources.credits = g.player.resources.metals = g.player.resources.energy = 5000;
     const need = transportsNeeded(s, g.player, target.id);
     expect(need * (HULLS.find((h) => h.id === "transport")!.troops ?? 0)).toBeGreaterThan(garrison(s, target) * 1.3);
     const opts = invasionOptions(s, g.playerId, target.id);
