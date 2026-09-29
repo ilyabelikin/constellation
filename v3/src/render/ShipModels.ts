@@ -52,6 +52,8 @@ export interface ShipModel {
   radiators: THREE.BufferGeometry;
   engines: THREE.Vector3[]; // engine nozzle positions (for glow sprites), in model units
   length: number; // model length in model units (nose = +Z)
+  /** Every separate part (hull pieces and radiators) before merging, for structural checks. */
+  parts: THREE.BufferGeometry[];
 }
 
 const cache = new Map<string, ShipModel>();
@@ -337,6 +339,7 @@ function build(hull: string): ShipModel {
     }
   }
 
+  for (const g of strutsFor([...parts.map((p) => p.geo), ...rad.filter((r) => r.getAttribute("position").count > 36 || new THREE.Box3().setFromBufferAttribute(r.getAttribute("position") as THREE.BufferAttribute).getSize(new THREE.Vector3()).length() > 0.01)], length)) parts.push({ geo: g, tint: 0.6 });
   const hullGeo = mergeGeometries(parts.map((p) => colorize(p.geo, p.tint)))!;
   hullGeo.computeVertexNormals();
   const radGeo = mergeGeometries(rad.map((r) => stripUv(r.index ? r.toNonIndexed() : r)))!;
@@ -344,7 +347,120 @@ function build(hull: string): ShipModel {
   hullGeo.computeBoundingSphere();
   hullGeo.userData.shared = true;
   radGeo.userData.shared = true;
-  return { hull: hullGeo, radiators: radGeo, engines, length };
+  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad] };
+}
+
+// ---------------------------------------------------------------------------
+// Structural soundness: every part must be joined to the ship.
+
+interface PartShape {
+  tris: THREE.Triangle[];
+  box: THREE.Box3;
+  samples: THREE.Vector3[];
+  mesh: THREE.Mesh;
+}
+
+const probeMaterial = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+
+function partShape(g: THREE.BufferGeometry): PartShape {
+  const pos = g.getAttribute("position") as THREE.BufferAttribute;
+  const idx = g.index;
+  const n = idx ? idx.count : pos.count;
+  const v = (i: number) => new THREE.Vector3().fromBufferAttribute(pos, idx ? idx.getX(i) : i);
+  const tris: THREE.Triangle[] = [];
+  for (let i = 0; i + 2 < n; i += 3) tris.push(new THREE.Triangle(v(i), v(i + 1), v(i + 2)));
+  const samples: THREE.Vector3[] = [];
+  const k = 3;
+  for (const t of tris)
+    for (let i = 0; i <= k; i++)
+      for (let j = 0; j <= k - i; j++) {
+        const a = i / k;
+        const b = j / k;
+        samples.push(new THREE.Vector3().addScaledVector(t.a, a).addScaledVector(t.b, b).addScaledVector(t.c, 1 - a - b));
+      }
+  return { tris, box: new THREE.Box3().setFromBufferAttribute(pos), samples, mesh: new THREE.Mesh(g, probeMaterial) };
+}
+
+const insideRay = new THREE.Raycaster();
+const insideDir = new THREE.Vector3(0.577, 0.577, 0.577);
+
+/** Does any part of `a` touch (within eps) or sit inside `b`? */
+function touches(a: PartShape, b: PartShape, eps: number): boolean {
+  const zone = b.box.clone().expandByScalar(eps);
+  if (!zone.intersectsBox(a.box)) return false;
+  const cp = new THREE.Vector3();
+  const near = b.tris.filter((t) => zone.intersectsTriangle(t));
+  let probes = 0;
+  for (const p of a.samples) {
+    if (!zone.containsPoint(p)) continue;
+    for (const t of near) if (t.closestPointToPoint(p, cp).distanceToSquared(p) < eps * eps) return true;
+    if (probes++ < 24) {
+      insideRay.set(p, insideDir);
+      if (insideRay.intersectObject(b.mesh, false).length % 2 === 1) return true;
+    }
+  }
+  return false;
+}
+
+/** Groups of parts joined to one another; the largest (by part count) first. */
+export function partGroups(geos: THREE.BufferGeometry[], length: number, shapes = geos.map(partShape)): number[][] {
+  const eps = length * 0.012;
+  const parent = shapes.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  for (let i = 0; i < shapes.length; i++)
+    for (let j = i + 1; j < shapes.length; j++) if (find(i) !== find(j) && (touches(shapes[i], shapes[j], eps) || touches(shapes[j], shapes[i], eps))) parent[find(i)] = find(j);
+  const groups = new Map<number, number[]>();
+  shapes.forEach((_, i) => {
+    const r = find(i);
+    groups.set(r, [...(groups.get(r) ?? []), i]);
+  });
+  return [...groups.values()].sort((a, b) => b.length - a.length);
+}
+
+/**
+ * Join any part that floats free of the ship with a strut across the
+ * shortest gap, so every design is structurally sound whatever its builder
+ * did. Returns the struts to add.
+ */
+function strutsFor(geos: THREE.BufferGeometry[], length: number): THREE.BufferGeometry[] {
+  const shapes = geos.map(partShape);
+  const groups = partGroups(geos, length, shapes);
+  if (groups.length < 2) return [];
+  const struts: THREE.BufferGeometry[] = [];
+  const main = new Set(groups[0]);
+  for (const group of groups.slice(1)) {
+    // Closest pair of surface points between this group and the ship so far.
+    let best = Infinity;
+    const from = new THREE.Vector3();
+    const to = new THREE.Vector3();
+    const size = new THREE.Vector3();
+    const gbox = new THREE.Box3();
+    for (const i of group) gbox.union(shapes[i].box);
+    for (const i of group)
+      for (const p of shapes[i].samples)
+        for (const j of main) {
+          if (shapes[j].box.distanceToPoint(p) ** 2 >= best) continue;
+          for (const q of shapes[j].samples) {
+            const d = p.distanceToSquared(q);
+            if (d < best) {
+              best = d;
+              from.copy(p);
+              to.copy(q);
+            }
+          }
+        }
+    gbox.getSize(size);
+    const r = Math.max(length * 0.008, Math.min(length * 0.03, Math.min(size.x, size.y, size.z) * 0.18));
+    const dir = to.clone().sub(from);
+    const len = dir.length() + r * 2;
+    const strut = new THREE.CylinderGeometry(r, r, len, 6, 1);
+    strut.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.lengthSq() > 1e-9 ? dir.normalize() : new THREE.Vector3(0, 0, 1)));
+    const mid = from.clone().add(to).multiplyScalar(0.5);
+    strut.translate(mid.x, mid.y, mid.z);
+    struts.push(strut);
+    for (const i of group) main.add(i);
+  }
+  return struts;
 }
 
 export function shipModel(hull: string, style: ShipStyle = "terran"): ShipModel {
@@ -382,78 +498,159 @@ const PROPORTION = new Map<string, [number, number, number]>([
   ["tender", [1.0, 1.1, 1.0]],
 ]);
 
-/** Parts every species fits to a hull of this type, in its own palette: the weapons, masts and cargo that tell hulls apart. */
-function hullSignature(b: Builder, hull: string, box3: THREE.Box3): void {
+/** Finds points on a hull's surface by casting rays at it. */
+interface Probe {
+  /** Hull surface hit by a ray from `from` travelling along `dir`, or null. */
+  hit(from: THREE.Vector3, dir: THREE.Vector3): THREE.Vector3 | null;
+}
+
+function makeProbe(parts: THREE.BufferGeometry[]): Probe {
+  const geo = mergeGeometries(parts.map((g) => stripUv(g.index ? g.toNonIndexed() : g.clone())).map((g) => (g.getAttribute("color") ? (g.deleteAttribute("color"), g) : g)))!;
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  const ray = new THREE.Raycaster();
+  return {
+    hit(from, dir) {
+      ray.set(from, dir.clone().normalize());
+      const h = ray.intersectObject(mesh, false)[0];
+      return h ? h.point.clone() : null;
+    },
+  };
+}
+
+/**
+ * Parts every species fits to a hull of this type, in its own palette: the
+ * weapons, masts and cargo that tell hulls apart. Each part is mounted on the
+ * hull's actual surface (found by probing it), with a pylon where it stands
+ * off, so nothing floats free of the ship.
+ */
+function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe): void {
   const W = (box3.max.x - box3.min.x) / 2;
   const H = (box3.max.y - box3.min.y) / 2;
   const L = box3.max.z - box3.min.z;
+  const cy = (box3.max.y + box3.min.y) / 2;
   const nose = box3.max.z;
-  const top = box3.max.y;
   const s = Math.max(0.2, Math.min(W, H * 1.6));
-  const turret = (x: number, z: number, size: number, barrels: number, y = top, flip = 1) => {
-    b.P(at(cyl(size * 0.55, size * 0.65, size * 0.5, 10).rotateX(Math.PI / 2), x, y + flip * size * 0.2, z), 0.7);
+  const far = L + W + H + 10;
+  const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+  /** Hull surface straight above (up = 1) or below (up = -1) the point (x, z); tries the centre line if off the hull. */
+  const deck = (x: number, z: number, up = 1): { x: number; y: number } | null => {
+    for (const px of [x, x * 0.5, 0]) {
+      const h = probe.hit(V(px, cy + up * far, z), V(0, -up, 0));
+      if (h) return { x: px, y: h.y };
+    }
+    return null;
+  };
+  /** Hull surface seen from the side (sx = ±1) at height y and position z. */
+  const flank = (sx: number, y: number, z: number): number | null => probe.hit(V(sx * far, y, z), V(-sx, 0, 0))?.x ?? null;
+  /** The frontmost hull surface along the line (x, y). */
+  const prow = (x: number, y: number): number | null => probe.hit(V(x, y, nose + far), V(0, 0, -1))?.z ?? null;
+  // Sink mounts slightly into the hull so their bases never show a gap.
+  const sink = s * 0.06;
+
+  const turret = (x: number, z: number, size: number, barrels: number, up = 1) => {
+    const d = deck(x, z, up);
+    if (!d) return;
+    const baseY = d.y - up * sink;
+    b.P(at(cyl(size * 0.55, size * 0.65, size * 0.5, 10).rotateX(Math.PI / 2), d.x, baseY + up * size * 0.25, z), 0.7);
     for (let i = 0; i < barrels; i++) {
       const off = (i - (barrels - 1) / 2) * size * 0.32;
-      b.P(at(cyl(size * 0.08, size * 0.1, size * 1.3, 6), x + off, y + flip * size * 0.3, z + size * 0.75), 0.55);
+      b.P(at(cyl(size * 0.08, size * 0.1, size * 1.3, 6), d.x + off, baseY + up * size * 0.32, z + size * 0.75), 0.55);
     }
   };
+  /** A pod along the flank at (y, z), on a pylon reaching back to the hull. */
+  const sidePod = (sx: number, y: number, z: number, geo: () => THREE.BufferGeometry, halfWidth: number, standOff: number, tint: number) => {
+    const surf = flank(sx, y, z) ?? flank(sx, cy, z);
+    if (surf === null) return;
+    const px = surf + sx * (halfWidth + standOff);
+    b.P(at(geo(), px, y, z), tint);
+    if (standOff > 0) b.P(at(box(standOff + halfWidth + sink * 2, s * 0.08, s * 0.25), (surf + px) / 2 - sx * sink, y, z), 0.6);
+  };
+  /** Something sticking out of the prow along the centre line (a mast, a gun barrel). */
+  const fromProw = (y: number, len: number, rBase: number, rTip: number, tint: number): number => {
+    const front = prow(0, y) ?? prow(0, cy) ?? nose;
+    b.P(at(cyl(rTip, rBase, len, 8), 0, y, front - sink + len / 2), tint);
+    return front - sink + len;
+  };
+
   switch (hull) {
-    case "scout":
+    case "scout": {
       // Long sensor mast with a dish: an unarmed eye.
-      b.P(at(cyl(s * 0.04, s * 0.06, L * 0.45, 6), 0, 0, nose + L * 0.2), 0.7);
-      b.P(at(new THREE.SphereGeometry(s * 0.16, 10, 8), 0, 0, nose + L * 0.43), 1.3);
-      b.P(at(cyl(s * 0.45, s * 0.05, s * 0.18, 16), 0, top + s * 0.35, -L * 0.05), 1.2);
-      b.P(at(cyl(s * 0.03, s * 0.03, s * 0.4, 5).rotateX(Math.PI / 2), 0, top + s * 0.15, -L * 0.05), 0.7);
+      const tip = fromProw(cy, L * 0.4, s * 0.07, s * 0.04, 0.7);
+      b.P(at(new THREE.SphereGeometry(s * 0.16, 10, 8), 0, cy, tip), 1.3);
+      const d = deck(0, -L * 0.05);
+      if (d) {
+        b.P(at(cyl(s * 0.03, s * 0.03, s * 0.4, 5).rotateX(Math.PI / 2), 0, d.y + s * 0.15, -L * 0.05), 0.7);
+        b.P(at(cyl(s * 0.45, s * 0.05, s * 0.18, 16), 0, d.y + s * 0.35, -L * 0.05), 1.2);
+      }
       break;
+    }
     case "corvette":
       turret(0, nose - L * 0.3, s * 0.5, 1);
       break;
     case "frigate":
-      // Twin gun pods along the flanks.
+      // Twin gun pods on pylons along the flanks.
       for (const sx of [-1, 1]) {
-        b.P(at(cyl(s * 0.14, s * 0.16, L * 0.5, 8), sx * (W + s * 0.1), 0, nose - L * 0.35), 0.75);
-        b.P(at(cyl(s * 0.05, s * 0.05, L * 0.25, 6), sx * (W + s * 0.1), 0, nose - L * 0.05), 0.55);
+        const r = s * 0.15;
+        sidePod(sx, cy, nose - L * 0.35, () => cyl(r * 0.9, r, L * 0.5, 8), r, s * 0.05, 0.75);
+        const surf = flank(sx, cy, nose - L * 0.35) ?? W;
+        b.P(at(cyl(s * 0.05, s * 0.05, L * 0.2, 6), surf + sx * (r + s * 0.05), cy, nose - L * 0.35 + L * 0.34), 0.55);
       }
       turret(0, -L * 0.05, s * 0.4, 1);
       break;
-    case "destroyer":
-      // Spinal gun running past the prow, with a dorsal fin.
-      b.P(at(cyl(s * 0.09, s * 0.12, L * 0.7, 8), 0, 0, nose - L * 0.15), 0.6);
-      b.P(at(cyl(s * 0.14, s * 0.14, L * 0.06, 8), 0, 0, nose + L * 0.18), 0.8);
-      b.P(at(box(s * 0.08, H * 1.1, L * 0.35), 0, top + H * 0.35, -L * 0.2), 0.8);
+    case "destroyer": {
+      // Spinal gun running out of the prow, with a dorsal fin.
+      const muzzle = fromProw(cy, L * 0.3, s * 0.12, s * 0.09, 0.6);
+      b.P(at(cyl(s * 0.14, s * 0.14, L * 0.05, 8), 0, cy, muzzle), 0.8);
+      const d = deck(0, -L * 0.2);
+      if (d) b.P(at(box(s * 0.08, H * 0.7, L * 0.3), 0, d.y + H * 0.35 - sink, -L * 0.2), 0.8);
       turret(0, nose - L * 0.45, s * 0.38, 2);
       break;
+    }
     case "cruiser":
       turret(0, nose - L * 0.3, s * 0.45, 2);
       turret(0, nose - L * 0.55, s * 0.45, 2);
-      turret(0, nose - L * 0.4, s * 0.4, 2, box3.min.y, -1);
-      for (const sx of [-1, 1]) b.P(at(box(s * 0.1, Math.min(H * 0.6, s * 0.45), L * 0.3), sx * (W * 0.9 + s * 0.02), 0, -L * 0.1), 0.65); // hangar bays
+      turret(0, nose - L * 0.4, s * 0.4, 2, -1);
+      for (const sx of [-1, 1]) sidePod(sx, cy, -L * 0.1, () => box(s * 0.12, Math.min(H * 0.6, s * 0.45), L * 0.3), s * 0.06 - sink, 0, 0.65); // hangar bays
       break;
     case "battleship":
       for (let i = 0; i < 3; i++) turret(0, nose - L * (0.25 + i * 0.2), s * 0.42, 3);
-      for (const sx of [-1, 1]) b.P(at(box(s * 0.1, Math.min(H * 0.7, s * 0.5), L * 0.55), sx * (W * 0.9 + s * 0.05), 0, -L * 0.05), 0.6); // armour belts
+      for (const sx of [-1, 1]) sidePod(sx, cy, -L * 0.05, () => box(s * 0.1, Math.min(H * 0.7, s * 0.5), L * 0.55), s * 0.05 - sink, 0, 0.6); // armour belts
       break;
-    case "titan":
+    case "titan": {
       // A spinal lance with its emitter ring.
-      b.P(at(cyl(s * 0.14, s * 0.18, L * 0.9, 10), 0, 0, nose - L * 0.2), 0.55);
-      b.P(at(new THREE.TorusGeometry(s * 0.45, s * 0.07, 8, 24), 0, 0, nose + L * 0.25), 1.4);
+      const tip = fromProw(cy, L * 0.35, s * 0.18, s * 0.14, 0.55);
+      b.P(at(new THREE.TorusGeometry(s * 0.45, s * 0.07, 8, 24), 0, cy, tip), 1.4);
+      for (const sx of [-1, 1]) b.P(at(box(s * 0.05, s * 0.45, s * 0.05), 0, cy + sx * s * 0.25, tip), 0.6); // ring supports
       for (let i = 0; i < 4; i++) turret((i % 2 ? 1 : -1) * W * 0.45, nose - L * (0.3 + i * 0.12), s * 0.35, 2);
       break;
-    case "constructor":
-      // Crane arms reaching ahead.
+    }
+    case "constructor": {
+      // Crane arms reaching ahead from the prow.
+      const front = prow(0, cy) ?? nose;
       for (const sx of [-1, 1]) {
-        b.P(at(rot(box(s * 0.08, s * 0.08, L * 0.45), 0, -sx * 0.3, 0), sx * W * 0.45, 0, nose - L * 0.05), 0.7);
-        b.P(at(box(s * 0.2, s * 0.2, s * 0.2), sx * W * 0.3, 0, nose + L * 0.15), 1.25);
+        const base = V(sx * W * 0.35, cy, front - L * 0.12);
+        const len = L * 0.4;
+        const arm = rot(box(s * 0.08, s * 0.08, len), 0, -sx * 0.3, 0);
+        const dir = V(Math.sin(-sx * 0.3), 0, Math.cos(-sx * 0.3));
+        b.P(at(arm, base.x + (dir.x * len) / 2, base.y, base.z + (dir.z * len) / 2), 0.7);
+        b.P(at(box(s * 0.2, s * 0.2, s * 0.2), base.x + dir.x * len, base.y, base.z + dir.z * len), 1.25);
       }
       break;
+    }
     case "transport":
-      for (const sx of [-1, 1]) for (const z of [0.15, -0.2]) b.P(at(box(s * 0.35, s * 0.3, L * 0.22), sx * (W * 0.6 + s * 0.15), -H * 0.5, z * L), 0.8); // drop pods
+      for (const sx of [-1, 1]) for (const z of [0.15, -0.2]) sidePod(sx, cy - H * 0.2, z * L, () => box(s * 0.35, s * 0.3, L * 0.22), s * 0.175, s * 0.04, 0.8); // drop pods
       break;
     case "freighter":
-      for (let i = 0; i < 3; i++) b.P(at(box(W * 0.8, Math.min(H * 0.55, s * 0.6), L * 0.14), 0, top + Math.min(H * 0.2, s * 0.2), nose - L * (0.3 + i * 0.17)), [0.75, 1.1, 0.9][i]); // containers
+      for (let i = 0; i < 3; i++) {
+        const z = nose - L * (0.3 + i * 0.17);
+        const d = deck(0, z);
+        if (!d) continue;
+        const h = Math.min(H * 0.55, s * 0.6);
+        b.P(at(box(W * 0.8, h, L * 0.14), 0, d.y + h / 2 - sink, z), [0.75, 1.1, 0.9][i]); // containers
+      }
       break;
     case "tender":
-      for (const sx of [-1, 1]) b.P(at(new THREE.SphereGeometry(s * 0.35, 12, 8), sx * (W + s * 0.2), 0, -L * 0.05), 1.1); // fuel and munitions tanks
+      for (const sx of [-1, 1]) sidePod(sx, cy, -L * 0.05, () => new THREE.SphereGeometry(s * 0.35, 12, 8), s * 0.35, s * 0.05, 1.1); // fuel and munitions tanks
       break;
   }
 }
@@ -649,15 +846,16 @@ function buildStyled(hull: string, style: Exclude<ShipStyle, "terran">): ShipMod
     p.geo.computeBoundingBox();
     bounds.union(p.geo.boundingBox!);
   }
-  hullSignature(builder, hull, bounds);
+  hullSignature(builder, hull, bounds, makeProbe(parts.map((p) => p.geo)));
   if (!rad.length) rad.push(box(0.001, 0.001, 0.001)); // no radiator panels in this style
+  for (const g of strutsFor([...parts.map((p) => p.geo), ...rad.filter((r) => r.getAttribute("position").count > 36 || new THREE.Box3().setFromBufferAttribute(r.getAttribute("position") as THREE.BufferAttribute).getSize(new THREE.Vector3()).length() > 0.01)], length)) parts.push({ geo: g, tint: 0.6 });
   const hullGeo = mergeGeometries(parts.map((p) => colorize(p.geo, p.tint)))!;
   hullGeo.computeVertexNormals();
   const radGeo = mergeGeometries(rad.map((r) => stripUv(r.index ? r.toNonIndexed() : r)))!;
   hullGeo.computeBoundingSphere();
   hullGeo.userData.shared = true;
   radGeo.userData.shared = true;
-  return { hull: hullGeo, radiators: radGeo, engines, length };
+  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad] };
 }
 
 const hullMaterials = new Map<string, THREE.MeshStandardMaterial>();
