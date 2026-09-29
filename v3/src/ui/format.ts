@@ -1,11 +1,13 @@
 import type { Resources, Yields } from "../sim/types";
+import { icon } from "./icons";
 
+/** Resource icons as inline SVG. */
 export const RES_ICON: Record<string, string> = {
-  credits: "₵",
-  metals: "⛭",
-  energy: "⚡",
-  exotics: "✦",
-  research: "⚗",
+  credits: icon("credits"),
+  metals: icon("metals"),
+  energy: icon("energy"),
+  exotics: icon("exotics"),
+  research: icon("research"),
 };
 
 export const RES_NAME: Record<string, string> = {
@@ -37,7 +39,7 @@ export function costHtml(cost: Partial<Resources>, have?: Resources): string {
     .filter(([, v]) => v)
     .map(([k, v]) => {
       const short = have && have[k as keyof Resources] < (v as number);
-      return `<span style="color:${short ? "var(--bad)" : `var(--${k})`}">${RES_ICON[k]}${fmt(v as number)}</span>`;
+      return `<span class="amt" style="color:${short ? "var(--bad)" : `var(--${k})`}">${RES_ICON[k]}${fmt(v as number)}</span>`;
     })
     .join(" ");
 }
@@ -45,7 +47,7 @@ export function costHtml(cost: Partial<Resources>, have?: Resources): string {
 export function yieldsHtml(y: Yields, mult = 1): string {
   return Object.entries(y)
     .filter(([, v]) => v)
-    .map(([k, v]) => `<span style="color:var(--${k})">${signed((v as number) * mult, 1)}${RES_ICON[k]}</span>`)
+    .map(([k, v]) => `<span class="amt" style="color:var(--${k})">${signed((v as number) * mult, 1)}${RES_ICON[k]}</span>`)
     .join(" ");
 }
 

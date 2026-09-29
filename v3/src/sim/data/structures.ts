@@ -21,6 +21,7 @@ export interface BuildingDef {
   unique?: boolean;
   requires: string | null;
   description: string;
+  /** Icon name (see ui/icons). */
   icon: string;
 }
 
@@ -36,7 +37,7 @@ export const BUILDINGS: BuildingDef[] = [
     richness: "metals",
     requires: null,
     description: "Extracts ore from the crust. Output scales with the planet's metal deposits.",
-    icon: "⛏",
+    icon: "mine",
   },
   {
     id: "power_plant",
@@ -49,7 +50,7 @@ export const BUILDINGS: BuildingDef[] = [
     upkeep: { metals: 0.15 },
     requires: null,
     description: "Geothermal and fusion power. Output scales with the planet's energy potential (hot, active worlds).",
-    icon: "⚡",
+    icon: "plant",
   },
   {
     id: "research_lab",
@@ -62,7 +63,7 @@ export const BUILDINGS: BuildingDef[] = [
     upkeep: { energy: 0.7, credits: 0.2, metals: 0.1 },
     requires: null,
     description: "Universities and institutes. Output grows with population: best on large, populous worlds.",
-    icon: "⚗",
+    icon: "lab",
   },
   {
     id: "trade_hub",
@@ -75,7 +76,7 @@ export const BUILDINGS: BuildingDef[] = [
     upkeep: { energy: 0.4, metals: 0.1 },
     requires: null,
     description: "Markets and logistics. Output grows with population: modest on a young colony, a fortune on a core world.",
-    icon: "₵",
+    icon: "tradehub",
   },
   {
     id: "shipyard",
@@ -88,7 +89,7 @@ export const BUILDINGS: BuildingDef[] = [
     unique: true,
     requires: null,
     description: "Required to build ships at this colony. Also repairs friendly fleets in orbit.",
-    icon: "⚓",
+    icon: "shipyard",
   },
   {
     id: "defense_grid",
@@ -102,7 +103,7 @@ export const BUILDINGS: BuildingDef[] = [
     garrison: 2,
     requires: null,
     description: "Orbital batteries and a planetary shield. Fights any hostile fleet in orbit.",
-    icon: "🛡",
+    icon: "grid",
   },
   {
     id: "foundry",
@@ -115,7 +116,7 @@ export const BUILDINGS: BuildingDef[] = [
     upkeep: { energy: 1.8 },
     requires: "automated_foundries",
     description: "Energy-hungry automated smelters. Output scales with the planet's metal deposits.",
-    icon: "🏭",
+    icon: "foundry",
   },
   {
     id: "quantum_lab",
@@ -128,7 +129,7 @@ export const BUILDINGS: BuildingDef[] = [
     upkeep: { energy: 2, credits: 0.4, metals: 0.1 },
     requires: "quantum_computing",
     description: "Massively parallel quantum research, staffed by the colony's best minds. Scales with population.",
-    icon: "⚛",
+    icon: "quantum",
   },
   {
     id: "exotic_refinery",
@@ -140,7 +141,7 @@ export const BUILDINGS: BuildingDef[] = [
     upkeep: { energy: 2.5, credits: 0.3, metals: 0.1 },
     requires: "exotic_matter",
     description: "Synthesises trace exotic matter in particle colliders.",
-    icon: "✦",
+    icon: "refinery",
   },
   {
     id: "habitat",
@@ -153,7 +154,7 @@ export const BUILDINGS: BuildingDef[] = [
     capacity: 4,
     requires: "arcologies",
     description: "Sealed living space. +4 population capacity.",
-    icon: "⌂",
+    icon: "habitat",
   },
   {
     id: "fortress",
@@ -168,7 +169,7 @@ export const BUILDINGS: BuildingDef[] = [
     unique: true,
     requires: "planetary_fortifications",
     description: "Heavy planetary guns and deep bunkers.",
-    icon: "🏰",
+    icon: "fortress",
   },
 ];
 
@@ -201,6 +202,7 @@ export interface StationDef {
   /** Replaces this station type when built (upgrade). */
   upgradeOf?: string;
   description: string;
+  /** Icon name (see ui/icons). */
   icon: string;
 }
 
@@ -217,7 +219,7 @@ export const STATIONS: StationDef[] = [
     requires: null,
     hp: 150,
     description: "Automated drones strip-mine asteroids and airless worlds.",
-    icon: "⛏",
+    icon: "mine",
   },
   {
     id: "gas_harvester",
@@ -231,7 +233,7 @@ export const STATIONS: StationDef[] = [
     requires: null,
     hp: 150,
     description: "Skims helium-3 and deuterium from giant planet atmospheres.",
-    icon: "☁",
+    icon: "gas",
   },
   {
     id: "solar_array",
@@ -244,7 +246,7 @@ export const STATIONS: StationDef[] = [
     requires: null,
     hp: 120,
     description: "Collector panels in close stellar orbit. Output depends on the star's type.",
-    icon: "☀",
+    icon: "sun",
   },
   {
     id: "research_station",
@@ -258,7 +260,7 @@ export const STATIONS: StationDef[] = [
     requires: null,
     hp: 120,
     description: "Studies anomalies, precursor artifacts and exotic stellar phenomena.",
-    icon: "🔭",
+    icon: "telescope",
   },
   {
     id: "exotic_extractor",
@@ -272,7 +274,7 @@ export const STATIONS: StationDef[] = [
     requires: "exotic_matter",
     hp: 180,
     description: "Harvests exotic matter from crystalline deposits, neutron stars and black holes.",
-    icon: "✦",
+    icon: "exotics",
   },
   {
     id: "defense_platform",
@@ -290,7 +292,7 @@ export const STATIONS: StationDef[] = [
       { family: "pd", size: "S" },
     ],
     description: "An armed orbital fortress guarding a planet or star.",
-    icon: "✚",
+    icon: "defense",
   },
   {
     id: "dyson_swarm",
@@ -304,7 +306,7 @@ export const STATIONS: StationDef[] = [
     hp: 600,
     upgradeOf: "solar_array",
     description: "Millions of collectors enclosing the star. Replaces a Solar Array.",
-    icon: "◎",
+    icon: "dyson",
   },
   {
     id: "pirate_haven",
@@ -324,7 +326,7 @@ export const STATIONS: StationDef[] = [
       { family: "pd", size: "S" },
     ],
     description: "A fortified asteroid base of the Void Raiders. Destroy it for a rich bounty.",
-    icon: "☠",
+    icon: "pirates",
   },
 ];
 

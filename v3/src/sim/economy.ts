@@ -364,7 +364,7 @@ export function applyResearch(state: GameState, empire: Empire, points: number):
       const opened = [...settleableWorlds(state, empire)].filter((id) => !before.has(id)).map((id) => state.bodies[id]);
       if (opened.length) {
         const names = opened.slice(0, 4).map((b) => b.name).join(", ") + (opened.length > 4 ? ` and ${opened.length - 4} more` : "");
-        log(state, "colony", `${tech.name} makes ${opened.length === 1 ? "a new world" : `${opened.length} new worlds`} habitable for us: ${names}. See 🜨 Colonize.`, empire.id, opened[0].systemId, { kind: "body", id: opened[0].id, systemId: opened[0].systemId });
+        log(state, "colony", `${tech.name} makes ${opened.length === 1 ? "a new world" : `${opened.length} new worlds`} habitable for us: ${names}. Find them under the Colonize badge.`, empire.id, opened[0].systemId, { kind: "body", id: opened[0].id, systemId: opened[0].systemId });
       }
     }
     if (tech.id === "ascension") {

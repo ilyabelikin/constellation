@@ -1,14 +1,15 @@
+import { icon } from "./icons";
 export function helpHtml(): string {
   return `<div class="help-grid">
     <div>
       <h3>Goal</h3>
       Win by <b>Conquest</b> (eliminate every rival), <b>Hegemony</b> (control 60% of star systems) or
-      <b>Ascension</b> (complete the Ascension Project — it needs 600 ✦ exotic matter). Rivals can win the same ways, so keep an eye on them.
+      <b>Ascension</b> (complete the Ascension Project — it needs 600 ${icon("exotics")} exotic matter). Rivals can win the same ways, so keep an eye on them.
       <h3>Economy</h3>
-      Colonies grow population, which produces ₵ credits and research. Each building needs one worker.
+      Colonies grow population, which produces ${icon("credits")} credits and research. Each building needs one worker.
       <b>Constructors</b> build orbital stations anywhere you can reach: mining stations on rocks and belts, gas harvesters on giants,
-      solar arrays on stars, research outposts on anomalies, artifacts, pulsars and black holes. Everything costs ⚡ energy upkeep —
-      run out and your economy browns out. Ships also cost ₵ credits every day to crew — an empty treasury halves construction and stops repairs.
+      solar arrays on stars, research outposts on anomalies, artifacts, pulsars and black holes. Everything costs ${icon("energy")} energy upkeep —
+      run out and your economy browns out. Ships also cost ${icon("credits")} credits every day to crew — an empty treasury halves construction and stops repairs.
       Every extra colony adds administration costs and makes research dearer, so grow deliberately.
       <h3>Research</h3>
       Open the tree with <kbd>R</kbd>. Unlock new hulls, weapons, shields, megastructures (Dyson swarms) and bonuses.

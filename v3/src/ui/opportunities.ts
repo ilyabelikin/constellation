@@ -36,15 +36,15 @@ export interface Opportunity {
 }
 
 export const OPPORTUNITY_META: Record<OpportunityKind, { icon: string; title: string; color: string }> = {
-  colonize: { icon: "🜨", title: "Habitable worlds to colonize", color: "#7dff9a" },
-  mining: { icon: "⛏", title: "Rich mining sites", color: "#c6d0dc" },
-  energy: { icon: "⚡", title: "Energy sites (solar arrays, gas harvesters)", color: "#7fe0ff" },
-  research: { icon: "🔭", title: "Research sites (artifacts, anomalies, exotic stars)", color: "#8affc1" },
-  exotic: { icon: "✦", title: "Exotic matter deposits", color: "#d49cff" },
-  dyson: { icon: "◎", title: "Stars ready for a Dyson Swarm", color: "#ffd66b" },
-  idleShips: { icon: "⚓", title: "Idle civilian ships awaiting orders", color: "#ffc857" },
-  freeSlots: { icon: "🏗", title: "Colonies with free building slots and nothing queued", color: "#ffb36b" },
-  researchIdle: { icon: "⚗", title: "Research is idle — pick a project", color: "#ff6b6b" },
+  colonize: { icon: "colonize", title: "Habitable worlds to colonize", color: "#7dff9a" },
+  mining: { icon: "mine", title: "Rich mining sites", color: "#c6d0dc" },
+  energy: { icon: "energy", title: "Energy sites (solar arrays, gas harvesters)", color: "#7fe0ff" },
+  research: { icon: "telescope", title: "Research sites (artifacts, anomalies, exotic stars)", color: "#8affc1" },
+  exotic: { icon: "exotics", title: "Exotic matter deposits", color: "#d49cff" },
+  dyson: { icon: "dyson", title: "Stars ready for a Dyson Swarm", color: "#ffd66b" },
+  idleShips: { icon: "idle", title: "Idle civilian ships awaiting orders", color: "#ffc857" },
+  freeSlots: { icon: "build", title: "Colonies with free building slots and nothing queued", color: "#ffb36b" },
+  researchIdle: { icon: "research", title: "Research is idle — pick a project", color: "#ff6b6b" },
 };
 
 function site(game: Game, ctx: SiteContext, body: Body, type: string): boolean {

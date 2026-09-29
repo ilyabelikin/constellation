@@ -1,5 +1,6 @@
 // Title screen & new-game setup.
 
+import { icon } from "./icons";
 import { SPECIES } from "../sim/data/structures";
 import { EMPIRE_COLORS } from "../sim/galaxy";
 import type { GameSettings } from "../sim/types";
@@ -92,7 +93,7 @@ export class Lobby {
           ? `<div class="section-title" style="margin-top:10px">Cloud saves</div><div class="lobby-list">${saves
               .map(
                 (x) => `<div class="lobby-row"><span>${esc(x.name)} · ${dateString(x.day)}</span>
-                <span><button data-a="cload" data-id="${esc(x.id)}">Load</button> <button class="danger" data-a="cdel" data-id="${esc(x.id)}" title="Delete">✕</button></span></div>`,
+                <span><button data-a="cload" data-id="${esc(x.id)}">Load</button> <button class="danger" data-a="cdel" data-id="${esc(x.id)}" title="Delete">${icon("close")}</button></span></div>`,
               )
               .join("")}</div>`
           : ""

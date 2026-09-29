@@ -49,9 +49,10 @@ import { hasMet } from "../sim/knowledge";
 import { supplyLevel } from "../sim/supplies";
 import type { PickResult } from "../render/Engine";
 import { costHtml, dateString, esc, fmt, pct, RES_ICON, RES_NAME, signed, yieldsHtml } from "./format";
+import { icon } from "./icons";
 import { helpHtml } from "./help";
 import { colonyShipOptions, invasionOptions, transportsNeeded } from "../sim/planning";
-import { findOpportunities, OPPORTUNITY_META, type Opportunity, type OpportunityKind, type OpportunityTarget } from "./opportunities";
+import { findOpportunities, type Opportunity, type OpportunityKind, type OpportunityTarget } from "./opportunities";
 
 function targetKey(t: OpportunityTarget): string {
   return `${t.kind}:${t.id}`;
@@ -249,7 +250,7 @@ export class Hud {
     const progress = cur ? (p.research.progress[cur.id] ?? 0) / techCost(g.state, p, cur) : 0;
     const used = commandUsed(g.state, p);
     const capC = commandCapacity(g.state, p);
-    const speeds = ["❚❚", "1×", "2×", "4×", "8×"];
+    const speeds = [icon("pause"), "1×", "2×", "4×", "8×"];
     const unread = this.unreadFrom();
     const remote = this.app.remote;
     const players = remote ? remote.info.seats.filter((x) => x.playerName) : [];
@@ -258,11 +259,11 @@ export class Hud {
       `<span class="brand">CONSTELLATION</span>
       ${res("credits")}${res("metals")}${res("energy")}${res("exotics")}
       <div class="res research" title="Research per day. Current: ${cur ? esc(cur.name) : "none"}"><span class="icon">${RES_ICON.research}</span>${fmt(inc.research, 1)}<span class="inc">${cur ? `${esc(cur.name)} ${pct(progress)}` : "idle"}</span></div>
-      <div class="res cmd ${used >= capC ? "warn" : ""}" title="Fleet command points used / capacity. Found colonies and research hulls to raise it."><span class="icon">⚑</span>${used}/${capC}</div>
+      <div class="res cmd ${used >= capC ? "warn" : ""}" title="Fleet command points used / capacity. Found colonies and research hulls to raise it."><span class="icon">${icon("command")}</span>${used}/${capC}</div>
       <div class="spacer"></div>
-      <button data-action="modal:research" title="Research (R)">⚗ Research</button>
-      <button data-action="modal:empires" title="Empires & diplomacy (E)">☍ Empires${unread ? `<span class="unread">${unread}</span>` : ""}</button>
-      ${remote ? `<div class="res online" title="${esc(players.map((x) => `${x.playerName} — ${x.empireName}${x.online ? "" : " (offline)"}`).join("\n"))}\nInvite code ${esc(remote.info.code)}"><span class="icon">👥</span>${players.filter((x) => x.online).length}/${players.length}</div>` : ""}
+      <button data-action="modal:research" title="Research (R)">${icon("research")} Research</button>
+      <button data-action="modal:empires" title="Empires & diplomacy (E)">${icon("empires")} Empires${unread ? `<span class="unread">${unread}</span>` : ""}</button>
+      ${remote ? `<div class="res online" title="${esc(players.map((x) => `${x.playerName} — ${x.empireName}${x.online ? "" : " (offline)"}`).join("\n"))}\nInvite code ${esc(remote.info.code)}"><span class="icon">${icon("players")}</span>${players.filter((x) => x.online).length}/${players.length}</div>` : ""}
       <div class="date">${dateString(g.state.day)}</div>
       <div class="speed">${speeds
         .map((s, i) => {
@@ -270,7 +271,7 @@ export class Hud {
           return `<button data-action="speed:${i}" class="${(i === 0 && this.app.paused) || (!this.app.paused && i === this.app.speedIndex) ? "active" : ""}" ${locked ? "disabled" : ""} title="${locked ? "Only the host controls the speed" : i === 0 ? "Pause (Space)" : `Speed ${s} (${i})`}">${s}</button>`;
         })
         .join("")}</div>
-      <button data-action="modal:menu" title="Menu (Esc)">☰</button>`,
+      <button data-action="modal:menu" title="Menu (Esc)">${icon("menu")}</button>`,
     );
   }
 
@@ -288,7 +289,7 @@ export class Hud {
         const siege = c.defense <= 0 ? `<span class="tag war">besieged</span>` : "";
         return `<div class="row ${sel?.kind === "body" && sel.id === c.bodyId ? "sel" : ""}" data-action="goto:body:${c.bodyId}">
           <span class="dot" style="color:${g.player.color};background:${g.player.color}"></span>
-          <span class="name">${c.capital ? "★ " : ""}${esc(c.name)}</span>${siege}${busy}<span class="meta">${c.pop.toFixed(1)}</span></div>`;
+          <span class="name">${c.capital ? icon("star", "gold") + " " : ""}${esc(c.name)}</span>${siege}${busy}<span class="meta">${c.pop.toFixed(1)}</span></div>`;
       })
       .join("");
     const fleetRows = fleets
@@ -300,7 +301,7 @@ export class Hud {
           <span class="name">${esc(f.name)}</span>${status}<span class="meta">${f.ships.length}</span></div>`;
       })
       .join("");
-    const tabs = `<div class="tabs"><button data-action="tab:system" class="${this.outlinerTab === "system" ? "active" : ""}">☉ System</button><button data-action="tab:empire" class="${this.outlinerTab === "empire" ? "active" : ""}">⚑ Empire</button></div>`;
+    const tabs = `<div class="tabs"><button data-action="tab:system" class="${this.outlinerTab === "system" ? "active" : ""}">${icon("system")} System</button><button data-action="tab:empire" class="${this.outlinerTab === "empire" ? "active" : ""}">${icon("empire")} Empire</button></div>`;
     if (this.outlinerTab === "system") {
       this.set("outliner", tabs + this.systemOutline(this.outlineSystemId()));
       return;
@@ -334,7 +335,7 @@ export class Hud {
     const stationsBy = new Map<string, string[]>();
     for (const st of Object.values(s.stations)) {
       const list = stationsBy.get(st.bodyId) ?? [];
-      list.push(`<span class="st" style="color:${s.empires[st.empireId].color}" title="${esc(STATION_MAP[st.type].name)} (${esc(s.empires[st.empireId].name)})">${STATION_MAP[st.type].icon}</span>`);
+      list.push(`<span class="st" style="color:${s.empires[st.empireId].color}" title="${esc(STATION_MAP[st.type].name)} (${esc(s.empires[st.empireId].name)})">${icon(STATION_MAP[st.type].icon)}</span>`);
       stationsBy.set(st.bodyId, list);
     }
     // Rich deposits are flagged only when we can tap them now: a station we can build there,
@@ -354,8 +355,8 @@ export class Hud {
         .filter((x) => x.by.length)
         .map(({ k, by }) => `<span class="ri" style="color:var(--${k})" title="${RES_NAME[k]} ×${b.richness[k].toFixed(1)} — ${esc(by.join(", "))}">${RES_ICON[k]}</span>`)
         .join("") +
-      (b.features.includes("artifact") ? `<span class="ri good" title="Precursor artifact">⌬</span>` : "") +
-      (b.features.includes("anomaly") ? `<span class="ri good" title="Anomaly">◈</span>` : "");
+      (b.features.includes("artifact") ? `<span class="ri good" title="Precursor artifact">${icon("artifact")}</span>` : "") +
+      (b.features.includes("anomaly") ? `<span class="ri good" title="Anomaly">${icon("anomaly")}</span>` : "");
     const row = (b: Body, depth: number, icon: string, typeName: string) => {
       const col = colonyBy.get(b.id);
       const h = b.size > 0 ? habitability(p, b) : 0;
@@ -369,12 +370,12 @@ export class Hud {
     let html = `<div class="section-title"><span>${esc(sys.name)}</span><span>${owner ? `<span style="color:${s.empires[owner].color}">${esc(s.empires[owner].name.split(" ")[0])}</span>` : "unclaimed"}</span></div>`;
     for (const sid of sys.starIds) {
       const st = s.bodies[sid];
-      html += row(st, 0, `<span style="color:${STAR_TYPE_MAP[st.type].color}">✹</span>`, STAR_TYPE_MAP[st.type].name);
+      html += row(st, 0, `<span style="color:${STAR_TYPE_MAP[st.type].color}">${icon("sun")}</span>`, STAR_TYPE_MAP[st.type].name);
     }
     const top = bodies.filter((b) => b.kind !== "moon").sort(byOrbit);
     for (const b of top) {
-      if (b.kind === "belt") html += row(b, 0, "⁘", BELT_TYPE_MAP[b.type].name);
-      else if (b.kind === "comet") html += row(b, 0, "☄", "Comet");
+      if (b.kind === "belt") html += row(b, 0, icon("belt"), BELT_TYPE_MAP[b.type].name);
+      else if (b.kind === "comet") html += row(b, 0, icon("comet"), "Comet");
       else {
         const pt = PLANET_TYPE_MAP[b.type];
         html += row(b, 0, `<span style="color:${pt.visual.palette[2]}">●</span>`, pt.name + (b.ring ? " · rings" : ""));
@@ -387,7 +388,7 @@ export class Hud {
     for (const gate of sys.gates) {
       const known = !!p.explored[gate.otherSystemId];
       html += `<div class="row orow ${sel?.kind === "gate" && sel.id === gate.tunnelId ? "sel" : ""}" data-action="sel:gate:${gate.tunnelId}:${systemId}">
-        <span class="oicon">⟶</span><span class="name">${esc(s.systems[gate.otherSystemId].name)}${known ? "" : " · unexplored"}<span class="otype">${s.tunnels[gate.tunnelId].travelDays.toFixed(0)} days</span></span></div>`;
+        <span class="oicon">${icon("tunnel")}</span><span class="name">${esc(s.systems[gate.otherSystemId].name)}${known ? "" : " · unexplored"}<span class="otype">${s.tunnels[gate.tunnelId].travelDays.toFixed(0)} days</span></span></div>`;
     }
     const fleets = Object.values(s.fleets).filter((f) => f.systemId === systemId && f.ships.length && (f.empireId === p.id || this.playerPresent(systemId)));
     if (fleets.length) {
@@ -395,7 +396,7 @@ export class Hud {
       for (const f of fleets) {
         const e = s.empires[f.empireId];
         html += `<div class="row orow ${sel?.kind === "fleet" && sel.id === f.id ? "sel" : ""}" data-action="goto:fleet:${f.id}">
-          <span class="dot" style="color:${e.color};background:${e.color}"></span><span class="name">${esc(f.name)}<span class="otype">${esc(e.name.split(" ")[0])}${f.battleId ? " · ⚔" : ""}</span></span><span class="meta">${f.ships.length}</span></div>`;
+          <span class="dot" style="color:${e.color};background:${e.color}"></span><span class="name">${esc(f.name)}<span class="otype">${esc(e.name.split(" ")[0])}${f.battleId ? ` · ${icon("war", "bad")}` : ""}</span></span><span class="meta">${f.ships.length}</span></div>`;
       }
     }
     return html;
@@ -428,7 +429,7 @@ export class Hud {
       .map((o) => {
         const site = !["idleShips", "freeSlots", "researchIdle"].includes(o.kind);
         const tip = `${o.title}${site ? ` ${where}` : ""}:\n${o.targets.slice(0, 8).map((t) => "• " + t.label).join("\n")}${o.targets.length > 8 ? `\n…and ${o.targets.length - 8} more` : ""}\n(click to cycle · right-click to dismiss)`;
-        return `<button class="badge" data-action="badge:${o.kind}" title="${esc(tip)}" style="--bc:${o.color}"><span class="bi">${o.icon}</span>${o.kind === "researchIdle" ? "" : `<span class="bn">${o.targets.length}</span>`}</button>`;
+        return `<button class="badge" data-action="badge:${o.kind}" title="${esc(tip)}" style="--bc:${o.color}"><span class="bi">${icon(o.icon)}</span>${o.kind === "researchIdle" ? "" : `<span class="bn">${o.targets.length}</span>`}</button>`;
       })
       .join("");
     this.set("badges", html);
@@ -462,7 +463,7 @@ export class Hud {
     }
     const body = this.game.state.bodies[t.id];
     if (body) app.enterSystem(body.systemId, { kind: "body", id: body.id });
-    app.toast(`${OPPORTUNITY_META[kind].icon} ${t.label}  (${(i % o.targets.length) + 1}/${o.targets.length})`, "info");
+    app.toast(`${t.label}  (${(i % o.targets.length) + 1}/${o.targets.length})`, "info");
   }
 
   // ------------------------------------------------------------ viewbar & log
@@ -470,9 +471,9 @@ export class Hud {
     const s = this.game.state;
     this.set(
       "viewbar",
-      `<button data-action="view:galaxy" class="${this.app.view === "galaxy" ? "active" : ""}" title="Galaxy map (G)">✧ Galaxy</button>
-       <button data-action="view:system" class="${this.app.view === "system" ? "active" : ""}" title="Current system">☉ ${esc(s.systems[this.app.systemId].name)}</button>
-       <button data-action="view:home" title="Home system (H)">⌂ Home</button>`,
+      `<button data-action="view:galaxy" class="${this.app.view === "galaxy" ? "active" : ""}" title="Galaxy map (G)">${icon("galaxy")} Galaxy</button>
+       <button data-action="view:system" class="${this.app.view === "system" ? "active" : ""}" title="Current system">${icon("system")} ${esc(s.systems[this.app.systemId].name)}</button>
+       <button data-action="view:home" title="Home system (H)">${icon("home")} Home</button>`,
     );
   }
 
@@ -605,7 +606,7 @@ export class Hud {
       .join("");
     const feats = b.features
       .filter((f) => f !== "tidallyLocked")
-      .map((f) => `<span class="chip ${f === "artifact" || f === "anomaly" ? "good" : ""}">${{ artifact: "⌬ Precursor artifact", anomaly: "◈ Anomaly", rings: "◯ Rings", homeworld: "★ Homeworld" }[f] ?? f}</span>`)
+      .map((f) => `<span class="chip ${f === "artifact" || f === "anomaly" ? "good" : ""}">${{ artifact: `${icon("artifact")} Precursor artifact`, anomaly: `${icon("anomaly")} Anomaly`, rings: `${icon("rings")} Rings`, homeworld: `${icon("star")} Homeworld` }[f] ?? f}</span>`)
       .join("");
     let html = `<h2>${esc(b.name)}</h2><div class="subtitle">${esc(typeName)} · ${esc(s.systems[b.systemId].name)} system</div>
       <p class="desc">${esc(desc)}</p>
@@ -621,7 +622,7 @@ export class Hud {
         const def = STATION_MAP[st.type];
         const owner = s.empires[st.empireId];
         const out = st.empireId === s.playerId ? yieldsHtml(stationProduction(s, st)) : "";
-        html += `<div class="row"><span class="dot" style="color:${owner.color};background:${owner.color}"></span><span class="name">${def.icon} ${esc(def.name)}</span><span class="meta">${out}</span></div>
+        html += `<div class="row"><span class="dot" style="color:${owner.color};background:${owner.color}"></span><span class="name">${icon(def.icon)} ${esc(def.name)}</span><span class="meta">${out}</span></div>
           <div class="bar hp"><div style="width:${Math.max(0, (st.hp / def.hp) * 100)}%"></div></div>`;
       }
     }
@@ -638,11 +639,11 @@ export class Hud {
         Object.values(s.fleets).find((x) => x.empireId === p.id && x.order?.kind === "colonize" && x.order.bodyId === b.id) ??
         null;
       const queuedAt = g.playerColonies().find((c) => c.queue.some((q) => q.kind === "ship" && q.then?.kind === "colonize" && q.then.bodyId === b.id));
-      if (pending) actions.push(`<span class="chip good">🜨 ${esc(pending.name)} is on its way</span>`);
-      else if (queuedAt) actions.push(`<span class="chip good">🜨 Colony ship being built at ${esc(queuedAt.name)}</span>`);
+      if (pending) actions.push(`<span class="chip good">${icon("colonize")} ${esc(pending.name)} is on its way</span>`);
+      else if (queuedAt) actions.push(`<span class="chip good">${icon("colonize")} Colony ship being built at ${esc(queuedAt.name)}</span>`);
       else
         actions.push(
-          `<button class="primary" data-action="colonize:${b.id}" ${ok && !blocked ? "" : "disabled"} title="${!ok ? `Too hostile to settle: ${pct(habitability(p, b))} habitability, ${pct(MIN_COLONY_HABITABILITY)} needed. Xeno-Adaptation and Terraforming research make more worlds viable.` : blocked ? "Claimed by another empire" : f ? `Send ${esc(f.name)}` : "Build a colony ship for this world"}">🜨 Colonize${f && ok ? ` · ${esc(f.name)}` : "…"}</button>`,
+          `<button class="primary" data-action="colonize:${b.id}" ${ok && !blocked ? "" : "disabled"} title="${!ok ? `Too hostile to settle: ${pct(habitability(p, b))} habitability, ${pct(MIN_COLONY_HABITABILITY)} needed. Xeno-Adaptation and Terraforming research make more worlds viable.` : blocked ? "Claimed by another empire" : f ? `Send ${esc(f.name)}` : "Build a colony ship for this world"}">${icon("colonize")} Colonize${f && ok ? ` · ${esc(f.name)}` : "…"}</button>`,
         );
     }
     if (colony && colony.empireId !== p.id && p.relations[colony.empireId] === "war") {
@@ -651,17 +652,17 @@ export class Hud {
       const underway = Object.values(s.fleets).find((f) => f.empireId === p.id && (f.order?.kind === "invade" && f.order.colonyId === colony.id));
       const building = g.playerColonies().filter((c) => c.queue.some((q) => q.kind === "ship" && q.then?.kind === "invade" && q.then.colonyId === colony.id));
       const t = this.fleetFor("transport", b.systemId);
-      if (underway) actions.push(`<span class="chip good">⚔ ${esc(underway.name)} is on its way (${troopsOf(underway)} transports)</span>`);
-      else if (building.length) actions.push(`<span class="chip good">⚔ Troop transports being built at ${building.map((c) => esc(c.name)).join(", ")}</span>`);
+      if (underway) actions.push(`<span class="chip good">${icon("war")} ${esc(underway.name)} is on its way (${troopsOf(underway)} transports)</span>`);
+      else if (building.length) actions.push(`<span class="chip good">${icon("war")} Troop transports being built at ${building.map((c) => esc(c.name)).join(", ")}</span>`);
       else if (!hullUnlocked(p, "transport"))
-        actions.push(`<button class="danger" disabled title="Research Ground Forces to build Troop Transports">⚔ Invade</button>`);
+        actions.push(`<button class="danger" disabled title="Research Ground Forces to build Troop Transports">${icon("war")} Invade</button>`);
       else if (t && troopsOf(t.fleet) >= need)
         actions.push(
-          `<button class="danger" data-action="invade:${colony.id}" title="${t.busy ? `${esc(t.fleet.name)} is busy — Shift+click to queue` : `Send ${esc(t.fleet.name)}; troops land once planetary defenses are down`}">⚔ Invade · ${esc(t.fleet.name)}${t.busy ? " (busy)" : ""}</button>`,
+          `<button class="danger" data-action="invade:${colony.id}" title="${t.busy ? `${esc(t.fleet.name)} is busy — Shift+click to queue` : `Send ${esc(t.fleet.name)}; troops land once planetary defenses are down`}">${icon("war")} Invade · ${esc(t.fleet.name)}${t.busy ? " (busy)" : ""}</button>`,
         );
       else
         actions.push(
-          `<button class="danger" data-action="invade:${colony.id}" title="Build ${need} troop transport${need === 1 ? "" : "s"} (enough to beat a garrison of ${garrison(s, colony).toFixed(1)}) and send them">⚔ Invade…</button>`,
+          `<button class="danger" data-action="invade:${colony.id}" title="Build ${need} troop transport${need === 1 ? "" : "s"} (enough to beat a garrison of ${garrison(s, colony).toFixed(1)}) and send them">${icon("war")} Invade…</button>`,
         );
     }
     if (actions.length) html += `<div class="actions">${actions.join("")}</div>`;
@@ -676,13 +677,13 @@ export class Hud {
         const work = o.work ?? 0;
         const building = work > 0 && !f.transit && o.route.length === 0;
         const meta = building ? `${Math.max(0, Math.ceil(def.days - work))}d` : "en route";
-        jobs.push(`<div class="queue-item" title="${esc(f.name)}"><span style="width:110px">${esc(def.name)}</span><div class="bar"><div style="width:${building ? Math.min(100, (work / def.days) * 100) : 0}%"></div></div><span class="meta">${meta}</span><button data-action="cancelorder:${f.id}:-1:buildStation" title="Cancel${building ? " & refund" : ""}">✕</button></div>`);
+        jobs.push(`<div class="queue-item" title="${esc(f.name)}"><span style="width:110px">${esc(def.name)}</span><div class="bar"><div style="width:${building ? Math.min(100, (work / def.days) * 100) : 0}%"></div></div><span class="meta">${meta}</span><button data-action="cancelorder:${f.id}:-1:buildStation" title="Cancel${building ? " & refund" : ""}">${icon("close")}</button></div>`);
       }
       (f.queue ?? []).forEach((q, i) => {
         if (q.kind !== "buildStation" || q.bodyId !== b.id || !q.stationType) return;
         const def = STATION_MAP[q.stationType];
         const ahead = (f.order ? 1 : 0) + i;
-        jobs.push(`<div class="queue-item" title="${esc(f.name)}: ${ahead} job${ahead === 1 ? "" : "s"} ahead"><span style="width:110px">${esc(def.name)}</span><div class="bar"></div><span class="meta">queued</span><button data-action="cancelorder:${f.id}:${i}:buildStation" title="Remove from ${esc(f.name)}'s queue">✕</button></div>`);
+        jobs.push(`<div class="queue-item" title="${esc(f.name)}: ${ahead} job${ahead === 1 ? "" : "s"} ahead"><span style="width:110px">${esc(def.name)}</span><div class="bar"></div><span class="meta">queued</span><button data-action="cancelorder:${f.id}:${i}:buildStation" title="Remove from ${esc(f.name)}'s queue">${icon("close")}</button></div>`);
       });
     }
     if (jobs.length) html += `<div class="section-title">Station construction</div>${jobs.join("")}`;
@@ -710,7 +711,7 @@ export class Hud {
                 ? "Not enough resources"
                 : d.description);
         html += `<button class="build-btn" data-action="station:${b.id}:${d.id}" ${disabled ? "disabled" : ""} title="${esc(title)}">
-          <span class="t">${d.icon} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)}</span><span class="y">${est}</span></button>`;
+          <span class="t">${icon(d.icon)} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)}</span><span class="y">${est}</span></button>`;
       }
       html += `</div>`;
     }
@@ -725,7 +726,7 @@ export class Hud {
     const owner = s.empires[c.empireId];
     const cap = popCapacity(s, c);
     const maxD = maxDefense(s, c);
-    let html = `<div class="section-title"><span style="color:${owner.color}">${c.capital ? "★ Capital of " : "Colony of "}${esc(owner.name)}</span><span>${esc(SPECIES_MAP[owner.speciesId]?.adjective ?? "")}</span></div>
+    let html = `<div class="section-title"><span style="color:${owner.color}">${c.capital ? `${icon("star")} Capital of ` : "Colony of "}${esc(owner.name)}</span><span>${esc(SPECIES_MAP[owner.speciesId]?.adjective ?? "")}</span></div>
       <div class="kv"><div class="k">Population</div><div class="v">${c.pop.toFixed(2)} / ${cap.toFixed(1)}</div></div>
       <div class="bar"><div style="width:${Math.min(100, (c.pop / cap) * 100)}%"></div></div>
       <div class="kv"><div class="k">Planetary defense</div><div class="v">${fmt(c.defense)} / ${fmt(maxD)}</div><div class="k">Garrison</div><div class="v">${garrison(s, c).toFixed(1)} troops</div></div>
@@ -742,14 +743,14 @@ export class Hud {
     html += `<div class="section-title"><span>Buildings</span><span>${c.buildings.length + queuedB}/${slots} slots</span></div><div class="chips">`;
     c.buildings.forEach((bld, i) => {
       const d = BUILDING_MAP[bld.type];
-      html += `<span class="chip" title="${esc(d.description)} (shift-click to demolish)" data-action="demolish:${c.id}:${i}">${d.icon} ${esc(d.name)}</span>`;
+      html += `<span class="chip" title="${esc(d.description)} (shift-click to demolish)" data-action="demolish:${c.id}:${i}">${icon(d.icon)} ${esc(d.name)}</span>`;
     });
     html += `</div>`;
     if (c.queue.length) {
       html += `<div class="section-title">Construction queue</div>`;
       c.queue.forEach((q, i) => {
         const name = q.kind === "ship" ? HULL_MAP[q.type].name : BUILDING_MAP[q.type].name;
-        html += `<div class="queue-item"><span style="width:110px">${esc(name)}</span><div class="bar"><div style="width:${(q.progress / q.total) * 100}%"></div></div><span class="meta">${Math.ceil(q.total - q.progress)}d</span><button data-action="cancel:${c.id}:${i}:${q.type}" title="Cancel & refund">✕</button></div>`;
+        html += `<div class="queue-item"><span style="width:110px">${esc(name)}</span><div class="bar"><div style="width:${(q.progress / q.total) * 100}%"></div></div><span class="meta">${Math.ceil(q.total - q.progress)}d</span><button data-action="cancel:${c.id}:${i}:${q.type}" title="Cancel & refund">${icon("close")}</button></div>`;
       });
     }
     html += `<div class="section-title">Construct building</div><div class="grid-buttons">`;
@@ -763,20 +764,20 @@ export class Hud {
       const out = buildingOutput(d, body, c.pop);
       const y = Object.fromEntries(Object.entries(out).filter(([, v]) => v > 0));
       html += `<button class="build-btn" data-action="build:${c.id}:${d.id}" ${full || dup || !afford ? "disabled" : ""} title="${esc(full ? "No free slots — grow population" : dup ? "Only one allowed" : d.description)}">
-        <span class="t">${d.icon} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)} · ${d.days}d</span><span class="y">${yieldsHtml(y)}${d.defense ? ` +${d.defense}🛡` : ""}${d.capacity ? ` +${d.capacity} pop cap` : ""}</span></button>`;
+        <span class="t">${icon(d.icon)} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)} · ${d.days}d</span><span class="y">${yieldsHtml(y)}${d.defense ? ` +${d.defense}${icon("defense")}` : ""}${d.capacity ? ` +${d.capacity} pop cap` : ""}</span></button>`;
     }
     html += `</div>`;
     if (c.buildings.some((b) => b.type === "shipyard")) {
       const used = commandUsed(s, p);
       const capC = commandCapacity(s, p);
-      html += `<div class="section-title"><span>Shipyard</span><span>⚑ ${used}/${capC}</span></div><div class="grid-buttons">`;
+      html += `<div class="section-title"><span>Shipyard</span><span>${icon("command")} ${used}/${capC}</span></div><div class="grid-buttons">`;
       for (const h of HULLS) {
         if (!hullUnlocked(p, h.id)) continue;
         const cost = hullCost(s, p, h.id);
         const overCap = h.command > 0 && used + h.command > capC;
         const afford = canAfford(p.resources, cost);
         html += `<button class="build-btn" data-action="ship:${c.id}:${h.id}" ${afford && !overCap ? "" : "disabled"} title="${esc(overCap ? "Fleet command capacity reached" : h.description)}">
-          <span class="t">${esc(h.name)}</span><span class="c">${costHtml(cost, p.resources)} · ${h.buildDays}d${h.command ? ` · ⚑${h.command}` : ""}</span></button>`;
+          <span class="t">${esc(h.name)}</span><span class="c">${costHtml(cost, p.resources)} · ${h.buildDays}d${h.command ? ` · ${icon("command")}${h.command}` : ""}</span></button>`;
       }
       html += `</div>`;
     } else {
@@ -799,13 +800,13 @@ export class Hud {
       (f.order ? describeOrder(g, f, f.order) : "Holding position") +
       (f.queue?.length
         ? `<div class="order-queue">${f.queue
-            .map((q, i) => `<div>then ${describeOrder(g, f, { ...q, route: [] })}${mine ? ` <button class="icon-btn" data-action="cancelorder:${f.id}:${i}:${q.kind}" title="Remove from queue">✕</button>` : ""}</div>`)
+            .map((q, i) => `<div>then ${describeOrder(g, f, { ...q, route: [] })}${mine ? ` <button class="icon-btn" data-action="cancelorder:${f.id}:${i}:${q.kind}" title="Remove from queue">${icon("close")}</button>` : ""}</div>`)
             .join("")}</div>`
         : "");
     const title =
       mine && this.renaming === f.id
         ? `<input id="rename-input" class="rename-input" data-fleet="${f.id}" maxlength="32" value="${esc(f.name)}" style="color:${owner.color}" />`
-        : `${esc(f.name)}${mine ? ` <button class="icon-btn" data-action="rename:${f.id}" title="Rename">✎</button>` : ""}`;
+        : `${esc(f.name)}${mine ? ` <button class="icon-btn" data-action="rename:${f.id}" title="Rename">${icon("rename")}</button>` : ""}`;
     let html = `<h2 class="fleet-name" style="color:${owner.color}">${title}</h2><div class="subtitle">${esc(owner.name)} · ${f.ships.length} ship${f.ships.length > 1 ? "s" : ""}</div>
       <div class="kv"><div class="k">Location</div><div class="v">${loc}</div>
       <div class="k">Orders</div><div class="v">${order}</div>
@@ -817,14 +818,14 @@ export class Hud {
       html += `<div class="actions">
         ${(["aggressive", "defensive", "evasive", "passive"] as const).map((st) => `<button data-action="stance:${f.id}:${st}" class="${f.stance === st ? "active" : ""}" title="${STANCE_TIPS[st]}">${st}</button>`).join("")}
       </div><div class="actions">
-        <button data-action="stop:${f.id}" ${f.order && !f.transit ? "" : "disabled"}>■ Stop</button>
-        <button data-action="split:${f.id}" ${f.ships.length > 1 ? "" : "disabled"} title="Split checked ships into a new fleet">⑂ Split</button>
-        <button data-action="focus">◎ Focus</button>
-        <button data-action="autoexplore:${f.id}:${f.autoExplore ? 0 : 1}" class="${f.autoExplore ? "active" : ""}" title="${f.autoExplore ? "Exploring on its own — click to stop (any direct order also stops it)" : "Survey unexplored systems on its own, nearest first"}">🧭 Auto-explore</button>
+        <button data-action="stop:${f.id}" ${f.order && !f.transit ? "" : "disabled"}>${icon("stop")} Stop</button>
+        <button data-action="split:${f.id}" ${f.ships.length > 1 ? "" : "disabled"} title="Split checked ships into a new fleet">${icon("split")} Split</button>
+        <button data-action="focus">${icon("focus")} Focus</button>
+        <button data-action="autoexplore:${f.id}:${f.autoExplore ? 0 : 1}" class="${f.autoExplore ? "active" : ""}" title="${f.autoExplore ? "Exploring on its own — click to stop (any direct order also stops it)" : "Survey unexplored systems on its own, nearest first"}">${icon("explore")} Auto-explore</button>
       </div>`;
       const nearby = Object.values(s.fleets).filter((o) => o.id !== f.id && o.empireId === f.empireId && o.systemId && o.systemId === f.systemId && !o.transit && dist(o.pos, f.pos) < 1.5);
       if (nearby.length)
-        html += `<div class="actions">${nearby.map((o) => `<button data-action="merge:${f.id}:${o.id}">⊕ Merge ${esc(o.name)}</button>`).join("")}</div>`;
+        html += `<div class="actions">${nearby.map((o) => `<button data-action="merge:${f.id}:${o.id}">${icon("merge")} Merge ${esc(o.name)}</button>`).join("")}</div>`;
     }
     html += `<div class="section-title">Ships</div>`;
     for (const sh of f.ships.slice(0, 60)) {
@@ -832,7 +833,7 @@ export class Hud {
       const st = shipStats(owner, hull);
       const hp = healthFraction(owner, sh);
       html += `<div class="ship-row">${mine ? `<input type="checkbox" data-ship="${sh.id}" ${this.splitSel.has(sh.id) ? "checked" : ""}/>` : `<span></span>`}
-        <span title="${esc(hull.description)}">${esc(hull.name)} <span class="meta">${esc(sh.name.split(" ").pop() ?? "")}${sh.xp ? ` ★${sh.xp}` : ""}</span></span>
+        <span title="${esc(hull.description)}">${esc(hull.name)} <span class="meta">${esc(sh.name.split(" ").pop() ?? "")}${sh.xp ? ` ${icon("star", "gold")}${sh.xp}` : ""}</span></span>
         <span title="Hull ${fmt(sh.hull_hp)}/${fmt(st.hull)} · Armor ${fmt(sh.armor)}/${fmt(st.armor)} · Shields ${fmt(sh.shields)}/${fmt(st.shields)}"><div class="bar hp"><div style="width:${hp * 100}%"></div></div>${st.shields > 0 ? `<div class="bar shield"><div style="width:${(sh.shields / st.shields) * 100}%"></div></div>` : ""}</span></div>`;
     }
     if (f.ships.length > 60) html += `<div class="hint">…and ${f.ships.length - 60} more.</div>`;
@@ -854,10 +855,10 @@ export class Hud {
     const here = this.app.systemId;
     const to = t.a === here ? t.b : t.a;
     const explored = !!s.empires[s.playerId].explored[to];
-    return `<h2>Tunnel Gate</h2><div class="subtitle">${esc(s.systems[here].name)} ⟶ ${esc(s.systems[to].name)}${explored ? "" : " (unexplored)"}</div>
+    return `<h2>Tunnel Gate</h2><div class="subtitle">${esc(s.systems[here].name)} ${icon("tunnel")} ${esc(s.systems[to].name)}${explored ? "" : " (unexplored)"}</div>
       <p class="desc">An ancient gate anchoring a stable tunnel through subspace. Fleets entering it emerge ${t.length.toFixed(1)} light years away.</p>
       <div class="kv"><div class="k">Distance</div><div class="v">${t.length.toFixed(1)} ly</div><div class="k">Transit time</div><div class="v">${t.travelDays.toFixed(0)} days</div></div>
-      <div class="actions"><button data-action="jumpgate:${tunnelId}" ${explored ? "" : `disabled title="Survey it first: send any ship through the gate"`}>⟶ Look through the gate</button>
+      <div class="actions"><button data-action="jumpgate:${tunnelId}" ${explored ? "" : `disabled title="Survey it first: send any ship through the gate"`}>${icon("tunnel")} Look through the gate</button>
       ${this.app.activeFleetId ? `<button class="primary" data-action="send:${to}">Send ${esc(s.fleets[this.app.activeFleetId]?.name ?? "fleet")}</button>` : ""}</div>`;
   }
 
@@ -897,7 +898,7 @@ export class Hud {
       const from = f.transit ? f.transit.to : f.systemId!;
       return findRoute(s, from, id, p);
     })() : null;
-    html += `<div class="actions"><button class="primary" data-action="enter:${id}" ${p.explored[id] ? "" : `disabled title="Survey the system first: send any ship there"`}>☉ Enter system</button>
+    html += `<div class="actions"><button class="primary" data-action="enter:${id}" ${p.explored[id] ? "" : `disabled title="Survey the system first: send any ship there"`}>${icon("system")} Enter system</button>
       ${this.app.activeFleetId && s.fleets[this.app.activeFleetId] ? `<button data-action="send:${id}">Send ${esc(s.fleets[this.app.activeFleetId].name)}${route ? ` (${route.length} jumps)` : ""}</button>` : ""}</div>
       <div class="hint">Double-click a star to enter it. Right-click to send the active fleet.</div>`;
     return html;
@@ -919,7 +920,7 @@ export class Hud {
     if (this.modal === "research") inner = this.researchModal();
     else if (this.modal === "empires") inner = this.empiresModal();
     else if (this.modal === "menu") inner = this.menuModal();
-    else if (this.modal === "help") inner = `<header><h2>How to play</h2><button data-action="close">✕</button></header>${helpHtml()}`;
+    else if (this.modal === "help") inner = `<header><h2>How to play</h2><button data-action="close">${icon("close")}</button></header>${helpHtml()}`;
     else if (this.modal === "end") inner = this.endModal();
     else if (this.modal === "colonize") inner = this.colonizeModal();
     else if (this.modal === "invade") inner = this.invadeModal();
@@ -946,16 +947,16 @@ export class Hud {
             const qpos = p.research.queue.indexOf(t.id);
             const tip = `${t.requires.length ? "Requires: " + t.requires.map((r) => TECH_MAP[r].name).join(", ") : "No prerequisites"}\nClick to research now · Shift+click to ${qpos >= 0 ? "remove from" : "add to"} the queue`;
             return `<div class="tech ${cls}" data-action="tech:${t.id}" title="${esc(tip)}">
-              <div class="tn">${qpos >= 0 ? `<span class="qpos">${qpos + 1}</span>` : ""}${esc(t.name)}</div><div class="tc">Tier ${t.tier} · ${fmt(cost)} ⚗${t.exoticsCost ? ` + ${t.exoticsCost} ✦` : ""}${eta && !done ? ` · ~${eta}d` : ""}</div>
+              <div class="tn">${qpos >= 0 ? `<span class="qpos">${qpos + 1}</span>` : ""}${esc(t.name)}</div><div class="tc">Tier ${t.tier} · ${fmt(cost)} ${icon("research")}${t.exoticsCost ? ` + ${t.exoticsCost} ${icon("exotics")}` : ""}${eta && !done ? ` · ~${eta}d` : ""}</div>
               <div class="td">${esc(t.description)}</div>${prog > 0 && !done ? `<div class="prog" style="width:${prog * 100}%"></div>` : ""}</div>`;
           })
           .join("")}</div>`;
       })
       .join("");
     const curT = cur ? TECH_MAP[cur] : null;
-    return `<header><h2>Research</h2><span class="res research"><span class="icon">⚗</span>${fmt(p.income.research, 1)}/day</span>
+    return `<header><h2>Research</h2><span class="res research"><span class="icon">${icon("research")}</span>${fmt(p.income.research, 1)}/day</span>
       <span class="subtitle">${curT ? `Researching <b>${esc(curT.name)}</b>${p.research.queue.length ? ` then ${p.research.queue.map((q) => esc(TECH_MAP[q].name)).join(" → ")}` : ""}` : "Idle"} · <span class="hint">Shift+click to queue</span></span>
-      <button data-action="close">✕</button></header>
+      <button data-action="close">${icon("close")}</button></header>
       <div class="tech-grid">${cols}</div>`;
   }
 
@@ -980,7 +981,7 @@ export class Hud {
         const offer = e.id !== p.id && p.peaceOffers?.[e.id] !== undefined;
         const demand = e.id !== p.id ? p.demands?.[e.id] : undefined;
         const demandHtml = demand
-          ? `<div class="demand">⚠ Demands ${esc(demand.kind === "colony" ? (s.colonies[demand.colonyId]?.name ?? "a colony") : `${demand.amount} ${demand.resource}`)}
+          ? `<div class="demand">${icon("warning")} Demands ${esc(demand.kind === "colony" ? (s.colonies[demand.colonyId]?.name ?? "a colony") : `${demand.amount} ${demand.resource}`)}
               <button class="primary" data-action="acceptdemand:${e.id}">Give</button> <button class="danger" data-action="rejectdemand:${e.id}">Refuse</button></div>`
           : "";
         const unread = this.unreadFrom(e.id);
@@ -990,19 +991,19 @@ export class Hud {
           e.id === p.id || e.isPirate || !met || p.relations[e.id] === "war"
             ? ""
             : trading
-              ? `<button data-action="endtrade:${e.id}" title="Merchants fly between your trade hubs. End the agreement?">⇄ End trade</button>`
+              ? `<button data-action="endtrade:${e.id}" title="Merchants fly between your trade hubs. End the agreement?">${icon("trade")} End trade</button>`
               : tradeOffer
-                ? `<button class="primary" data-action="accepttrade:${e.id}">⇄ Accept trade</button> <button data-action="rejecttrade:${e.id}">Decline</button>`
-                : `<button data-action="proposetrade:${e.id}" title="Open markets: merchant freighters will fly between your trade hubs, enriching both">⇄ Propose trade</button>`;
-        const talk = e.id !== p.id && this.app.canChat(e.id) ? `<button data-action="chat:${e.id}">✉ Talk${unread ? `<span class="unread">${unread}</span>` : ""}</button>` : "";
+                ? `<button class="primary" data-action="accepttrade:${e.id}">${icon("trade")} Accept trade</button> <button data-action="rejecttrade:${e.id}">Decline</button>`
+                : `<button data-action="proposetrade:${e.id}" title="Open markets: merchant freighters will fly between your trade hubs, enriching both">${icon("trade")} Propose trade</button>`;
+        const talk = e.id !== p.id && this.app.canChat(e.id) ? `<button data-action="chat:${e.id}">${icon("talk")} Talk${unread ? `<span class="unread">${unread}</span>` : ""}</button>` : "";
         const btn =
           e.id === p.id || e.isPirate || !met
             ? ""
             : offer
-              ? `<button class="primary" data-action="acceptpeace:${e.id}">☮ Accept peace</button> <button data-action="rejectpeace:${e.id}">Reject</button>`
+              ? `<button class="primary" data-action="acceptpeace:${e.id}">${icon("peace")} Accept peace</button> <button data-action="rejectpeace:${e.id}">Reject</button>`
               : p.relations[e.id] === "war"
-                ? `<button data-action="peace:${e.id}">☮ Propose peace</button>`
-                : `<button class="danger" data-action="war:${e.id}">⚔ Declare war</button>`;
+                ? `<button data-action="peace:${e.id}">${icon("peace")} Propose peace</button>`
+                : `<button class="danger" data-action="war:${e.id}">${icon("war")} Declare war</button>`;
         const seat = this.app.remote?.info.seats.find((x) => x.empireId === e.id);
         const ruler = seat?.playerName ? `<span class="tag" title="A human player">${seat.online ? "●" : "○"} ${esc(seat.playerName)}</span>` : "";
         return `<div class="empire-card"><div class="swatch" style="background:${e.color}"></div>
@@ -1011,7 +1012,7 @@ export class Hud {
           <div class="actions">${talk} ${tradeBtn} ${btn}${demandHtml}</div></div>`;
       })
       .join("");
-    return `<header><h2>Empires of the galaxy</h2><button data-action="close">✕</button></header>${rows}
+    return `<header><h2>Empires of the galaxy</h2><button data-action="close">${icon("close")}</button></header>${rows}
       <div class="hint">Victory: eliminate all rivals, control ${Math.round(0.6 * 100)}% of systems, or complete the Ascension Project.</div>`;
   }
 
@@ -1019,7 +1020,7 @@ export class Hud {
     const remote = this.app.remote;
     if (remote) {
       const info = remote.info;
-      return `<header><h2>${esc(info.name)}</h2><button data-action="close">✕</button></header>
+      return `<header><h2>${esc(info.name)}</h2><button data-action="close">${icon("close")}</button></header>
         <div class="actions" style="flex-direction:column;align-items:stretch;max-width:360px;margin:auto">
           <div class="hint" style="text-align:center">Invite code <b style="font-size:20px;letter-spacing:0.15em;color:var(--accent)">${esc(info.code)}</b><br/>The game is saved on the server automatically.</div>
           <button class="primary" data-action="close">Resume</button>
@@ -1028,7 +1029,7 @@ export class Hud {
           <button class="danger" data-action="quit">Leave game</button>
         </div>`;
     }
-    return `<header><h2>Menu</h2><button data-action="close">✕</button></header>
+    return `<header><h2>Menu</h2><button data-action="close">${icon("close")}</button></header>
       <div class="actions" style="flex-direction:column;align-items:stretch;max-width:320px;margin:auto">
         <button class="primary" data-action="close">Resume</button>
         <button data-action="save">Save game</button>
@@ -1042,7 +1043,7 @@ export class Hud {
   private chatModal(): string {
     const g = this.game;
     const other = this.chatWith ? g.state.empires[this.chatWith] : null;
-    if (!other) return `<header><h2>Diplomacy</h2><button data-action="close">✕</button></header>`;
+    if (!other) return `<header><h2>Diplomacy</h2><button data-action="close">${icon("close")}</button></header>`;
     const me = g.playerId;
     const msgs = this.app.chats.filter((m) => (m.from === me && m.to === other.id) || (m.from === other.id && m.to === me));
     for (const m of msgs) this.seenChats.add(m.id);
@@ -1051,23 +1052,23 @@ export class Hud {
     const demand = g.player.demands?.[other.id];
     const r = g.player.resources;
     const gifts = (["credits", "metals"] as const)
-      .map((k) => `<button data-action="gift:${other.id}:${k}:100" ${r[k] >= 100 ? "" : "disabled"} title="Send 100 ${k} as a gift or tribute">🎁 100 ${RES_ICON[k]}</button>`)
+      .map((k) => `<button data-action="gift:${other.id}:${k}:100" ${r[k] >= 100 ? "" : "disabled"} title="Send 100 ${k} as a gift or tribute">${icon("gift")} 100 ${RES_ICON[k]}</button>`)
       .join("");
     return `<header><h2 style="color:${other.color}">${esc(other.name)}</h2>
       <span class="tag ${g.player.relations[other.id]}">${g.player.relations[other.id] === "war" ? "AT WAR" : "PEACE"}</span>
       ${human ? `<span class="subtitle">A human ruler</span>` : ""}
-      <button data-action="modal:empires">← Empires</button><button data-action="close">✕</button></header>
+      <button data-action="modal:empires">← Empires</button><button data-action="close">${icon("close")}</button></header>
       <div class="chat-log">${
         msgs.length
           ? msgs
               .map(
-                (m) => `<div class="chat-msg ${m.from === me ? "ours" : ""}${m.auto ? " auto" : ""}"><div class="meta">${m.from === me ? "You" : esc(other.name)} · ${dateString(m.day)}${m.action && m.action.kind !== "none" ? ` · <b>${esc(describeAction(g, m.action))}</b>` : ""}</div>${esc(m.text)}</div>`,
+                (m) => `<div class="chat-msg ${m.from === me ? "ours" : ""}${m.auto ? " auto" : ""}"><div class="meta">${m.from === me ? "You" : esc(other.name)} · ${dateString(m.day)}${m.action && m.action.kind !== "none" ? ` · <b>${describeAction(g, m.action)}</b>` : ""}</div>${esc(m.text)}</div>`,
               )
               .join("")
           : `<div class="hint">No correspondence yet. Open a channel — propose an alliance, demand tribute, or negotiate a ceasefire.</div>`
       }${waiting ? `<div class="hint">Awaiting their reply…</div>` : ""}</div>
-      ${demand ? `<div class="demand">⚠ They demand ${esc(demand.kind === "colony" ? (g.state.colonies[demand.colonyId]?.name ?? "a colony") : `${demand.amount} ${demand.resource}`)} <button class="primary" data-action="acceptdemand:${other.id}">Give</button> <button class="danger" data-action="rejectdemand:${other.id}">Refuse</button></div>` : ""}
-      <div class="chat-tools">${gifts}${g.player.relations[other.id] === "peace" && g.player.tradePartners?.[other.id] === undefined ? (g.player.tradeOffers?.[other.id] !== undefined ? `<button class="primary" data-action="accepttrade:${other.id}">⇄ Accept their trade offer</button><button data-action="rejecttrade:${other.id}">Decline</button>` : `<button data-action="proposetrade:${other.id}">⇄ Propose trade</button>`) : ""}${g.player.peaceOffers?.[other.id] !== undefined ? `<button class="primary" data-action="acceptpeace:${other.id}">☮ Accept their peace offer</button>` : ""}${this.app.remote ? "" : `<span class="hint">The game is paused while you write.</span>`}</div>
+      ${demand ? `<div class="demand">${icon("warning")} They demand ${esc(demand.kind === "colony" ? (g.state.colonies[demand.colonyId]?.name ?? "a colony") : `${demand.amount} ${demand.resource}`)} <button class="primary" data-action="acceptdemand:${other.id}">Give</button> <button class="danger" data-action="rejectdemand:${other.id}">Refuse</button></div>` : ""}
+      <div class="chat-tools">${gifts}${g.player.relations[other.id] === "peace" && g.player.tradePartners?.[other.id] === undefined ? (g.player.tradeOffers?.[other.id] !== undefined ? `<button class="primary" data-action="accepttrade:${other.id}">${icon("trade")} Accept their trade offer</button><button data-action="rejecttrade:${other.id}">Decline</button>` : `<button data-action="proposetrade:${other.id}">${icon("trade")} Propose trade</button>`) : ""}${g.player.peaceOffers?.[other.id] !== undefined ? `<button class="primary" data-action="acceptpeace:${other.id}">${icon("peace")} Accept their peace offer</button>` : ""}${this.app.remote ? "" : `<span class="hint">The game is paused while you write.</span>`}</div>
       <div class="chat-input"><input id="chat-input" maxlength="500" placeholder="Message to the ${esc(other.name)}…" autocomplete="off" /><button class="primary" data-action="sendchat">Send</button></div>`;
   }
 
@@ -1075,7 +1076,7 @@ export class Hud {
     const g = this.game;
     const s = g.state;
     const body = this.colonizeTarget ? s.bodies[this.colonizeTarget] : null;
-    if (!body) return `<header><h2>Colonize</h2><button data-action="close">✕</button></header>`;
+    if (!body) return `<header><h2>Colonize</h2><button data-action="close">${icon("close")}</button></header>`;
     const options = colonyShipOptions(s, g.playerId, body.id);
     const h = habitability(g.player, body);
     const rows = options
@@ -1087,7 +1088,7 @@ export class Hud {
           <div><button class="${best ? "primary" : ""}" data-action="buildcolony:${o.colonyId}" ${o.affordable ? "" : "disabled"} title="${o.affordable ? "Queue a colony ship here" : "Not enough resources"}">Build &amp; send</button></div></div>`;
       })
       .join("");
-    return `<header><h2>Colonize ${esc(body.name)}</h2><button data-action="close">✕</button></header>
+    return `<header><h2>Colonize ${esc(body.name)}</h2><button data-action="close">${icon("close")}</button></header>
       <p class="desc">No colony ship is available. Build one at a shipyard and it will fly to <b>${esc(body.name)}</b>
       (${esc(PLANET_TYPE_MAP[body.type]?.name ?? body.type)}, habitability ${pct(h)}, size ${body.size}) and settle it as soon as it launches.
       A new colony needs supplies shipped in at first (${yieldsHtml(SETTLEMENT_UPKEEP, -1)} per day, fading over ${SETTLEMENT_DAYS} days) before it stands on its own.</p>
@@ -1098,7 +1099,7 @@ export class Hud {
     const g = this.game;
     const s = g.state;
     const colony = this.invadeTarget ? s.colonies[this.invadeTarget] : null;
-    if (!colony) return `<header><h2>Invade</h2><button data-action="close">✕</button></header>`;
+    if (!colony) return `<header><h2>Invade</h2><button data-action="close">${icon("close")}</button></header>`;
     const options = invasionOptions(s, g.playerId, colony.id);
     const need = transportsNeeded(s, g.player, colony.id);
     const perShip = HULL_MAP.transport.troops ?? 1;
@@ -1112,7 +1113,7 @@ export class Hud {
           <div><button class="${best ? "primary" : ""}" data-action="buildinvasion:${o.colonyId}" ${ok ? "" : "disabled"} title="${o.blocked ?? (o.affordable ? `Queue ${o.count} troop transports here` : "Not enough resources")}">Build ${o.count} &amp; send</button></div></div>`;
       })
       .join("");
-    return `<header><h2>Invade ${esc(colony.name)}</h2><button data-action="close">✕</button></header>
+    return `<header><h2>Invade ${esc(colony.name)}</h2><button data-action="close">${icon("close")}</button></header>
       <p class="desc">${esc(colony.name)} is held by a garrison of <b>${garrison(s, colony).toFixed(1)}</b> troops. Each Troop Transport lands about ${perShip} troops (more with weapons research),
       so you need <b>${need}</b> to win even on a poor landing. They are built together, gather at the shipyard and sail as one force;
       troops land once warships have knocked the planetary defenses (${Math.round(colony.defense)}) down.</p>
@@ -1455,7 +1456,7 @@ function supplyRow(s: Game["state"], f: Fleet): string {
   const bar = (v: number, icon: string, title: string) =>
     `<span class="supply ${v < 0.25 ? "low" : v < 0.6 ? "mid" : ""}" title="${title}">${icon} ${pct(v)}</span>`;
   const tender = Object.values(s.fleets).find((t) => t.order?.kind === "resupply" && t.order.fleetId === f.id);
-  return `<div class="k">Supplies</div><div class="v">${bar(lv.metals, "⚙", "Munitions and spare parts (metals): railguns, missiles, point defence, repairs")} ${bar(lv.energy, "⚡", "Energy cells: lasers and lances")}${
+  return `<div class="k">Supplies</div><div class="v">${bar(lv.metals, RES_ICON.metals, "Munitions and spare parts (metals): railguns, missiles, point defence, repairs")} ${bar(lv.energy, RES_ICON.energy, "Energy cells: lasers and lances")}${
     tender ? ` · tender en route` : lv.overall < 0.25 ? ` · <b style="color:var(--bad)">low!</b>` : ""
   }</div>`;
 }
@@ -1464,25 +1465,25 @@ function describeAction(g: Game, a: DiploAction): string {
   const s = g.state;
   switch (a.kind) {
     case "accept_peace":
-      return "☮ accepted peace";
+      return `${icon("peace")} accepted peace`;
     case "propose_peace":
-      return "☮ proposed peace";
+      return `${icon("peace")} proposed peace`;
     case "declare_war":
-      return "⚔ declared war";
+      return `${icon("war")} declared war`;
     case "offer_tribute":
-      return `🎁 sent ${a.amount ?? ""} ${a.resource ?? ""}`;
+      return `${icon("gift")} sent ${a.amount ?? ""} ${a.resource ?? ""}`;
     case "cede_colony":
-      return `🜨 ceded ${s.colonies[a.colonyId ?? ""]?.name ?? "a colony"}`;
+      return `${icon("colonize")} ceded ${esc(s.colonies[a.colonyId ?? ""]?.name ?? "a colony")}`;
     case "demand_tribute":
-      return `⚠ demands ${a.amount ?? ""} ${a.resource ?? ""}`;
+      return `${icon("warning")} demands ${a.amount ?? ""} ${a.resource ?? ""}`;
     case "demand_colony":
-      return `⚠ demands ${s.colonies[a.colonyId ?? ""]?.name ?? "a colony"}`;
+      return `${icon("warning")} demands ${esc(s.colonies[a.colonyId ?? ""]?.name ?? "a colony")}`;
     case "propose_trade":
-      return "⇄ proposed trade";
+      return `${icon("trade")} proposed trade`;
     case "accept_trade":
-      return "⇄ signed a trade agreement";
+      return `${icon("trade")} signed a trade agreement`;
     case "cancel_trade":
-      return "⇄ ended trade";
+      return `${icon("trade")} ended trade`;
     default:
       return "";
   }
@@ -1511,10 +1512,10 @@ function describeOrder(g: Game, f: Fleet, o: Order): string {
     case "resupply": {
       const t = s.fleets[o.fleetId ?? ""];
       const c = f.supplies;
-      return `Resupplying ${esc(t?.name ?? "a fleet")}${hops}${c ? ` · ⚙${fmt(c.metals)} ⚡${fmt(c.energy)}` : ""}`;
+      return `Resupplying ${esc(t?.name ?? "a fleet")}${hops}${c ? ` · ${RES_ICON.metals}${fmt(c.metals)} ${RES_ICON.energy}${fmt(c.energy)}` : ""}`;
     }
     case "trade":
-      return (o.work ?? 0) > 0 ? `Unloading goods at ${esc(where ?? "")}` : `Trade run to ${esc(where ?? "")}${hops} · cargo ₵${fmt(f.cargo ?? 0)}`;
+      return (o.work ?? 0) > 0 ? `Unloading goods at ${esc(where ?? "")}` : `Trade run to ${esc(where ?? "")}${hops} · cargo ${RES_ICON.credits}${fmt(f.cargo ?? 0)}`;
   }
 }
 

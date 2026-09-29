@@ -239,7 +239,7 @@ class App implements AppApi {
     const me = this.game?.playerId;
     if (this.running && msg.to === me && msg.from !== me) {
       const from = this.game.state.empires[msg.from];
-      if (!this.hud?.isChattingWith(msg.from)) this.toast(`✉ ${from?.name ?? "Someone"}: ${msg.text.slice(0, 90)}`, "info");
+      if (!this.hud?.isChattingWith(msg.from)) this.toast(`${from?.name ?? "Someone"}: ${msg.text.slice(0, 90)}`, "info");
     }
     this.hud?.render();
   }
