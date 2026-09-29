@@ -14,6 +14,7 @@ import {
   incomeReport,
   settlementUpkeep,
   SETTLEMENT_DAYS,
+  garrison,
   growPopulation,
   maxDefense,
   popCapacity,
@@ -23,6 +24,7 @@ import {
   systemOwnerMap,
 } from "../src/sim/economy";
 import { STAR_TYPES } from "../src/sim/data/stars";
+import { invasionOptions, transportsNeeded } from "../src/sim/planning";
 import { PLANET_TYPES } from "../src/sim/data/planets";
 import { TECHS, TECH_MAP } from "../src/sim/data/techs";
 import { HULLS } from "../src/sim/data/ships";
@@ -458,6 +460,36 @@ describe("combat", () => {
     // Losing the only colony eliminates the empire → with others left, not yet a win.
     g.advance(1.1);
     expect(s.empires[enemy.id].alive).toBe(false);
+  });
+
+  it("plans an invasion: builds enough transports, gathers them into one force and sends it", () => {
+    const g = Game.create({ seed: "invade-plan", pirates: false });
+    const s = g.state;
+    const enemy = Object.values(s.empires).find((e) => !e.isPlayer && !e.isPirate)!;
+    enemy.ai = null;
+    const target = Object.values(s.colonies).find((c) => c.empireId === enemy.id)!;
+    meet(g, enemy.id);
+    for (const sid of Object.keys(s.systems)) g.player.explored[sid] = true;
+    expect(g.buildInvasionFor(target.id).ok).toBe(false); // not at war
+    expect(g.declareWar(enemy.id).ok).toBe(true);
+    expect(g.buildInvasionFor(target.id).error).toMatch(/Ground Forces/);
+    g.player.research.completed.push("ground_forces");
+    g.player.resources.credits = g.player.resources.metals = 5000;
+    const need = transportsNeeded(s, g.player, target.id);
+    expect(need * (HULLS.find((h) => h.id === "transport")!.troops ?? 0)).toBeGreaterThan(garrison(s, target) * 1.3);
+    const opts = invasionOptions(s, g.playerId, target.id);
+    expect(opts[0].count).toBe(need);
+    expect(g.buildInvasionFor(target.id).ok).toBe(true);
+    const yard = s.colonies[opts[0].colonyId];
+    expect(yard.queue.filter((q) => q.kind === "ship" && q.type === "transport")).toHaveLength(need);
+    // Transports gather at the shipyard until the last one launches, then the force sails as one.
+    expect(runUntil(g, () => Object.values(s.fleets).some((f) => f.empireId === g.playerId && f.staging), 400)).toBe(true);
+    const force = Object.values(s.fleets).find((f) => f.empireId === g.playerId && f.staging)!;
+    expect(force.order).toBeNull();
+    expect(runUntil(g, () => force.order?.kind === "invade", 1000)).toBe(true);
+    expect(force.staging).toBeUndefined();
+    expect(force.ships.filter((sh) => sh.hull === "transport")).toHaveLength(need);
+    expect(force.order!.colonyId).toBe(target.id);
   });
 });
 

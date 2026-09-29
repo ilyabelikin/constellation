@@ -34,6 +34,10 @@ export abstract class PlayerFacade {
   buildColonyShipFor(bodyId: string, colonyId?: string) {
     return this.exec("buildColonyShipFor", bodyId, colonyId ?? null);
   }
+  /** Queue enough troop transports (at `shipyardId`, or the best shipyard) to take `colonyId`; they launch as one force. */
+  buildInvasionFor(colonyId: string, shipyardId?: string) {
+    return this.exec("buildInvasionFor", colonyId, shipyardId ?? null);
+  }
   cancelQueueItem(colonyId: string, index: number, expectType?: string) {
     return this.exec("cancelQueueItem", colonyId, index, expectType ?? null);
   }

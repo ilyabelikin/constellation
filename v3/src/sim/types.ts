@@ -152,6 +152,8 @@ export interface Transit {
 }
 
 export interface Fleet {
+  /** Invasion force gathering at its shipyard until all its transports launch. */
+  staging?: string;
   id: string;
   empireId: string;
   name: string;
@@ -198,8 +200,11 @@ export type QueueItem =
       total: number;
       paid?: Partial<Resources>;
       /** Standing order the new ship executes on launch (e.g. colonise a chosen world). */
-      then?: { kind: "colonize"; bodyId: string };
+      then?: ShipStandingOrder;
     };
+
+/** What a ship does on launch: settle a chosen world, or join an invasion force (sent once all its transports are built). */
+export type ShipStandingOrder = { kind: "colonize"; bodyId: string } | { kind: "invade"; colonyId: string; group: string };
 
 export interface Colony {
   id: string;

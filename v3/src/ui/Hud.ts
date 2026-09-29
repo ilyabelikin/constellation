@@ -50,7 +50,7 @@ import { supplyLevel } from "../sim/supplies";
 import type { PickResult } from "../render/Engine";
 import { costHtml, dateString, esc, fmt, pct, RES_ICON, RES_NAME, signed, yieldsHtml } from "./format";
 import { helpHtml } from "./help";
-import { colonyShipOptions } from "../sim/planning";
+import { colonyShipOptions, invasionOptions, transportsNeeded } from "../sim/planning";
 import { findOpportunities, OPPORTUNITY_META, type Opportunity, type OpportunityKind, type OpportunityTarget } from "./opportunities";
 
 function targetKey(t: OpportunityTarget): string {
@@ -93,7 +93,7 @@ export interface AppApi {
   quitToTitle(): void;
 }
 
-type Modal = null | "research" | "empires" | "menu" | "help" | "end" | "colonize" | "chat";
+type Modal = null | "research" | "empires" | "menu" | "help" | "end" | "colonize" | "invade" | "chat";
 
 export class Hud {
   private regions: Record<string, HTMLElement> = {};
@@ -108,6 +108,7 @@ export class Hud {
   private opportunities: Opportunity[] = [];
   private dismissed: Partial<Record<OpportunityKind, Set<string>>> = {};
   private colonizeTarget: string | null = null;
+  private invadeTarget: string | null = null;
   private chatWith: string | null = null;
   private shiftHeld = false;
   /** Fleet whose name is being edited in place. */
@@ -617,7 +618,7 @@ export class Hud {
       const pending =
         Object.values(s.fleets).find((x) => x.empireId === p.id && x.order?.kind === "colonize" && x.order.bodyId === b.id) ??
         null;
-      const queuedAt = g.playerColonies().find((c) => c.queue.some((q) => q.kind === "ship" && q.then?.bodyId === b.id));
+      const queuedAt = g.playerColonies().find((c) => c.queue.some((q) => q.kind === "ship" && q.then?.kind === "colonize" && q.then.bodyId === b.id));
       if (pending) actions.push(`<span class="chip good">🜨 ${esc(pending.name)} is on its way</span>`);
       else if (queuedAt) actions.push(`<span class="chip good">🜨 Colony ship being built at ${esc(queuedAt.name)}</span>`);
       else
@@ -626,10 +627,23 @@ export class Hud {
         );
     }
     if (colony && colony.empireId !== p.id && p.relations[colony.empireId] === "war") {
+      const need = transportsNeeded(s, p, colony.id);
+      const troopsOf = (f: Fleet) => f.ships.filter((sh) => HULL_MAP[sh.hull].role === "transport").length;
+      const underway = Object.values(s.fleets).find((f) => f.empireId === p.id && (f.order?.kind === "invade" && f.order.colonyId === colony.id));
+      const building = g.playerColonies().filter((c) => c.queue.some((q) => q.kind === "ship" && q.then?.kind === "invade" && q.then.colonyId === colony.id));
       const t = this.fleetFor("transport", b.systemId);
-      actions.push(
-        `<button class="danger" data-action="invade:${colony.id}" ${t ? "" : "disabled"} title="${t ? (t.busy ? `${esc(t.fleet.name)} is busy — Shift+click to queue` : "Troops land once planetary defenses are down") : "Requires Troop Transports (Ground Forces tech)"}">⚔ Invade${t ? ` · ${esc(t.fleet.name)}${t.busy ? " (busy)" : ""}` : ""}</button>`,
-      );
+      if (underway) actions.push(`<span class="chip good">⚔ ${esc(underway.name)} is on its way (${troopsOf(underway)} transports)</span>`);
+      else if (building.length) actions.push(`<span class="chip good">⚔ Troop transports being built at ${building.map((c) => esc(c.name)).join(", ")}</span>`);
+      else if (!hullUnlocked(p, "transport"))
+        actions.push(`<button class="danger" disabled title="Research Ground Forces to build Troop Transports">⚔ Invade</button>`);
+      else if (t && troopsOf(t.fleet) >= need)
+        actions.push(
+          `<button class="danger" data-action="invade:${colony.id}" title="${t.busy ? `${esc(t.fleet.name)} is busy — Shift+click to queue` : `Send ${esc(t.fleet.name)}; troops land once planetary defenses are down`}">⚔ Invade · ${esc(t.fleet.name)}${t.busy ? " (busy)" : ""}</button>`,
+        );
+      else
+        actions.push(
+          `<button class="danger" data-action="invade:${colony.id}" title="Build ${need} troop transport${need === 1 ? "" : "s"} (enough to beat a garrison of ${garrison(s, colony).toFixed(1)}) and send them">⚔ Invade…</button>`,
+        );
     }
     if (actions.length) html += `<div class="actions">${actions.join("")}</div>`;
 
@@ -888,6 +902,7 @@ export class Hud {
     else if (this.modal === "help") inner = `<header><h2>How to play</h2><button data-action="close">✕</button></header>${helpHtml()}`;
     else if (this.modal === "end") inner = this.endModal();
     else if (this.modal === "colonize") inner = this.colonizeModal();
+    else if (this.modal === "invade") inner = this.invadeModal();
     else if (this.modal === "chat") inner = this.chatModal();
     this.set("modal", `<div class="modal-backdrop" data-action="backdrop"><div class="panel modal" data-stop="1">${inner}</div></div>`, this.modalRoot);
   }
@@ -1057,6 +1072,31 @@ export class Hud {
       ${rows || `<div class="hint">None of your colonies has an Orbital Shipyard with a known route there. Build a shipyard first.</div>`}`;
   }
 
+  private invadeModal(): string {
+    const g = this.game;
+    const s = g.state;
+    const colony = this.invadeTarget ? s.colonies[this.invadeTarget] : null;
+    if (!colony) return `<header><h2>Invade</h2><button data-action="close">✕</button></header>`;
+    const options = invasionOptions(s, g.playerId, colony.id);
+    const need = transportsNeeded(s, g.player, colony.id);
+    const perShip = HULL_MAP.transport.troops ?? 1;
+    const rows = options
+      .map((o, i) => {
+        const ok = o.affordable && !o.blocked;
+        const best = i === 0 && ok;
+        return `<div class="empire-card" style="grid-template-columns:1fr auto">
+          <div><div style="font-weight:600;font-size:15px">${esc(o.colonyName)} ${best ? `<span class="tag peace">recommended</span>` : ""}</div>
+          <div class="stats">Arrives in ~${Math.round(o.etaDays)} days · queue ${Math.round(o.queueDays)}d + build ${Math.round(o.buildDays)}d + travel ${Math.round(o.travelDays)}d (${o.jumps} jump${o.jumps === 1 ? "" : "s"}) · ${costHtml(o.cost, g.player.resources)}${o.blocked ? ` · <span style="color:var(--bad)">${esc(o.blocked)}</span>` : ""}</div></div>
+          <div><button class="${best ? "primary" : ""}" data-action="buildinvasion:${o.colonyId}" ${ok ? "" : "disabled"} title="${o.blocked ?? (o.affordable ? `Queue ${o.count} troop transports here` : "Not enough resources")}">Build ${o.count} &amp; send</button></div></div>`;
+      })
+      .join("");
+    return `<header><h2>Invade ${esc(colony.name)}</h2><button data-action="close">✕</button></header>
+      <p class="desc">${esc(colony.name)} is held by a garrison of <b>${garrison(s, colony).toFixed(1)}</b> troops. Each Troop Transport lands about ${perShip} troops (more with weapons research),
+      so you need <b>${need}</b> to win even on a poor landing. They are built together, gather at the shipyard and sail as one force;
+      troops land once warships have knocked the planetary defenses (${Math.round(colony.defense)}) down.</p>
+      ${rows || `<div class="hint">None of your colonies has an Orbital Shipyard with a known route there. Build a shipyard first.</div>`}`;
+  }
+
   private endModal(): string {
     const s = this.game.state;
     const won = s.winner === s.playerId;
@@ -1184,7 +1224,25 @@ export class Hud {
       case "invade": {
         const c = g.state.colonies[args[0]];
         const pick = this.fleetFor("transport", c.systemId);
-        if (pick) this.dispatch(pick, (q) => g.invade(pick.fleet.id, c.id, q), `invade ${c.name} when defenses fall`);
+        const troops = pick ? pick.fleet.ships.filter((sh) => HULL_MAP[sh.hull].role === "transport").length : 0;
+        if (pick && troops >= transportsNeeded(g.state, g.player, c.id))
+          this.dispatch(pick, (q) => g.invade(pick.fleet.id, c.id, q), `invade ${c.name} when defenses fall`);
+        else {
+          // Not enough troops at hand: offer to build an invasion force.
+          this.invadeTarget = c.id;
+          this.modal = "invade";
+        }
+        break;
+      }
+      case "buildinvasion": {
+        const target = this.invadeTarget;
+        if (!target) break;
+        const r = g.buildInvasionFor(target, args[0]);
+        res(r, `Troop transports queued — they will sail for ${g.state.colonies[target]?.name} together once all are built`);
+        if (r.ok) {
+          this.modal = null;
+          this.invadeTarget = null;
+        }
         break;
       }
       case "station": {

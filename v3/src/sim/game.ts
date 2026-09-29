@@ -21,7 +21,7 @@ import { bodyPosition, dist } from "./orbits";
 import { pirateDay } from "./pirates";
 import { Rng } from "./rng";
 import { acquaintances, fleetRef, log, logTo } from "./util";
-import type { Colony, GameSettings, GameState, QueueItem, SimEvent } from "./types";
+import type { Colony, Empire, Fleet, GameSettings, GameState, QueueItem, SimEvent } from "./types";
 
 export const STEP_DAYS = 0.1;
 export const DOMINATION_SHARE = 0.6;
@@ -107,7 +107,10 @@ export class Game extends PlayerFacade {
     const pos = bodyPosition(s, s.bodies[colony.bodyId]);
     const ship = makeShip(s, empire, hullId);
     empire.stats.shipsBuilt++;
-    let fleet = null;
+    let fleet: Fleet | null = null;
+    const invasion = item.then?.kind === "invade" ? item.then : null;
+    // Transports built for one invasion gather into a single force at the shipyard.
+    if (invasion) fleet = Object.values(s.fleets).find((f) => f.empireId === empire.id && f.staging === invasion.group) ?? null;
     if (hull.role === "military" && !item.then) {
       fleet = Object.values(s.fleets).find(
         (f) =>
@@ -118,7 +121,7 @@ export class Game extends PlayerFacade {
           f.orbitBodyId === colony.bodyId &&
           f.ships.length > 0 &&
           f.ships.every((sh) => HULL_MAP[sh.hull].role === "military"),
-      );
+      ) ?? null;
     }
     if (!fleet) {
       const name =
@@ -130,8 +133,9 @@ export class Game extends PlayerFacade {
               ? `Construction Crew ${empire.fleetCounter + 1}`
               : hull.role === "scout"
                 ? `Survey Team ${empire.fleetCounter + 1}`
-                : `Assault Group ${empire.fleetCounter + 1}`;
+                : `${invasion ? "Invasion Force" : "Assault Group"} ${empire.fleetCounter + 1}`;
       fleet = makeFleet(s, empire, colony.systemId, pos, name);
+      if (invasion) fleet.staging = invasion.group;
       fleet.orbitBodyId = colony.bodyId;
       // Warships hold their ground; everything else keeps out of trouble.
       fleet.stance = hull.role === "military" ? "defensive" : "evasive";
@@ -139,6 +143,7 @@ export class Game extends PlayerFacade {
     fleet.ships.push(ship);
     this.events.push({ type: "shipBuilt", systemId: colony.systemId, fleetId: fleet.id, hull: hullId });
     if (empire.isPlayer) log(s, "construction", `${hull.name} ${ship.name.split(" ").pop()} launched at ${colony.name}.`, empire.id, colony.systemId, fleetRef(fleet));
+    if (invasion) this.launchInvasion(empire, fleet, invasion);
     if (item.then?.kind === "colonize") {
       const target = s.bodies[item.then.bodyId];
       const r = cmd.colonizeOrder(s, empire.id, fleet.id, item.then.bodyId);
@@ -151,6 +156,27 @@ export class Game extends PlayerFacade {
           target.systemId,
         );
     }
+  }
+
+  /** Once the last transport of an invasion force is built, the force sails for its target. */
+  private launchInvasion(empire: Empire, fleet: Fleet, inv: { colonyId: string; group: string }): void {
+    const s = this.state;
+    const pending = Object.values(s.colonies).some((c) => c.queue.some((q) => q.kind === "ship" && q.then?.kind === "invade" && q.then.group === inv.group));
+    if (pending) return;
+    delete fleet.staging;
+    const target = s.colonies[inv.colonyId];
+    const r = target ? cmd.invadeOrder(s, empire.id, fleet.id, inv.colonyId) : { ok: false, error: "the colony is gone" };
+    if (empire.isPlayer)
+      log(
+        s,
+        "combat",
+        r.ok
+          ? `${fleet.name} (${fleet.ships.length} troop transports) sets out to invade ${target!.name}. Troops land once its defenses are down.`
+          : `${fleet.name} stands down: it can no longer invade ${target?.name ?? "its target"} (${r.error}).`,
+        empire.id,
+        fleet.systemId ?? undefined,
+        fleetRef(fleet),
+      );
   }
 
   private checkEliminations(): void {

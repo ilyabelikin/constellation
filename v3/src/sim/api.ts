@@ -3,9 +3,10 @@
 // and tests all execute commands through `execCommand`, so the rules are
 // enforced in exactly one place and untrusted input can't reach the sim raw.
 
+import { hullUnlocked } from "./modifiers";
 import { aiAcceptsPeace } from "./ai";
 import * as cmd from "./commands";
-import { colonyShipOptions } from "./planning";
+import { colonyShipOptions, invasionOptions } from "./planning";
 import { acceptDemand, cedeColony, isResource, rejectDemand, sendTribute } from "./diplomacy";
 import { acceptTrade, cancelTrade, proposeTrade, rejectTrade } from "./trade";
 import { Rng } from "./rng";
@@ -107,10 +108,32 @@ function buildColonyShipFor(state: GameState, empireId: string, bodyId: string, 
   return cmd.queueShip(state, empireId, pick.colonyId, "colony", { kind: "colonize", bodyId });
 }
 
+/** Build enough troop transports at a shipyard to take an enemy colony; they sail together once all are built. */
+function buildInvasionFor(state: GameState, empireId: string, colonyId: string, shipyardId?: string | null): CommandResult {
+  const target = state.colonies[colonyId];
+  const empire = state.empires[empireId];
+  if (!target || target.empireId === empireId) return { ok: false, error: "Not an enemy colony" };
+  if (empire.relations[target.empireId] !== "war") return { ok: false, error: "We must be at war to invade" };
+  if (!hullUnlocked(empire, "transport")) return { ok: false, error: "Requires Troop Transports (research Ground Forces)" };
+  const options = invasionOptions(state, empireId, colonyId);
+  const pick = shipyardId ? options.find((o) => o.colonyId === shipyardId) : options[0];
+  if (!pick) return { ok: false, error: "No shipyard can reach that world" };
+  if (pick.blocked) return { ok: false, error: pick.blocked };
+  if (!pick.affordable) return { ok: false, error: "Not enough resources" };
+  state.idCounter += 1;
+  const group = `inv${state.idCounter.toString(36)}`;
+  for (let i = 0; i < pick.count; i++) {
+    const r = cmd.queueShip(state, empireId, pick.colonyId, "transport", { kind: "invade", colonyId, group });
+    if (!r.ok) return r;
+  }
+  return { ok: true };
+}
+
 export const COMMANDS: Record<string, CommandSpec> = {
   queueBuilding: { args: ["id", "id"], run: (s, e, c: string, t: string) => cmd.queueBuilding(s, e, c, t) },
   queueShip: { args: ["id", "id"], run: (s, e, c: string, h: string) => cmd.queueShip(s, e, c, h) },
   buildColonyShipFor: { args: ["id", "optId"], run: (s, e, b: string, c?: string | null) => buildColonyShipFor(s, e, b, c) },
+  buildInvasionFor: { args: ["id", "optId"], run: (s, e, c: string, y?: string | null) => buildInvasionFor(s, e, c, y) },
   cancelQueueItem: { args: ["id", "int", "optId"], run: (s, e, c: string, i: number, t?: string) => cmd.cancelQueueItem(s, e, c, i, t ?? undefined) },
   demolishBuilding: { args: ["id", "int"], run: (s, e, c: string, i: number) => cmd.demolishBuilding(s, e, c, i) },
   setResearch: { args: ["id"], run: (s, e, t: string) => cmd.setResearch(s, e, t) },

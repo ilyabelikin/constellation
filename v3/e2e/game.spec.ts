@@ -679,3 +679,33 @@ test("galaxy map names every star, marks unexplored ones, and shows contested sy
   expect(after.color).toBe(info.playerColor);
   expect(after.sub).not.toContain("contested");
 });
+
+test("invade without troops at hand offers to build enough transports at the best shipyard", async ({ page }) => {
+  await startGame(page, "invade-e2e");
+  await page.click('[data-action="speed:0"]');
+  const info = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const g = app.game;
+    const s = g.state;
+    const enemy = Object.values(s.empires).find((e: any) => e.ai && !e.isPirate) as any;
+    const cap = Object.values(s.colonies).find((c: any) => c.empireId === enemy.id) as any;
+    for (const id of Object.keys(s.systems)) g.player.explored[id] = true;
+    (g.player.contacts ??= {})[enemy.id] = true;
+    (enemy.contacts ??= {})[g.playerId] = true;
+    g.declareWar(enemy.id);
+    g.player.resources.credits = 5000;
+    g.player.resources.metals = 5000;
+    app.enterSystem(cap.systemId);
+    app.select({ kind: "body", id: cap.bodyId });
+    return { colonyId: cap.id, name: cap.name };
+  });
+  // Without the tech the button says exactly what is missing.
+  await expect(page.locator("#details button:has-text('Invade')")).toHaveAttribute("title", /Research Ground Forces/);
+  await page.evaluate(() => (window as any).__app.game.player.research.completed.push("ground_forces"));
+  await page.locator(`#details [data-action="invade:${info.colonyId}"]`).click();
+  await expect(page.locator(".modal h2")).toContainText(`Invade ${info.name}`);
+  await expect(page.locator(".modal .desc")).toContainText("garrison");
+  await page.locator('.modal [data-action^="buildinvasion:"]').first().click();
+  await expect(page.locator(".modal")).toHaveCount(0);
+  await expect(page.locator("#details")).toContainText("Troop transports being built");
+});

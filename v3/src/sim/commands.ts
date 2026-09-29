@@ -10,7 +10,7 @@ import { makeFleet } from "./galaxy";
 import { cancelTrade } from "./trade";
 import { buildingUnlocked, hullUnlocked } from "./modifiers";
 import { acquaintances, canAfford, logTo, pay, refund } from "./util";
-import type { Empire, Fleet, GameState, QueuedOrder, Stance, Vec3 } from "./types";
+import type { Empire, Fleet, GameState, QueuedOrder, ShipStandingOrder, Stance, Vec3 } from "./types";
 
 export type CommandResult = { ok: true } | { ok: false; error: string };
 
@@ -44,7 +44,7 @@ export function queueShip(
   empireId: string,
   colonyId: string,
   hullId: string,
-  then?: { kind: "colonize"; bodyId: string },
+  then?: ShipStandingOrder,
 ): CommandResult {
   const colony = state.colonies[colonyId];
   const empire = state.empires[empireId];
@@ -73,6 +73,12 @@ export function cancelQueueItem(state: GameState, empireId: string, colonyId: st
   colony.queue.splice(index, 1);
   const cost = item.kind === "ship" ? (item.paid ?? HULL_MAP[item.type].cost) : BUILDING_MAP[item.type].cost;
   refund(empire.resources, cost);
+  // The last pending transport of an invasion cancelled: the transports already built are free for orders.
+  if (item.kind === "ship" && item.then?.kind === "invade") {
+    const group = item.then.group;
+    const pending = Object.values(state.colonies).some((c) => c.queue.some((q) => q.kind === "ship" && q.then?.kind === "invade" && q.then.group === group));
+    if (!pending) for (const f of Object.values(state.fleets)) if (f.staging === group) delete f.staging;
+  }
   return OK;
 }
 
