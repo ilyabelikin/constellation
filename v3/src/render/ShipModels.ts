@@ -523,7 +523,7 @@ function makeProbe(parts: THREE.BufferGeometry[]): Probe {
  * hull's actual surface (found by probing it), with a pylon where it stands
  * off, so nothing floats free of the ship.
  */
-function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe): void {
+function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe, style: Exclude<ShipStyle, "terran">): void {
   const W = (box3.max.x - box3.min.x) / 2;
   const H = (box3.max.y - box3.min.y) / 2;
   const L = box3.max.z - box3.min.z;
@@ -547,14 +547,71 @@ function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe)
   // Sink mounts slightly into the hull so their bases never show a gap.
   const sink = s * 0.06;
 
+  /** A flank plate (armour belt, hangar bay) shaped in the species' idiom. */
+  const plate = (w: number, h: number, l: number): THREE.BufferGeometry => {
+    switch (style) {
+      case "lumenari":
+        return new THREE.OctahedronGeometry(1, 0).scale(w * 0.6, h * 0.55, l * 0.55); // a long crystal facet
+      case "kraal":
+        return ellipsoid(w * 0.6, h * 0.5, l * 0.5, 10); // a carapace ridge
+      case "thalassi":
+        return ellipsoid(w * 0.5, h * 0.45, l * 0.52, 14); // a smooth fairing
+      default:
+        return box(w, h, l);
+    }
+  };
+  // Each species arms its ships in its own idiom; turrets sit on the hull's real surface.
   const turret = (x: number, z: number, size: number, barrels: number, up = 1) => {
+    // Streamlined Thalassi ships carry their weapons in pairs off the centre line, like fins.
+    if (style === "thalassi" && Math.abs(x) < 1e-6 && up === 1) {
+      for (const sx of [-1, 1]) mount(sx * W * 0.32, z, size * 0.8, Math.max(1, barrels - 1), up);
+      return;
+    }
+    mount(x, z, size, barrels, up);
+  };
+  const mount = (x: number, z: number, size0: number, barrels: number, up: number) => {
+    const size = size0 * 1.3;
     const d = deck(x, z, up);
     if (!d) return;
-    const baseY = d.y - up * sink;
-    b.P(at(cyl(size * 0.55, size * 0.65, size * 0.5, 10).rotateX(Math.PI / 2), d.x, baseY + up * size * 0.25, z), 0.7);
-    for (let i = 0; i < barrels; i++) {
-      const off = (i - (barrels - 1) / 2) * size * 0.32;
-      b.P(at(cyl(size * 0.08, size * 0.1, size * 1.3, 6), d.x + off, baseY + up * size * 0.32, z + size * 0.75), 0.55);
+    const y = d.y - up * sink;
+    const spread = (i: number) => (i - (barrels - 1) / 2) * size * 0.32;
+    switch (style) {
+      case "vashari": {
+        // Armoured casemate: a squat slab with thick square barrels.
+        b.P(at(box(size * 1.1, size * 0.4, size * 0.9), d.x, y + up * size * 0.2, z), 0.7);
+        b.P(at(box(size * 0.8, size * 0.12, size * 0.5), d.x, y + up * size * 0.45, z - size * 0.1), 1.3);
+        for (let i = 0; i < barrels; i++) b.P(at(box(size * 0.16, size * 0.16, size * 1.2), d.x + spread(i), y + up * size * 0.22, z + size * 0.95), 0.55);
+        break;
+      }
+      case "lumenari": {
+        // Crystal emitters: a faceted focus on a short stem, prongs for extra beams.
+        b.P(at(cyl(size * 0.08, size * 0.12, size * 0.35, 5).rotateX(Math.PI / 2), d.x, y + up * size * 0.17, z), 0.8);
+        b.P(at(new THREE.OctahedronGeometry(size * 0.38, 0).scale(1, 0.8, 1.4), d.x, y + up * size * 0.5, z), 1.35);
+        for (let i = 0; i < barrels; i++) b.P(at(cone(size * 0.07, size * 0.9, 4), d.x + spread(i), y + up * size * 0.5, z + size * 0.7), 1.2);
+        break;
+      }
+      case "kraal": {
+        // Living weapons: a swollen blister bristling with bone spines.
+        b.P(at(ellipsoid(size * 0.55, size * 0.4, size * 0.6, 10), d.x, y + up * size * 0.15, z), 0.85);
+        for (let i = 0; i < barrels; i++) b.P(at(rot(cone(size * 0.1, size * 1.1, 6), up * -0.25, 0, 0), d.x + spread(i), y + up * size * 0.35, z + size * 0.7), 0.65);
+        break;
+      }
+      case "thalassi": {
+        // Smooth low dome with slim, flush barrels.
+        b.P(at(ellipsoid(size * 0.5, size * 0.28, size * 0.55, 14), d.x, y, z), 1.15);
+        for (let i = 0; i < barrels; i++) b.P(at(cyl(size * 0.05, size * 0.07, size * 1.1, 8), d.x + spread(i) * 0.8, y + up * size * 0.12, z + size * 0.75), 0.75);
+        break;
+      }
+      case "aurelian": {
+        // Industrial gun mount: a post, a boxy breech and long rails with a collar.
+        b.P(at(box(size * 0.15, size * 0.45, size * 0.15), d.x, y + up * size * 0.22, z), 0.6);
+        b.P(at(box(size * 0.6, size * 0.35, size * 0.6), d.x, y + up * size * 0.55, z), 0.8);
+        for (let i = 0; i < barrels; i++) {
+          b.P(at(box(size * 0.07, size * 0.07, size * 1.6), d.x + spread(i), y + up * size * 0.55, z + size * 1.05), 0.55);
+          b.P(at(new THREE.TorusGeometry(size * 0.1, size * 0.03, 4, 8), d.x + spread(i), y + up * size * 0.55, z + size * 1.5), 0.9);
+        }
+        break;
+      }
     }
   };
   /** A pod along the flank at (y, z), on a pylon reaching back to the hull. */
@@ -610,11 +667,11 @@ function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe)
       turret(0, nose - L * 0.3, s * 0.45, 2);
       turret(0, nose - L * 0.55, s * 0.45, 2);
       turret(0, nose - L * 0.4, s * 0.4, 2, -1);
-      for (const sx of [-1, 1]) sidePod(sx, cy, -L * 0.1, () => box(s * 0.12, Math.min(H * 0.6, s * 0.45), L * 0.3), s * 0.06 - sink, 0, 0.65); // hangar bays
+      for (const sx of [-1, 1]) sidePod(sx, cy, -L * 0.1, () => plate(s * 0.12, Math.min(H * 0.6, s * 0.45), L * 0.3), s * 0.06 - sink, 0, 0.65); // hangar bays
       break;
     case "battleship":
       for (let i = 0; i < 3; i++) turret(0, nose - L * (0.25 + i * 0.2), s * 0.42, 3);
-      for (const sx of [-1, 1]) sidePod(sx, cy, -L * 0.05, () => box(s * 0.1, Math.min(H * 0.7, s * 0.5), L * 0.55), s * 0.05 - sink, 0, 0.6); // armour belts
+      for (const sx of [-1, 1]) sidePod(sx, cy, -L * 0.05, () => plate(s * 0.1, Math.min(H * 0.7, s * 0.5), L * 0.55), s * 0.05 - sink, 0, 0.6); // armour belts
       break;
     case "titan": {
       // A spinal lance with its emitter ring.
@@ -846,7 +903,7 @@ function buildStyled(hull: string, style: Exclude<ShipStyle, "terran">): ShipMod
     p.geo.computeBoundingBox();
     bounds.union(p.geo.boundingBox!);
   }
-  hullSignature(builder, hull, bounds, makeProbe(parts.map((p) => p.geo)));
+  hullSignature(builder, hull, bounds, makeProbe(parts.map((p) => p.geo)), style);
   if (!rad.length) rad.push(box(0.001, 0.001, 0.001)); // no radiator panels in this style
   for (const g of strutsFor([...parts.map((p) => p.geo), ...rad.filter((r) => r.getAttribute("position").count > 36 || new THREE.Box3().setFromBufferAttribute(r.getAttribute("position") as THREE.BufferAttribute).getSize(new THREE.Vector3()).length() > 0.01)], length)) parts.push({ geo: g, tint: 0.6 });
   const hullGeo = mergeGeometries(parts.map((p) => colorize(p.geo, p.tint)))!;
