@@ -24,6 +24,13 @@ export interface LlmClient {
 
 export const DEFAULT_MODEL = "z-ai/glm-5.3-flash";
 
+/**
+ * Extra max_tokens on top of the reply budget. Hidden reasoning counts against
+ * max_tokens, and some models (glm-5.3-flash) cannot turn it off, so without
+ * headroom the reply gets cut off mid-sentence and can't be parsed.
+ */
+export const REASONING_HEADROOM = 1000;
+
 export class OpenRouterClient implements LlmClient {
   /** Tokens used so far (prompt, completion) for logging. */
   usage = { prompt: 0, completion: 0, calls: 0, errors: 0 };
@@ -40,11 +47,13 @@ export class OpenRouterClient implements LlmClient {
     const body: Record<string, unknown> = {
       model: this.model,
       messages,
-      max_tokens: opts.maxTokens ?? 400,
+      max_tokens: (opts.maxTokens ?? 400) + REASONING_HEADROOM,
       temperature: opts.temperature ?? 0.85,
     };
-    // Rulers answer directly; skipping hidden reasoning keeps replies fast and cheap.
-    if (this.reasoningParam) body.reasoning = { enabled: false };
+    // Rulers answer directly; low effort keeps hidden reasoning (and latency) near
+    // zero. Some models reject disabling reasoning outright, but accept this.
+    const withReasoning = this.reasoningParam;
+    if (withReasoning) body.reasoning = { effort: "low" };
     const res = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
       headers: {
@@ -60,20 +69,27 @@ export class OpenRouterClient implements LlmClient {
     if (!res.ok) {
       this.usage.errors++;
       const detail = (await res.text().catch(() => "")).slice(0, 300);
-      // Some providers reject the reasoning switch: retry once without it.
-      if (res.status === 400 && this.reasoningParam && /reasoning/i.test(detail)) {
+      // Some providers reject the reasoning setting: retry once without it. Check
+      // what this request sent, not the shared flag, which a concurrent call may
+      // already have cleared.
+      if (res.status === 400 && withReasoning && /reasoning/i.test(detail)) {
         this.reasoningParam = false;
         return this.complete(messages, opts);
       }
       throw new Error(`LLM HTTP ${res.status}: ${detail}`);
     }
     const json = (await res.json()) as {
-      choices?: { message?: { content?: string | null } }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
+      choices?: { finish_reason?: string; message?: { content?: string | null } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; completion_tokens_details?: { reasoning_tokens?: number } };
     };
     this.usage.prompt += json.usage?.prompt_tokens ?? 0;
     this.usage.completion += json.usage?.completion_tokens ?? 0;
-    return json.choices?.[0]?.message?.content ?? "";
+    const choice = json.choices?.[0];
+    if (choice?.finish_reason === "length")
+      console.warn(
+        `llm reply truncated at max_tokens (${json.usage?.completion_tokens ?? "?"} tokens, ${json.usage?.completion_tokens_details?.reasoning_tokens ?? "?"} reasoning)`,
+      );
+    return choice?.message?.content ?? "";
   }
 }
 
@@ -159,12 +175,24 @@ export class LlmBudget {
 export function serverTransport(llm: LlmClient, budget: LlmBudget, who: string): LlmTransport {
   return {
     async decide(req: DecideRequest) {
-      if (!budget.take(who)) return null;
-      return parseDecision(await llm.complete(decideMessages(req), { maxTokens: 450, temperature: 0.8 }), req.briefing);
+      if (!budget.take(who)) {
+        console.warn(`llm decide skipped: rate limit for ${who}`);
+        return null;
+      }
+      const raw = await llm.complete(decideMessages(req), { maxTokens: 450, temperature: 0.8 });
+      const decision = parseDecision(raw, req.briefing);
+      if (!decision) console.warn(`llm decide reply unusable: ${JSON.stringify(raw.slice(0, 200))}`);
+      return decision;
     },
     async talk(req: TalkRequest) {
-      if (!budget.take(who)) return null;
-      return parseTalk(await llm.complete(talkMessages(req), { maxTokens: 320, temperature: 0.9 }), req);
+      if (!budget.take(who)) {
+        console.warn(`llm talk skipped: rate limit for ${who}`);
+        return null;
+      }
+      const raw = await llm.complete(talkMessages(req), { maxTokens: 320, temperature: 0.9 });
+      const reply = parseTalk(raw, req);
+      if (!reply) console.warn(`llm talk reply unusable: ${JSON.stringify(raw.slice(0, 200))}`);
+      return reply;
     },
   };
 }

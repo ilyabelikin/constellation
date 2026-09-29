@@ -10,7 +10,7 @@ import { declareWar } from "../src/sim/commands";
 import type { ChatMessage, GameState } from "../src/sim/types";
 import { Db } from "../server/db";
 import { Hub } from "../server/hub";
-import { attachLlm, LlmBudget, MockLlm, OpenRouterClient } from "../server/llm";
+import { attachLlm, LlmBudget, MockLlm, OpenRouterClient, REASONING_HEADROOM } from "../server/llm";
 import { PROTOCOL_VERSION, type ServerMessage } from "../src/net/protocol";
 
 function meet(state: GameState, a: string, b: string): void {
@@ -324,10 +324,31 @@ describe("OpenRouter client", () => {
     expect((seen[0].init.headers as Record<string, string>).Authorization).toBe("Bearer sk-test");
     const body = JSON.parse(String(seen[0].init.body));
     expect(body.model).toBe("z-ai/glm-5.3-flash");
-    expect(body.max_tokens).toBe(50);
-    expect(body.reasoning).toEqual({ enabled: false });
+    expect(body.max_tokens).toBe(50 + REASONING_HEADROOM);
+    expect(body.reasoning).toEqual({ effort: "low" });
     expect(JSON.parse(String(seen[1].init.body)).reasoning).toBeUndefined(); // retried without it
     expect(client.usage.completion).toBe(3);
+  });
+
+  it("retries every in-flight call that the reasoning setting was rejected for", async () => {
+    // Both calls go out with the setting before either rejection comes back.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const bodies: { reasoning?: unknown }[] = [];
+    const fake = (async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body));
+      bodies.push(body);
+      if (body.reasoning) {
+        if (bodies.length === 2) release();
+        await gate;
+        return new Response('{"error":"Reasoning is mandatory for this endpoint and cannot be disabled."}', { status: 400 });
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: "ok" } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    const client = new OpenRouterClient("sk-test", "m", "https://example.test/api/v1", fake);
+    const out = await Promise.all([client.complete([{ role: "user", content: "a" }]), client.complete([{ role: "user", content: "b" }])]);
+    expect(out).toEqual(["ok", "ok"]);
+    expect(bodies.filter((b) => b.reasoning === undefined)).toHaveLength(2);
   });
 
   it("rate limits per player and globally", () => {

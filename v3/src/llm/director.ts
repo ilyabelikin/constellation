@@ -136,7 +136,8 @@ export class RivalDirector {
       const briefing = buildBriefing(this.host.state(), empireId, (id) => this.host.isHuman(id));
       this.calls++;
       reply = await this.transport.decide({ briefing, trigger });
-    } catch {
+    } catch (err) {
+      console.error("llm decide failed", (err as Error).message);
       reply = null;
     } finally {
       this.inFlight.delete(empireId);
@@ -203,7 +204,8 @@ export class RivalDirector {
         this.calls++;
         reply = await this.transport.talk({ briefing, partnerId: fromId, history, text: texts.join("\n") });
       }
-    } catch {
+    } catch (err) {
+      console.error("llm talk failed", (err as Error).message);
       reply = null;
     }
     const s = this.host.state();
