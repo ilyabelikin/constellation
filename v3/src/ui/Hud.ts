@@ -258,10 +258,9 @@ export class Hud {
       "topbar",
       `<span class="brand">CONSTELLATION</span>
       ${res("credits")}${res("metals")}${res("energy")}${res("exotics")}
-      <div class="res research" title="Research per day. Current: ${cur ? esc(cur.name) : "none"}"><span class="icon">${RES_ICON.research}</span>${fmt(inc.research, 1)}<span class="inc">${cur ? `${esc(cur.name)} ${pct(progress)}` : "idle"}</span></div>
+      <button class="res research" data-action="modal:research" title="Research per day. Current: ${cur ? `${esc(cur.name)} ${pct(progress)}` : "none"}\nClick to open research (R)"><span class="icon">${RES_ICON.research}</span>${fmt(inc.research, 1)}<span class="inc">${cur ? `<span class="tech-name">${esc(cur.name)}</span> ${pct(progress)}` : "idle"}</span></button>
       <div class="res cmd ${used >= capC ? "warn" : ""}" title="Fleet command points used / capacity. Found colonies and research hulls to raise it."><span class="icon">${icon("command")}</span>${used}/${capC}</div>
       <div class="spacer"></div>
-      <button data-action="modal:research" title="Research (R)">${icon("research")} Research</button>
       <button data-action="modal:empires" title="Empires & diplomacy (E)">${icon("empires")} Empires${unread ? `<span class="unread">${unread}</span>` : ""}</button>
       ${remote ? `<div class="res online" title="${esc(players.map((x) => `${x.playerName} — ${x.empireName}${x.online ? "" : " (offline)"}`).join("\n"))}\nInvite code ${esc(remote.info.code)}"><span class="icon">${icon("players")}</span>${players.filter((x) => x.online).length}/${players.length}</div>` : ""}
       <div class="date">${dateString(g.state.day)}</div>

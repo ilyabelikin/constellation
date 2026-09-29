@@ -160,6 +160,32 @@ button.active {
 .res.research .icon {
   color: var(--research);
 }
+/* The research readout doubles as the Research button. It is the one top-bar
+   item allowed to shrink: the tech name truncates so the bar never grows taller. */
+button.res.research {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  cursor: pointer;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+button.res.research:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: var(--line-strong);
+}
+.res.research .inc {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.res.research .tech-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 16em;
+  min-width: 2em;
+}
 .res.cmd .icon {
   color: #ffa36b;
 }
