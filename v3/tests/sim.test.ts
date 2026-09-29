@@ -31,7 +31,7 @@ import { HULLS } from "../src/sim/data/ships";
 import { BUILDING_MAP, STATION_MAP, STATIONS } from "../src/sim/data/structures";
 import { fleetPower } from "../src/sim/combat";
 import { declareWar } from "../src/sim/commands";
-import { deliverTrade, proposeTrade, TRADE_INTERVAL, tradeStake, tradeValue } from "../src/sim/trade";
+import { deliverTrade, hubCapacity, proposeTrade, TRADE_INTERVAL, tradeStake, tradeValue } from "../src/sim/trade";
 import { aiAcceptsPeace } from "../src/sim/ai";
 import { buildBriefing } from "../src/llm/briefing";
 import { makePeace } from "../src/sim/commands";
@@ -1120,12 +1120,27 @@ describe("merchant trade", () => {
     g.player.resources.credits = 0;
     g.refreshIncome();
     const expectedBase = g.player.income.credits;
-    for (let i = 0; i < 3000 && s.fleets[id]; i++) g.step();
-    expect(s.fleets[id]).toBeUndefined();
+    const home = freighter!.tradeHome!;
+    const market = freighter!.order!.colonyId!;
+    expect(home).toBeDefined();
+    expect(market).not.toBe(home);
+    // It delivers, loads goods at the far market and heads home...
+    for (let i = 0; i < 3000 && s.fleets[id]?.order?.colonyId !== home; i++) g.step();
+    expect(s.fleets[id]).toBeDefined();
     expect(g.player.resources.credits).toBeGreaterThan(cargo * 0.99); // delivery paid (plus normal income)
+    expect(s.fleets[id].cargo).toBeGreaterThan(3); // return cargo
     expect(expectedBase).toBeDefined();
+    // ...sells that at home, and sets out again: the same freighter plies the route.
+    for (let i = 0; i < 3000 && s.fleets[id]?.order?.colonyId === home; i++) g.step();
+    expect(s.fleets[id]?.order?.kind).toBe("trade");
+    expect(s.fleets[id].order!.colonyId).not.toBe(home);
     g.advance(30);
     expect(g.player.tradeRate).toBeGreaterThan(0);
+    // A hub keeps only a few freighters in service.
+    g.advance(400);
+    const perHome = new Map<string, number>();
+    for (const f of Object.values(s.fleets)) if (f.tradeHome) perHome.set(f.tradeHome, (perHome.get(f.tradeHome) ?? 0) + 1);
+    for (const n of perHome.values()) expect(n).toBeLessThanOrEqual(hubCapacity(g.player));
   });
 
   it("agreements open foreign routes, pay both sides, and war ends them", () => {
@@ -1177,6 +1192,8 @@ describe("merchant trade", () => {
     const f = makeFleet(s, g.player, aiCap.systemId, { x: 0, y: 0, z: 0 }, "Merchant");
     f.order = { kind: "trade", systemId: aiCap.systemId, bodyId: aiCap.bodyId, colonyId: aiCap.id, route: [] } as Fleet["order"];
     f.cargo = 20;
+    f.tradeHome = home(g).id;
+    f.tradePartner = ai.id;
     deliverTrade(s, f);
     g.advance(2);
     expect(g.player.tradeWith?.[ai.id] ?? 0).toBeGreaterThan(0.5);

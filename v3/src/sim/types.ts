@@ -179,6 +179,10 @@ export interface Fleet {
   queue?: QueuedOrder[];
   /** Credits a merchant freighter's cargo is worth on delivery. */
   cargo?: number;
+  /** Merchant freighters: the trade-hub colony they sail from and return to. */
+  tradeHome?: string;
+  /** Merchant freighters on a foreign run: the partner empire of this round trip. */
+  tradePartner?: string;
   /** Munitions and spares a supply tender carries to a fleet. */
   supplies?: { metals: number; energy: number };
   /** Day this fleet last reported running dry of munitions. */

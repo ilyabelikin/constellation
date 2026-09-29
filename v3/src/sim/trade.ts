@@ -1,8 +1,10 @@
-// Merchant trade. Colonies with a Trade Hub send civilian freighters to other
-// trade-hub colonies: our own, and those of empires we have a trade agreement
-// with. A delivery pays credits to the sender (and a share to a foreign
-// receiver); bigger markets and longer hauls are worth more, foreign trade
-// most of all. Freighters are unarmed and can be caught by raiders or enemies.
+// Merchant trade. Each colony with a Trade Hub keeps a few civilian freighters
+// in service, plying back and forth between it and other trade-hub colonies:
+// our own, and those of empires we have a trade agreement with. Every leg
+// loads goods at one end and sells them at the other, paying the freighter's
+// owner (and a share to a foreign partner); bigger markets and longer hauls are
+// worth more, foreign trade most of all. Freighters are unarmed and can be
+// caught by raiders or enemies.
 
 import { aiAcceptsTrade } from "./ai";
 import { findRoute, issueOrder } from "./fleets";
@@ -14,14 +16,16 @@ import type { CommandResult } from "./api";
 import type { Colony, Empire, Fleet, GameState } from "./types";
 import { acquaintances, logTo } from "./util";
 
-/** Days between departures from one trade hub. */
+/** Days between departures from one trade hub (while it has fewer freighters than it can keep busy). */
 export const TRADE_INTERVAL = 25;
+/** Freighters one trade hub keeps in service (more with trade technology). */
+export const FREIGHTERS_PER_HUB = 4;
 /** Longest haul a merchant will undertake (tunnel jumps). */
 const MAX_HOPS = 6;
 /** Share of a foreign delivery's value that the receiving empire also earns. */
 export const RECEIVER_SHARE = 0.5;
-/** Days to unload at the destination. */
-export const TRADE_UNLOAD_DAYS = 2;
+/** Days in port at each end: unloading, trading and loading the return cargo. */
+export const TRADE_UNLOAD_DAYS = 6;
 
 const hasHub = (c: Colony) => c.buildings.some((b) => b.type === "trade_hub");
 
@@ -31,7 +35,7 @@ export function isTradePartner(state: GameState, a: string, b: string): boolean 
 
 /** Credits a run between two trade hubs is worth. */
 export function tradeValue(from: Colony, to: Colony, hops: number, foreign: boolean): number {
-  return (3 + 0.5 * Math.sqrt(Math.max(0, from.pop) * Math.max(0, to.pop))) * (1 + 0.3 * hops) * (foreign ? 1.6 : 1);
+  return (1.5 + 0.5 * Math.sqrt(Math.max(0, from.pop) * Math.max(0, to.pop))) * (1 + 0.3 * hops) * (foreign ? 1.6 : 1);
 }
 
 function destinations(state: GameState, from: Colony): { colony: Colony; value: number }[] {
@@ -64,41 +68,97 @@ export function tradeDay(state: GameState): Fleet[] {
     }
     e.tradeWithToday = {};
   }
+  const inService = new Map<string, number>();
+  for (const f of Object.values(state.fleets)) if (f.tradeHome) inService.set(f.tradeHome, (inService.get(f.tradeHome) ?? 0) + 1);
   for (const c of Object.values(state.colonies)) {
     if (!hasHub(c) || (c.nextTrade ?? 0) > state.day) continue;
     const owner = state.empires[c.empireId];
     if (!owner?.alive || owner.isPirate) continue;
     c.nextTrade = state.day + TRADE_INTERVAL / (1 + modifiers(owner).tradeFrequency);
+    if ((inService.get(c.id) ?? 0) >= hubCapacity(owner)) continue;
     if (Object.values(state.battles).some((b) => b.systemId === c.systemId)) continue;
-    const options = destinations(state, c);
-    if (!options.length) continue;
-    const best = options.reduce((a, b) => (b.value > a.value ? b : a));
+    const best = bestDestination(state, c);
+    if (!best) continue;
     const f = makeFleet(state, owner, c.systemId, bodyPosition(state, state.bodies[c.bodyId]), `${c.name} Merchants`);
-    f.ships.push(makeShip(state, owner, "freighter", `Freighter ${c.name}–${best.colony.name}`));
+    f.ships.push(makeShip(state, owner, "freighter", `Freighter ${c.name}`));
     f.civilian = true;
     f.stance = "passive";
-    f.cargo = Math.round(best.value * 10) / 10;
     f.orbitBodyId = c.bodyId;
-    if (issueOrder(state, f, { kind: "trade", systemId: best.colony.systemId, bodyId: best.colony.bodyId, colonyId: best.colony.id })) {
+    f.tradeHome = c.id;
+    if (!sail(state, f, best.colony, best.value)) {
       delete state.fleets[f.id];
       continue;
     }
+    inService.set(c.id, (inService.get(c.id) ?? 0) + 1);
     launched.push(f);
   }
   return launched;
 }
 
-/** On arrival: unload, get paid, and the chartered freighter leaves play. */
+/** Freighters one hub of this empire keeps busy. */
+export function hubCapacity(e: Empire): number {
+  return Math.round(FREIGHTERS_PER_HUB * (1 + modifiers(e).tradeFrequency));
+}
+
+function bestDestination(state: GameState, from: Colony): { colony: Colony; value: number } | null {
+  const options = destinations(state, from);
+  return options.length ? options.reduce((a, b) => (b.value > a.value ? b : a)) : null;
+}
+
+/** Load goods worth `value` and set course for `to`; false if it can't get there. */
+function sail(state: GameState, f: Fleet, to: Colony, value: number): boolean {
+  const owner = state.empires[f.empireId];
+  f.cargo = Math.round(value * 10) / 10;
+  if (to.empireId !== owner.id) f.tradePartner = to.empireId;
+  else if (to.id !== f.tradeHome) delete f.tradePartner;
+  return !issueOrder(state, f, { kind: "trade", systemId: to.systemId, bodyId: to.bodyId, colonyId: to.id });
+}
+
+/** Can a freighter of `owner` still trade at colony `c`? */
+function openMarket(state: GameState, owner: Empire, c: Colony | undefined): c is Colony {
+  if (!c || !hasHub(c)) return false;
+  return c.empireId === owner.id || isTradePartner(state, owner.id, c.empireId);
+}
+
+/**
+ * On arrival: unload and get paid, then load goods for the next leg — back
+ * home from a far market, or out again from home to the best market. A
+ * freighter with nowhere left to trade (hub gone, agreement ended, home lost)
+ * retires.
+ */
 export function deliverTrade(state: GameState, fleet: Fleet): void {
   const o = fleet.order!;
   const dest = o.colonyId ? state.colonies[o.colonyId] : undefined;
   const owner = state.empires[fleet.empireId];
   const value = fleet.cargo ?? 0;
-  if (dest && owner?.alive) {
-    const foreign = dest.empireId !== owner.id && isTradePartner(state, owner.id, dest.empireId);
-    pay(owner, value, foreign ? dest.empireId : null);
-    if (foreign) pay(state.empires[dest.empireId], value * RECEIVER_SHARE, owner.id);
+  const partner = fleet.tradePartner && isTradePartner(state, owner.id, fleet.tradePartner) ? fleet.tradePartner : null;
+  if (dest && owner?.alive && (dest.empireId === owner.id || isTradePartner(state, owner.id, dest.empireId))) {
+    pay(owner, value, partner);
+    if (partner) pay(state.empires[partner], value * RECEIVER_SHARE, owner.id);
   }
+  fleet.order = null;
+  fleet.cargo = 0;
+  const home = fleet.tradeHome ? state.colonies[fleet.tradeHome] : undefined;
+  if (!owner?.alive || !home || home.empireId !== owner.id || !hasHub(home)) return retire(state, fleet);
+  if (dest && dest.id !== home.id) {
+    // Load local goods for the journey home.
+    const route = dest.systemId === home.systemId ? [] : findRoute(state, dest.systemId, home.systemId, owner);
+    if (!route || !openMarket(state, owner, dest) || !sail(state, fleet, home, tradeValue(dest, home, route.length, dest.empireId !== owner.id) * (1 + modifiers(owner).trade)))
+      sailHomeEmpty(state, fleet, home);
+    return;
+  }
+  // Home again: back out to the best market, unless the hub already has enough freighters.
+  const busy = Object.values(state.fleets).filter((f) => f.tradeHome === home.id && f.id !== fleet.id).length;
+  const best = busy < hubCapacity(owner) ? bestDestination(state, home) : null;
+  if (!best || !sail(state, fleet, best.colony, best.value)) retire(state, fleet);
+}
+
+function sailHomeEmpty(state: GameState, fleet: Fleet, home: Colony): void {
+  delete fleet.tradePartner;
+  if (!sail(state, fleet, home, 0)) retire(state, fleet);
+}
+
+function retire(state: GameState, fleet: Fleet): void {
   delete state.fleets[fleet.id];
 }
 
@@ -184,10 +244,16 @@ export function cancelTrade(state: GameState, a: string, b: string, quiet = fals
     if (was > 0.05) (e.tradeLost ??= {})[y] = was;
     delete e.tradeWith?.[y];
   }
+  // Merchants bound for the other side's ports turn back home with their goods unsold.
   for (const f of Object.values(state.fleets)) {
     const dest = f.order?.kind === "trade" && f.order.colonyId ? state.colonies[f.order.colonyId] : null;
     if (!dest) continue;
-    if ((f.empireId === a && dest.empireId === b) || (f.empireId === b && dest.empireId === a)) delete state.fleets[f.id];
+    if ((f.empireId === a && dest.empireId === b) || (f.empireId === b && dest.empireId === a)) {
+      const home = f.tradeHome ? state.colonies[f.tradeHome] : undefined;
+      f.order = null;
+      if (home && home.empireId === f.empireId) sailHomeEmpty(state, f, home);
+      else retire(state, f);
+    } else if (f.tradePartner === (f.empireId === a ? b : f.empireId === b ? a : null)) delete f.tradePartner;
   }
   if (!quiet) logTo(state, "diplomacy", `The ${state.empires[a].name} ended its trade agreement with the ${state.empires[b].name}.`, [...acquaintances(state, a), ...acquaintances(state, b), a, b]);
   return OK;
