@@ -282,6 +282,25 @@ test("system outline and opportunity badges help explore quickly", async ({ page
   await expect(page.locator('#badges [data-action="badge:energy"]')).toBeVisible();
   await page.click('#badges [data-action="badge:energy"]');
   await expect(page.locator("#details")).toContainText(/Solar Array|Gas Harvester/);
+  // Deposits are flagged only where we can tap them: energy on a rocky world we can't settle
+  // (no Fusion Plant possible, no Gas Harvester site) is not advertised; on a gas giant it is.
+  const ids = await page.evaluate(() => {
+    const app = (window as any).__app;
+    const s = app.game.state;
+    const rows = [...document.querySelectorAll<HTMLElement>("#outliner .orow")];
+    const hasHab = (id: string) => rows.some((r) => r.dataset.action === `goto:body:${id}` && r.querySelector(".hab"));
+    const bodies = s.systems[app.systemId].bodyIds.map((id: string) => s.bodies[id]);
+    const colonized = (id: string) => Object.values(s.colonies).some((c: any) => c.bodyId === id);
+    const barren = bodies.find((b: any) => (b.kind === "planet" || b.kind === "moon") && !b.type.includes("giant") && !colonized(b.id) && !hasHab(b.id));
+    const gas = bodies.find((b: any) => b.type.includes("giant"));
+    for (const b of [barren, gas]) if (b) b.richness.energy = 2;
+    app.local.step();
+    return { barren: barren?.id, gas: gas?.id };
+  });
+  expect(ids.barren && ids.gas).toBeTruthy();
+  await expect(page.locator(`#outliner [data-action="goto:body:${ids.gas}"] .ri[title^="Energy"]`)).toHaveCount(1);
+  await expect(page.locator(`#outliner [data-action="goto:body:${ids.gas}"] .ri[title^="Energy"]`)).toHaveAttribute("title", /Gas Harvester/);
+  await expect(page.locator(`#outliner [data-action="goto:body:${ids.barren}"] .ri[title^="Energy"]`)).toHaveCount(0);
   // Empire tab still lists colonies and fleets.
   await page.click('[data-action="tab:empire"]');
   await expect(page.locator("#outliner")).toContainText("Colonies");

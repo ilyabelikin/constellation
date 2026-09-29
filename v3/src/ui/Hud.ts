@@ -332,10 +332,22 @@ export class Hud {
       list.push(`<span class="st" style="color:${s.empires[st.empireId].color}" title="${esc(STATION_MAP[st.type].name)} (${esc(s.empires[st.empireId].name)})">${STATION_MAP[st.type].icon}</span>`);
       stationsBy.set(st.bodyId, list);
     }
+    // Rich deposits are flagged only when we can tap them now: a station we can build there,
+    // or a colony building on a world that is (or could become) ours.
+    const tappers = (b: Body, k: "metals" | "energy" | "research" | "exotics") => {
+      const col = colonyBy.get(b.id);
+      const settle = col ? col.empireId === p.id : canColonize(p, b);
+      return [
+        ...STATIONS.filter((d) => d.richness === k && stationUnlocked(p, d.id) && stationAllowedOn(d, b)).map((d) => d.name),
+        ...(settle ? BUILDINGS.filter((d) => d.richness === k && buildingUnlocked(p, d.id)).map((d) => `${d.name} (colony)`) : []),
+      ];
+    };
     const richIcons = (b: Body) =>
       (["metals", "energy", "research", "exotics"] as const)
         .filter((k) => b.richness[k] >= (k === "exotics" ? 0.5 : 1.3))
-        .map((k) => `<span class="ri" style="color:var(--${k})" title="${RES_NAME[k]} ×${b.richness[k].toFixed(1)}">${RES_ICON[k]}</span>`)
+        .map((k) => ({ k, by: tappers(b, k) }))
+        .filter((x) => x.by.length)
+        .map(({ k, by }) => `<span class="ri" style="color:var(--${k})" title="${RES_NAME[k]} ×${b.richness[k].toFixed(1)} — ${esc(by.join(", "))}">${RES_ICON[k]}</span>`)
         .join("") +
       (b.features.includes("artifact") ? `<span class="ri good" title="Precursor artifact">⌬</span>` : "") +
       (b.features.includes("anomaly") ? `<span class="ri good" title="Anomaly">◈</span>` : "");
