@@ -361,7 +361,102 @@ export function shipModel(hull: string, style: ShipStyle = "terran"): ShipModel 
 // Species design languages. Each builds any hull from its size class and role.
 
 /** Size class of each hull (0 small … 5 titan). */
-const TIER: Record<string, number> = { scout: 0, corvette: 0, frigate: 1, constructor: 1, transport: 1, destroyer: 2, colony: 2, liner: 2, cruiser: 3, battleship: 4, titan: 5 };
+const TIER: Record<string, number> = { scout: 0, corvette: 0, frigate: 1, constructor: 1, transport: 1, freighter: 1, tender: 1, destroyer: 2, colony: 2, liner: 2, cruiser: 3, battleship: 4, titan: 5 };
+
+/**
+ * Per-hull proportions (width, height, length) laid over a species' design,
+ * so hulls sharing a size class still read differently: scouts are slim
+ * needles, destroyers long knives, battleships broad slabs.
+ */
+const PROPORTION = new Map<string, [number, number, number]>([
+  ["scout", [0.6, 0.75, 1.2]],
+  ["corvette", [0.95, 0.9, 0.85]],
+  ["frigate", [0.9, 0.95, 1.1]],
+  ["destroyer", [0.75, 0.85, 1.4]],
+  ["cruiser", [1.1, 1.05, 1.05]],
+  ["battleship", [1.25, 1.2, 1.0]],
+  ["titan", [1.1, 1.1, 1.2]],
+  ["constructor", [1.15, 1.1, 0.85]],
+  ["transport", [1.2, 1.0, 0.9]],
+  ["freighter", [1.1, 1.15, 1.0]],
+  ["tender", [1.0, 1.1, 1.0]],
+]);
+
+/** Parts every species fits to a hull of this type, in its own palette: the weapons, masts and cargo that tell hulls apart. */
+function hullSignature(b: Builder, hull: string, box3: THREE.Box3): void {
+  const W = (box3.max.x - box3.min.x) / 2;
+  const H = (box3.max.y - box3.min.y) / 2;
+  const L = box3.max.z - box3.min.z;
+  const nose = box3.max.z;
+  const top = box3.max.y;
+  const s = Math.max(0.2, Math.min(W, H * 1.6));
+  const turret = (x: number, z: number, size: number, barrels: number, y = top, flip = 1) => {
+    b.P(at(cyl(size * 0.55, size * 0.65, size * 0.5, 10).rotateX(Math.PI / 2), x, y + flip * size * 0.2, z), 0.7);
+    for (let i = 0; i < barrels; i++) {
+      const off = (i - (barrels - 1) / 2) * size * 0.32;
+      b.P(at(cyl(size * 0.08, size * 0.1, size * 1.3, 6), x + off, y + flip * size * 0.3, z + size * 0.75), 0.55);
+    }
+  };
+  switch (hull) {
+    case "scout":
+      // Long sensor mast with a dish: an unarmed eye.
+      b.P(at(cyl(s * 0.04, s * 0.06, L * 0.45, 6), 0, 0, nose + L * 0.2), 0.7);
+      b.P(at(new THREE.SphereGeometry(s * 0.16, 10, 8), 0, 0, nose + L * 0.43), 1.3);
+      b.P(at(cyl(s * 0.45, s * 0.05, s * 0.18, 16), 0, top + s * 0.35, -L * 0.05), 1.2);
+      b.P(at(cyl(s * 0.03, s * 0.03, s * 0.4, 5).rotateX(Math.PI / 2), 0, top + s * 0.15, -L * 0.05), 0.7);
+      break;
+    case "corvette":
+      turret(0, nose - L * 0.3, s * 0.5, 1);
+      break;
+    case "frigate":
+      // Twin gun pods along the flanks.
+      for (const sx of [-1, 1]) {
+        b.P(at(cyl(s * 0.14, s * 0.16, L * 0.5, 8), sx * (W + s * 0.1), 0, nose - L * 0.35), 0.75);
+        b.P(at(cyl(s * 0.05, s * 0.05, L * 0.25, 6), sx * (W + s * 0.1), 0, nose - L * 0.05), 0.55);
+      }
+      turret(0, -L * 0.05, s * 0.4, 1);
+      break;
+    case "destroyer":
+      // Spinal gun running past the prow, with a dorsal fin.
+      b.P(at(cyl(s * 0.09, s * 0.12, L * 0.7, 8), 0, 0, nose - L * 0.15), 0.6);
+      b.P(at(cyl(s * 0.14, s * 0.14, L * 0.06, 8), 0, 0, nose + L * 0.18), 0.8);
+      b.P(at(box(s * 0.08, H * 1.1, L * 0.35), 0, top + H * 0.35, -L * 0.2), 0.8);
+      turret(0, nose - L * 0.45, s * 0.38, 2);
+      break;
+    case "cruiser":
+      turret(0, nose - L * 0.3, s * 0.45, 2);
+      turret(0, nose - L * 0.55, s * 0.45, 2);
+      turret(0, nose - L * 0.4, s * 0.4, 2, box3.min.y, -1);
+      for (const sx of [-1, 1]) b.P(at(box(s * 0.1, Math.min(H * 0.6, s * 0.45), L * 0.3), sx * (W * 0.9 + s * 0.02), 0, -L * 0.1), 0.65); // hangar bays
+      break;
+    case "battleship":
+      for (let i = 0; i < 3; i++) turret(0, nose - L * (0.25 + i * 0.2), s * 0.42, 3);
+      for (const sx of [-1, 1]) b.P(at(box(s * 0.1, Math.min(H * 0.7, s * 0.5), L * 0.55), sx * (W * 0.9 + s * 0.05), 0, -L * 0.05), 0.6); // armour belts
+      break;
+    case "titan":
+      // A spinal lance with its emitter ring.
+      b.P(at(cyl(s * 0.14, s * 0.18, L * 0.9, 10), 0, 0, nose - L * 0.2), 0.55);
+      b.P(at(new THREE.TorusGeometry(s * 0.45, s * 0.07, 8, 24), 0, 0, nose + L * 0.25), 1.4);
+      for (let i = 0; i < 4; i++) turret((i % 2 ? 1 : -1) * W * 0.45, nose - L * (0.3 + i * 0.12), s * 0.35, 2);
+      break;
+    case "constructor":
+      // Crane arms reaching ahead.
+      for (const sx of [-1, 1]) {
+        b.P(at(rot(box(s * 0.08, s * 0.08, L * 0.45), 0, -sx * 0.3, 0), sx * W * 0.45, 0, nose - L * 0.05), 0.7);
+        b.P(at(box(s * 0.2, s * 0.2, s * 0.2), sx * W * 0.3, 0, nose + L * 0.15), 1.25);
+      }
+      break;
+    case "transport":
+      for (const sx of [-1, 1]) for (const z of [0.15, -0.2]) b.P(at(box(s * 0.35, s * 0.3, L * 0.22), sx * (W * 0.6 + s * 0.15), -H * 0.5, z * L), 0.8); // drop pods
+      break;
+    case "freighter":
+      for (let i = 0; i < 3; i++) b.P(at(box(W * 0.8, Math.min(H * 0.55, s * 0.6), L * 0.14), 0, top + Math.min(H * 0.2, s * 0.2), nose - L * (0.3 + i * 0.17)), [0.75, 1.1, 0.9][i]); // containers
+      break;
+    case "tender":
+      for (const sx of [-1, 1]) b.P(at(new THREE.SphereGeometry(s * 0.35, 12, 8), sx * (W + s * 0.2), 0, -L * 0.05), 1.1); // fuel and munitions tanks
+      break;
+  }
+}
 
 interface Builder {
   P(geo: THREE.BufferGeometry, tint?: number): void;
@@ -542,7 +637,19 @@ function buildStyled(hull: string, style: Exclude<ShipStyle, "terran">): ShipMod
   const engines: THREE.Vector3[] = [];
   const role = HULL_MAP[hull]?.role ?? "military";
   const tier = TIER[hull] ?? 1;
-  const length = STYLE_BUILDERS[style]({ P: (geo, tint = 1) => parts.push({ geo, tint }), R: (g) => rad.push(g), engine: (x, y, z) => engines.push(new THREE.Vector3(x, y, z)) }, tier, role);
+  const builder: Builder = { P: (geo, tint = 1) => parts.push({ geo, tint }), R: (g) => rad.push(g), engine: (x, y, z) => engines.push(new THREE.Vector3(x, y, z)) };
+  let length = STYLE_BUILDERS[style](builder, tier, role);
+  const [px, py, pz] = PROPORTION.get(hull) ?? [1, 1, 1];
+  for (const p of parts) p.geo.scale(px, py, pz);
+  for (const r of rad) r.scale(px, py, pz);
+  for (const e of engines) e.set(e.x * px, e.y * py, e.z * pz);
+  length *= pz;
+  const bounds = new THREE.Box3();
+  for (const p of parts) {
+    p.geo.computeBoundingBox();
+    bounds.union(p.geo.boundingBox!);
+  }
+  hullSignature(builder, hull, bounds);
   if (!rad.length) rad.push(box(0.001, 0.001, 0.001)); // no radiator panels in this style
   const hullGeo = mergeGeometries(parts.map((p) => colorize(p.geo, p.tint)))!;
   hullGeo.computeVertexNormals();
