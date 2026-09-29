@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Rng } from "../src/sim/rng";
+import { Rng, hashString } from "../src/sim/rng";
 import { Game } from "../src/sim/game";
 import { createGame, isConnected, makeFleet, makeShip } from "../src/sim/galaxy";
 import { findRoute, foundColony } from "../src/sim/fleets";
@@ -472,7 +472,7 @@ describe("combat", () => {
     for (const sid of Object.keys(s.systems)) g.player.explored[sid] = true;
     expect(g.buildInvasionFor(target.id).ok).toBe(false); // not at war
     expect(g.declareWar(enemy.id).ok).toBe(true);
-    expect(g.buildInvasionFor(target.id).error).toMatch(/Ground Forces/);
+    expect((g.buildInvasionFor(target.id) as { error: string }).error).toMatch(/Ground Forces/);
     g.player.research.completed.push("ground_forces");
     g.player.resources.credits = g.player.resources.metals = 5000;
     const need = transportsNeeded(s, g.player, target.id);
@@ -1193,7 +1193,7 @@ describe("merchant trade", () => {
     s.day += 60;
     ai.ai!.warCooldown = 100;
     ai.ai!.directive = undefined;
-    const rng = new Rng("peace");
+    const rng = new Rng(hashString("peace"));
     expect(aiAcceptsPeace(s, ai, g.playerId, rng)).toBe(true);
     delete ai.tradeLost;
     expect([0, 1, 2, 3, 4].some(() => aiAcceptsPeace(s, ai, g.playerId, rng))).toBe(false);
