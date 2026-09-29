@@ -311,6 +311,8 @@ export interface ChatMessage {
   at: number; // wall-clock ms
   /** Diplomatic act the sender carried out along with the message. */
   action?: DiploAction;
+  /** Written automatically to announce a diplomatic act taken through the interface. */
+  auto?: boolean;
 }
 
 export interface EmpireStats {

@@ -71,6 +71,8 @@ export interface AppApi {
   readonly chats: ChatMessage[];
   canChat(empireId: string): boolean;
   sendChat(to: string, text: string): void;
+  /** Send an automatic note about a diplomatic act, so its recipient can react. */
+  announce(to: string, text: string, action?: DiploAction): void;
   cloudSave(): void;
   select(sel: PickResult | null, focus?: boolean): void;
   enterSystem(id: string, focusSel?: PickResult | null): void;
@@ -1013,7 +1015,7 @@ export class Hud {
         msgs.length
           ? msgs
               .map(
-                (m) => `<div class="chat-msg ${m.from === me ? "ours" : ""}"><div class="meta">${m.from === me ? "You" : esc(other.name)} · ${dateString(m.day)}${m.action && m.action.kind !== "none" ? ` · <b>${esc(describeAction(g, m.action))}</b>` : ""}</div>${esc(m.text)}</div>`,
+                (m) => `<div class="chat-msg ${m.from === me ? "ours" : ""}${m.auto ? " auto" : ""}"><div class="meta">${m.from === me ? "You" : esc(other.name)} · ${dateString(m.day)}${m.action && m.action.kind !== "none" ? ` · <b>${esc(describeAction(g, m.action))}</b>` : ""}</div>${esc(m.text)}</div>`,
               )
               .join("")
           : `<div class="hint">No correspondence yet. Open a channel — propose an alliance, demand tribute, or negotiate a ceasefire.</div>`
@@ -1078,6 +1080,11 @@ export class Hud {
       if (!r.ok) app.toast(r.error ?? "Cannot do that", "error");
       else if (okMsg) app.toast(okMsg, "good");
       this.invalidate();
+      return r.ok;
+    };
+    /** Carry out a diplomatic act and, if it worked, tell them about it. */
+    const act = (r: { ok: boolean; error?: string }, okMsg: string, to: string, text: string, action?: DiploAction) => {
+      if (res(r, okMsg)) app.announce(to, text, action);
     };
     switch (action) {
       case "speed":
@@ -1222,38 +1229,72 @@ export class Hud {
         res(g.setResearch(args[0]));
         break;
       case "war":
-        if (window.confirm(`Declare war on ${g.state.empires[args[0]].name}?`)) res(g.declareWar(args[0]));
+        if (window.confirm(`Declare war on ${g.state.empires[args[0]].name}?`))
+          act(g.declareWar(args[0]), "", args[0], "We declare war on you.", { kind: "declare_war" });
         break;
       case "peace":
-        res(g.proposePeace(args[0]), app.remote ? "Peace proposal sent" : "Peace treaty signed");
+        act(g.proposePeace(args[0]), app.remote ? "Peace proposal sent" : "Peace treaty signed", args[0], "We propose an end to this war. Let there be peace between us.", {
+          kind: "propose_peace",
+        });
         break;
       case "acceptpeace":
-        res(g.acceptPeace(args[0]), "Peace treaty signed");
-        break;
-      case "proposetrade":
-        res(g.proposeTrade(args[0]), app.remote && !g.state.empires[args[0]]?.ai ? "Trade proposal sent" : "Trade agreement signed — merchants will start flying");
-        break;
-      case "accepttrade":
-        res(g.acceptTrade(args[0]), "Trade agreement signed");
-        break;
-      case "rejecttrade":
-        res(g.rejectTrade(args[0]), "Trade offer declined");
-        break;
-      case "endtrade":
-        if (window.confirm(`End the trade agreement with the ${g.state.empires[args[0]].name}?`)) res(g.cancelTrade(args[0]), "Trade agreement ended");
-        break;
-      case "acceptdemand":
-        if (window.confirm("Give them what they demand?")) res(g.acceptDemand(args[0]), "Demand met");
-        break;
-      case "rejectdemand":
-        res(g.rejectDemand(args[0]), "Demand refused");
-        break;
-      case "gift":
-        res(g.sendTribute(args[0], args[1], Number(args[2])), `Sent ${args[2]} ${args[1]}`);
+        act(g.acceptPeace(args[0]), "Peace treaty signed", args[0], "We accept your offer of peace.", { kind: "accept_peace" });
         break;
       case "rejectpeace":
-        res(g.rejectPeace(args[0]), "Peace offer rejected");
+        act(g.rejectPeace(args[0]), "Peace offer rejected", args[0], "We reject your offer of peace. The war goes on.");
         break;
+      case "proposetrade": {
+        const instant = !(app.remote && !g.state.empires[args[0]]?.ai);
+        act(
+          g.proposeTrade(args[0]),
+          instant ? "Trade agreement signed — merchants will start flying" : "Trade proposal sent",
+          args[0],
+          "We propose a trade agreement: let our merchants fly between our worlds.",
+          { kind: "propose_trade" },
+        );
+        break;
+      }
+      case "accepttrade":
+        act(g.acceptTrade(args[0]), "Trade agreement signed", args[0], "We accept your trade agreement. Our merchants are on their way.", { kind: "accept_trade" });
+        break;
+      case "rejecttrade":
+        act(g.rejectTrade(args[0]), "Trade offer declined", args[0], "We decline your trade proposal.");
+        break;
+      case "endtrade":
+        if (window.confirm(`End the trade agreement with the ${g.state.empires[args[0]].name}?`))
+          act(g.cancelTrade(args[0]), "Trade agreement ended", args[0], "We are ending our trade agreement.", { kind: "cancel_trade" });
+        break;
+      case "acceptdemand": {
+        const d = g.state.empires[g.playerId]?.demands?.[args[0]];
+        if (!d || !window.confirm("Give them what they demand?")) break;
+        const colony = d.kind === "colony" ? g.state.colonies[d.colonyId] : null;
+        if (colony) act(g.acceptDemand(args[0]), "Demand met", args[0], `We accept your demand and cede ${colony.name} to you.`, { kind: "cede_colony", colonyId: colony.id });
+        else if (d.kind !== "colony")
+          act(g.acceptDemand(args[0]), "Demand met", args[0], `We accept your demand and send you ${d.amount} ${d.resource}.`, {
+            kind: "offer_tribute",
+            resource: d.resource,
+            amount: d.amount,
+          });
+        else res(g.acceptDemand(args[0]), "Demand met");
+        break;
+      }
+      case "rejectdemand": {
+        const d = g.state.empires[g.playerId]?.demands?.[args[0]];
+        const what = !d ? "demand" : d.kind === "colony" ? `demand for ${g.state.colonies[d.colonyId]?.name ?? "our colony"}` : `demand for ${d.amount} ${d.resource}`;
+        act(g.rejectDemand(args[0]), "Demand refused", args[0], `We refuse your ${what}.`);
+        break;
+      }
+      case "gift": {
+        const amount = Number(args[2]);
+        const resource = args[1] as ResourceKey;
+        const atWar = g.state.empires[g.playerId]?.relations[args[0]] === "war";
+        act(g.sendTribute(args[0], resource, amount), `Sent ${amount} ${resource}`, args[0], `We send you ${amount} ${resource} as ${atWar ? "tribute" : "a gift"}.`, {
+          kind: "offer_tribute",
+          resource,
+          amount,
+        });
+        break;
+      }
       case "chat":
         this.chatWith = args[0];
         this.modal = "chat";

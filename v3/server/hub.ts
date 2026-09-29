@@ -7,7 +7,7 @@ import type { ClientMessage, ServerMessage } from "../src/net/protocol";
 import { PROTOCOL_VERSION } from "../src/net/protocol";
 import { EMPIRE_COLORS } from "../src/sim/galaxy";
 import { SPECIES_MAP } from "../src/sim/data/structures";
-import type { GameSettings } from "../src/sim/types";
+import type { DiploAction, GameSettings } from "../src/sim/types";
 import type { Db } from "./db";
 import { Session, type Conn } from "./session";
 import { hasMet } from "../src/sim/knowledge";
@@ -22,7 +22,7 @@ export interface HubOptions {
   /** Called when a session is created or loaded (the LLM layer attaches here). */
   onSessionLoaded?: (session: Session) => void;
   /** A human ruler wrote to an AI-controlled empire (answered by the LLM layer). */
-  aiChat?: (session: Session, fromEmpireId: string, toEmpireId: string, text: string) => void;
+  aiChat?: (session: Session, fromEmpireId: string, toEmpireId: string, text: string, extra?: { auto?: boolean; action?: DiploAction }) => void;
   /** A single-player browser asks for a ruler decision or reply. */
   onLlmRequest?: (conn: Conn, msg: Extract<ClientMessage, { t: "llm" }>) => void;
   llmEnabled?: boolean;
@@ -30,6 +30,8 @@ export interface HubOptions {
 
 /** Minimum milliseconds between chat messages from one connection. */
 const CHAT_INTERVAL_MS = 1200;
+/** Minimum milliseconds between automatic announcements of diplomatic acts. */
+const AUTO_CHAT_INTERVAL_MS = 300;
 
 function cleanName(name: unknown, fallback: string): string {
   if (typeof name !== "string") return fallback;
@@ -226,7 +228,10 @@ export class Hub {
     const from = session.seatOf(conn.uuid);
     if (!from) return conn.send({ t: "error", message: "Take a seat to talk to other rulers" });
     const now = Date.now();
-    if (now - (conn.lastChatAt ?? 0) < CHAT_INTERVAL_MS) return conn.send({ t: "error", message: "Slow down — envoys need time to travel" });
+    const auto = msg.auto === true;
+    // Announcements of acts follow the command that caused them, so they get their own (looser) limit.
+    const last = auto ? conn.lastAutoChatAt : conn.lastChatAt;
+    if (now - (last ?? 0) < (auto ? AUTO_CHAT_INTERVAL_MS : CHAT_INTERVAL_MS)) return conn.send({ t: "error", message: "Slow down — envoys need time to travel" });
     const state = session.game.state;
     const to = typeof msg.to === "string" ? msg.to : "";
     const target = state.empires[to];
@@ -234,13 +239,19 @@ export class Hub {
     if (!target || target.isPirate || !target.alive || to === from) return conn.send({ t: "error", message: "No such ruler" });
     if (!text) return;
     if (!hasMet(state, from, to)) return conn.send({ t: "error", message: "We have not met them yet" });
-    conn.lastChatAt = now;
+    if (auto) conn.lastAutoChatAt = now;
+    else conn.lastChatAt = now;
+    const action = cleanAction(msg.action);
+    const extra = auto ? { auto: true, ...(action ? { action } : {}) } : {};
     if (session.seats.has(to)) {
-      session.addChat({ id: chatId(), from, to, text, day: state.day, at: now });
+      session.addChat({ id: chatId(), from, to, text, day: state.day, at: now, ...extra });
       return;
     }
-    if (!this.opts.aiChat) return conn.send({ t: "error", message: "Their ruler does not answer (AI diplomats are offline)" });
-    this.opts.aiChat(session, from, to, text);
+    if (!this.opts.aiChat) {
+      if (auto) return; // nobody to tell
+      return conn.send({ t: "error", message: "Their ruler does not answer (AI diplomats are offline)" });
+    }
+    this.opts.aiChat(session, from, to, text, extra);
   }
 
   private leave(conn: Conn): void {
@@ -253,4 +264,30 @@ export class Hub {
   private sendSaves(conn: Conn): void {
     conn.send({ t: "cloudSaves", list: this.db.listSaves(conn.uuid).map((r) => ({ id: r.id, name: r.name, day: r.day, updatedAt: r.updated_at })) });
   }
+}
+
+const ACTION_KINDS = new Set<DiploAction["kind"]>([
+  "accept_peace",
+  "propose_peace",
+  "declare_war",
+  "offer_tribute",
+  "cede_colony",
+  "demand_tribute",
+  "demand_colony",
+  "propose_trade",
+  "accept_trade",
+  "cancel_trade",
+]);
+const RESOURCE_KEYS = new Set(["credits", "metals", "energy", "exotics"]);
+
+/** The act a client says its announcement describes (display only; the act itself went through a command). */
+function cleanAction(raw: unknown): DiploAction | null {
+  if (!raw || typeof raw !== "object") return null;
+  const a = raw as Record<string, unknown>;
+  if (!ACTION_KINDS.has(a.kind as DiploAction["kind"])) return null;
+  const out: DiploAction = { kind: a.kind as DiploAction["kind"] };
+  if (typeof a.resource === "string" && RESOURCE_KEYS.has(a.resource)) out.resource = a.resource as DiploAction["resource"];
+  if (typeof a.amount === "number" && Number.isFinite(a.amount)) out.amount = Math.max(0, Math.min(1e6, Math.round(a.amount)));
+  if (typeof a.colonyId === "string") out.colonyId = a.colonyId.slice(0, 64);
+  return out;
 }

@@ -1046,6 +1046,11 @@ kbd {
   align-self: flex-end;
   background: rgba(111, 211, 255, 0.08);
 }
+.chat-msg.auto {
+  font-style: italic;
+  border-style: dashed;
+  color: var(--muted);
+}
 .chat-msg .meta {
   font-size: 11px;
   color: var(--muted);

@@ -2,7 +2,7 @@ import "./ui/styles.css";
 import * as THREE from "three";
 import { Game, STEP_DAYS } from "./sim/game";
 import type { PlayerFacade } from "./sim/facade";
-import type { ChatMessage, GameSettings } from "./sim/types";
+import type { ChatMessage, DiploAction, GameSettings } from "./sim/types";
 import type { PlayerView, StaticView } from "./sim/view";
 import { NetClient } from "./net/NetClient";
 import { NetGame } from "./net/NetGame";
@@ -268,6 +268,17 @@ class App implements AppApi {
       this.ensureDirector();
       if (this.director) this.director.humanMessage(this.local.playerId, to, clean);
       else this.toast("Rival rulers can't be reached (no connection to the game server)", "error");
+    }
+  }
+
+  /** Tell another ruler about a diplomatic act we just took, so they can react to it. */
+  announce(to: string, text: string, action?: DiploAction): void {
+    if (!this.canChat(to)) return;
+    const extra = { auto: true, ...(action && action.kind !== "none" ? { action } : {}) };
+    if (this.remote) this.net.send({ t: "chat", to, text, ...extra });
+    else if (this.local) {
+      this.ensureDirector();
+      this.director?.humanMessage(this.local.playerId, to, text, extra);
     }
   }
 

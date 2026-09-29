@@ -286,6 +286,27 @@ describe("rival director", () => {
     await flush();
     expect(chats[chats.length - 1].action).toEqual({ kind: "none" });
   });
+
+  it("lets rulers react to diplomatic acts announced without any typed words", async () => {
+    const g = Game.create({ seed: "act", aiCount: 1, pirates: false });
+    const s = g.state;
+    const chats: ChatMessage[] = [];
+    const ai = Object.values(s.empires).find((e) => e.ai)!;
+    meet(s, ai.id, s.playerId);
+    declareWar(s, s.playerId, ai.id);
+    s.day += 40;
+    const { t, calls } = fakeTransport({}, { reply: "Your tribute is accepted. Peace.", action: { kind: "accept_peace" } });
+    const d = new RivalDirector(host(g, chats), t);
+    d.humanMessage(s.playerId, ai.id, "We send you 100 credits as tribute.", { auto: true, action: { kind: "offer_tribute", resource: "credits", amount: 100 } });
+    await flush();
+    await flush();
+    const note = chats.find((m) => m.from === s.playerId)!;
+    expect(note).toMatchObject({ auto: true, text: "We send you 100 credits as tribute.", action: { kind: "offer_tribute", amount: 100 } });
+    // The model is told this was a deed, not just words, and answers it unprompted.
+    expect(calls.talk[0].text).toBe("[ACT] We send you 100 credits as tribute.");
+    expect(chats.find((m) => m.from === ai.id)?.text).toBe("Your tribute is accepted. Peace.");
+    expect(s.empires[s.playerId].relations[ai.id]).toBe("peace");
+  });
 });
 
 describe("OpenRouter client", () => {
@@ -372,6 +393,16 @@ describe("hosted games with LLM rulers", () => {
     // Spamming is throttled.
     alice.send({ t: "chat", to: bobId, text: "again" });
     expect(alice.last("error")!.message).toMatch(/Slow down/);
+    // ...but announcing an act right after typing goes through, and the ruler reacts to it.
+    alice.send({ t: "chat", to: aiId, text: "We send you 50 credits as a gift.", auto: true, action: { kind: "offer_tribute", resource: "credits", amount: 50, bogus: 1 } });
+    await flush();
+    await flush();
+    const note = alice.all("chat").find((m) => m.message.auto)!.message;
+    expect(note).toMatchObject({ from: "e0", to: aiId, auto: true, action: { kind: "offer_tribute", resource: "credits", amount: 50 } });
+    expect(note.action).not.toHaveProperty("bogus");
+    const reactions = alice.all("chat").filter((m) => m.message.from === aiId);
+    expect(reactions).toHaveLength(2);
+    expect(reactions[1].message.text).toMatch(/note of your deed/);
     // The mock "model" saw a knowledge-limited briefing, never Bob's hidden details.
     const prompt = llm.calls[llm.calls.length - 1].map((m) => m.content).join("\n");
     expect(prompt).toContain("SITUATION REPORT");

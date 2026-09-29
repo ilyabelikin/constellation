@@ -106,6 +106,10 @@ export class MockLlm implements LlmClient {
     }
     const said = (/"""([\s\S]*)"""/.exec(user)?.[1] ?? "").toLowerCase();
     let action: Record<string, unknown> = { kind: "none" };
+    if (said.startsWith("[act]")) {
+      if (said.includes("send you") && /\[(e\d+)\][^\n]*: WAR/.test(user)) action = { kind: "accept_peace" };
+      return JSON.stringify({ reply: `${who} takes note of your deed.`, action });
+    }
     if (said.includes("peace")) action = { kind: "accept_peace" };
     else if (said.includes("gift") || said.includes("tribute")) action = { kind: "offer_tribute", resource: "credits", amount: 50 };
     else if (said.includes("trade")) action = { kind: "accept_trade" };
@@ -189,7 +193,7 @@ export function attachLlm(hub: Hub, llm: LlmClient, budget = new LlmBudget()): v
   };
   hub.opts.llmEnabled = true;
   hub.opts.onSessionLoaded = (session) => void directorFor(session);
-  hub.opts.aiChat = (session, fromId, toId, text) => void directorFor(session).humanMessage(fromId, toId, text);
+  hub.opts.aiChat = (session, fromId, toId, text, extra) => void directorFor(session).humanMessage(fromId, toId, text, extra);
   hub.opts.onLlmRequest = (conn: Conn, msg: Extract<ClientMessage, { t: "llm" }>) => {
     const id = Number(msg.id) || 0;
     const briefing = sanitizeBriefing((msg.req as { briefing?: unknown })?.briefing);

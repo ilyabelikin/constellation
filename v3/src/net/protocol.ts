@@ -54,7 +54,7 @@ export interface CloudSaveSummary {
 }
 
 export type { ChatMessage } from "../sim/types";
-import type { ChatMessage } from "../sim/types";
+import type { ChatMessage, DiploAction } from "../sim/types";
 
 export type ClientMessage =
   | { t: "hello"; uuid?: string | null; name?: string; protocol: number }
@@ -71,7 +71,7 @@ export type ClientMessage =
   | { t: "cloudList" }
   | { t: "cloudLoad"; id: string }
   | { t: "cloudDelete"; id: string }
-  | { t: "chat"; to: string; text: string }
+  | { t: "chat"; to: string; text: string; auto?: boolean; action?: DiploAction }
   /** Single-player games run locally; their LLM rivals are served through the server (which holds the API key). */
   | { t: "llm"; id: number; kind: "decide"; req: DecideRequest }
   | { t: "llm"; id: number; kind: "talk"; req: TalkRequest }

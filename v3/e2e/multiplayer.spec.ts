@@ -159,8 +159,13 @@ test("talk to a rival ruler: the game pauses while you write and they answer in 
   await expect(page.locator(".chat-msg.ours")).toContainText("Greetings!");
   await expect(page.locator(".chat-msg:not(.ours)")).toContainText("acknowledges", { timeout: 20_000 });
   await expect(page.locator(".chat-msg:not(.ours) .meta")).toContainText("sent 50 credits");
+  // Acts speak for themselves: a gift is announced automatically and the ruler reacts without being written to.
+  await domClick(page, `.modal [data-action="gift:${rival.id}:credits:100"]`);
+  await expect(page.locator(".chat-msg.ours.auto")).toContainText("We send you 100 credits as a gift.");
+  await expect(page.locator(".chat-msg.ours.auto .meta")).toContainText("sent 100 credits");
+  await expect(page.locator(".chat-msg:not(.ours)").last()).toContainText("note of your deed", { timeout: 20_000 });
   await domClick(page, '.modal [data-action="close"]');
   await expect.poll(() => page.evaluate(() => (window as any).__app.paused)).toBe(false);
   // The correspondence is part of the saved game.
-  expect(await page.evaluate(() => (window as any).__app.local.state.chats.length)).toBe(2);
+  expect(await page.evaluate(() => (window as any).__app.local.state.chats.length)).toBe(4);
 });

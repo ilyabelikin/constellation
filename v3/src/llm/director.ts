@@ -168,14 +168,17 @@ export class RivalDirector {
   }
 
   /** A human ruler writes to an AI ruler: record it, then answer in character. */
-  humanMessage(fromId: string, toId: string, text: string): ChatMessage {
+  humanMessage(fromId: string, toId: string, text: string, extra: { auto?: boolean; action?: DiploAction } = {}): ChatMessage {
     const s = this.host.state();
     const msg: ChatMessage = { id: chatId(), from: fromId, to: toId, text, day: s.day, at: Date.now() };
+    if (extra.auto) msg.auto = true;
+    if (extra.action && extra.action.kind !== "none") msg.action = extra.action;
     this.host.deliver(msg);
+    const said = modelText(msg);
     const key = `${toId}|${fromId}`;
     const queued = this.talking.get(key);
-    if (queued) queued.push(text); // answered together once the current reply arrives
-    else void this.answer(fromId, toId, [text]);
+    if (queued) queued.push(said); // answered together once the current reply arrives
+    else void this.answer(fromId, toId, [said]);
     return msg;
   }
 
@@ -196,7 +199,7 @@ export class RivalDirector {
           .chats()
           .filter((m) => (m.from === aiId && m.to === fromId) || (m.from === fromId && m.to === aiId))
           .slice(-(8 + texts.length), -texts.length || undefined)
-          .map((m) => ({ from: m.from === aiId ? ("us" as const) : ("them" as const), text: m.text }));
+          .map((m) => ({ from: m.from === aiId ? ("us" as const) : ("them" as const), text: modelText(m) }));
         this.calls++;
         reply = await this.transport.talk({ briefing, partnerId: fromId, history, text: texts.join("\n") });
       }
@@ -218,4 +221,9 @@ export class RivalDirector {
     this.talking.delete(key);
     if (more.length) void this.answer(fromId, aiId, more);
   }
+}
+
+/** Automatic announcements are acts, not just words: mark them so the ruler reacts to the deed. */
+export function modelText(m: ChatMessage): string {
+  return m.auto ? `[ACT] ${m.text}` : m.text;
 }

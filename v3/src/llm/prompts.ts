@@ -72,7 +72,8 @@ Reply with ONE JSON object and nothing else:
 {"reply": "<your answer>",
  "action": {"kind": "none"|"accept_peace"|"propose_peace"|"declare_war"|"offer_tribute"|"cede_colony"|"demand_tribute"|"demand_colony"|"propose_trade"|"accept_trade"|"cancel_trade",
             "resource": "credits"|"metals"|"energy"|"exotics", "amount": <number>, "colony": "<colony id>"}}
-You are not obliged to be agreeable: accept peace, pay tribute or cede a colony only if your personality and situation truly call for it. A trade agreement lets merchant freighters fly between both empires' trade hubs and enriches both sides; "accept_trade" signs one, "cancel_trade" ends it. A demand you make should be concrete (a colony id or an amount). Use "none" when you just talk.`;
+You are not obliged to be agreeable: accept peace, pay tribute or cede a colony only if your personality and situation truly call for it. A trade agreement lets merchant freighters fly between both empires' trade hubs and enriches both sides; "accept_trade" signs one, "cancel_trade" ends it. A demand you make should be concrete (a colony id or an amount). Use "none" when you just talk.
+A message starting with [ACT] reports something the other ruler has just DONE (paid tribute, met or refused your demand, declared war, offered or signed peace or trade): it has already happened, so react to the deed itself — thank, scorn, reciprocate, accept, escalate — as your personality and interests dictate.`;
   const history = req.history.slice(-8).map((h) => `${h.from === "us" ? "you" : "them"}: ${h.text}`).join("\n");
   const user = `SITUATION REPORT\n${b.dump}\n\n${history ? `EARLIER CORRESPONDENCE with the ${name}:\n${history}\n\n` : ""}NEW MESSAGE from the ${name}${partner?.human ? " (a human ruler)" : ""}:\n"""${req.text.slice(0, 600)}"""`;
   return [

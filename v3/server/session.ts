@@ -14,6 +14,7 @@ export interface Conn {
   sessionId: string | null;
   staticSentFor: string | null;
   lastChatAt?: number;
+  lastAutoChatAt?: number;
   send(msg: ServerMessage): void;
 }
 
