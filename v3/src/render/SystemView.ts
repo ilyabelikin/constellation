@@ -56,6 +56,8 @@ interface StationVisual {
   station: Station;
   mesh: THREE.Object3D;
   angle: number;
+  /** Model scale, proportional to the host body. */
+  scale: number;
 }
 
 const tmpV = { x: 0, y: 0, z: 0 };
@@ -562,11 +564,11 @@ export class SystemView implements View {
     const beacon = glowSprite(st.type === "pirate_haven" ? "#ff3030" : color, 1.6, 0.8);
     beacon.position.y = 0.8;
     holder.add(beacon);
-    // Stations are small next to worlds (they used to be drawn as big as moons).
-    holder.scale.setScalar(st.type === "pirate_haven" ? 0.8 : 0.45);
+    const scale = stationScale(st.type, s.bodies[st.bodyId]?.kind ?? "planet", this.bodyRadius(st.bodyId));
+    holder.scale.setScalar(scale);
     this.scene.add(holder);
     const idx = Object.values(s.stations).filter((o) => o.bodyId === st.bodyId).indexOf(st);
-    this.stations.set(st.id, { station: st, mesh: holder, angle: idx * 2.1 + (st.id.length % 7) });
+    this.stations.set(st.id, { station: st, mesh: holder, angle: idx * 2.1 + (st.id.length % 7), scale });
   }
 
   private buildDyson(starId: string, color: string): void {
@@ -726,14 +728,14 @@ export class SystemView implements View {
     for (const sv of this.stations.values()) {
       const body = s.bodies[sv.station.bodyId];
       this.bodyWorld(body, tmp);
-      const r = body.kind === "belt" ? 0 : this.bodyRadius(body.id) * (body.kind === "star" ? 2.2 : (body.ring ? body.ring.outer : 1) * 1.35) + 0.4;
+      const r = body.kind === "belt" ? 0 : this.bodyRadius(body.id) * (body.kind === "star" ? 2.2 : (body.ring ? body.ring.outer : 1) * 1.35) + sv.scale * 1.6;
       const a = sv.angle + this.renderDay * 0.1;
       if (body.kind === "belt") {
         const ang = sv.angle;
         const rr = this.layout.radius(body.orbit!.a);
         sv.mesh.position.set(Math.cos(ang) * rr, 1.5, Math.sin(ang) * rr);
       } else {
-        sv.mesh.position.set(tmp.x + Math.cos(a) * r, tmp.y + 0.2, tmp.z + Math.sin(a) * r);
+        sv.mesh.position.set(tmp.x + Math.cos(a) * r, tmp.y + sv.scale * 0.4, tmp.z + Math.sin(a) * r);
       }
       sv.mesh.rotation.y = -a;
     }
@@ -1038,4 +1040,15 @@ function hashId(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
   return h;
+}
+
+/**
+ * Stations are drawn like board-game pieces, but in proportion to what they
+ * orbit: a small moon gets a small outpost, a gas giant a big harvester.
+ */
+export function stationScale(type: string, hostKind: string, hostRadius: number): number {
+  if (type === "pirate_haven") return 0.8;
+  if (hostKind === "star") return 0.45;
+  if (hostKind === "belt") return 0.35;
+  return Math.min(0.4, Math.max(0.07, hostRadius * 0.3));
 }
