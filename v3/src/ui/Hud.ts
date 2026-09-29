@@ -19,6 +19,7 @@ import {
   SETTLEMENT_DAYS,
   SETTLEMENT_UPKEEP,
   habitability,
+  MIN_COLONY_HABITABILITY,
   hullCost,
   incomeReport,
   buildingOutput,
@@ -358,7 +359,7 @@ export class Hud {
     const row = (b: Body, depth: number, icon: string, typeName: string) => {
       const col = colonyBy.get(b.id);
       const h = b.size > 0 ? habitability(p, b) : 0;
-      const hab = !col && b.size > 0 && h >= 0.2 ? `<span class="hab" style="color:${h >= 0.5 ? "var(--good)" : "var(--warn)"}" title="Habitability for us">${pct(h)}</span>` : "";
+      const hab = !col && b.size > 0 && h >= MIN_COLONY_HABITABILITY ? `<span class="hab" style="color:${h >= 0.6 ? "var(--good)" : "var(--warn)"}" title="Habitability for us — can be settled">${pct(h)}</span>` : "";
       const colTag = col ? `<span class="dot" style="color:${s.empires[col.empireId].color};background:${s.empires[col.empireId].color}" title="${esc(s.empires[col.empireId].name)} colony · ${col.pop.toFixed(1)} pop"></span>` : "";
       return `<div class="row orow ${sel?.kind === "body" && sel.id === b.id ? "sel" : ""}" style="padding-left:${6 + depth * 14}px" data-action="goto:body:${b.id}" title="${esc(typeName)}">
         <span class="oicon">${icon}</span><span class="name">${esc(b.name)}<span class="otype">${esc(typeName)}</span></span>${colTag}${hab}${richIcons(b)}${(stationsBy.get(b.id) ?? []).join("")}</div>`;
@@ -641,7 +642,7 @@ export class Hud {
       else if (queuedAt) actions.push(`<span class="chip good">🜨 Colony ship being built at ${esc(queuedAt.name)}</span>`);
       else
         actions.push(
-          `<button class="primary" data-action="colonize:${b.id}" ${ok && !blocked ? "" : "disabled"} title="${!ok ? "Uninhabitable for our species (needs 20%+)" : blocked ? "Claimed by another empire" : f ? `Send ${esc(f.name)}` : "Build a colony ship for this world"}">🜨 Colonize${f && ok ? ` · ${esc(f.name)}` : "…"}</button>`,
+          `<button class="primary" data-action="colonize:${b.id}" ${ok && !blocked ? "" : "disabled"} title="${!ok ? `Too hostile to settle: ${pct(habitability(p, b))} habitability, ${pct(MIN_COLONY_HABITABILITY)} needed. Xeno-Adaptation and Terraforming research make more worlds viable.` : blocked ? "Claimed by another empire" : f ? `Send ${esc(f.name)}` : "Build a colony ship for this world"}">🜨 Colonize${f && ok ? ` · ${esc(f.name)}` : "…"}</button>`,
         );
     }
     if (colony && colony.empireId !== p.id && p.relations[colony.empireId] === "war") {

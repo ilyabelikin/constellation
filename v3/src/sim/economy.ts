@@ -37,7 +37,16 @@ export function habitability(empire: Empire, body: Body): number {
   return clamp(h, 0, 1);
 }
 
-export const MIN_COLONY_HABITABILITY = 0.2;
+/** Below this a world is too hostile to settle; Xeno-Adaptation and Terraforming bring more worlds over the line. */
+export const MIN_COLONY_HABITABILITY = 0.4;
+
+/** Unsettled worlds in systems we have explored that we could colonise now. */
+function settleableWorlds(state: GameState, empire: Empire): Set<string> {
+  const taken = new Set(Object.values(state.colonies).map((c) => c.bodyId));
+  const out = new Set<string>();
+  for (const b of Object.values(state.bodies)) if (empire.explored[b.systemId] && !taken.has(b.id) && canColonize(empire, b)) out.add(b.id);
+  return out;
+}
 
 export function canColonize(empire: Empire, body: Body): boolean {
   return habitability(empire, body) >= MIN_COLONY_HABITABILITY;
@@ -346,9 +355,18 @@ export function applyResearch(state: GameState, empire: Empire, points: number):
     if (tech.exoticsCost) empire.resources.exotics -= tech.exoticsCost;
     remaining -= need;
     r.progress[tech.id] = cost;
+    const before = empire.isPlayer && tech.effects.habitability ? settleableWorlds(state, empire) : null;
     r.completed.push(tech.id);
     r.current = null;
     if (empire.isPlayer) log(state, "research", `${empire.name} completed ${tech.name}.`, empire.id);
+    if (before) {
+      // Better adapted colonists: worlds that were too hostile may now be settled.
+      const opened = [...settleableWorlds(state, empire)].filter((id) => !before.has(id)).map((id) => state.bodies[id]);
+      if (opened.length) {
+        const names = opened.slice(0, 4).map((b) => b.name).join(", ") + (opened.length > 4 ? ` and ${opened.length - 4} more` : "");
+        log(state, "colony", `${tech.name} makes ${opened.length === 1 ? "a new world" : `${opened.length} new worlds`} habitable for us: ${names}. See 🜨 Colonize.`, empire.id, opened[0].systemId, { kind: "body", id: opened[0].id, systemId: opened[0].systemId });
+      }
+    }
     if (tech.id === "ascension") {
       state.winner = empire.id;
       state.victoryType = "ascension";

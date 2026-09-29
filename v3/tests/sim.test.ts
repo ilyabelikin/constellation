@@ -12,6 +12,8 @@ import {
   habitability,
   hullCost,
   incomeReport,
+  applyResearch,
+  MIN_COLONY_HABITABILITY,
   settlementUpkeep,
   POP_UPKEEP,
   SETTLEMENT_DAYS,
@@ -209,6 +211,27 @@ describe("data tables", () => {
 });
 
 describe("economy", () => {
+  it("marginal worlds can't be settled until research makes them habitable, and we are told when it does", () => {
+    const g = Game.create({ seed: "terraform", pirates: false });
+    const s = g.state;
+    for (const id of Object.keys(s.systems)) g.player.explored[id] = true;
+    const marginal = Object.values(s.bodies).filter((b) => {
+      const h = habitability(g.player, b);
+      return h >= 0.25 && h < MIN_COLONY_HABITABILITY && !Object.values(s.colonies).some((c) => c.bodyId === b.id);
+    });
+    expect(marginal.length).toBeGreaterThan(0);
+    for (const b of marginal) expect(canColonize(g.player, b)).toBe(false);
+    const tech = TECH_MAP.xeno_adaptation;
+    g.player.research.completed.push(...tech.requires);
+    g.player.research.current = tech.id;
+    applyResearch(s, g.player, 1e6);
+    expect(g.player.research.completed).toContain(tech.id);
+    expect(marginal.some((b) => canColonize(g.player, b))).toBe(true);
+    const note = s.log.find((l) => l.text.includes("habitable for us"));
+    expect(note?.text).toContain("Xeno-Adaptation");
+    expect(note?.ref?.kind).toBe("body");
+  });
+
   it("new colonies draw supplies from the empire until they are established", () => {
     const g = Game.create({ seed: "settle", pirates: false });
     const s = g.state;
@@ -1128,7 +1151,7 @@ describe("merchant trade", () => {
     const g = Game.create({ seed: "trade", aiCount: 1, pirates: false });
     const s = g.state;
     const cap = home(g);
-    const other = Object.values(s.bodies).find((b) => b.systemId === cap.systemId && b.id !== cap.bodyId && canColonize(g.player, b))!;
+    const other = Object.values(s.bodies).find((b) => b.systemId === cap.systemId && b.id !== cap.bodyId && (b.kind === "planet" || b.kind === "moon") && b.size > 0)!;
     const second = foundColony(s, g.player, other.id, 6);
     for (const c of [cap, second]) c.buildings.push({ type: "trade_hub" });
     return { g, s, cap, second };
