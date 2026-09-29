@@ -110,6 +110,33 @@ export function setResearch(state: GameState, empireId: string, techId: string):
   return OK;
 }
 
+/**
+ * Shift-queue research: add a tech (and any missing prerequisites) to the end
+ * of the plan; a tech already queued is taken out instead, with anything
+ * queued that depended on it.
+ */
+export function queueResearch(state: GameState, empireId: string, techId: string): CommandResult {
+  const empire = state.empires[empireId];
+  const t = TECH_MAP[techId];
+  if (!t) return fail("Unknown technology");
+  const r = empire.research;
+  if (r.completed.includes(techId)) return fail("Already researched");
+  if (r.queue.includes(techId)) {
+    const drop = new Set([techId]);
+    for (const id of r.queue) if (researchPlan(empire, id).some((x) => drop.has(x))) drop.add(id);
+    r.queue = r.queue.filter((id) => !drop.has(id));
+    return OK;
+  }
+  if (r.current === techId) return fail("Already being researched");
+  const plan = researchPlan(empire, techId).filter((id) => id !== r.current && !r.queue.includes(id));
+  if (r.queue.length + plan.length > MAX_RESEARCH_QUEUE) return fail("The research queue is full");
+  if (!r.current) r.current = plan.shift() ?? null;
+  r.queue.push(...plan);
+  return OK;
+}
+
+export const MAX_RESEARCH_QUEUE = 20;
+
 /** Topologically ordered list of unresearched techs needed for `techId` (inclusive). */
 export function researchPlan(empire: Empire, techId: string): string[] {
   const out: string[] = [];

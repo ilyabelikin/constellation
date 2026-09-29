@@ -943,8 +943,10 @@ export class Hud {
             const prog = (p.research.progress[t.id] ?? 0) / cost;
             const cls = done ? "done" : t.id === cur ? "current" : p.research.queue.includes(t.id) ? "queued" : !avail ? "locked" : "";
             const eta = !done && g.player.income.research > 0 ? Math.ceil((cost * (1 - prog)) / g.player.income.research) : null;
-            return `<div class="tech ${cls}" data-action="tech:${t.id}" title="${esc(t.requires.length ? "Requires: " + t.requires.map((r) => TECH_MAP[r].name).join(", ") : "No prerequisites")}">
-              <div class="tn">${esc(t.name)}</div><div class="tc">Tier ${t.tier} · ${fmt(cost)} ⚗${t.exoticsCost ? ` + ${t.exoticsCost} ✦` : ""}${eta && !done ? ` · ~${eta}d` : ""}</div>
+            const qpos = p.research.queue.indexOf(t.id);
+            const tip = `${t.requires.length ? "Requires: " + t.requires.map((r) => TECH_MAP[r].name).join(", ") : "No prerequisites"}\nClick to research now · Shift+click to ${qpos >= 0 ? "remove from" : "add to"} the queue`;
+            return `<div class="tech ${cls}" data-action="tech:${t.id}" title="${esc(tip)}">
+              <div class="tn">${qpos >= 0 ? `<span class="qpos">${qpos + 1}</span>` : ""}${esc(t.name)}</div><div class="tc">Tier ${t.tier} · ${fmt(cost)} ⚗${t.exoticsCost ? ` + ${t.exoticsCost} ✦` : ""}${eta && !done ? ` · ~${eta}d` : ""}</div>
               <div class="td">${esc(t.description)}</div>${prog > 0 && !done ? `<div class="prog" style="width:${prog * 100}%"></div>` : ""}</div>`;
           })
           .join("")}</div>`;
@@ -952,7 +954,7 @@ export class Hud {
       .join("");
     const curT = cur ? TECH_MAP[cur] : null;
     return `<header><h2>Research</h2><span class="res research"><span class="icon">⚗</span>${fmt(p.income.research, 1)}/day</span>
-      <span class="subtitle">${curT ? `Researching <b>${esc(curT.name)}</b>${p.research.queue.length ? ` then ${p.research.queue.map((q) => esc(TECH_MAP[q].name)).join(" → ")}` : ""}` : "Idle"}</span>
+      <span class="subtitle">${curT ? `Researching <b>${esc(curT.name)}</b>${p.research.queue.length ? ` then ${p.research.queue.map((q) => esc(TECH_MAP[q].name)).join(" → ")}` : ""}` : "Idle"} · <span class="hint">Shift+click to queue</span></span>
       <button data-action="close">✕</button></header>
       <div class="tech-grid">${cols}</div>`;
   }
@@ -1317,7 +1319,7 @@ export class Hud {
         break;
       }
       case "tech":
-        res(g.setResearch(args[0]));
+        res(e.shiftKey ? g.queueResearch(args[0]) : g.setResearch(args[0]));
         break;
       case "war":
         if (window.confirm(`Declare war on ${g.state.empires[args[0]].name}?`))

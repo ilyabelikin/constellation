@@ -622,6 +622,16 @@ kbd {
   border-color: var(--research);
   box-shadow: 0 0 14px rgba(138, 255, 193, 0.25);
 }
+.tech .qpos {
+  display: inline-block;
+  min-width: 16px;
+  margin-right: 5px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(111, 211, 255, 0.25);
+  font-size: 11px;
+  text-align: center;
+}
 .tech.queued {
   border-color: rgba(138, 255, 193, 0.45);
   border-style: dashed;

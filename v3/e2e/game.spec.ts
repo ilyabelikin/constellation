@@ -165,6 +165,10 @@ test("research tree opens and sets a project, prerequisites auto-queue", async (
   expect(r.current).toBe("frigates");
   expect(r.queue).toEqual(["destroyers", "cruisers"]);
   await expect(page.locator(".tech.current")).toHaveCount(1);
+  // Shift+click queues a tech after the current plan, showing its place in line.
+  await page.locator('.tech[data-action="tech:fusion_power"]').click({ modifiers: ["Shift"] });
+  expect(await page.evaluate(() => (window as any).__app.game.player.research.queue)).toEqual(["destroyers", "cruisers", "fusion_power"]);
+  await expect(page.locator('.tech[data-action="tech:fusion_power"] .qpos')).toHaveText("3");
   await page.keyboard.press("Escape");
   await expect(page.locator(".modal")).toHaveCount(0);
 });

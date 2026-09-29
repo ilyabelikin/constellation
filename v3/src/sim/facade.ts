@@ -44,6 +44,10 @@ export abstract class PlayerFacade {
   demolishBuilding(colonyId: string, index: number) {
     return this.exec("demolishBuilding", colonyId, index);
   }
+  /** Shift+click: add to the end of the research plan (or take a queued tech out). */
+  queueResearch(techId: string) {
+    return this.exec("queueResearch", techId);
+  }
   setResearch(techId: string) {
     return this.exec("setResearch", techId);
   }

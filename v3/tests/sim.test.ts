@@ -329,6 +329,26 @@ describe("research", () => {
     g.advance(1.1);
     expect(g.player.research.completed).toContain("frigates");
   });
+
+  it("Shift-queues techs after the current plan, and a second Shift-click takes them out", () => {
+    const g = Game.create({ seed: "resq" });
+    const r = g.player.research;
+    expect(g.setResearch("fusion_power").ok).toBe(true);
+    expect(g.queueResearch("destroyers").ok).toBe(true); // brings its prerequisite along
+    expect(r.current).toBe("fusion_power");
+    expect(r.queue).toEqual(["frigates", "destroyers"]);
+    expect(g.queueResearch("deep_core_mining").ok).toBe(true);
+    expect(r.queue).toEqual(["frigates", "destroyers", "deep_core_mining"]);
+    // Taking frigates out also drops destroyers, which needs it.
+    expect(g.queueResearch("frigates").ok).toBe(true);
+    expect(r.queue).toEqual(["deep_core_mining"]);
+    expect(g.queueResearch("fusion_power").ok).toBe(false); // already under way
+    // With nothing under way, the first queued tech starts at once.
+    r.current = null;
+    r.queue = [];
+    expect(g.queueResearch("deep_core_mining").ok).toBe(true);
+    expect(r.current).toBe("deep_core_mining");
+  });
 });
 
 describe("fleets", () => {

@@ -137,6 +137,7 @@ export const COMMANDS: Record<string, CommandSpec> = {
   cancelQueueItem: { args: ["id", "int", "optId"], run: (s, e, c: string, i: number, t?: string) => cmd.cancelQueueItem(s, e, c, i, t ?? undefined) },
   demolishBuilding: { args: ["id", "int"], run: (s, e, c: string, i: number) => cmd.demolishBuilding(s, e, c, i) },
   setResearch: { args: ["id"], run: (s, e, t: string) => cmd.setResearch(s, e, t) },
+  queueResearch: { args: ["id"], run: (s, e, t: string) => cmd.queueResearch(s, e, t) },
   moveFleet: {
     args: ["id", "id", "target", "bool"],
     run: (s, e, f: string, sys: string, t?: { bodyId?: string; pos?: Vec3 } | null, q?: boolean) => cmd.moveFleet(s, e, f, sys, t ?? {}, !!q),
