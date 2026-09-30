@@ -52,6 +52,7 @@ async function startGame(page: Page, seed = "e2e-seed") {
   page.on("pageerror", (e) => consoleErrors.push(e.message));
   await page.goto("/");
   await expect(page.locator(".title")).toHaveText("CONSTELLATION");
+  await page.evaluate(() => document.querySelector("details.advanced")?.setAttribute("open", ""));
   await page.fill("#lb-seed", seed);
   await page.click("#lb-start");
   await expect(page.locator("#topbar")).toBeVisible();

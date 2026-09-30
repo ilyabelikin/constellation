@@ -8,8 +8,9 @@ import { SPECIES_MAP } from "../sim/data/structures";
 import { hullMaterial, radiatorMat, SHIP_STYLES, shipModel, styleForSpecies } from "../render/ShipModels";
 import { getGlowTexture } from "../render/materials/misc";
 
-const SHOWCASE = ["cruiser", "destroyer", "battleship", "colony", "corvette", "constructor"];
-const SECONDS_PER_SHIP = 4.5;
+/** Every hull, civilian and military alternating, so each species' whole fleet is on show. */
+const SHOWCASE = ["scout", "corvette", "constructor", "frigate", "colony", "destroyer", "freighter", "cruiser", "transport", "battleship", "liner", "titan", "tender"];
+const SECONDS_PER_SHIP = 3.5;
 
 export class ShipPreview {
   private renderer: THREE.WebGLRenderer | null = null;

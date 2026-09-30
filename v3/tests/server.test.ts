@@ -101,27 +101,30 @@ describe("multiplayer hub", () => {
     expect(guest.last("cmdResult")).toMatchObject({ id: 5, ok: false, error: "Bad arguments" });
   });
 
-  it("runs the shared clock with host-controlled speed and pauses when everyone leaves", () => {
+  it("runs the shared clock at 1x without pauses when people play together; alone, the host controls time", () => {
     const { hub, host, guest } = hostAndGuest();
     const session = [...hub.sessions.values()][0];
+    // Alone in the room the host may still change speed.
+    host.send({ t: "speed", index: 3 });
+    expect(session.speedIndex).toBe(3);
     guest.send({ t: "takeSeat", empireId: guest.last("session")!.info.seats.find((s) => !s.playerName)!.empireId });
+    expect(session.speedIndex).toBe(1); // a second player: back to 1x for good
+    expect(host.last("session")!.info.fixedSpeed).toBe(true);
     host.send({ t: "start" });
     hub.tick(1000);
-    expect(session.game.state.day).toBeGreaterThan(0.5); // 1× = 0.6 days per second
-    guest.send({ t: "speed", index: 4 });
-    expect(guest.last("error")!.message).toMatch(/Only the host/);
-    guest.send({ t: "speed", index: 0 }); // anyone may pause
+    expect(session.game.state.day).toBeGreaterThan(0.5); // 1x = 0.6 days per second
+    guest.send({ t: "speed", index: 0 });
+    expect(guest.last("error")!.message).toMatch(/1×/);
+    host.send({ t: "speed", index: 4 });
+    expect(host.last("error")!.message).toMatch(/1×/);
     const day = session.game.state.day;
     hub.tick(1000);
-    expect(session.game.state.day).toBe(day);
-    host.send({ t: "speed", index: 3 });
-    hub.tick(1000);
-    expect(session.game.state.day).toBeGreaterThan(day + 2); // 4× = 2.4 days per second
+    expect(session.game.state.day).toBeCloseTo(day + 0.6, 1); // still 1x, never paused
     hub.disconnect(host.conn);
     hub.disconnect(guest.conn);
     const d2 = session.game.state.day;
     hub.tick(1000);
-    expect(session.game.state.day).toBe(d2); // nobody online: paused
+    expect(session.game.state.day).toBe(d2); // nobody online: the clock stops
   });
 
   it("sends each player only what they can know", () => {

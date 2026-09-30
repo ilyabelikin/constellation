@@ -14,6 +14,8 @@ export interface LobbyCallbacks {
   onNewGame(settings: Partial<GameSettings>): void;
   onContinue(): void;
   hasSave(): boolean;
+  /** What "Continue" would resume, if known. */
+  saveInfo(): { empire: string; day: number } | null;
   online(): { connected: boolean; name: string; llm: boolean };
   setName(name: string): void;
   onHost(settings: Partial<GameSettings>): void;
@@ -27,14 +29,49 @@ export interface LobbyCallbacks {
   leaveSession(): void;
 }
 
+/** Galaxy sizes; each brings a matching number of rivals (overridable in Advanced settings). */
+export const GALAXY_SIZES = [
+  { id: "small", label: "Small", stars: 16, rivals: 2 },
+  { id: "medium", label: "Medium", stars: 24, rivals: 3 },
+  { id: "large", label: "Large", stars: 32, rivals: 5 },
+] as const;
+
+interface Setup {
+  species: string;
+  color: string;
+  size: string;
+  rivals: number | null; // null: automatic for the size
+  difficulty: GameSettings["difficulty"];
+  pirates: boolean;
+}
+
+const SETUP_KEY = "constellation-v3-setup";
+
+function loadSetup(): Partial<Setup> {
+  try {
+    return JSON.parse(localStorage.getItem(SETUP_KEY) ?? "{}") as Partial<Setup>;
+  } catch {
+    return {};
+  }
+}
+
 export function inviteLink(code: string): string {
   return `${location.origin}${location.pathname}?join=${encodeURIComponent(code)}`;
 }
 
 export class Lobby {
-  private species = SPECIES[0].id;
-  private color = EMPIRE_COLORS[0];
+  private setup: Setup = {
+    species: SPECIES[0].id,
+    color: EMPIRE_COLORS[0],
+    size: "medium",
+    rivals: null,
+    difficulty: "normal",
+    pirates: true,
+    ...loadSetup(),
+  };
   private showHelp = false;
+  private showAdvanced = false;
+  private seed = Math.random().toString(36).slice(2, 8);
   private room: SessionInfo | null = null;
   /** The species' ships on a turntable; kept across re-renders (one WebGL context). */
   private previewHost: HTMLElement | null = null;
@@ -63,41 +100,39 @@ export class Lobby {
     if (this.room) return;
     const el = this.root.querySelector("#lb-online");
     if (el) morphHtml(el, this.onlineHtml());
+    const host = this.root.querySelector<HTMLButtonElement>("#lb-host");
+    if (host) {
+      const connected = this.cb.online().connected;
+      host.disabled = !connected;
+      host.title = connected ? "Host this galaxy online and invite friends with a link" : "Connecting to the game server…";
+    }
   }
 
   private onlineHtml(): string {
     const o = this.cb.online();
-    if (!o.connected) return `<div class="section-title">Play online</div><div class="hint">Connecting to the game server… (online play and cloud saves need it)</div>`;
+    if (!o.connected) return `<div class="hint">Connecting to the game server… (online play and cloud saves need it)</div>`;
     const sessions = this.cb.sessions();
     const saves = this.cb.cloudSaves();
-    return `<div class="section-title">Play online ${o.llm ? `<span class="tag peace" title="Rival rulers are voiced by a language model">AI diplomats</span>` : ""}</div>
-      <div class="form-row">
-        <label class="field">Your name<input id="lb-player" maxlength="32" value="${esc(o.name)}" /></label>
-        <button data-a="host" id="lb-host" title="Host this galaxy online and invite friends">Host online game</button>
-        <label class="field">Invite code<input id="lb-code" maxlength="12" placeholder="ABC123" style="text-transform:uppercase" /></label>
-        <button data-a="join" id="lb-join">Join</button>
-      </div>
-      ${
-        sessions.length
-          ? `<div class="lobby-list">${sessions
-              .slice(0, 6)
-              .map(
-                (x) => `<div class="lobby-row"><span><b>${esc(x.name)}</b> · ${esc(x.empireName ?? "spectating")} · ${x.status === "lobby" ? "waiting to start" : dateString(x.day)} · ${x.online} online</span>
-                <button data-a="resume" data-code="${esc(x.code)}">${x.status === "finished" ? "View" : "Resume"}</button></div>`,
-              )
-              .join("")}</div><div class="hint">Hosted games are deleted 10 minutes after the last player leaves.</div>`
-          : ""
-      }
-      ${
-        saves.length
-          ? `<div class="section-title" style="margin-top:10px">Cloud saves</div><div class="lobby-list">${saves
-              .map(
-                (x) => `<div class="lobby-row"><span>${esc(x.name)} · ${dateString(x.day)}</span>
-                <span><button data-a="cload" data-id="${esc(x.id)}">Load</button> <button class="danger" data-a="cdel" data-id="${esc(x.id)}" title="Delete">${icon("close")}</button></span></div>`,
-              )
-              .join("")}</div>`
-          : ""
-      }`;
+    return `${
+      sessions.length
+        ? `<div class="section-title">Your online games</div><div class="lobby-list">${sessions
+            .slice(0, 6)
+            .map(
+              (x) => `<div class="lobby-row"><span><b>${esc(x.name)}</b> · ${esc(x.empireName ?? "spectating")} · ${x.status === "lobby" ? "waiting to start" : dateString(x.day)} · ${x.online} online</span>
+              <button data-a="resume" data-code="${esc(x.code)}">${x.status === "finished" ? "View" : "Resume"}</button></div>`,
+            )
+            .join("")}</div><div class="hint">Hosted games are deleted 10 minutes after the last player leaves.</div>`
+        : ""
+    }${
+      saves.length
+        ? `<div class="section-title" style="margin-top:10px">Cloud saves</div><div class="lobby-list">${saves
+            .map(
+              (x) => `<div class="lobby-row"><span>${esc(x.name)} · ${dateString(x.day)}</span>
+              <span><button data-a="cload" data-id="${esc(x.id)}">Load</button> <button class="danger" data-a="cdel" data-id="${esc(x.id)}" title="Delete">${icon("close")}</button></span></div>`,
+            )
+            .join("")}</div>`
+        : ""
+    }`;
   }
 
   private renderRoom(info: SessionInfo): void {
@@ -106,8 +141,9 @@ export class Lobby {
     this.root.innerHTML = `<div class="panel lobby-card room">
       <h1 class="title" style="font-size:30px">${esc(info.name)}</h1>
       <div class="tagline">${info.status === "lobby" ? `Hosted by ${esc(info.hostName)} · waiting to start` : `In progress · ${dateString(info.day)}`}</div>
-      <div class="invite">Invite code <b id="room-code">${esc(info.code)}</b>
-        <input id="room-link" readonly value="${esc(link)}" /><button data-a="copy">Copy link</button></div>
+      <div class="invite"><span>Invite friends with this link</span>
+        <input id="room-link" readonly value="${esc(link)}" /><button data-a="copy">Copy link</button><span class="code" title="Invite code">${icon("players")} <b id="room-code">${esc(info.code)}</b></span></div>
+      <label class="field room-name">Your name<input id="room-player" maxlength="32" value="${esc(this.cb.online().name)}" /></label>
       <div class="section-title">Empires</div>
       <div class="seats">${info.seats
         .map(
@@ -147,6 +183,10 @@ export class Lobby {
       void navigator.clipboard?.writeText(link).catch(() => document.execCommand("copy"));
     });
     this.root.querySelectorAll<HTMLElement>('[data-a="seat"]').forEach((b) => b.addEventListener("click", () => this.cb.takeSeat(b.dataset.id!)));
+    this.root.querySelector<HTMLInputElement>("#room-player")!.addEventListener("change", (e) => {
+      const v = (e.target as HTMLInputElement).value.trim();
+      if (v) this.cb.setName(v);
+    });
     this.root.querySelector('[data-a="start"]')?.addEventListener("click", () => this.cb.startSession());
     this.root.querySelector('[data-a="leave"]')!.addEventListener("click", () => this.cb.leaveSession());
   }
@@ -169,7 +209,7 @@ export class Lobby {
       this.preview = new ShipPreview(this.previewHost);
     }
     slot.replaceWith(this.previewHost);
-    this.preview?.set(this.species, this.color);
+    this.preview?.set(this.setup.species, this.setup.color);
   }
 
   private render(): void {
@@ -180,7 +220,6 @@ export class Lobby {
       this.previewHost = null;
     }
     if (this.room) return this.renderRoom(this.room);
-    const sp = SPECIES.find((s) => s.id === this.species)!;
     if (this.showHelp) {
       this.root.innerHTML = `<div class="panel lobby-card">
         <h1 class="title" style="font-size:30px">HOW TO PLAY</h1>
@@ -193,63 +232,107 @@ export class Lobby {
       });
       return;
     }
+    const st = this.setup;
+    const sp = SPECIES.find((x) => x.id === st.species) ?? SPECIES[0];
+    const size = GALAXY_SIZES.find((g) => g.id === st.size) ?? GALAXY_SIZES[1];
+    const rivals = st.rivals ?? size.rivals;
+    const online = this.cb.online();
+    const save = this.cb.hasSave() ? this.cb.saveInfo() : null;
     this.root.innerHTML = `<div class="panel lobby-card">
       <h1 class="title">CONSTELLATION</h1>
       <div class="tagline">Chart the tunnels · Build your fleets · Rule the stars</div>
       <div class="section-title">Choose your species</div>
       <div class="species-grid">
         ${SPECIES.map(
-          (s) => `<div class="species ${s.id === this.species ? "sel" : ""}" data-species="${s.id}">
+          (s) => `<div class="species ${s.id === st.species ? "sel" : ""}" data-species="${s.id}">
             <div class="sn" style="color:${s.color}">${esc(s.name)}</div>
             <div class="sd">${esc(s.description)}</div>
           </div>`,
         ).join("")}
       </div>
       <div id="lb-ship-slot"></div>
-      <div class="form-row">
-        <label class="field">Empire name<input id="lb-name" maxlength="28" value="${esc(sp.name)}" /></label>
-        <label class="field">Colour
-          <select id="lb-color">${EMPIRE_COLORS.map((c) => `<option value="${c}" ${c === this.color ? "selected" : ""} style="color:${c}">■ ${c}</option>`).join("")}</select>
-        </label>
-        <label class="field">Galaxy size
-          <select id="lb-size">
-            <option value="20">Small (20 stars)</option>
-            <option value="32" selected>Medium (32 stars)</option>
-            <option value="48">Large (48 stars)</option>
-          </select>
-        </label>
-        <label class="field">Rival empires
-          <select id="lb-ai">${[1, 2, 3, 4, 5].map((n) => `<option ${n === 3 ? "selected" : ""}>${n}</option>`).join("")}</select>
-        </label>
-        <label class="field">Difficulty
-          <select id="lb-diff"><option value="easy">Easy</option><option value="normal" selected>Normal</option><option value="hard">Hard</option></select>
-        </label>
-        <label class="field">Galaxy seed<input id="lb-seed" value="${Math.random().toString(36).slice(2, 8)}" /></label>
-        <label class="field" style="flex-direction:row;align-items:center;gap:6px"><input type="checkbox" id="lb-pirates" checked style="min-width:0" /> Void Raiders</label>
+      <div class="setup-row">
+        <label class="field grow">Empire name<input id="lb-name" maxlength="28" value="${esc(sp.name)}" /></label>
+        <div class="field">Colour<div class="swatches">${EMPIRE_COLORS.map((c) => `<button class="swatch-btn ${c === st.color ? "sel" : ""}" data-color="${c}" style="--c:${c}" title="${c}"></button>`).join("")}</div></div>
+        <div class="field">Galaxy<div class="seg">${GALAXY_SIZES.map((g) => `<button class="${g.id === size.id ? "sel" : ""}" data-size="${g.id}" title="${g.stars} stars · ${g.rivals} rival empires">${g.label}<small>${g.stars} stars · ${st.rivals === null ? g.rivals : rivals} rivals</small></button>`).join("")}</div></div>
       </div>
+      <details class="advanced" ${this.showAdvanced ? "open" : ""}><summary>Advanced settings</summary>
+        <div class="setup-row">
+          <label class="field">Rival empires
+            <select id="lb-ai"><option value="auto" ${st.rivals === null ? "selected" : ""}>Auto (${size.rivals})</option>${[1, 2, 3, 4, 5, 6].map((n) => `<option value="${n}" ${st.rivals === n ? "selected" : ""}>${n}</option>`).join("")}</select>
+          </label>
+          <label class="field">Difficulty
+            <select id="lb-diff">${(["easy", "normal", "hard"] as const).map((d) => `<option value="${d}" ${st.difficulty === d ? "selected" : ""}>${d[0].toUpperCase() + d.slice(1)}</option>`).join("")}</select>
+          </label>
+          <label class="field">Galaxy seed<input id="lb-seed" value="${esc(this.seed)}" /></label>
+          <label class="field check"><input type="checkbox" id="lb-pirates" ${st.pirates ? "checked" : ""} /> Void Raiders</label>
+        </div>
+      </details>
       <div class="lobby-actions">
-        ${this.cb.hasSave() ? `<button data-a="continue">Continue</button>` : ""}
-        <button class="primary" data-a="new" id="lb-start">Launch New Game</button>
+        ${save ? `<button data-a="continue" title="Resume your last game on this device">Continue<small>${esc(save.empire)} · ${dateString(save.day)}</small></button>` : ""}
+        <button class="primary" data-a="new" id="lb-start">Start</button>
+        <button data-a="host" id="lb-host" ${online.connected ? "" : "disabled"} title="${online.connected ? "Host this galaxy online and invite friends with a link" : "Connecting to the game server…"}">${icon("players")} Host online</button>
         <button data-a="help">How to play</button>
       </div>
       <div id="lb-online">${this.onlineHtml()}</div>
     </div>`;
+    const remember = () => {
+      try {
+        localStorage.setItem(SETUP_KEY, JSON.stringify(this.setup));
+      } catch {
+        /* private mode: fine */
+      }
+    };
+    /** Keep what was typed or picked across a re-render. */
+    const capture = () => {
+      const v = (id: string) => this.root.querySelector<HTMLInputElement>(id)?.value;
+      this.seed = v("#lb-seed") ?? this.seed;
+      this.showAdvanced = !!this.root.querySelector<HTMLDetailsElement>("details.advanced")?.open;
+    };
     this.root.querySelectorAll<HTMLElement>("[data-species]").forEach((el) =>
       el.addEventListener("click", () => {
-        this.species = el.dataset.species!;
-        const s = SPECIES.find((x) => x.id === this.species)!;
-        const idx = SPECIES.indexOf(s);
-        this.color = EMPIRE_COLORS[idx % EMPIRE_COLORS.length];
+        capture();
+        st.species = el.dataset.species!;
+        st.color = EMPIRE_COLORS[SPECIES.findIndex((x) => x.id === st.species) % EMPIRE_COLORS.length];
+        remember();
         this.render();
       }),
     );
-    this.mountPreview();
-    (this.root.querySelector("#lb-color") as HTMLSelectElement).addEventListener("change", (e) => {
-      this.color = (e.target as HTMLSelectElement).value;
-      this.preview?.set(this.species, this.color);
+    this.root.querySelectorAll<HTMLElement>("[data-color]").forEach((el) =>
+      el.addEventListener("click", () => {
+        st.color = el.dataset.color!;
+        remember();
+        this.root.querySelectorAll(".swatch-btn").forEach((b) => b.classList.toggle("sel", b === el));
+        this.preview?.set(st.species, st.color);
+      }),
+    );
+    this.root.querySelectorAll<HTMLElement>("[data-size]").forEach((el) =>
+      el.addEventListener("click", () => {
+        capture();
+        st.size = el.dataset.size!;
+        remember();
+        this.render();
+      }),
+    );
+    this.root.querySelector<HTMLSelectElement>("#lb-ai")!.addEventListener("change", (e) => {
+      capture();
+      const v = (e.target as HTMLSelectElement).value;
+      st.rivals = v === "auto" ? null : Number(v);
+      remember();
+      this.render();
     });
+    this.root.querySelector<HTMLSelectElement>("#lb-diff")!.addEventListener("change", (e) => {
+      st.difficulty = (e.target as HTMLSelectElement).value as Setup["difficulty"];
+      remember();
+    });
+    this.root.querySelector<HTMLInputElement>("#lb-pirates")!.addEventListener("change", (e) => {
+      st.pirates = (e.target as HTMLInputElement).checked;
+      remember();
+    });
+    this.mountPreview();
     this.root.querySelector('[data-a="continue"]')?.addEventListener("click", () => this.cb.onContinue());
     this.root.querySelector('[data-a="help"]')!.addEventListener("click", () => {
+      capture();
       this.showHelp = true;
       this.render();
     });
@@ -257,40 +340,23 @@ export class Lobby {
       const v = (id: string) => (this.root.querySelector(id) as HTMLInputElement).value;
       return {
         playerName: v("#lb-name").trim() || sp.name,
-        playerSpecies: this.species,
-        playerColor: this.color,
-        systemCount: Number(v("#lb-size")),
-        aiCount: Number(v("#lb-ai")),
-        difficulty: v("#lb-diff") as GameSettings["difficulty"],
+        playerSpecies: st.species,
+        playerColor: st.color,
+        systemCount: size.stars,
+        aiCount: rivals,
+        difficulty: st.difficulty,
         seed: v("#lb-seed") || "constellation",
-        pirates: (this.root.querySelector("#lb-pirates") as HTMLInputElement).checked,
+        pirates: st.pirates,
       };
     };
     this.root.querySelector('[data-a="new"]')!.addEventListener("click", () => this.cb.onNewGame(settings()));
+    this.root.querySelector('[data-a="host"]')!.addEventListener("click", () => this.cb.onHost(settings()));
     // The online panel is re-rendered on its own, so delegate its events.
-    const online = this.root.querySelector<HTMLElement>("#lb-online")!;
-    online.addEventListener("change", (e) => {
-      const t = e.target as HTMLInputElement;
-      if (t.id === "lb-player" && t.value.trim()) this.cb.setName(t.value.trim());
-    });
-    online.addEventListener("keydown", (e) => {
-      const t = e.target as HTMLInputElement;
-      if (e.key === "Enter" && t.id === "lb-code" && t.value.trim()) this.cb.onJoin(t.value.trim().toUpperCase());
-    });
-    online.addEventListener("click", (e) => {
+    const panel = this.root.querySelector<HTMLElement>("#lb-online")!;
+    panel.addEventListener("click", (e) => {
       const b = (e.target as HTMLElement).closest<HTMLElement>("[data-a]");
       if (!b) return;
-      const nameInput = online.querySelector<HTMLInputElement>("#lb-player");
-      if (nameInput && nameInput.value.trim() && nameInput.value.trim() !== this.cb.online().name) this.cb.setName(nameInput.value.trim());
       switch (b.dataset.a) {
-        case "host":
-          this.cb.onHost(settings());
-          break;
-        case "join": {
-          const code = online.querySelector<HTMLInputElement>("#lb-code")!.value.trim().toUpperCase();
-          if (code) this.cb.onJoin(code);
-          break;
-        }
         case "resume":
           this.cb.onJoin(b.dataset.code!);
           break;

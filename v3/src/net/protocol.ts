@@ -30,6 +30,8 @@ export interface SessionInfo {
   yourEmpireId: string | null;
   seats: SeatInfo[];
   speedIndex: number;
+  /** Other people are playing: time runs at 1× and nobody can pause or fast-forward. */
+  fixedSpeed?: boolean;
   paused: boolean;
   day: number;
 }

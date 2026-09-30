@@ -75,6 +75,7 @@ export class Session {
     const game = Game.deserialize(data.state);
     const s = new Session(db, row.id, row.code, row.name, row.host_uuid, row.status, row.speed_index, game);
     for (const seat of db.seats(id)) s.seats.set(seat.empire_id, seat.uuid);
+    if (s.fixedSpeed) s.speedIndex = 1;
     try {
       s.chats = JSON.parse(data.chats) as ChatMessage[];
     } catch {
@@ -127,6 +128,7 @@ export class Session {
     if (this.game.state.day < 1)
       for (const f of Object.values(this.game.state.fleets)) if (f.empireId === empireId && f.ships.some((sh) => sh.hull === "scout")) f.autoExplore = true;
     this.seats.set(empireId, uuid);
+    if (this.fixedSpeed) this.speedIndex = 1;
     this.db.setSeat(this.id, empireId, uuid);
     this.lastActivity = Date.now();
     this.broadcastInfo();
@@ -138,13 +140,20 @@ export class Session {
     if (uuid !== this.hostUuid) return "Only the host can start the game";
     if (this.status !== "lobby") return "The game has already started";
     this.status = "running";
+    if (this.fixedSpeed) this.speedIndex = 1;
     this.broadcastInfo();
     this.save();
     return null;
   }
 
+  /** With other people playing, time runs at 1× for everyone: no pausing, no fast-forward. */
+  get fixedSpeed(): boolean {
+    return this.seats.size >= 2;
+  }
+
   setSpeed(uuid: string, index: number): string | null {
     if (!Number.isInteger(index) || index < 0 || index >= SPEEDS.length) return "Bad speed";
+    if (this.fixedSpeed) return "Games with other players run at 1× — time never stops";
     // Anyone seated may pause; only the host may resume or change speed.
     if (index !== 0 && uuid !== this.hostUuid) return "Only the host can change the game speed";
     if (!this.seatOf(uuid) && uuid !== this.hostUuid) return "Spectators cannot control time";
@@ -236,6 +245,7 @@ export class Session {
       yourEmpireId: this.seatOf(forUuid),
       seats,
       speedIndex: this.speedIndex,
+      fixedSpeed: this.fixedSpeed,
       paused: !this.running,
       day: state.day,
     };

@@ -15,11 +15,10 @@ function watch(page: Page, who: string) {
 async function openLobby(page: Page, name: string, path = "/") {
   await page.goto(path);
   await expect(page.locator(".title").first()).toBeVisible();
-  if (path === "/") {
-    await expect(page.locator("#lb-host")).toBeVisible();
-    await page.fill("#lb-player", name);
-    await page.locator("#lb-player").dispatchEvent("change");
-  }
+  // Your name now lives in the waiting room; set it once connected.
+  await expect.poll(() => page.evaluate(() => (window as any).__app.net.welcomed)).toBe(true);
+  await page.evaluate((n) => (window as any).__app.net.setName(n), name);
+  if (path === "/") await expect(page.locator("#lb-host")).toBeEnabled();
 }
 
 /** The HUD re-renders several times a second, so click through the DOM directly. */
@@ -37,7 +36,7 @@ test.afterEach(() => {
 });
 
 test("host a galaxy, a friend joins by link, takes a seat and both play", async ({ browser }) => {
-  test.setTimeout(360_000); // two full clients rendering in software
+  test.setTimeout(600_000); // two full clients rendering in software on one shared CPU
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
   const host = await hostCtx.newPage();
@@ -46,6 +45,7 @@ test("host a galaxy, a friend joins by link, takes a seat and both play", async 
   watch(guest, "guest");
 
   await openLobby(host, "Alice");
+  await host.evaluate(() => document.querySelector("details.advanced")?.setAttribute("open", ""));
   await host.fill("#lb-seed", "mp-e2e");
   await host.click("#lb-host");
   const code = (await host.locator("#room-code").textContent())!.trim();
@@ -72,17 +72,14 @@ test("host a galaxy, a friend joins by link, takes a seat and both play", async 
   expect(hostEmpire).not.toBe(guestEmpire);
   await expect(host.locator("#topbar .online")).toContainText("2/2");
 
-  // The shared clock runs; only the host may change the speed.
+  // With other people playing, the shared clock runs at 1× and nobody can stop it.
   const day0 = await guest.evaluate(() => (window as any).__app.game.state.day);
   await expect.poll(() => guest.evaluate(() => (window as any).__app.game.state.day), { timeout: 20_000 }).toBeGreaterThan(day0 + 0.5);
-  await expect(guest.locator('#topbar [data-action="speed:3"]')).toBeDisabled();
-  await domClick(host, '#topbar [data-action="speed:3"]');
-  await expect.poll(() => guest.evaluate(() => (window as any).__app.speedIndex)).toBe(3);
-
-  // Anyone may pause.
-  await domClick(guest, '#topbar [data-action="speed:0"]');
-  await expect.poll(() => host.evaluate(() => (window as any).__app.paused)).toBe(true);
-  await domClick(host, '#topbar [data-action="speed:1"]');
+  await expect(host.locator("#topbar .speed.fixed")).toContainText("1×");
+  await expect(host.locator('#topbar [data-action^="speed:"]')).toHaveCount(0);
+  await host.evaluate(() => (window as any).__app.setSpeed(0));
+  await expect.poll(() => host.evaluate(() => (window as any).__app.paused)).toBe(false);
+  expect(await host.evaluate(() => (window as any).__app.speedIndex)).toBe(1);
 
   // Commands go through the server: the guest queues a scout at their capital.
   const queued = await guest.evaluate(() => {
@@ -119,6 +116,7 @@ test("host a galaxy, a friend joins by link, takes a seat and both play", async 
 test("cloud saves: save a local game and load it after a reload", async ({ page }) => {
   watch(page, "player");
   await openLobby(page, "Carol");
+  await page.evaluate(() => document.querySelector("details.advanced")?.setAttribute("open", ""));
   await page.fill("#lb-seed", "cloud-e2e");
   await page.click("#lb-start");
   await expect(page.locator("#topbar")).toBeVisible();
@@ -140,7 +138,8 @@ test("cloud saves: save a local game and load it after a reload", async ({ page 
 test("talk to a rival ruler: the game pauses while you write and they answer in character", async ({ page }) => {
   watch(page, "player");
   await openLobby(page, "Dana");
-  await expect(page.locator('#lb-online .tag:has-text("AI diplomats")')).toBeVisible();
+  await expect(page.locator("#lb-host")).toBeEnabled(); // connected to the game server (AI rulers answer)
+  await page.evaluate(() => document.querySelector("details.advanced")?.setAttribute("open", ""));
   await page.fill("#lb-seed", "talk-e2e");
   await page.click("#lb-start");
   await expect(page.locator("#topbar")).toBeVisible();

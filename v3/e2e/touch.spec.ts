@@ -19,6 +19,7 @@ const hold = (x: number, y: number, ms: number) => Array.from({ length: Math.cei
 
 async function start(page: Page) {
   await page.goto("/");
+  await page.evaluate(() => document.querySelector("details.advanced")?.setAttribute("open", ""));
   await page.fill("#lb-seed", "touch-e2e");
   await page.click("#lb-start");
   await expect(page.locator("#topbar")).toBeVisible();

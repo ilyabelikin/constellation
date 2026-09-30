@@ -275,12 +275,16 @@ export class Hud {
       <button class="label-btn" data-action="modal:empires" title="Empires & diplomacy (E)">${icon("empires")}<span class="label"> Empires</span>${unread ? `<span class="unread">${unread}</span>` : ""}</button>
       ${remote ? `<div class="res online" title="${esc(players.map((x) => `${x.playerName} — ${x.empireName}${x.online ? "" : " (offline)"}`).join("\n"))}\nInvite code ${esc(remote.info.code)}"><span class="icon">${icon("players")}</span>${players.filter((x) => x.online).length}/${players.length}</div>` : ""}
       <div class="date">${dateString(g.state.day)}</div>
-      <div class="speed">${speeds
+      ${
+        this.app.remote?.info.fixedSpeed
+          ? `<div class="speed fixed" title="Games with other players run at 1× for everyone — time never stops"><span class="chip">${icon("players")} 1× live</span></div>`
+          : `<div class="speed">${speeds
         .map((s, i) => {
           const locked = i > 0 && !this.app.isHost;
           return `<button data-action="speed:${i}" class="${(i === 0 && this.app.paused) || (!this.app.paused && i === this.app.speedIndex) ? "active" : ""}" ${locked ? "disabled" : ""} title="${locked ? "Only the host controls the speed" : i === 0 ? "Pause (Space)" : `Speed ${s} (${i})`}">${s}</button>`;
         })
-        .join("")}</div>
+        .join("")}</div>`
+      }
       <button data-action="modal:menu" title="Menu (Esc)">${icon("menu")}</button>`,
     );
   }

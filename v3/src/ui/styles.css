@@ -1458,3 +1458,136 @@ svg.i.bad {
     bottom: max(10px, env(safe-area-inset-bottom));
   }
 }
+
+/* ---------------------------------------------------------------- new-game setup */
+.setup-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  margin: 12px 0 4px;
+}
+.field.grow {
+  flex: 1 1 200px;
+}
+.field.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  padding-bottom: 8px;
+}
+.field.check input {
+  min-width: 0;
+}
+.swatches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 3px 0;
+}
+.swatch-btn {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--c);
+  border: 2px solid transparent;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.35);
+}
+.swatch-btn:hover:not(:disabled) {
+  background: var(--c);
+  transform: scale(1.08);
+}
+.swatch-btn.sel {
+  border-color: #fff;
+  box-shadow: 0 0 10px var(--c);
+}
+.seg {
+  display: flex;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  overflow: hidden;
+}
+.seg button {
+  border: 0;
+  border-radius: 0;
+  padding: 6px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  background: rgba(0, 0, 0, 0.25);
+}
+.seg button + button {
+  border-left: 1px solid var(--line);
+}
+.seg button.sel {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: #fff;
+}
+.seg small,
+.lobby-actions small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+details.advanced {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+details.advanced summary {
+  cursor: pointer;
+  color: var(--muted);
+  list-style: none;
+  padding: 4px 0;
+  width: fit-content;
+}
+details.advanced summary::before {
+  content: "›";
+  display: inline-block;
+  margin-right: 6px;
+  transition: transform 0.15s;
+}
+details.advanced[open] summary::before {
+  transform: rotate(90deg);
+}
+details.advanced summary::-webkit-details-marker {
+  display: none;
+}
+.lobby-actions {
+  flex-wrap: wrap;
+}
+.lobby-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+.lobby-actions button[data-a="continue"] {
+  flex-direction: column;
+  gap: 1px;
+}
+#lb-online:empty {
+  display: none;
+}
+.lobby-actions button.primary {
+  min-width: 150px;
+}
+.invite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.invite .code {
+  color: var(--muted);
+  font-family: var(--mono);
+}
+.room-name {
+  margin: 10px 0 4px;
+  max-width: 260px;
+}

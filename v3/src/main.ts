@@ -29,6 +29,24 @@ function writeSave(key: string, json: string): void {
   if (!st) throw new Error("Storage unavailable");
   st.setItem(key, json);
   st.setItem(`${key}-time`, String(Date.now()));
+  // A little about the save for the title screen, without parsing the whole game there.
+  const day = /"day":([\d.]+)/.exec(json.slice(0, 4000));
+  const name = /"playerName":("(?:[^"\\]|\\.)*")/.exec(json.slice(0, 4000))?.[1];
+  st.setItem(`${key}-meta`, JSON.stringify({ day: day ? Number(day[1]) : 0, empire: name ? (JSON.parse(name) as string) : "Your empire" }));
+}
+
+/** Title-screen summary of the newest save. */
+function newestSaveInfo(): { empire: string; day: number } | null {
+  const st = storage();
+  if (!st) return null;
+  const key = [SAVE_KEY, AUTOSAVE_KEY]
+    .filter((k) => st.getItem(k))
+    .sort((a, b) => Number(st.getItem(`${b}-time`) ?? 0) - Number(st.getItem(`${a}-time`) ?? 0))[0];
+  try {
+    return key ? (JSON.parse(st.getItem(`${key}-meta`) ?? "null") as { empire: string; day: number } | null) : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The newest of the manual save and the autosave. */
@@ -115,6 +133,7 @@ class App implements AppApi {
       onNewGame: (s) => this.newGame(s),
       onContinue: () => this.load(),
       hasSave: () => !!newestSave(),
+      saveInfo: () => newestSaveInfo(),
       online: () => ({ connected: this.net.welcomed, name: this.net.name, llm: this.net.llmAvailable }),
       setName: (name) => this.net.setName(name),
       onHost: (settings) => this.net.send({ t: "create", settings, sessionName: `${settings.playerName ?? "Commander"}'s galaxy` }),
