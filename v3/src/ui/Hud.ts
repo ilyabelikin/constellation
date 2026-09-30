@@ -116,6 +116,8 @@ export class Hud {
   /** Fleet whose name is being edited in place. */
   private renaming: string | null = null;
   private seenChats = new Set<string>();
+  /** Top-bar tooltip pinned open by a tap or click (hover shows them too, on devices that hover). */
+  private tipOpen: string | null = null;
 
   constructor(
     root: HTMLElement,
@@ -136,6 +138,13 @@ export class Hud {
       }</div>`;
     for (const id of ["topbar", "badges", "outliner", "details", "log", "viewbar"]) this.regions[id] = root.querySelector(`#${id}`)!;
     root.addEventListener("click", (e) => this.onClick(e));
+    // A pinned tooltip closes on the next press anywhere else (the map included).
+    document.addEventListener("pointerdown", (e) => {
+      if (this.tipOpen && !(e.target as HTMLElement).closest?.("[data-tip]")) {
+        this.tipOpen = null;
+        this.renderTopbar();
+      }
+    });
     this.setupLongPress(root);
     this.setupLongPress(modalRoot);
     root.addEventListener("contextmenu", (e) => {
@@ -243,15 +252,24 @@ export class Hud {
     const inc = p.income;
     const cap = storageCap(g.state, p);
     const report = incomeReport(g.state, p);
+    /** A top-bar readout whose tooltip shows on hover, or on a tap (touch screens). */
+    const readout = (key: string, cls: string, body: string, tip: string) =>
+      `<div class="res ${cls} ${this.tipOpen === key ? "tip-open" : ""}" data-action="tip:${key}" data-tip="${key}" aria-expanded="${this.tipOpen === key}">${body}<div class="res-tip" role="tooltip">${tip}</div></div>`;
+    const row = (label: string, value: string, cls = "") => `<div class="tip-row ${cls}"><span>${label}</span><span>${value}</span></div>`;
     const res = (k: ResourceKey) => {
       const parts = Object.entries(report.upkeepBy)
         .filter(([, y]) => y[k] >= 0.05)
         .sort((a, b) => b[1][k] - a[1][k])
-        .map(([what, y]) => `\n   ${what} ${signed(-y[k])}`)
+        .map(([what, y]) => row(esc(what), `${signed(-y[k])}`, "sub"))
         .join("");
-      const tip = `${RES_NAME[k]}: ${fmt(r[k], 1)} / ${fmt(cap)}\nProduction ${signed(report.gross[k])}/day\nUpkeep ${signed(-report.upkeep[k])}/day${parts}${k === "credits" ? `\nMerchant trade ~${signed(p.tradeRate ?? 0)}/day (paid on delivery)` : ""}`;
       const warn = (k === "energy" && isBlackout(p)) || (k === "credits" && isBankrupt(p));
-      return `<div class="res ${k} ${warn ? "warn" : ""}" title="${esc(tip)}"><span class="icon">${RES_ICON[k]}</span>${fmt(r[k])}<span class="inc ${inc[k] < 0 ? "neg" : "pos"}">${signed(inc[k])}</span></div>`;
+      const tip = `<div class="tip-title"><span class="icon">${RES_ICON[k]}</span>${RES_NAME[k]}<span class="tip-amount">${fmt(r[k], 1)} / ${fmt(cap)}</span></div>
+        ${row("Production", `${signed(report.gross[k])}/day`, "pos")}
+        ${row("Upkeep", `${signed(-report.upkeep[k])}/day`, report.upkeep[k] > 0 ? "neg" : "")}${parts}
+        ${k === "credits" ? row("Merchant trade", `~${signed(p.tradeRate ?? 0)}/day`) + `<div class="tip-note">Paid when freighters deliver</div>` : ""}
+        ${row("Net", `${signed(inc[k])}/day`, `total ${inc[k] < 0 ? "neg" : "pos"}`)}
+        ${warn ? `<div class="tip-warn">${k === "energy" ? "Blackout: metals and research −40%, credits −20% until energy recovers" : "Bankrupt: construction at half speed and no ship repairs"}</div>` : ""}`;
+      return readout(k, `${k} ${warn ? "warn" : ""}`, `<span class="icon">${RES_ICON[k]}</span>${fmt(r[k])}<span class="inc ${inc[k] < 0 ? "neg" : "pos"}">${signed(inc[k])}</span>`, tip);
     };
     const cur = p.research.current ? TECH_MAP[p.research.current] : null;
     const progress = cur ? (p.research.progress[cur.id] ?? 0) / techCost(g.state, p, cur) : 0;
@@ -266,7 +284,14 @@ export class Hud {
       `<span class="brand" title="Constellation"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M18.4 6.2A8 8 0 1 0 18.4 17.8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="18.6" cy="12" r="1.9" fill="currentColor"/><circle cx="8.6" cy="8.2" r="0.9" fill="currentColor" opacity="0.7"/><circle cx="10.4" cy="15.2" r="0.7" fill="currentColor" opacity="0.55"/></svg><span class="word">CONSTELLATION</span></span>
       ${res("credits")}${res("metals")}${res("energy")}${res("exotics")}
       <button class="res research" data-action="modal:research" title="Research per day. Current: ${cur ? `${esc(cur.name)} ${pct(progress)}` : "none"}\nClick to open research (R)"><span class="icon">${RES_ICON.research}</span>${fmt(inc.research, 1)}<span class="inc">${cur ? `<span class="tech-name">${esc(cur.name)}</span> ${pct(progress)}` : "idle"}</span></button>
-      <div class="res cmd ${used >= capC ? "warn" : ""}" title="Fleet command points used / capacity. Found colonies and research hulls to raise it."><span class="icon">${icon("command")}</span>${used}/${capC}</div>
+      ${readout(
+        "cmd",
+        `cmd ${used >= capC ? "warn" : ""}`,
+        `<span class="icon">${icon("command")}</span>${used}/${capC}`,
+        `<div class="tip-title"><span class="icon">${icon("command")}</span>Fleet command<span class="tip-amount">${used} / ${capC}</span></div>
+        <div class="tip-note">Points used by your ships out of your capacity. Found colonies and research hulls to raise it.</div>
+        ${used >= capC ? `<div class="tip-warn">At capacity: no new ships that need command points</div>` : ""}`,
+      )}
       <div class="spacer"></div>
       <button class="label-btn" data-action="modal:empires" title="Empires & diplomacy (E)">${icon("empires")}<span class="label"> Empires</span>${unread ? `<span class="unread">${unread}</span>` : ""}</button>
       ${remote ? `<div class="res online" title="${esc(players.map((x) => `${x.playerName} — ${x.empireName}${x.online ? "" : " (offline)"}`).join("\n"))}\nInvite code ${esc(remote.info.code)}"><span class="icon">${icon("players")}</span>${players.filter((x) => x.online).length}/${players.length}</div>` : ""}
@@ -1214,6 +1239,10 @@ export class Hud {
       if (res(r, okMsg)) app.announce(to, text, action);
     };
     switch (action) {
+      case "tip":
+        this.tipOpen = this.tipOpen === args[0] ? null : args[0];
+        this.renderTopbar();
+        return;
       case "speed":
         app.setSpeed(Number(args[0]));
         break;

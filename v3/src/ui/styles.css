@@ -1617,3 +1617,89 @@ details.transfer .invite input {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* ---------------------------------------------------------------- top-bar tooltips */
+/* Custom tooltips for the resource readouts: hover on devices that hover, a tap on touch screens. */
+.res-tip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0; /* aligned with the readout, so the first ones stay on screen */
+  z-index: 30;
+  min-width: 220px;
+  max-width: 300px;
+  padding: 10px 12px;
+  background: var(--bg);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.55);
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  text-align: left;
+  white-space: normal;
+  cursor: default;
+  pointer-events: none;
+}
+.res.tip-open .res-tip {
+  display: block;
+  pointer-events: auto;
+}
+@media (hover: hover) {
+  .res:hover .res-tip {
+    display: block;
+  }
+}
+.res-tip .tip-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.res-tip .tip-amount {
+  margin-left: auto;
+  font-family: var(--mono);
+  font-weight: 400;
+  color: var(--muted);
+}
+.res-tip .tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.res-tip .tip-row span:last-child {
+  font-family: var(--mono);
+}
+.res-tip .tip-row.sub {
+  padding-left: 12px;
+  color: var(--muted);
+}
+.res-tip .tip-row.pos span:last-child {
+  color: var(--good);
+}
+.res-tip .tip-row.neg span:last-child {
+  color: var(--bad);
+}
+.res-tip .tip-row.total {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+  font-weight: 600;
+}
+.res-tip .tip-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+.res-tip .tip-warn {
+  margin-top: 6px;
+  color: var(--bad);
+}
+.res[data-tip] {
+  cursor: pointer;
+}
