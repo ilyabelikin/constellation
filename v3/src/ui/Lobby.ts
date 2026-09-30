@@ -16,7 +16,10 @@ export interface LobbyCallbacks {
   hasSave(): boolean;
   /** What "Continue" would resume, if known. */
   saveInfo(): { empire: string; day: number } | null;
-  online(): { connected: boolean; name: string; llm: boolean };
+  online(): { connected: boolean; name: string; llm: boolean; transferLink: string | null };
+  /** Opened with another player's transfer link: ask before switching to them. */
+  pendingTransfer(): boolean;
+  onTransfer(accept: boolean): void;
   setName(name: string): void;
   onHost(settings: Partial<GameSettings>): void;
   onJoin(code: string): void;
@@ -71,6 +74,8 @@ export class Lobby {
   };
   private showHelp = false;
   private showAdvanced = false;
+  /** "Play on another device" is open (kept across refreshes of the online panel). */
+  private showTransfer = false;
   private seed = Math.random().toString(36).slice(2, 8);
   private room: SessionInfo | null = null;
   /** The species' ships on a turntable; kept across re-renders (one WebGL context). */
@@ -109,6 +114,10 @@ export class Lobby {
   }
 
   private onlineHtml(): string {
+    if (this.cb.pendingTransfer())
+      return `<div class="transfer-ask"><b>Play as the player from this link?</b>
+        <div class="hint">You'll get their cloud saves and online games in this browser. The player you have here now won't be reachable here any more, unless you've kept its own transfer link.</div>
+        <div class="actions"><button class="primary" data-a="tyes">Switch player</button><button data-a="tno">Keep current player</button></div></div>`;
     const o = this.cb.online();
     if (!o.connected) return `<div class="hint">Connecting to the game server… (online play and cloud saves need it)</div>`;
     const sessions = this.cb.sessions();
@@ -131,6 +140,12 @@ export class Lobby {
               <span><button data-a="cload" data-id="${esc(x.id)}">Load</button> <button class="danger" data-a="cdel" data-id="${esc(x.id)}" title="Delete">${icon("close")}</button></span></div>`,
             )
             .join("")}</div>`
+        : ""
+    }${
+      o.transferLink
+        ? `<details class="transfer" ${this.showTransfer ? "open" : ""}><summary data-a="transfer">Play on another device</summary>
+          <div class="hint">Open this link on your other device to get your cloud saves and online games there. Keep it private: anyone with it can play as you.</div>
+          <div class="invite"><input id="lb-transfer" readonly value="${esc(o.transferLink)}" /><button data-a="tcopy">Copy link</button></div></details>`
         : ""
     }`;
   }
@@ -366,6 +381,23 @@ export class Lobby {
         case "cdel":
           if (window.confirm("Delete this cloud save?")) this.cb.onCloudDelete(b.dataset.id!);
           break;
+        case "tyes":
+        case "tno":
+          this.cb.onTransfer(b.dataset.a === "tyes");
+          break;
+        case "transfer":
+          // The click toggles the <details> after this handler runs.
+          this.showTransfer = !this.root.querySelector<HTMLDetailsElement>("details.transfer")?.open;
+          break;
+        case "tcopy": {
+          const input = this.root.querySelector<HTMLInputElement>("#lb-transfer");
+          if (!input) break;
+          input.select();
+          void navigator.clipboard?.writeText(input.value).catch(() => document.execCommand("copy"));
+          b.textContent = "Copied";
+          setTimeout(() => (b.textContent = "Copy link"), 1500);
+          break;
+        }
       }
     });
   }

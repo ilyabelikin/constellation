@@ -5,6 +5,52 @@ import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from "./prot
 
 const UUID_KEY = "constellation-uuid";
 const NAME_KEY = "constellation-name";
+/** URL fragment carrying a player identity to another device (`#player=<uuid>`). */
+const TRANSFER_PARAM = "player";
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A private link that makes another browser play as this player: same cloud
+ * saves, same online games. The identity rides in the fragment, which browsers
+ * never send to the server, so it stays out of logs.
+ */
+export function transferLink(uuid: string): string {
+  return `${location.origin}${location.pathname}#${TRANSFER_PARAM}=${uuid}`;
+}
+
+/**
+ * If the page was opened with a transfer link, adopt that identity before
+ * connecting. A browser with no player yet takes it straight away; one that
+ * already plays as someone else gets the identity back to ask first (see
+ * switchPlayer).
+ */
+export function adoptTransferLink(): { pending: string | null } {
+  const hash = new URLSearchParams(location.hash.slice(1));
+  const uuid = hash.get(TRANSFER_PARAM)?.trim().toLowerCase();
+  if (uuid === undefined) return { pending: null };
+  // Take the identity out of the address bar either way (bookmarks, screen shares).
+  hash.delete(TRANSFER_PARAM);
+  const rest = hash.toString();
+  history.replaceState(null, "", `${location.pathname}${location.search}${rest ? `#${rest}` : ""}`);
+  if (!UUID_RE.test(uuid)) return { pending: null };
+  const current = storageGet(UUID_KEY);
+  if (current === uuid) return { pending: null };
+  if (current) return { pending: uuid };
+  setPlayer(uuid);
+  return { pending: null };
+}
+
+/** Play as `uuid` in this browser from now on (reloads to reconnect as them). */
+export function switchPlayer(uuid: string): void {
+  setPlayer(uuid);
+  location.reload();
+}
+
+function setPlayer(uuid: string): void {
+  storageSet(UUID_KEY, uuid);
+  // The player's name comes back from the server with the identity.
+  storageRemove(NAME_KEY);
+}
 
 type Handler<T extends ServerMessage["t"]> = (msg: Extract<ServerMessage, { t: T }>) => void;
 
@@ -21,6 +67,14 @@ function storageSet(key: string, value: string): void {
     window.localStorage.setItem(key, value);
   } catch {
     /* private mode: identity lasts for this tab only */
+  }
+}
+
+function storageRemove(key: string): void {
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    /* nothing stored */
   }
 }
 

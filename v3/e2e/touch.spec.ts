@@ -43,11 +43,8 @@ test("long-pressing a build button queues it (Shift+click), and the Queue toggle
   await touch(page, hold(box.x + box.width / 2, box.y + box.height / 2, 700), 50);
   await expect.poll(() => page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue.length, colony)).toBe(1);
   expect(await page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue[0].unpaid, colony)).toBe(true);
-  // Queue mode: a plain tap queues too.
-  await page.locator('#viewbar [data-action="queuemode"]').tap();
-  expect(await page.evaluate(() => (window as any).__app.queueMode)).toBe(true);
-  await page.locator(`#details [data-action="build:${colony}:trade_hub"]`).tap();
-  await expect.poll(() => page.evaluate((id) => (window as any).__app.game.state.colonies[id].queue.length, colony)).toBe(2);
+  // No Queue toggle next to the navigation buttons: long-press is the way to queue.
+  await expect(page.locator('#viewbar [data-action="queuemode"]')).toHaveCount(0);
 });
 
 test("a long press on the map sends the selected fleet there; pinch zooms", async ({ page }) => {

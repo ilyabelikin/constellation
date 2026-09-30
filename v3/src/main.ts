@@ -4,7 +4,7 @@ import { Game, STEP_DAYS } from "./sim/game";
 import type { PlayerFacade } from "./sim/facade";
 import type { ChatMessage, DiploAction, GameSettings } from "./sim/types";
 import type { PlayerView, StaticView } from "./sim/view";
-import { NetClient } from "./net/NetClient";
+import { adoptTransferLink, NetClient, switchPlayer, transferLink } from "./net/NetClient";
 import { NetGame } from "./net/NetGame";
 import { NetLlmTransport } from "./net/NetLlm";
 import { RivalDirector } from "./llm/director";
@@ -23,6 +23,9 @@ import { canColonize } from "./sim/economy";
 
 const SAVE_KEY = "constellation-v3-save";
 const AUTOSAVE_KEY = "constellation-v3-autosave";
+/** Seconds of play between autosaves on this device, and between autosave uploads to the cloud. */
+const AUTOSAVE_SECONDS = 90;
+const CLOUD_AUTOSAVE_SECONDS = 300;
 
 function writeSave(key: string, json: string): void {
   const st = storage();
@@ -113,20 +116,15 @@ class App implements AppApi {
   private startTime = performance.now();
   private hudTimer = 0;
   private autosaveTimer = 0;
+  private cloudAutosaveTimer = 0;
+  /** A manual save is on its way to the cloud: confirm it when the server does. */
+  private cloudSavePending = false;
   private running = false;
   private keys = new Set<string>();
-  /** Touch device (iPad, phone): long-press stands in for right-click, the Queue toggle for Shift. */
+  /** Touch device (iPad, phone): long-press stands in for right-click (and, on buttons, for Shift+click). */
   readonly touch = typeof window !== "undefined" && (window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window);
-  /** Sticky "Shift": while on, orders and builds are queued (for devices without a keyboard). */
-  queueMode = false;
-  toggleQueueMode(): void {
-    this.queueMode = !this.queueMode;
-    this.toast(this.queueMode ? "Queue mode on: orders and builds are added after the current ones" : "Queue mode off", "info");
-    this.hud?.invalidate();
-    this.hud?.render();
-  }
 
-  constructor() {
+  constructor(private pendingTransfer: string | null = null) {
     this.engine = new Engine(document.getElementById("canvas")!);
     this.labels = new Labels(document.getElementById("labels")!);
     this.lobby = new Lobby(document.getElementById("lobby")!, {
@@ -134,7 +132,19 @@ class App implements AppApi {
       onContinue: () => this.load(),
       hasSave: () => !!newestSave(),
       saveInfo: () => newestSaveInfo(),
-      online: () => ({ connected: this.net.welcomed, name: this.net.name, llm: this.net.llmAvailable }),
+      online: () => ({
+        connected: this.net.welcomed,
+        name: this.net.name,
+        llm: this.net.llmAvailable,
+        transferLink: this.net.welcomed && this.net.uuid ? transferLink(this.net.uuid) : null,
+      }),
+      pendingTransfer: () => !!this.pendingTransfer,
+      onTransfer: (accept) => {
+        const uuid = this.pendingTransfer;
+        this.pendingTransfer = null;
+        if (accept && uuid) switchPlayer(uuid);
+        else this.lobby.refreshOnline();
+      },
       setName: (name) => this.net.setName(name),
       onHost: (settings) => this.net.send({ t: "create", settings, sessionName: `${settings.playerName ?? "Commander"}'s galaxy` }),
       onJoin: (code) => this.net.send({ t: "join", code }),
@@ -188,7 +198,11 @@ class App implements AppApi {
       this.cloudSaves = m.list;
       this.lobby.refreshOnline();
     });
-    net.on("cloudSaved", () => this.toast("Saved to the cloud", "good"));
+    net.on("cloudSaved", () => {
+      if (!this.cloudSavePending) return; // autosaves upload quietly
+      this.cloudSavePending = false;
+      this.toast("Backed up to the cloud", "good");
+    });
     net.on("cloudData", (m) => {
       try {
         this.startLocal(Game.deserialize(m.data));
@@ -339,14 +353,11 @@ class App implements AppApi {
     this.director = null;
   }
 
-  cloudSave(): void {
-    if (!this.local) return;
-    if (!this.net.welcomed) {
-      this.toast("Cloud saves need a connection to the game server", "error");
-      return;
-    }
-    const p = this.local.player;
-    this.net.send({ t: "cloudSave", name: `${p.name} — day ${Math.floor(this.local.state.day)}`, data: this.local.serialize() });
+  /** Upload the local game to the cloud under `name` (same name replaces that save). */
+  private uploadSave(name: string): boolean {
+    if (!this.local || !this.net.welcomed) return false;
+    this.net.send({ t: "cloudSave", name, data: this.local.serialize() });
+    return true;
   }
 
   get online(): boolean {
@@ -405,7 +416,7 @@ class App implements AppApi {
     if (!this.hud) this.hud = new Hud(hudRoot, document.getElementById("modal-root")!, this);
     else this.hud.reset();
     if (this.touch)
-      setTimeout(() => this.toast("Touch controls: tap to select · long-press to send the selected fleet · long-press a button (or Queue) to queue · pinch to zoom", "info"), 600);
+      setTimeout(() => this.toast("Touch controls: tap to select · long-press to send the selected fleet · long-press a button to queue · pinch to zoom", "info"), 600);
     this.galaxyView?.dispose();
     this.galaxyView = null;
     this.goHome();
@@ -419,7 +430,10 @@ class App implements AppApi {
     }
     try {
       writeSave(SAVE_KEY, this.local.serialize());
-      this.toast("Game saved", "good");
+      // Online, the same save also goes to the cloud (for other devices, see the transfer link).
+      const p = this.local.player;
+      this.cloudSavePending = this.uploadSave(`${p.name} — day ${Math.floor(this.local.state.day)}`);
+      this.toast(this.cloudSavePending ? "Game saved" : "Game saved on this device (offline: not backed up to the cloud)", "good");
     } catch (e) {
       this.toast(`Save failed: ${(e as Error).message}`, "error");
     }
@@ -859,7 +873,7 @@ class App implements AppApi {
       down = null;
       if (!d || d.moved || !this.running || this.gateJump) return;
       const pick = this.engine.pick(e.clientX, e.clientY);
-      if (d.button === 2) this.commandAt(pick, e.shiftKey || this.queueMode);
+      if (d.button === 2) this.commandAt(pick, e.shiftKey);
       else if (d.button === 0) {
         if (!pick || pick.kind === "point") this.select(null);
         else this.select(pick);
@@ -924,7 +938,7 @@ class App implements AppApi {
           if (!start || start.moved || start.multi || !this.running || this.gateJump) return;
           pressed = true;
           navigator.vibrate?.(15);
-          this.commandAt(this.engine.pick(start.x, start.y), this.queueMode);
+          this.commandAt(this.engine.pick(start.x, start.y), false);
         }, 500);
       } else {
         cancelPress();
@@ -1133,8 +1147,11 @@ class App implements AppApi {
         this.watchBattles();
         this.hud?.render();
       }
-      if (this.local && !this.localPaused && !this.local.state.winner) this.autosaveTimer += dt;
-      if (this.local && this.autosaveTimer > 90) {
+      if (this.local && !this.localPaused && !this.local.state.winner) {
+        this.autosaveTimer += dt;
+        this.cloudAutosaveTimer += dt;
+      }
+      if (this.local && this.autosaveTimer > AUTOSAVE_SECONDS) {
         this.autosaveTimer = 0;
         try {
           writeSave(AUTOSAVE_KEY, this.local.serialize());
@@ -1142,8 +1159,13 @@ class App implements AppApi {
           /* storage full or unavailable: ignore autosave */
         }
       }
+      // One cloud autosave slot per empire, refreshed less often (a save is a few hundred KB).
+      if (this.local && this.cloudAutosaveTimer > CLOUD_AUTOSAVE_SECONDS && this.uploadSave(`${this.local.player.name} — autosave`)) this.cloudAutosaveTimer = 0;
     }
   }
 }
 
-new App();
+// Opened with a transfer link from another device: play as that player here
+// (asked on the title screen when this browser already has a player).
+const transfer = adoptTransferLink();
+new App(transfer.pending);

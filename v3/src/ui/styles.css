@@ -1013,7 +1013,8 @@ kbd {
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.02);
 }
-.room .invite {
+.room .invite,
+details.transfer .invite {
   display: flex;
   gap: 10px;
   align-items: center;
@@ -1026,7 +1027,8 @@ kbd {
   letter-spacing: 0.2em;
   color: var(--accent);
 }
-.room .invite input {
+.room .invite input,
+details.transfer .invite input {
   flex: 1;
   max-width: 360px;
   font: inherit;
@@ -1440,10 +1442,6 @@ svg.i.bad {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
   transition: transform 0.45s, box-shadow 0.45s;
 }
-.queue-toggle.active {
-  background: color-mix(in srgb, var(--accent) 25%, var(--bg));
-  border-color: var(--accent);
-}
 /* Notched iPads / home-screen web app: keep clear of the safe areas. */
 @supports (padding: env(safe-area-inset-left)) {
   #topbar {
@@ -1535,27 +1533,32 @@ svg.i.bad {
   color: var(--muted);
   font-weight: 400;
 }
-details.advanced {
+details.advanced,
+details.transfer {
   margin: 6px 0 0;
   font-size: 13px;
 }
-details.advanced summary {
+details.advanced summary,
+details.transfer summary {
   cursor: pointer;
   color: var(--muted);
   list-style: none;
   padding: 4px 0;
   width: fit-content;
 }
-details.advanced summary::before {
+details.advanced summary::before,
+details.transfer summary::before {
   content: "›";
   display: inline-block;
   margin-right: 6px;
   transition: transform 0.15s;
 }
-details.advanced[open] summary::before {
+details.advanced[open] summary::before,
+details.transfer[open] summary::before {
   transform: rotate(90deg);
 }
-details.advanced summary::-webkit-details-marker {
+details.advanced summary::-webkit-details-marker,
+details.transfer summary::-webkit-details-marker {
   display: none;
 }
 .lobby-actions {
@@ -1590,4 +1593,27 @@ details.advanced summary::-webkit-details-marker {
 .room-name {
   margin: 10px 0 4px;
   max-width: 260px;
+}
+
+/* Transfer link on the title screen: the link field fills the row. */
+details.transfer {
+  margin-top: 10px;
+}
+details.transfer .invite {
+  margin: 6px 0 0;
+}
+details.transfer .invite input {
+  max-width: none;
+}
+.transfer-ask {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.transfer-ask .actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
 }

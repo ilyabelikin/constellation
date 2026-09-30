@@ -121,8 +121,10 @@ test("cloud saves: save a local game and load it after a reload", async ({ page 
   await page.click("#lb-start");
   await expect(page.locator("#topbar")).toBeVisible();
   await expect.poll(() => page.evaluate(() => (window as any).__app.game.state.day), { timeout: 40_000 }).toBeGreaterThan(1);
+  // One Save button: this device and, online, the cloud too.
   await domClick(page, '#topbar [data-action="modal:menu"]');
-  await domClick(page, '[data-action="cloudsave"]');
+  await expect(page.locator('[data-action="cloudsave"]')).toHaveCount(0);
+  await domClick(page, '.modal [data-action="save"]');
   await expect(page.locator(".toast.good").filter({ hasText: "cloud" })).toBeVisible();
   const day = await page.evaluate(() => (window as any).__app.game.state.day);
 
@@ -133,6 +135,53 @@ test("cloud saves: save a local game and load it after a reload", async ({ page 
   const loaded = await page.evaluate(() => (window as any).__app.game.state.day);
   expect(loaded).toBeGreaterThanOrEqual(Math.floor(day) - 0.01);
   expect(await page.evaluate(() => (window as any).__app.game.state.settings.seed)).toBe("cloud-e2e");
+});
+
+test("a transfer link carries cloud saves to another device", async ({ browser }) => {
+  test.setTimeout(600_000); // two full clients rendering in software on one shared CPU
+  // Two browser contexts stand in for two devices with separate storage.
+  const macCtx = await browser.newContext();
+  const ipadCtx = await browser.newContext();
+  const mac = await macCtx.newPage();
+  let ipad = await ipadCtx.newPage();
+  watch(mac, "mac");
+  watch(ipad, "ipad");
+  await openLobby(mac, "Erin");
+  await mac.evaluate(() => document.querySelector("details.advanced")?.setAttribute("open", ""));
+  await mac.fill("#lb-seed", "transfer-e2e");
+  await mac.click("#lb-start");
+  await expect(mac.locator("#topbar")).toBeVisible();
+  await domClick(mac, '#topbar [data-action="modal:menu"]');
+  await domClick(mac, '.modal [data-action="save"]');
+  await expect(mac.locator(".toast.good").filter({ hasText: "cloud" })).toBeVisible();
+  await domClick(mac, '#topbar [data-action="modal:menu"]');
+  await domClick(mac, '.modal [data-action="quit"]');
+  await mac.locator('summary[data-a="transfer"]').click();
+  const link = await mac.locator("#lb-transfer").inputValue();
+  const macUuid = await mac.evaluate(() => (window as any).__app.net.uuid);
+  expect(link).toContain(`#player=${macUuid}`);
+
+  // The other device already has its own player: opening the link asks before switching.
+  await openLobby(ipad, "Someone else");
+  expect(await ipad.evaluate(() => (window as any).__app.net.uuid)).not.toBe(macUuid);
+  await ipad.close();
+  ipad = await ipadCtx.newPage();
+  watch(ipad, "ipad");
+  await ipad.goto(link);
+  await expect(ipad.locator(".transfer-ask")).toContainText("Play as the player from this link");
+  await ipad.locator('[data-a="tyes"]').click();
+  await ipad.waitForLoadState("load");
+  await expect.poll(() => ipad.evaluate(() => (window as any).__app.net.welcomed)).toBe(true);
+  expect(await ipad.evaluate(() => (window as any).__app.net.uuid)).toBe(macUuid);
+  expect(await ipad.evaluate(() => (window as any).__app.net.name)).toBe("Erin");
+  expect(ipad.url()).not.toContain("player="); // taken out of the address bar
+  await expect(ipad.locator(".lobby-row").filter({ hasText: "day" }).first()).toBeVisible();
+  await ipad.locator('.lobby-row button:has-text("Load")').first().click();
+  await expect(ipad.locator("#topbar")).toBeVisible();
+  expect(await ipad.evaluate(() => (window as any).__app.game.state.settings.seed)).toBe("transfer-e2e");
+
+  await macCtx.close();
+  await ipadCtx.close();
 });
 
 test("talk to a rival ruler: the game pauses while you write and they answer in character", async ({ page }) => {

@@ -29,7 +29,6 @@ import {
   HandCoins,
   Handshake,
   Hexagon,
-  ListPlus,
   House,
   LocateFixed,
   Map,
@@ -104,7 +103,6 @@ const ICONS = {
   defense: Shield,
   idle: Anchor,
   build: Construction,
-  queue: ListPlus,
   // structures
   mine: Pickaxe,
   plant: Flame,

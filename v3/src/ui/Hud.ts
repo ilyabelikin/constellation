@@ -74,15 +74,11 @@ export interface AppApi {
   readonly remote: { info: SessionInfo } | null;
   readonly chats: ChatMessage[];
   canChat(empireId: string): boolean;
-  /** Touch device: long-press replaces right-click, the Queue toggle replaces Shift. */
+  /** Touch device: long-press replaces right-click, and Shift+click on buttons. */
   readonly touch: boolean;
-  /** Sticky Shift for devices without a keyboard. */
-  readonly queueMode: boolean;
-  toggleQueueMode(): void;
   sendChat(to: string, text: string): void;
   /** Send an automatic note about a diplomatic act, so its recipient can react. */
   announce(to: string, text: string, action?: DiploAction): void;
-  cloudSave(): void;
   select(sel: PickResult | null, focus?: boolean): void;
   enterSystem(id: string, focusSel?: PickResult | null): void;
   jumpThroughGate(tunnelId: string): void;
@@ -135,7 +131,7 @@ export class Hud {
       <div id="viewbar" class="panel"></div>
       <div id="minihelp" class="panel">${
         app.touch
-          ? "Long-press to command the active fleet · long-press a button (or turn on Queue) to queue · pinch to zoom, two fingers to pan"
+          ? "Long-press to command the active fleet · long-press a button to queue · pinch to zoom, two fingers to pan"
           : "Right-click to command the active fleet · <kbd>Shift</kbd> queues orders · <kbd>?</kbd> help"
       }</div>`;
     for (const id of ["topbar", "badges", "outliner", "details", "log", "viewbar"]) this.regions[id] = root.querySelector(`#${id}`)!;
@@ -485,8 +481,7 @@ export class Hud {
     const s = this.game.state;
     this.set(
       "viewbar",
-      `${this.app.touch ? `<button data-action="queuemode" class="queue-toggle ${this.app.queueMode ? "active" : ""}" title="Queue mode: while on, orders and builds are added after the current ones (like holding Shift)">${icon("queue")} Queue</button>` : ""}
-       <button data-action="view:galaxy" class="${this.app.view === "galaxy" ? "active" : ""}" title="Galaxy map (G)">${icon("galaxy")} Galaxy</button>
+      `<button data-action="view:galaxy" class="${this.app.view === "galaxy" ? "active" : ""}" title="Galaxy map (G)">${icon("galaxy")} Galaxy</button>
        <button data-action="view:system" class="${this.app.view === "system" ? "active" : ""}" title="Current system">${icon("system")} ${esc(s.systems[this.app.systemId].name)}</button>
        <button data-action="view:home" title="Home system (H)">${icon("home")} Home</button>`,
     );
@@ -1049,9 +1044,8 @@ export class Hud {
     return `<header><h2>Menu</h2><button data-action="close">${icon("close")}</button></header>
       <div class="actions" style="flex-direction:column;align-items:stretch;max-width:320px;margin:auto">
         <button class="primary" data-action="close">Resume</button>
-        <button data-action="save">Save game</button>
+        <button data-action="save" title="Saves on this device and, when online, to the cloud too">Save game</button>
         <button data-action="load">Load last save</button>
-        ${this.app.online ? `<button data-action="cloudsave">Save to cloud</button>` : ""}
         <button data-action="modal:help">How to play</button>
         <button class="danger" data-action="quit">Quit to title</button>
       </div>`;
@@ -1206,8 +1200,8 @@ export class Hud {
     const [action, ...args] = target.dataset.action!.split(":");
     const g = this.game;
     const app = this.app;
-    // Shift, a long press, or the sticky Queue toggle all mean "queue this".
-    const shift = e.shiftKey || app.queueMode;
+    // Shift, or a long press on touch screens, means "queue this".
+    const shift = e.shiftKey;
     this.shiftHeld = shift;
     const res = (r: { ok: boolean; error?: string }, okMsg?: string) => {
       if (!r.ok) app.toast(r.error ?? "Cannot do that", "error");
@@ -1220,9 +1214,6 @@ export class Hud {
       if (res(r, okMsg)) app.announce(to, text, action);
     };
     switch (action) {
-      case "queuemode":
-        app.toggleQueueMode();
-        break;
       case "speed":
         app.setSpeed(Number(args[0]));
         break;
@@ -1463,10 +1454,6 @@ export class Hud {
       case "sendchat":
         this.submitChat();
         return;
-      case "cloudsave":
-        app.cloudSave();
-        this.modal = null;
-        break;
       case "copyinvite":
         if (app.remote) {
           const link = inviteLink(app.remote.info.code);
