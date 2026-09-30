@@ -915,27 +915,106 @@ function buildStyled(hull: string, style: Exclude<ShipStyle, "terran">): ShipMod
   return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad] };
 }
 
-const hullMaterials = new Map<string, THREE.MeshStandardMaterial>();
 let radiatorMaterial: THREE.MeshStandardMaterial | null = null;
 
-/** Hull material in the species' finish, tinted towards the empire colour. */
+/** Per-style surface detail: plate size (model units), seam darkness, grime amount. */
+const SURFACE: Record<ShipStyle, [number, number, number]> = {
+  terran: [0.55, 0.32, 0.9],
+  vashari: [0.95, 0.45, 1.0],
+  lumenari: [0.8, 0.12, 0.25],
+  kraal: [0.35, 0.18, 1.2],
+  thalassi: [1.1, 0.1, 0.35],
+  aurelian: [0.45, 0.4, 0.8],
+};
+
+/** Shared clock for flickering fires on damaged hulls. */
+export const hullClock = { value: 0 };
+
+/**
+ * The hull shader: plating seams, per-plate tone and grime drawn from the
+ * model's own coordinates (the models have no UVs), plus battle damage —
+ * soot-black scorching that spreads as a ship loses hull and armour, with
+ * glowing breaches when it is badly hurt. Damage fades as the ship is repaired.
+ */
+function hullShader(m: THREE.MeshStandardMaterial, style: ShipStyle): void {
+  const u = {
+    uDamage: { value: 0 },
+    uSeed: { value: Math.random() * 10 },
+    uSurface: { value: new THREE.Vector3(...SURFACE[style]) },
+    uTime: hullClock,
+  };
+  m.userData.hull = u;
+  m.customProgramCacheKey = () => "hull-v1";
+  m.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, u);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vObjPos;\nvarying vec3 vObjNormal;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvObjPos = position;\nvObjNormal = normal;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+uniform float uDamage;
+uniform float uSeed;
+uniform float uTime;
+uniform vec3 uSurface;
+varying vec3 vObjPos;
+varying vec3 vObjNormal;
+float hHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+float hNoise(vec3 x) {
+  vec3 i = floor(x); vec3 f = fract(x); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hHash(i), hHash(i + vec3(1, 0, 0)), f.x), mix(hHash(i + vec3(0, 1, 0)), hHash(i + vec3(1, 1, 0)), f.x), f.y),
+             mix(mix(hHash(i + vec3(0, 0, 1)), hHash(i + vec3(1, 0, 1)), f.x), mix(hHash(i + vec3(0, 1, 1)), hHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+float hFbm(vec3 p) { float a = 0.5, s = 0.0; for (int i = 0; i < 4; i++) { s += a * hNoise(p); p *= 2.03; a *= 0.5; } return s; }`,
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+// Plating: staggered plates on the faces most square to the surface, seams between them.
+vec3 an = abs(normalize(vObjNormal));
+vec2 puv = (an.x > an.y && an.x > an.z ? vObjPos.yz : an.y > an.z ? vObjPos.xz : vObjPos.xy) / uSurface.x;
+puv.x += step(1.0, mod(floor(puv.y), 2.0)) * 0.5;
+vec2 cellId = floor(puv); vec2 fr = fract(puv);
+float edgeD = min(min(fr.x, 1.0 - fr.x), min(fr.y, 1.0 - fr.y));
+float seam = 1.0 - smoothstep(0.0, 0.05, edgeD);
+float tone = hHash(vec3(cellId, 3.7));
+float grime = hFbm(vObjPos * 1.6);
+diffuseColor.rgb *= (1.0 - seam * uSurface.y) * (0.9 + 0.18 * tone) * (1.0 - 0.3 * uSurface.z * smoothstep(0.5, 0.85, grime));
+// Battle damage: scorching spreads with damage; the worst of it glows.
+float burn = hFbm(vObjPos * 1.25 + uSeed * 7.3);
+float th = 0.97 - uDamage * 0.95;
+float scorch = smoothstep(th - 0.07, th + 0.02, burn) * step(0.02, uDamage);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.045, 0.038, 0.034), scorch * 0.88);
+float gHot = smoothstep(th + 0.1, th + 0.18, burn) * smoothstep(0.35, 0.6, uDamage) * (0.65 + 0.35 * sin(uTime * 5.0 + burn * 37.0));`,
+      )
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.36, 0.08) * gHot * 1.6;")
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = min(1.0, roughnessFactor + scorch * 0.35 + seam * 0.1);");
+  };
+}
+
+/**
+ * A hull material of its own for one ship (it carries that ship's damage),
+ * in the species' finish, tinted towards the empire colour. Dispose with the ship.
+ */
 export function hullMaterial(empireColor: string, style: ShipStyle = "terran"): THREE.MeshStandardMaterial {
-  const key = `${style}:${empireColor}`;
-  let m = hullMaterials.get(key);
-  if (!m) {
-    const st = SHIP_STYLES[style];
-    const base = new THREE.Color(st.base).lerp(new THREE.Color(empireColor), st.tint);
-    m = new THREE.MeshStandardMaterial({
-      color: base,
-      vertexColors: true,
-      metalness: st.metalness,
-      roughness: st.roughness,
-      emissive: new THREE.Color(empireColor).lerp(new THREE.Color(st.engine), 0.3).multiplyScalar(st.emissive),
-    });
-    m.userData.shared = true;
-    hullMaterials.set(key, m);
-  }
+  const st = SHIP_STYLES[style];
+  const base = new THREE.Color(st.base).lerp(new THREE.Color(empireColor), st.tint);
+  const m = new THREE.MeshStandardMaterial({
+    color: base,
+    vertexColors: true,
+    metalness: st.metalness,
+    roughness: st.roughness,
+    emissive: new THREE.Color(empireColor).lerp(new THREE.Color(st.engine), 0.3).multiplyScalar(st.emissive),
+  });
+  hullShader(m, style);
   return m;
+}
+
+/** Set how battered a ship looks (0 pristine … 1 wrecked). */
+export function setHullDamage(m: THREE.Material, damage: number): void {
+  const u = (m.userData as { hull?: { uDamage: { value: number } } }).hull;
+  if (u) u.uDamage.value = THREE.MathUtils.clamp(damage, 0, 1);
 }
 
 export function radiatorMat(): THREE.MeshStandardMaterial {

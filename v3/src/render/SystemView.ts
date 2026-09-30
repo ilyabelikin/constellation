@@ -23,7 +23,8 @@ import {
 import { createAccretionDiskMaterial, createBeamMaterial, createCoronaMaterial, createStarMaterial } from "./materials/star";
 import { shipVisualLength } from "./scale";
 import { moonVisualRadius, planetVisualRadius, starVisualRadius, SystemLayout } from "./layout";
-import { hullMaterial, radiatorMat, SHIP_STYLES, shipModel, styleForSpecies } from "./ShipModels";
+import { shipStats } from "../sim/modifiers";
+import { hullClock, hullMaterial, radiatorMat, setHullDamage, SHIP_STYLES, shipModel, styleForSpecies } from "./ShipModels";
 import { stationGeometry, stationMaterial } from "./StationModels";
 
 interface BodyVisual {
@@ -50,6 +51,12 @@ interface FleetVisual {
   radius: number;
   /** Seconds until the next landing shuttle leaves (while unloading). */
   shuttleTimer?: number;
+  /** Freighters in port alternate containers going down and coming up. */
+  cargoUp?: boolean;
+  /** Seconds until the next welding flash (constructors at work). */
+  weldTimer?: number;
+  /** Each shown ship's hull mesh (its material carries that ship's battle damage). */
+  hulls: THREE.Mesh[];
 }
 
 interface StationVisual {
@@ -503,6 +510,7 @@ export class SystemView implements View {
     const ships: THREE.Group[] = [];
     const engines: THREE.Sprite[] = [];
     const shown = f.ships.slice(0, 24);
+    const hulls: THREE.Mesh[] = [];
     let maxLen = 0;
     for (const sh of shown) maxLen = Math.max(maxLen, shipVisualLength(HULL_MAP[sh.hull].length));
     const spacing = Math.max(0.6, maxLen * 0.75);
@@ -513,6 +521,7 @@ export class SystemView implements View {
       const scale = len / model.length;
       const sg = new THREE.Group();
       const hm = new THREE.Mesh(model.hull, hullMaterial(color, style));
+      hulls.push(hm);
       const rm = new THREE.Mesh(model.radiators, radiatorMat());
       sg.add(hm, rm);
       for (const e of model.engines) {
@@ -540,7 +549,7 @@ export class SystemView implements View {
     group.add(marker);
     this.scene.add(group);
     this.pickables.push(pick);
-    const v: FleetVisual = { fleet: f, group, ships, engines, shipKey: key, heading: new THREE.Vector3(0, 0, 1), pos: new THREE.Vector3(), pick, radius };
+    const v: FleetVisual = { fleet: f, group, ships, engines, shipKey: key, heading: new THREE.Vector3(0, 0, 1), pos: new THREE.Vector3(), pick, radius, hulls };
     this.fleetWorld(f, v.pos);
     group.position.copy(v.pos);
     this.fleets.set(f.id, v);
@@ -552,6 +561,7 @@ export class SystemView implements View {
     this.scene.remove(v.group);
     this.pickables = this.pickables.filter((p) => p !== v.pick);
     v.pick.geometry.dispose();
+    for (const h of v.hulls) (h.material as THREE.Material).dispose();
     this.fleets.delete(id);
   }
 
@@ -767,6 +777,7 @@ export class SystemView implements View {
       }
     }
     this.updateShuttles(dt);
+    this.updateHullDamage(time);
     this.updatePaths();
     this.updateBattles(time);
     this.updateRings();
@@ -774,18 +785,58 @@ export class SystemView implements View {
   }
 
   /** Ships founding a colony or unloading settlers send shuttles down to the surface. */
+  /** A constructor at work: welding arcs and sparks where the station takes shape. */
+  private weld(v: FleetVisual, body: Body, dt: number): void {
+    v.weldTimer = (v.weldTimer ?? 0) - dt;
+    if (v.weldTimer > 0) return;
+    v.weldTimer = 0.12 + Math.random() * 0.25;
+    const center = this.bodyWorld(body, new THREE.Vector3());
+    // The site: just ahead of the crew, towards the world it orbits.
+    const site = v.pos.clone().addScaledVector(center.sub(v.pos).normalize(), v.radius * 1.4);
+    site.add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(v.radius * 0.5));
+    const color = new THREE.Color(Math.random() < 0.6 ? "#bfe6ff" : "#fff1c2");
+    this.effects.flash(site, color, v.radius * (0.25 + Math.random() * 0.25), 0.12);
+    if (Math.random() < 0.5) this.effects.sparks(site, color, 4, 0.05);
+  }
+
+  /** Scorch marks follow each ship's lost hull and armour, fading as it is repaired. */
+  private updateHullDamage(time: number): void {
+    hullClock.value = time;
+    const s = this.game.state;
+    for (const v of this.fleets.values()) {
+      const empire = s.empires[v.fleet.empireId];
+      v.hulls.forEach((mesh, i) => {
+        const ship = v.fleet.ships[i];
+        if (!ship || !empire) return;
+        const def = HULL_MAP[ship.hull];
+        const max = shipStats(empire, def);
+        const whole = max.hull + max.armor;
+        setHullDamage(mesh.material as THREE.Material, whole > 0 ? 1 - (ship.hull_hp + ship.armor) / whole : 0);
+      });
+    }
+  }
+
   private updateShuttles(dt: number): void {
     const s = this.game.state;
     const center = new THREE.Vector3();
     for (const v of this.fleets.values()) {
       const o = v.fleet.order;
-      if (!o || (o.kind !== "colonize" && o.kind !== "migrate") || !(o.work && o.work > 0) || !o.bodyId || o.route.length) continue;
+      if (!o || !(o.work && o.work > 0) || !o.bodyId || o.route.length) continue;
       const body = s.bodies[o.bodyId];
       if (!body || body.systemId !== this.systemId) continue;
+      if (o.kind === "buildStation") {
+        if (!o.waiting) this.weld(v, body, dt);
+        continue;
+      }
+      if (o.kind !== "colonize" && o.kind !== "migrate" && o.kind !== "trade") continue;
       v.shuttleTimer = (v.shuttleTimer ?? 0) - dt;
       if (v.shuttleTimer > 0) continue;
       v.shuttleTimer = 0.8 + Math.random() * 0.8;
-      this.shuttles.launch(v.pos, body.id, this.bodyWorld(body, center));
+      if (o.kind === "trade") {
+        // In port: lighters take containers down and bring new cargo up.
+        v.cargoUp = !v.cargoUp;
+        this.shuttles.launch(v.pos, body.id, this.bodyWorld(body, center), { cargo: true, up: v.cargoUp });
+      } else this.shuttles.launch(v.pos, body.id, this.bodyWorld(body, center));
     }
     this.shuttles.update(dt, (bodyId, out) => {
       const b = s.bodies[bodyId];
