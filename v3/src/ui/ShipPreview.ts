@@ -135,6 +135,11 @@ export class ShipPreview {
     this.effects.pointScale = k * 1.8;
     this.scars = [];
     this.shieldHits = hullDef.shields > 0 ? 2 : 0;
+    // The timers run on the showcase clock, which restarts when the species
+    // changes: left as they were, a new species' warships would hold fire until
+    // the clock caught up with the old schedule.
+    this.nextShot = 0;
+    this.nextHit = 0;
     this.attackers = [];
     const spin = Math.random() * Math.PI * 2;
     for (let i = 0; i < 3; i++) {
