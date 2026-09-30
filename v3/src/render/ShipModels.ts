@@ -54,6 +54,8 @@ export interface ShipModel {
   length: number; // model length in model units (nose = +Z)
   /** Every separate part (hull pieces and radiators) before merging, for structural checks. */
   parts: THREE.BufferGeometry[];
+  /** Gun muzzles (barrel tips), in model units; empty where the design has none marked. */
+  guns: THREE.Vector3[];
 }
 
 const cache = new Map<string, ShipModel>();
@@ -347,7 +349,7 @@ function build(hull: string): ShipModel {
   hullGeo.computeBoundingSphere();
   hullGeo.userData.shared = true;
   radGeo.userData.shared = true;
-  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad] };
+  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad], guns: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -580,26 +582,38 @@ function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe,
         // Armoured casemate: a squat slab with thick square barrels.
         b.P(at(box(size * 1.1, size * 0.4, size * 0.9), d.x, y + up * size * 0.2, z), 0.7);
         b.P(at(box(size * 0.8, size * 0.12, size * 0.5), d.x, y + up * size * 0.45, z - size * 0.1), 1.3);
-        for (let i = 0; i < barrels; i++) b.P(at(box(size * 0.16, size * 0.16, size * 1.2), d.x + spread(i), y + up * size * 0.22, z + size * 0.95), 0.55);
+        for (let i = 0; i < barrels; i++) {
+          b.P(at(box(size * 0.16, size * 0.16, size * 1.2), d.x + spread(i), y + up * size * 0.22, z + size * 0.95), 0.55);
+          b.gun?.(d.x + spread(i), y + up * size * 0.22, z + size * 1.55);
+        }
         break;
       }
       case "lumenari": {
         // Crystal emitters: a faceted focus on a short stem, prongs for extra beams.
         b.P(at(cyl(size * 0.08, size * 0.12, size * 0.35, 5).rotateX(Math.PI / 2), d.x, y + up * size * 0.17, z), 0.8);
         b.P(at(new THREE.OctahedronGeometry(size * 0.38, 0).scale(1, 0.8, 1.4), d.x, y + up * size * 0.5, z), 1.35);
-        for (let i = 0; i < barrels; i++) b.P(at(cone(size * 0.07, size * 0.9, 4), d.x + spread(i), y + up * size * 0.5, z + size * 0.7), 1.2);
+        for (let i = 0; i < barrels; i++) {
+          b.P(at(cone(size * 0.07, size * 0.9, 4), d.x + spread(i), y + up * size * 0.5, z + size * 0.7), 1.2);
+          b.gun?.(d.x + spread(i), y + up * size * 0.5, z + size * 1.15);
+        }
         break;
       }
       case "kraal": {
         // Living weapons: a swollen blister bristling with bone spines.
         b.P(at(ellipsoid(size * 0.55, size * 0.4, size * 0.6, 10), d.x, y + up * size * 0.15, z), 0.85);
-        for (let i = 0; i < barrels; i++) b.P(at(rot(cone(size * 0.1, size * 1.1, 6), up * -0.25, 0, 0), d.x + spread(i), y + up * size * 0.35, z + size * 0.7), 0.65);
+        for (let i = 0; i < barrels; i++) {
+          b.P(at(rot(cone(size * 0.1, size * 1.1, 6), up * -0.25, 0, 0), d.x + spread(i), y + up * size * 0.35, z + size * 0.7), 0.65);
+          b.gun?.(d.x + spread(i), y + up * size * 0.48, z + size * 1.25);
+        }
         break;
       }
       case "thalassi": {
         // Smooth low dome with slim, flush barrels.
         b.P(at(ellipsoid(size * 0.5, size * 0.28, size * 0.55, 14), d.x, y, z), 1.15);
-        for (let i = 0; i < barrels; i++) b.P(at(cyl(size * 0.05, size * 0.07, size * 1.1, 8), d.x + spread(i) * 0.8, y + up * size * 0.12, z + size * 0.75), 0.75);
+        for (let i = 0; i < barrels; i++) {
+          b.P(at(cyl(size * 0.05, size * 0.07, size * 1.1, 8), d.x + spread(i) * 0.8, y + up * size * 0.12, z + size * 0.75), 0.75);
+          b.gun?.(d.x + spread(i) * 0.8, y + up * size * 0.12, z + size * 1.3);
+        }
         break;
       }
       case "aurelian": {
@@ -609,6 +623,7 @@ function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe,
         for (let i = 0; i < barrels; i++) {
           b.P(at(box(size * 0.07, size * 0.07, size * 1.6), d.x + spread(i), y + up * size * 0.55, z + size * 1.05), 0.55);
           b.P(at(new THREE.TorusGeometry(size * 0.1, size * 0.03, 4, 8), d.x + spread(i), y + up * size * 0.55, z + size * 1.5), 0.9);
+          b.gun?.(d.x + spread(i), y + up * size * 0.55, z + size * 1.85);
         }
         break;
       }
@@ -716,6 +731,8 @@ interface Builder {
   P(geo: THREE.BufferGeometry, tint?: number): void;
   R(geo: THREE.BufferGeometry): void;
   engine(x: number, y: number, z: number): void;
+  /** Marks a gun muzzle (barrel tip). */
+  gun?(x: number, y: number, z: number): void;
 }
 
 function ellipsoid(rx: number, ry: number, rz: number, seg = 14): THREE.BufferGeometry {
@@ -891,7 +908,13 @@ function buildStyled(hull: string, style: Exclude<ShipStyle, "terran">): ShipMod
   const engines: THREE.Vector3[] = [];
   const role = HULL_MAP[hull]?.role ?? "military";
   const tier = TIER[hull] ?? 1;
-  const builder: Builder = { P: (geo, tint = 1) => parts.push({ geo, tint }), R: (g) => rad.push(g), engine: (x, y, z) => engines.push(new THREE.Vector3(x, y, z)) };
+  const guns: THREE.Vector3[] = [];
+  const builder: Builder = {
+    P: (geo, tint = 1) => parts.push({ geo, tint }),
+    R: (g) => rad.push(g),
+    engine: (x, y, z) => engines.push(new THREE.Vector3(x, y, z)),
+    gun: (x, y, z) => guns.push(new THREE.Vector3(x, y, z)),
+  };
   let length = STYLE_BUILDERS[style](builder, tier, role);
   const [px, py, pz] = PROPORTION.get(hull) ?? [1, 1, 1];
   for (const p of parts) p.geo.scale(px, py, pz);
@@ -912,7 +935,7 @@ function buildStyled(hull: string, style: Exclude<ShipStyle, "terran">): ShipMod
   hullGeo.computeBoundingSphere();
   hullGeo.userData.shared = true;
   radGeo.userData.shared = true;
-  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad] };
+  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad], guns };
 }
 
 let radiatorMaterial: THREE.MeshStandardMaterial | null = null;
@@ -927,24 +950,59 @@ const SURFACE: Record<ShipStyle, [number, number, number]> = {
   aurelian: [0.45, 0.4, 0.8],
 };
 
-/** Shared clock for flickering fires on damaged hulls. */
+/** Shared clock (seconds) for impact heat and flickering fires; see hullNow(). */
 export const hullClock = { value: 0 };
+
+/** The clock scars are timed against — wall time, so every view agrees. */
+export function hullNow(): number {
+  return (hullClock.value = performance.now() / 1000);
+}
+
+/** What left a mark: a kinetic round, a laser burn, or a warhead's blast. */
+export type ScarKind = "kinetic" | "laser" | "blast";
+const SCAR_KIND: Record<ScarKind, number> = { kinetic: 0, laser: 1, blast: 2 };
+
+/** One impact on a hull, in the model's own coordinates. */
+export interface Scar {
+  kind: ScarKind;
+  /** Where it struck (model space). */
+  p: THREE.Vector3;
+  /** Size of the mark (model units). */
+  r: number;
+  /** Laser burns run along this direction (unit, model space). */
+  axis: THREE.Vector3;
+  /** hullNow() time it lands; glows hot at first, then cools. */
+  born: number;
+  seed: number;
+}
+
+/** Marks a hull can carry at once; the oldest give way first. */
+export const MAX_SCARS = 24;
+
+/** How big a mark a weapon leaves on a model of this length (model units). */
+export function scarRadius(kind: ScarKind, modelLength: number, heavy = false): number {
+  const k = kind === "blast" ? 0.24 : kind === "laser" ? 0.085 : 0.1;
+  return k * Math.sqrt(modelLength) * (heavy ? 1.6 : 1) * (0.8 + Math.random() * 0.4);
+}
 
 /**
  * The hull shader: plating seams, per-plate tone and grime drawn from the
- * model's own coordinates (the models have no UVs), plus battle damage —
- * soot-black scorching that spreads as a ship loses hull and armour, with
- * glowing breaches when it is badly hurt. Damage fades as the ship is repaired.
+ * model's own coordinates (the models have no UVs), plus battle scars exactly
+ * where the ship was hit — kinetic rounds punch holes ringed with torn bright
+ * metal, lasers melt glowing grooves, warheads tear open soot-ringed craters
+ * that smoulder. Fresh hits glow and cool; scars stay until the ship repairs.
  */
 function hullShader(m: THREE.MeshStandardMaterial, style: ShipStyle): void {
   const u = {
-    uDamage: { value: 0 },
-    uSeed: { value: Math.random() * 10 },
     uSurface: { value: new THREE.Vector3(...SURFACE[style]) },
     uTime: hullClock,
+    uScarCount: { value: 0 },
+    uScarPos: { value: Array.from({ length: MAX_SCARS }, () => new THREE.Vector4()) },
+    uScarInfo: { value: Array.from({ length: MAX_SCARS }, () => new THREE.Vector4()) },
+    uScarAxis: { value: Array.from({ length: MAX_SCARS }, () => new THREE.Vector3(1, 0, 0)) },
   };
   m.userData.hull = u;
-  m.customProgramCacheKey = () => "hull-v1";
+  m.customProgramCacheKey = () => "hull-v2";
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = shader.vertexShader
@@ -954,10 +1012,13 @@ function hullShader(m: THREE.MeshStandardMaterial, style: ShipStyle): void {
       .replace(
         "#include <common>",
         `#include <common>
-uniform float uDamage;
-uniform float uSeed;
+#define MAX_SCARS ${MAX_SCARS}
 uniform float uTime;
 uniform vec3 uSurface;
+uniform int uScarCount;
+uniform vec4 uScarPos[MAX_SCARS];
+uniform vec4 uScarInfo[MAX_SCARS];
+uniform vec3 uScarAxis[MAX_SCARS];
 varying vec3 vObjPos;
 varying vec3 vObjNormal;
 float hHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
@@ -981,15 +1042,80 @@ float seam = 1.0 - smoothstep(0.0, 0.05, edgeD);
 float tone = hHash(vec3(cellId, 3.7));
 float grime = hFbm(vObjPos * 1.6);
 diffuseColor.rgb *= (1.0 - seam * uSurface.y) * (0.9 + 0.18 * tone) * (1.0 - 0.3 * uSurface.z * smoothstep(0.5, 0.85, grime));
-// Battle damage: scorching spreads with damage; the worst of it glows.
-float burn = hFbm(vObjPos * 1.25 + uSeed * 7.3);
-float th = 0.97 - uDamage * 0.95;
-float scorch = smoothstep(th - 0.07, th + 0.02, burn) * step(0.02, uDamage);
-diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.045, 0.038, 0.034), scorch * 0.88);
-float gHot = smoothstep(th + 0.1, th + 0.18, burn) * smoothstep(0.35, 0.6, uDamage) * (0.65 + 0.35 * sin(uTime * 5.0 + burn * 37.0));`,
+// Battle scars, each where it struck.
+float soot = 0.0, hole = 0.0, bare = 0.0, heat = 0.0, relief = 0.0;
+for (int i = 0; i < MAX_SCARS; i++) {
+  if (i >= uScarCount) break;
+  vec4 sp = uScarPos[i];
+  vec4 si = uScarInfo[i];
+  float age = uTime - si.y;
+  if (age < 0.0) continue;
+  vec3 off = vObjPos - sp.xyz;
+  float r = sp.w;
+  float d = length(off) / r;
+  if (d > 4.5) continue;
+  float hot = exp(-age * 0.3);
+  float ember = 0.6 + 0.4 * sin(uTime * 6.0 + si.z * 17.0 + d * 5.0);
+  float n = hFbm(vObjPos * (2.2 / r) + si.z);
+  if (si.x < 0.5) {
+    // Kinetic: a punched hole, a lip of torn bright metal, spalled soot around it.
+    float dj = d + (n - 0.5) * 0.45;
+    float h = 1.0 - smoothstep(0.26, 0.34, dj);
+    float lip = smoothstep(0.28, 0.36, dj) * (1.0 - smoothstep(0.4, 0.62, dj));
+    hole = max(hole, h);
+    bare = max(bare, lip * 0.9);
+    soot = max(soot, (1.0 - smoothstep(0.35, 1.7, d + (n - 0.5) * 0.8)) * 0.85);
+    heat = max(heat, (1.0 - smoothstep(0.15, 0.55, dj)) * hot * 1.1);
+    relief += lip * 0.6 - h;
+  } else if (si.x < 1.5) {
+    // Laser: a molten groove raked along the hull, glassy edges, a long scorch.
+    vec3 ax = uScarAxis[i];
+    float along = dot(off, ax) / r;
+    float perp = length(off - ax * along * r) / r + (n - 0.5) * 0.18;
+    float L = 3.2;
+    float t = clamp(abs(along) / L, 0.0, 1.0);
+    float w = sqrt(max(0.0, 1.0 - t * t));
+    float inside = step(abs(along), L);
+    float groove = (1.0 - smoothstep(0.14 * w, 0.22 * w + 0.01, perp)) * inside;
+    float glass = smoothstep(0.16 * w, 0.24 * w, perp) * (1.0 - smoothstep(0.26 * w, 0.4 * w, perp)) * inside;
+    hole = max(hole, groove * 0.9);
+    bare = max(bare, glass * 0.55);
+    soot = max(soot, (1.0 - smoothstep(0.25 * w, 1.1 * w + 0.15, perp)) * (1.0 - smoothstep(L, L + 0.8, abs(along))) * 0.85);
+    heat = max(heat, groove * (hot * 1.6 + 0.12 * ember * smoothstep(12.0, 0.0, age)));
+    relief += glass * 0.4 - groove * 0.7;
+  } else {
+    // Warhead: a torn crater that smoulders, buckled plates, streaked soot.
+    float dj = d + (n - 0.5) * 0.7;
+    float streak = hNoise(normalize(off + 1e-5) * 4.0 + si.z) ;
+    float h = 1.0 - smoothstep(0.4, 0.48, dj);
+    float lip = smoothstep(0.42, 0.5, dj) * (1.0 - smoothstep(0.58, 0.8, dj));
+    hole = max(hole, h);
+    bare = max(bare, lip * 0.55);
+    soot = max(soot, (1.0 - smoothstep(0.45, 1.7 + streak * 1.6, d + (n - 0.5) * 0.5)) * 0.97);
+    heat = max(heat, (1.0 - smoothstep(0.25, 0.62, dj)) * hot * 1.8 + h * smoothstep(0.55, 0.8, n) * 0.35 * ember);
+    relief += lip * 0.8 - h * 1.2 + (1.0 - smoothstep(0.5, 1.2, d)) * (n - 0.5) * 0.8;
+  }
+}
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.045, 0.038, 0.034), soot * 0.9);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.7, 0.68, 0.64), bare);
+diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.012, 0.01, 0.01), hole);
+float gHot = heat;`,
       )
-      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += vec3(1.0, 0.36, 0.08) * gHot * 1.6;")
-      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = min(1.0, roughnessFactor + scorch * 0.35 + seam * 0.1);");
+      .replace(
+        "#include <normal_fragment_maps>",
+        `#include <normal_fragment_maps>
+// Scars have depth: tilt the normal along the relief's screen-space slope.
+{
+  vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
+  float hx = dFdx(relief) * 0.06, hy = dFdy(relief) * 0.06;
+  vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx);
+  float det = dot(dpx, r1);
+  if (abs(det) > 1e-12) normal = normalize(abs(det) * normal - sign(det) * (hx * r1 + hy * r2));
+}`,
+      )
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance = mix(totalEmissiveRadiance, vec3(0.0), max(hole, soot * 0.8));\ntotalEmissiveRadiance += vec3(1.0, 0.34, 0.07) * gHot * 2.2 + vec3(1.0, 0.8, 0.5) * pow(gHot, 3.0);")
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = clamp(roughnessFactor + soot * 0.4 + seam * 0.1 + hole * 0.5 - bare * 0.35, 0.05, 1.0);")
+      .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = mix(mix(metalnessFactor, 1.0, bare), 0.0, max(hole, soot * 0.6));");
   };
 }
 
@@ -1011,10 +1137,17 @@ export function hullMaterial(empireColor: string, style: ShipStyle = "terran"): 
   return m;
 }
 
-/** Set how battered a ship looks (0 pristine … 1 wrecked). */
-export function setHullDamage(m: THREE.Material, damage: number): void {
-  const u = (m.userData as { hull?: { uDamage: { value: number } } }).hull;
-  if (u) u.uDamage.value = THREE.MathUtils.clamp(damage, 0, 1);
+/** Show these scars on a hull material (the newest MAX_SCARS). */
+export function setHullScars(m: THREE.Material, scars: readonly Scar[]): void {
+  const u = (m.userData as { hull?: { uScarCount: { value: number }; uScarPos: { value: THREE.Vector4[] }; uScarInfo: { value: THREE.Vector4[] }; uScarAxis: { value: THREE.Vector3[] } } }).hull;
+  if (!u) return;
+  const list = scars.length > MAX_SCARS ? scars.slice(scars.length - MAX_SCARS) : scars;
+  u.uScarCount.value = list.length;
+  list.forEach((s, i) => {
+    u.uScarPos.value[i].set(s.p.x, s.p.y, s.p.z, s.r);
+    u.uScarInfo.value[i].set(SCAR_KIND[s.kind], s.born, s.seed, 0);
+    u.uScarAxis.value[i].copy(s.axis);
+  });
 }
 
 export function radiatorMat(): THREE.MeshStandardMaterial {

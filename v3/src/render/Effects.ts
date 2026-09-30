@@ -24,6 +24,7 @@ beamGeo.translate(0, 0.5, 0);
 beamGeo.rotateX(Math.PI / 2); // along +Z from origin
 
 const ringGeo = new THREE.RingGeometry(0.85, 1, 48);
+const shieldGeo = new THREE.SphereGeometry(1, 32, 20);
 
 function additiveSprite(color: THREE.Color, opacity = 1): THREE.Sprite {
   const m = new THREE.SpriteMaterial({
@@ -41,6 +42,8 @@ export class Effects {
   readonly group = new THREE.Group();
   private effects: Effect[] = [];
   private maxEffects = 600;
+  /** Point sprites (sparks, smoke) don't scale with the group; scale them here. */
+  pointScale = 1;
 
   update(dt: number): void {
     for (let i = this.effects.length - 1; i >= 0; i--) {
@@ -73,25 +76,79 @@ export class Effects {
     return this.effects.length;
   }
 
-  shot(family: WeaponFamily, from: THREE.Vector3, to: THREE.Vector3, hit: boolean, intercepted: boolean, empireColor: THREE.Color): void {
+  /**
+   * One shot from a weapon; returns seconds until it strikes (so a scar can
+   * appear on the hull the moment it lands).
+   */
+  shot(family: WeaponFamily, from: THREE.Vector3, to: THREE.Vector3, hit: boolean, intercepted: boolean, empireColor: THREE.Color): number {
     const color = new THREE.Color(WEAPONS[family].color).lerp(empireColor, 0.15);
     const miss = hit ? to.clone() : to.clone().add(new THREE.Vector3((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3));
     switch (family) {
       case "laser":
       case "lance":
         this.beam(from, miss, color, family === "lance" ? 0.22 : 0.07, family === "lance" ? 0.45 : 0.22);
-        if (hit) this.flash(to, color, family === "lance" ? 2.5 : 1.2, 0.25);
-        break;
+        if (hit) {
+          this.flash(to, color, family === "lance" ? 2.5 : 1.2, 0.25);
+          this.sparks(to, new THREE.Color("#ffd2a0"), 6, 0.25);
+        }
+        return 0;
       case "railgun":
         this.tracer(from, miss, color, 0.3, hit);
-        break;
-      case "missile":
-        this.missile(from, intercepted ? from.clone().lerp(to, 0.4 + Math.random() * 0.4) : miss, color, hit && !intercepted, intercepted);
-        break;
+        return 0.3 * 0.92;
+      case "missile": {
+        const life = 0.55 + Math.random() * 0.25;
+        this.missile(from, intercepted ? from.clone().lerp(to, 0.4 + Math.random() * 0.4) : miss, color, hit && !intercepted, intercepted, life);
+        return life * 0.95;
+      }
       case "pd":
         this.tracer(from, from.clone().lerp(miss, 0.3 + Math.random() * 0.4), new THREE.Color("#c8ffc8"), 0.12, false, 0.05);
-        break;
+        return 0.12;
     }
+    return 0;
+  }
+
+  /** A shot splashing on a shield: the bubble lights up around the impact and a ripple runs out from it. */
+  shield(center: THREE.Vector3, radius: number, at: THREE.Vector3, color: THREE.Color, delay = 0, follow?: Follow): void {
+    const hitDir = at.clone().sub(center).normalize();
+    const u = { uHit: { value: hitDir }, uColor: { value: color.clone().lerp(new THREE.Color("#9fd8ff"), 0.6) }, uT: { value: 0 } };
+    const mat = new THREE.ShaderMaterial({
+      uniforms: u,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      vertexShader: `varying vec3 vDir; varying vec3 vN; varying vec3 vV;
+void main() { vDir = normalize(position); vN = normalize(normalMatrix * normal); vec4 mv = modelViewMatrix * vec4(position, 1.0); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+      fragmentShader: `uniform vec3 uHit; uniform vec3 uColor; uniform float uT; varying vec3 vDir; varying vec3 vN; varying vec3 vV;
+void main() {
+  if (uT <= 0.0) discard;
+  float d = distance(vDir, uHit);
+  float fres = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.5);
+  float spot = exp(-d * d * 14.0);
+  float ring = exp(-pow((d - uT * 1.4) * 7.0, 2.0));
+  float hex = 0.75 + 0.25 * step(0.5, fract((vDir.x + vDir.y * 0.5) * 18.0) + fract(vDir.y * 18.0) * 0.5);
+  float a = (fres * 0.35 * spot + spot * 0.9 + ring * 0.55 * (1.0 - smoothstep(0.0, 1.6, d))) * (1.0 - uT) * hex;
+  gl_FragColor = vec4(uColor * a * 1.6, a);
+}`,
+    });
+    const mesh = new THREE.Mesh(shieldGeo, mat);
+    mesh.scale.setScalar(radius);
+    mesh.position.copy(center);
+    let flashed = false;
+    this.add({
+      obj: mesh,
+      age: -delay,
+      life: 0.7,
+      follow,
+      update: (t) => {
+        u.uT.value = Math.max(0, t);
+        if (t > 0 && !flashed) {
+          flashed = true;
+          this.flash(mesh.position.clone().addScaledVector(hitDir, radius), u.uColor.value, radius * 0.5, 0.25);
+        }
+      },
+      dispose: () => mat.dispose(),
+    });
   }
 
   beam(from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color, width: number, life: number): void {
@@ -147,7 +204,7 @@ export class Effects {
     });
   }
 
-  missile(from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color, impact: boolean, intercepted: boolean): void {
+  missile(from: THREE.Vector3, to: THREE.Vector3, color: THREE.Color, impact: boolean, intercepted: boolean, life = 0.55 + Math.random() * 0.25): void {
     const head = additiveSprite(new THREE.Color("#ffffff").multiplyScalar(2.5));
     head.scale.setScalar(0.45);
     const glow = additiveSprite(color.clone().multiplyScalar(2));
@@ -159,7 +216,7 @@ export class Effects {
     const trailGeo = new THREE.BufferGeometry();
     trailGeo.setAttribute("position", new THREE.BufferAttribute(trailPos, 3));
     const trailMat = new THREE.PointsMaterial({
-      size: 0.35,
+      size: 0.35 * this.pointScale,
       map: getGlowTexture(),
       color: color.clone().multiplyScalar(1.2),
       transparent: true,
@@ -176,7 +233,6 @@ export class Effects {
     const ctrl = from.clone().lerp(to, 0.35).add(side);
     const curve = new THREE.QuadraticBezierCurve3(from.clone(), ctrl, to.clone());
     let done = false;
-    const life = 0.55 + Math.random() * 0.25;
     this.add({
       obj: group,
       age: 0,
@@ -230,7 +286,7 @@ export class Effects {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.PointsMaterial({
-      size: 0.3,
+      size: 0.3 * this.pointScale,
       map: getGlowTexture(),
       color: color.clone().multiplyScalar(3),
       transparent: true,
@@ -356,7 +412,14 @@ export class Effects {
   }
 
   clear(): void {
-    for (const e of this.effects) this.group.remove(e.obj);
+    for (const e of this.effects) {
+      this.group.remove(e.obj);
+      e.obj.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+        if (m) m.dispose();
+      });
+      e.dispose?.();
+    }
     this.effects = [];
   }
 }

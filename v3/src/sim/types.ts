@@ -483,6 +483,10 @@ export type SimEvent =
       /** "fleet:<id>" or "body:<id>" so the renderer can anchor effects to visuals. */
       fromRef: string;
       toRef: string;
+      /** The ship struck, when the target is a fleet. */
+      toShip?: string;
+      /** The target's shields absorbed the hit entirely. */
+      shielded?: boolean;
     }
   | { type: "explosion"; systemId: string; pos: Vec3; size: number; ref: string }
   | { type: "shipBuilt"; systemId: string; fleetId: string; hull: string }

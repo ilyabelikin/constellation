@@ -201,6 +201,8 @@ test("combat renders weapon effects and explosions", async ({ page }) => {
   }
   expect(maxEffects).toBeGreaterThan(5);
   await expect(page.locator("#details")).toContainText("IN COMBAT");
+  // Hits that get through leave scars on the hulls they strike.
+  await expect.poll(() => page.evaluate(() => (window as any).__app.systemView.scarCount()), { timeout: 60_000 }).toBeGreaterThan(0);
 });
 
 test("save, reload and continue", async ({ page }) => {

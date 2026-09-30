@@ -328,9 +328,10 @@ function resolveRound(state: GameState, group: Entity[], battle: Battle, dt: num
         if (dead.has(target)) continue;
         const intercepted = wd.interceptable && rng.next() < Math.min(0.7, (pd[target.empireId] ?? 0) * 0.04);
         const hit = !intercepted && rng.next() < wd.accuracy * (1 - target.evasion);
+        let ev: Extract<SimEvent, { type: "shot" }> | null = null;
         if (shotEvents < MAX_SHOT_EVENTS) {
           shotEvents++;
-          events.push({
+          events.push((ev = {
             type: "shot",
             systemId: battle.systemId,
             from: copyVec(shooter.pos),
@@ -341,11 +342,15 @@ function resolveRound(state: GameState, group: Entity[], battle: Battle, dt: num
             fromEmpire: shooter.empireId,
             fromRef: refOf(shooter),
             toRef: refOf(target),
-          });
+            ...(target.kind === "ship" ? { toShip: target.ship.id } : {}),
+          }));
         }
         if (!hit) continue;
         const dmg = weaponDamage(empire, mount.family) * SLOT_MULT[mount.size as SlotSize] * xpMult;
+        const before = target.kind === "ship" ? target.ship.armor + target.ship.hull_hp : 0;
         const killed = applyDamage(state, target, dmg, mount.family);
+        // Tell the renderer whether the shields took it all (a splash, not a scar).
+        if (ev && target.kind === "ship" && target.ship.armor + target.ship.hull_hp >= before) ev.shielded = true;
         if (killed) {
           dead.add(target);
           onKilled(state, target, shooter, battle, events);

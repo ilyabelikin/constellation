@@ -24,7 +24,8 @@ import { createAccretionDiskMaterial, createBeamMaterial, createCoronaMaterial, 
 import { shipVisualLength } from "./scale";
 import { moonVisualRadius, planetVisualRadius, starVisualRadius, SystemLayout } from "./layout";
 import { shipStats } from "../sim/modifiers";
-import { hullClock, hullMaterial, radiatorMat, setHullDamage, SHIP_STYLES, shipModel, styleForSpecies } from "./ShipModels";
+import { hullMaterial, hullNow, MAX_SCARS, radiatorMat, setHullScars, SHIP_STYLES, shipModel, styleForSpecies, type Scar } from "./ShipModels";
+import { makeScar, randomScar, SCAR_KINDS, scarKindFor, strikePoint } from "./Scarring";
 import { stationGeometry, stationMaterial } from "./StationModels";
 
 interface BodyVisual {
@@ -55,9 +56,21 @@ interface FleetVisual {
   cargoUp?: boolean;
   /** Seconds until the next welding flash (constructors at work). */
   weldTimer?: number;
-  /** Each shown ship's hull mesh (its material carries that ship's battle damage). */
+  /** Each shown ship's hull mesh (its material carries that ship's battle scars). */
   hulls: THREE.Mesh[];
+  /** The ship each hull shows, its model length, and its gun muzzles (model units). */
+  shipIds: string[];
+  modelLens: number[];
+  guns: THREE.Vector3[][];
 }
+
+/**
+ * Battle scars by ship id, kept across views and fleet rebuilds until the ship
+ * is repaired; `d` is the damage they were last matched to.
+ */
+const scarBook = new Map<string, { scars: Scar[]; d: number }>();
+/** Scars a fully wrecked ship shows (real hits can add more, up to MAX_SCARS). */
+const SCARS_AT_WRECK = 14;
 
 interface StationVisual {
   station: Station;
@@ -511,6 +524,9 @@ export class SystemView implements View {
     const engines: THREE.Sprite[] = [];
     const shown = f.ships.slice(0, 24);
     const hulls: THREE.Mesh[] = [];
+    const shipIds: string[] = [];
+    const modelLens: number[] = [];
+    const guns: THREE.Vector3[][] = [];
     let maxLen = 0;
     for (const sh of shown) maxLen = Math.max(maxLen, shipVisualLength(HULL_MAP[sh.hull].length));
     const spacing = Math.max(0.6, maxLen * 0.75);
@@ -522,6 +538,9 @@ export class SystemView implements View {
       const sg = new THREE.Group();
       const hm = new THREE.Mesh(model.hull, hullMaterial(color, style));
       hulls.push(hm);
+      shipIds.push(ship.id);
+      modelLens.push(model.length);
+      guns.push(model.guns);
       const rm = new THREE.Mesh(model.radiators, radiatorMat());
       sg.add(hm, rm);
       for (const e of model.engines) {
@@ -549,7 +568,7 @@ export class SystemView implements View {
     group.add(marker);
     this.scene.add(group);
     this.pickables.push(pick);
-    const v: FleetVisual = { fleet: f, group, ships, engines, shipKey: key, heading: new THREE.Vector3(0, 0, 1), pos: new THREE.Vector3(), pick, radius, hulls };
+    const v: FleetVisual = { fleet: f, group, ships, engines, shipKey: key, heading: new THREE.Vector3(0, 0, 1), pos: new THREE.Vector3(), pick, radius, hulls, shipIds, modelLens, guns };
     this.fleetWorld(f, v.pos);
     group.position.copy(v.pos);
     this.fleets.set(f.id, v);
@@ -777,7 +796,7 @@ export class SystemView implements View {
       }
     }
     this.updateShuttles(dt);
-    this.updateHullDamage(time);
+    this.updateScars();
     this.updatePaths();
     this.updateBattles(time);
     this.updateRings();
@@ -799,21 +818,106 @@ export class SystemView implements View {
     if (Math.random() < 0.5) this.effects.sparks(site, color, 4, 0.05);
   }
 
-  /** Scorch marks follow each ship's lost hull and armour, fading as it is repaired. */
-  private updateHullDamage(time: number): void {
-    hullClock.value = time;
+  /**
+   * Keep each ship's scars in step with its lost hull and armour: damage taken
+   * out of sight still shows (somewhere), and repairs clear the oldest first.
+   */
+  private scarPurge = 0;
+  private updateScars(): void {
+    const now = hullNow();
     const s = this.game.state;
     for (const v of this.fleets.values()) {
       const empire = s.empires[v.fleet.empireId];
+      if (!empire) continue;
       v.hulls.forEach((mesh, i) => {
-        const ship = v.fleet.ships[i];
-        if (!ship || !empire) return;
-        const def = HULL_MAP[ship.hull];
-        const max = shipStats(empire, def);
+        const ship = v.fleet.ships.find((sh) => sh.id === v.shipIds[i]);
+        if (!ship) return;
+        const max = shipStats(empire, HULL_MAP[ship.hull]);
         const whole = max.hull + max.armor;
-        setHullDamage(mesh.material as THREE.Material, whole > 0 ? 1 - (ship.hull_hp + ship.armor) / whole : 0);
+        const d = whole > 0 ? THREE.MathUtils.clamp(1 - (ship.hull_hp + ship.armor) / whole, 0, 1) : 0;
+        const want = Math.round(d * SCARS_AT_WRECK);
+        let entry = scarBook.get(ship.id);
+        if (!entry) {
+          // First sight of this ship: its old wounds, long cooled.
+          entry = { scars: [], d };
+          scarBook.set(ship.id, entry);
+          for (let k = 0; k < want; k++) {
+            const sc = randomScar(mesh, v.modelLens[i], SCAR_KINDS[k % 3], now - 60 - Math.random() * 60);
+            if (sc) entry.scars.push(sc);
+          }
+        }
+        if (d < 0.004) {
+          entry.scars.length = 0;
+          entry.d = d;
+        } else if (d < entry.d - 0.01) {
+          // Repairs clear the oldest scars first.
+          const keep = Math.round((entry.scars.length * d) / entry.d);
+          if (entry.scars.length > keep) {
+            entry.scars.splice(0, entry.scars.length - keep);
+            entry.d = d;
+          }
+        } else {
+          entry.d = Math.max(entry.d, d);
+          if (entry.scars.length < want - 1) {
+            // Hurt where we couldn't see the blow land.
+            const sc = randomScar(mesh, v.modelLens[i], SCAR_KINDS[Math.floor(Math.random() * 3)], now);
+            if (sc) entry.scars.push(sc);
+          }
+        }
+        if (entry.scars.length > MAX_SCARS) entry.scars.splice(0, entry.scars.length - MAX_SCARS);
+        setHullScars(mesh.material as THREE.Material, entry.scars);
       });
     }
+    // Forget ships that are gone.
+    if (now > this.scarPurge) {
+      this.scarPurge = now + 10;
+      const alive = new Set<string>();
+      for (const f of Object.values(s.fleets)) for (const sh of f.ships) alive.add(sh.id);
+      for (const id of scarBook.keys()) if (!alive.has(id)) scarBook.delete(id);
+    }
+  }
+
+  /** Battle scars carried by ships in this view (for tests). */
+  scarCount(): number {
+    let n = 0;
+    for (const v of this.fleets.values()) for (const id of v.shipIds) n += scarBook.get(id)?.scars.length ?? 0;
+    return n;
+  }
+
+  /** A hull shown in this view, by ship id. */
+  private hullOf(fleetId: string, shipId: string | undefined): { v: FleetVisual; i: number } | null {
+    const v = this.fleets.get(fleetId);
+    if (!v || !shipId) return null;
+    const i = v.shipIds.indexOf(shipId);
+    return i >= 0 ? { v, i } : null;
+  }
+
+  /** Where a fleet's shot leaves from: one of its ships' gun muzzles, facing the target. */
+  private muzzle(ref: string, target: THREE.Vector3): THREE.Vector3 | null {
+    if (!ref.startsWith("fleet:")) return null;
+    const v = this.fleets.get(ref.slice(6));
+    if (!v?.hulls.length) return null;
+    const armed = v.hulls.map((_, i) => i).filter((i) => HULL_MAP[v.fleet.ships.find((sh) => sh.id === v.shipIds[i])?.hull ?? ""]?.weapons.length);
+    const i = armed.length ? armed[Math.floor(Math.random() * armed.length)] : 0;
+    const mesh = v.hulls[i];
+    mesh.updateWorldMatrix(true, false);
+    const guns = v.guns[i];
+    if (guns.length) {
+      // The barrel with the clearest line to the target.
+      let best: THREE.Vector3 | null = null;
+      let bestScore = -Infinity;
+      const c = mesh.localToWorld(new THREE.Vector3());
+      for (const g of guns) {
+        const w = mesh.localToWorld(g.clone());
+        const score = w.clone().sub(c).normalize().dot(target.clone().sub(c).normalize()) + Math.random() * 0.6;
+        if (score > bestScore) {
+          bestScore = score;
+          best = w;
+        }
+      }
+      return best;
+    }
+    return strikePoint(mesh, target)?.world ?? null;
   }
 
   private updateShuttles(dt: number): void {
@@ -926,10 +1030,37 @@ export class SystemView implements View {
       const ours = (e.type === "colonized" || e.type === "stationBuilt") && e.empireId === s.playerId;
       if (!present && !ours) continue;
       if (e.type === "shot") {
-        const from = this.refWorld(e.fromRef);
-        const to = this.refWorld(e.toRef);
+        let to = this.refWorld(e.toRef);
+        let from = this.refWorld(e.fromRef);
         if (!from || !to) continue;
-        this.effects.shot(e.weapon as never, from, to, e.hit, !!e.intercepted, new THREE.Color(s.empires[e.fromEmpire]?.color ?? "#fff"));
+        from = this.muzzle(e.fromRef, to) ?? from;
+        const color = new THREE.Color(s.empires[e.fromEmpire]?.color ?? "#fff");
+        // A hit lands on a real spot of the ship struck: on its shield, or on the hull.
+        const target = e.hit && e.toRef.startsWith("fleet:") ? this.hullOf(e.toRef.slice(6), e.toShip) : null;
+        const struck = target ? strikePoint(target.v.hulls[target.i], from) : null;
+        let shieldAt: { c: THREE.Vector3; r: number } | null = null;
+        if (target && struck) {
+          to = struck.world;
+          if (e.shielded) {
+            const mesh = target.v.hulls[target.i];
+            const sphere = mesh.geometry.boundingSphere!;
+            const c = mesh.localToWorld(sphere.center.clone());
+            const r = sphere.radius * mesh.getWorldScale(new THREE.Vector3()).x * 1.15;
+            const onShield = new THREE.Ray(from, to.clone().sub(from).normalize()).intersectSphere(new THREE.Sphere(c, r), new THREE.Vector3());
+            if (onShield) to = onShield;
+            shieldAt = { c, r };
+          }
+        }
+        const delay = this.effects.shot(e.weapon as never, from, to, e.hit, !!e.intercepted, color);
+        if (target && struck) {
+          if (shieldAt) this.effects.shield(shieldAt.c, shieldAt.r, to, color, delay);
+          else {
+            const entry = scarBook.get(e.toShip!) ?? { scars: [], d: 0 };
+            scarBook.set(e.toShip!, entry);
+            entry.scars.push(makeScar(scarKindFor(e.weapon), struck.local, struck.normal, target.v.modelLens[target.i], delay, e.weapon === "lance"));
+            if (entry.scars.length > MAX_SCARS) entry.scars.shift();
+          }
+        }
       } else if (e.type === "explosion") {
         const p = this.refWorld(e.ref) ?? new THREE.Vector3(...Object.values(this.layout.map(e.pos)) as [number, number, number]);
         this.effects.explosion(p, e.size);
