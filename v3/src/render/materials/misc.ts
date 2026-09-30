@@ -220,7 +220,8 @@ export function createStarfield(count: number, radius: number, seed = 1): THREE.
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-    uniforms: { uTime: { value: 0 }, uPixelRatio: { value: Math.min(2, window.devicePixelRatio || 1) } },
+    // globalThis, not window: tests import this under the server's Node-only types.
+    uniforms: { uTime: { value: 0 }, uPixelRatio: { value: Math.min(2, (globalThis as { devicePixelRatio?: number }).devicePixelRatio || 1) } },
   });
   const pts = new THREE.Points(g, m);
   pts.frustumCulled = false;
