@@ -24,6 +24,7 @@ beamGeo.translate(0, 0.5, 0);
 beamGeo.rotateX(Math.PI / 2); // along +Z from origin
 
 const ringGeo = new THREE.RingGeometry(0.85, 1, 48);
+const FORWARD = new THREE.Vector3(0, 0, 1);
 const shieldGeo = new THREE.SphereGeometry(1, 32, 20);
 
 function additiveSprite(color: THREE.Color, opacity = 1): THREE.Sprite {
@@ -70,6 +71,17 @@ export class Effects {
     if (this.effects.length >= this.maxEffects) return;
     this.group.add(e.obj);
     this.effects.push(e);
+  }
+
+  /**
+   * Turn an effect's +Z toward a point, both in the effects group's own space.
+   * (Not lookAt(), which works in world space: that breaks once the group is
+   * scaled, as the species-screen showcase does, and swings beams off target.)
+   */
+  private aim(obj: THREE.Object3D, target: THREE.Vector3): void {
+    const dir = target.clone().sub(obj.position);
+    if (dir.lengthSq() < 1e-12) return;
+    obj.quaternion.setFromUnitVectors(FORWARD, dir.normalize());
   }
 
   get count(): number {
@@ -155,7 +167,7 @@ void main() {
     const mat = new THREE.MeshBasicMaterial({ color: color.clone().multiplyScalar(4), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
     const mesh = new THREE.Mesh(beamGeo, mat);
     mesh.position.copy(from);
-    mesh.lookAt(to);
+    this.aim(mesh, to);
     const len = from.distanceTo(to);
     mesh.scale.set(width, width, len);
     const core = new THREE.Mesh(beamGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
@@ -192,7 +204,7 @@ void main() {
         s.position.copy(p);
         const tail = from.clone().lerp(to, Math.max(0, t - 0.25));
         trail.position.copy(tail);
-        trail.lookAt(p);
+        this.aim(trail, p);
         trail.scale.set(size * 0.12, size * 0.12, Math.max(0.01, tail.distanceTo(p)));
         trailMat.opacity = 0.8;
         if (impact && !flashed && t > 0.92) {
