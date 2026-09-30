@@ -85,7 +85,7 @@ export class Lobby {
                 (x) => `<div class="lobby-row"><span><b>${esc(x.name)}</b> · ${esc(x.empireName ?? "spectating")} · ${x.status === "lobby" ? "waiting to start" : dateString(x.day)} · ${x.online} online</span>
                 <button data-a="resume" data-code="${esc(x.code)}">${x.status === "finished" ? "View" : "Resume"}</button></div>`,
               )
-              .join("")}</div>`
+              .join("")}</div><div class="hint">Hosted games are deleted 10 minutes after the last player leaves.</div>`
           : ""
       }
       ${

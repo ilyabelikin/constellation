@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { WebSocket } from "ws";
 import { Db } from "../server/db";
-import { Hub } from "../server/hub";
+import { EMPTY_SESSION_TTL_MS, Hub } from "../server/hub";
 import { startServer } from "../server/index";
 import type { Conn } from "../server/session";
 import { PROTOCOL_VERSION, type ServerMessage } from "../src/net/protocol";
@@ -169,6 +169,29 @@ describe("multiplayer hub", () => {
     expect(info.youAreHost).toBe(true);
     expect(info.day).toBeCloseTo(day, 5);
     hub.db.close();
+  });
+
+  it("deletes a hosted game once nobody has been connected for a while", () => {
+    const hub = new Hub(new Db(":memory:"));
+    const host = client(hub, "Alice");
+    host.send({ t: "create", settings: { seed: "abandon", systemCount: 20, aiCount: 2 } });
+    const code = host.last("session")!.info.code;
+    const id = [...hub.sessions.keys()][0];
+    host.send({ t: "leave" });
+    hub.tick(250);
+    // Within the grace period (a dropped connection, a sleeping tablet) it can still be resumed.
+    host.send({ t: "mySessions" });
+    expect(host.last("sessions")!.list.map((x) => x.code)).toEqual([code]);
+    // After it, it is gone: from memory, the database and the player's list.
+    const session = hub.sessions.get(id)!;
+    session.lastActivity = Date.now() - EMPTY_SESSION_TTL_MS - 1000;
+    hub.tick(250);
+    expect(hub.sessions.has(id)).toBe(false);
+    expect(hub.db.sessionById(id)).toBeNull();
+    host.send({ t: "mySessions" });
+    expect(host.last("sessions")!.list).toEqual([]);
+    host.send({ t: "join", code });
+    expect(host.last("error")).toBeDefined();
   });
 
   it("stores, lists, loads and caps cloud saves per player", () => {

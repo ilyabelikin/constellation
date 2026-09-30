@@ -131,6 +131,12 @@ export class Db {
       .all(uuid) as unknown as (SessionRow & { empire_id: string })[];
   }
 
+  /** Remove a hosted game and its seats for good. */
+  deleteSession(id: string): void {
+    this.db.prepare("DELETE FROM seats WHERE session_id = ?").run(id);
+    this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+  }
+
   // ---- cloud saves --------------------------------------------------------
   putSave(id: string, uuid: string, name: string, day: number, data: string): void {
     this.db

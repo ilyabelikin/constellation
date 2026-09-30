@@ -15,7 +15,12 @@ import { chatId } from "../src/llm/director";
 
 export const MAX_CLOUD_SAVES = 12;
 export const MAX_SAVE_BYTES = 6 * 1024 * 1024;
-const SESSION_IDLE_UNLOAD_MS = 10 * 60_000;
+/**
+ * A hosted game nobody has been connected to for this long is deleted: games
+ * live only while someone plays them (the grace period covers dropped
+ * connections and a tablet going to sleep).
+ */
+export const EMPTY_SESSION_TTL_MS = 10 * 60_000;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 
 export interface HubOptions {
@@ -95,9 +100,9 @@ export class Hub {
     const now = Date.now();
     for (const s of this.sessions.values()) {
       s.tick(dtMs);
-      if (s.clients.size === 0 && now - s.lastActivity > SESSION_IDLE_UNLOAD_MS) {
-        s.save();
+      if (s.clients.size === 0 && now - s.lastActivity > EMPTY_SESSION_TTL_MS) {
         this.sessions.delete(s.id);
+        this.db.deleteSession(s.id);
       }
     }
   }
@@ -168,10 +173,16 @@ export class Hub {
         return;
       }
       case "mySessions": {
-        const list = this.db.sessionsForPlayer(conn.uuid).map((row) => {
+        const now = Date.now();
+        const list = this.db.sessionsForPlayer(conn.uuid).flatMap((row) => {
           const live = this.sessions.get(row.id);
-          if (live) return live.summaryFor(conn.uuid);
-          return { id: row.id, code: row.code, name: row.name, status: row.status, day: row.day, empireName: null, humans: 0, online: 0, updatedAt: row.updated_at };
+          if (live) return [live.summaryFor(conn.uuid)];
+          // Not running and nobody in it: it was abandoned (e.g. before the server restarted).
+          if (now - row.updated_at > EMPTY_SESSION_TTL_MS) {
+            this.db.deleteSession(row.id);
+            return [];
+          }
+          return [{ id: row.id, code: row.code, name: row.name, status: row.status, day: row.day, empireName: null, humans: 0, online: 0, updatedAt: row.updated_at }];
         });
         return conn.send({ t: "sessions", list });
       }
