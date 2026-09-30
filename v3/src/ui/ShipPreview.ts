@@ -8,6 +8,7 @@ import { SPECIES_MAP } from "../sim/data/structures";
 import { Effects } from "../render/Effects";
 import { getGlowTexture } from "../render/materials/misc";
 import { makeScar, scarKindFor, SHOWCASE_WEAPONS, strikePoint } from "../render/Scarring";
+import { TurretRig, type Turret } from "../render/Turrets";
 import { hullMaterial, hullNow, MAX_SCARS, radiatorMat, setHullScars, SHIP_STYLES, shipModel, styleForSpecies, type Scar, type ShipStyle } from "../render/ShipModels";
 import type { WeaponFamily } from "../sim/data/ships";
 
@@ -43,7 +44,11 @@ export class ShipPreview {
   /** Hits the shield still soaks up before fire reaches the hull. */
   private shieldHits = 0;
   private modelLength = 1;
-  private guns: THREE.Vector3[] = [];
+  /** The ship's gun turrets, which swing onto a target before they fire. */
+  private rig = new TurretRig();
+  private turrets: Turret[] = [];
+  private aiming: { turret: Turret; aim: THREE.Vector3; family: WeaponFamily; until: number }[] = [];
+  private nextTrack = 0;
   private families: WeaponFamily[] = [];
   private pending: { at: number; fire: () => void }[] = [];
   private last = performance.now();
@@ -72,7 +77,7 @@ export class ShipPreview {
     key.position.set(4, 5, 6);
     const rim = new THREE.DirectionalLight(0x88aaff, 1.2);
     rim.position.set(-6, 2, -5);
-    this.scene.add(key, rim, new THREE.AmbientLight(0x6070a0, 0.3), this.turntable, this.effects.group);
+    this.scene.add(key, rim, new THREE.AmbientLight(0x6070a0, 0.3), this.turntable, this.effects.group, this.rig.group);
     (window as unknown as { __preview?: ShipPreview }).__preview = this; // for tests
     this.loop();
   }
@@ -128,7 +133,9 @@ export class ShipPreview {
     // The battle: effects sized to the ship, enemies spread all around it.
     const hullDef = HULL_MAP[hullId];
     this.modelLength = model.length;
-    this.guns = model.guns;
+    this.rig.clear();
+    this.turrets = this.rig.add(this.hullMesh, model.turrets, style, (this.hullMesh.material as THREE.MeshStandardMaterial).color);
+    this.nextTrack = 0;
     this.families = [...new Set(hullDef.weapons.map((w) => w.family).filter((f) => f !== "pd"))];
     const k = model.length * 0.16;
     this.effects.group.scale.setScalar(k);
@@ -192,6 +199,7 @@ export class ShipPreview {
     this.fx = [];
     this.effects.clear();
     this.pending = [];
+    this.aiming = [];
   }
 
   /** World → effects-group coordinates (the group is scaled to the ship). */
@@ -222,29 +230,37 @@ export class ShipPreview {
     if (this.scars.length > MAX_SCARS) this.scars.shift();
   }
 
-  /** The ship on show fires back from its own turrets at whoever is shooting at it. */
-  private outgoing(target: THREE.Vector3): void {
+  /** The ship on show fires back at whoever is shooting at it: a turret swings round, then fires. */
+  private outgoing(target: THREE.Vector3, elapsed: number): void {
     const mesh = this.hullMesh;
     if (!mesh || !this.families.length) return;
-    let from: THREE.Vector3 | null = null;
-    if (this.guns.length) {
-      // The barrel facing the target best (with some variety).
-      const c = mesh.localToWorld(new THREE.Vector3());
-      const dir = target.clone().sub(c).normalize();
-      let best = -Infinity;
-      for (const g of this.guns) {
-        const w = mesh.localToWorld(g.clone());
-        const score = w.clone().sub(c).normalize().dot(dir) + Math.random() * 0.8;
-        if (score > best) {
-          best = score;
-          from = w;
-        }
-      }
-    } else from = strikePoint(mesh, target)?.world ?? null;
-    if (!from) return;
     const family = this.families[Math.floor(Math.random() * this.families.length)];
     const aim = target.clone().add(new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(this.modelLength * 0.3));
-    this.effects.shot(family, this.fxPos(from), this.fxPos(aim), true, false, new THREE.Color(SHIP_STYLES[this.style].engine));
+    const turret = this.turrets.length ? this.rig.pick(this.turrets, aim) : null;
+    if (turret) {
+      this.rig.aim(turret, aim, 1.6);
+      this.aiming.push({ turret, aim, family, until: elapsed + 0.9 });
+      return;
+    }
+    // A fixed weapon (a spinal gun): fires from the hull facing the target.
+    const from = strikePoint(mesh, target)?.world;
+    if (from) this.effects.shot(family, this.fxPos(from), this.fxPos(aim), true, false, new THREE.Color(SHIP_STYLES[this.style].engine));
+  }
+
+  /** Turrets that have come to bear fire; between shots they track the enemies. */
+  private workTurrets(elapsed: number): void {
+    this.aiming = this.aiming.filter((a) => {
+      this.rig.aim(a.turret, a.aim, 1.6);
+      if (!this.rig.onTarget(a.turret) && elapsed < a.until) return true;
+      this.effects.shot(a.family, this.fxPos(this.rig.muzzle(a.turret)), this.fxPos(a.aim), true, false, new THREE.Color(SHIP_STYLES[this.style].engine));
+      this.rig.fire(a.turret);
+      return false;
+    });
+    if (elapsed > this.nextTrack && this.turrets.length && this.attackers.length) {
+      this.nextTrack = elapsed + 0.6 + Math.random() * 0.6;
+      const t = this.turrets[Math.floor(Math.random() * this.turrets.length)];
+      if (!this.aiming.some((a) => a.turret === t)) this.rig.aim(t, this.attackers[Math.floor(Math.random() * this.attackers.length)], 1.4);
+    }
   }
 
   /**
@@ -261,8 +277,9 @@ export class ShipPreview {
       // Return fire from the turrets, at the enemies pressing in.
       if (elapsed > this.nextShot && this.attackers.length) {
         this.nextShot = elapsed + 0.22 + Math.random() * 0.3;
-        this.outgoing(this.attackers[Math.floor(Math.random() * this.attackers.length)]);
+        this.outgoing(this.attackers[Math.floor(Math.random() * this.attackers.length)], elapsed);
       }
+      this.workTurrets(elapsed);
       // Incoming: kinetic bursts, laser strikes and missiles from all sides.
       if (elapsed > this.nextHit && this.attackers.length) {
         this.nextHit = elapsed + 0.45 + Math.random() * 0.45;
@@ -290,6 +307,7 @@ export class ShipPreview {
       this.fx.push({ obj: spark, age: 0, life: 0.25, step: (t, o) => o.position.copy(tip).addScaledVector(drift, t) });
     }
     setHullScars(this.hullMesh.material as THREE.Material, this.scars);
+    this.rig.update(dt);
     this.effects.update(dt);
     for (let i = this.fx.length - 1; i >= 0; i--) {
       const f = this.fx[i];
@@ -311,6 +329,7 @@ export class ShipPreview {
     if (this.hullMesh) (this.hullMesh.material as THREE.Material).dispose();
     this.hullMesh = null;
     this.turntable.clear();
+    this.rig.dispose();
     this.renderer?.dispose();
     this.renderer?.forceContextLoss();
     this.renderer = null;

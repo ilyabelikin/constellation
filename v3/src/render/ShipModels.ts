@@ -54,15 +54,32 @@ export interface ShipModel {
   length: number; // model length in model units (nose = +Z)
   /** Every separate part (hull pieces and radiators) before merging, for structural checks. */
   parts: THREE.BufferGeometry[];
-  /** Gun muzzles (barrel tips), in model units; empty where the design has none marked. */
-  guns: THREE.Vector3[];
+  /** Gun turrets: their heads are separate objects (see Turrets.ts) that swivel to aim. */
+  turrets: TurretMount[];
+}
+
+/** Where a turret sits on a hull: its base on the surface, facing up (1) or down (-1), in model units. */
+export interface TurretMount {
+  pos: THREE.Vector3;
+  up: 1 | -1;
+  /** Scale of the turret (model units). */
+  size: number;
+  barrels: number;
+}
+
+/** The fixed ring a turret turns on; part of the hull. */
+function collar(size: number, up: 1 | -1, x: number, y: number, z: number): THREE.BufferGeometry {
+  const g = cyl(size * 0.42, size * 0.5, size * 0.14, 12).rotateX(Math.PI / 2);
+  g.translate(0, size * 0.05, 0);
+  if (up < 0) g.rotateZ(Math.PI);
+  return at(g, x, y, z);
 }
 
 const cache = new Map<string, ShipModel>();
 
 type Part = { geo: THREE.BufferGeometry; tint: number };
 
-function colorize(geo: THREE.BufferGeometry, tint: number): THREE.BufferGeometry {
+export function colorize(geo: THREE.BufferGeometry, tint: number): THREE.BufferGeometry {
   const g = geo.index ? geo.toNonIndexed() : geo;
   const n = g.getAttribute("position").count;
   const c = new Float32Array(n * 3);
@@ -76,17 +93,17 @@ function colorize(geo: THREE.BufferGeometry, tint: number): THREE.BufferGeometry
   return g;
 }
 
-function cyl(rTop: number, rBot: number, len: number, seg = 10): THREE.BufferGeometry {
+export function cyl(rTop: number, rBot: number, len: number, seg = 10): THREE.BufferGeometry {
   const g = new THREE.CylinderGeometry(rTop, rBot, len, seg, 1);
   g.rotateX(Math.PI / 2); // axis along Z
   return g;
 }
 
-function box(w: number, h: number, d: number): THREE.BufferGeometry {
+export function box(w: number, h: number, d: number): THREE.BufferGeometry {
   return new THREE.BoxGeometry(w, h, d);
 }
 
-function at(g: THREE.BufferGeometry, x: number, y: number, z: number): THREE.BufferGeometry {
+export function at(g: THREE.BufferGeometry, x: number, y: number, z: number): THREE.BufferGeometry {
   g.translate(x, y, z);
   return g;
 }
@@ -141,6 +158,12 @@ function build(hull: string): ShipModel {
   const rad: THREE.BufferGeometry[] = [];
   const engines: THREE.Vector3[] = [];
   const P = (geo: THREE.BufferGeometry, tint = 1) => parts.push({ geo, tint });
+  const turrets: TurretMount[] = [];
+  /** A gun turret whose base sits on the surface at (x, y, z). */
+  const T = (x: number, y: number, z: number, size: number, barrels: number, up: 1 | -1 = 1) => {
+    P(collar(size, up, x, y, z), 0.6);
+    turrets.push({ pos: new THREE.Vector3(x, y, z), up, size, barrels });
+  };
   let length = 4;
 
   switch (hull) {
@@ -160,6 +183,7 @@ function build(hull: string): ShipModel {
       P(at(box(1.1, 0.7, 2.2), 0, 0, -1.6), 0.9);
       P(at(box(0.3, 0.3, 1.2), 0.65, 0.15, -1.0), 0.7); // gun pods
       P(at(box(0.3, 0.3, 1.2), -0.65, 0.15, -1.0), 0.7);
+      T(0, 0.35, -1.3, 0.5, 1);
       P(at(bell(0.3, 0.5), 0.3, 0, -2.9), 0.5);
       P(at(bell(0.3, 0.5), -0.3, 0, -2.9), 0.5);
       rad.push(...radiatorPair(1.2, 1.0, -1.8, 0.4));
@@ -173,7 +197,7 @@ function build(hull: string): ShipModel {
       P(at(truss(2.2, 0.35), 0, 0, -4.5), 0.6);
       P(at(cyl(0.55, 0.55, 1.2, 12), 0, 0, -6.1), 0.85); // reactor
       P(at(box(0.25, 0.25, 1.4), 0, 0.85, -1.4), 0.7); // turret spine
-      P(at(new THREE.SphereGeometry(0.25, 8, 6), 0, 0.95, -0.6), 0.7);
+      T(0, 0.975, -0.9, 0.5, 2);
       P(at(bell(0.5, 0.8), 0, 0, -6.8), 0.5);
       rad.push(...radiatorPair(1.8, 1.4, -4.5));
       engines.push(new THREE.Vector3(0, 0, -7.6));
@@ -185,6 +209,9 @@ function build(hull: string): ShipModel {
       P(at(box(0.35, 0.35, 5), 0, 0, 2.2), 0.7); // spinal barrel
       P(at(box(1.4, 1.0, 4), 0, 0, -1.2), 1);
       P(at(box(1.8, 0.5, 2.2), 0, -0.5, -1.8), 0.9);
+      T(0, 0.5, 0.1, 0.62, 2);
+      T(0, 0.5, -2.4, 0.55, 2);
+      T(0, -0.75, -1.8, 0.55, 1, -1);
       P(at(truss(3.5, 0.45), 0, 0, -5.0), 0.6);
       for (const s of [-1, 1]) P(at(cyl(0.45, 0.45, 2.4, 10), s * 1.05, 0, -5.0), 0.85); // tanks
       P(at(cyl(0.8, 0.8, 1.4, 12), 0, 0, -7.4), 0.85);
@@ -198,6 +225,9 @@ function build(hull: string): ShipModel {
       P(cyl(0.6, 1.4, 2.4, 12), 1);
       P(at(cyl(1.4, 1.4, 5, 14), 0, 0, -3.7), 0.95);
       P(at(box(3.2, 0.5, 3.4), 0, 0, -3.2), 0.9); // wings with turrets
+      T(0, 1.4, -2.0, 0.7, 2);
+      T(0, 1.4, -4.9, 0.7, 2);
+      T(0, -1.4, -3.4, 0.65, 2, -1);
       for (const s of [-1, 1]) {
         P(at(new THREE.SphereGeometry(0.4, 8, 6), s * 1.3, 0.5, -2.2), 0.7);
         P(at(new THREE.SphereGeometry(0.4, 8, 6), s * 1.3, 0.5, -4.2), 0.7);
@@ -229,9 +259,11 @@ function build(hull: string): ShipModel {
       P(at(cyl(0.3, 1.1, 1.6, 8), 0, 0, 4.8), 0.9);
       P(at(box(3.4, 2.2, 7), 0, 0, -4.8), 0.95);
       for (const s of [-1, 1]) {
-        P(at(box(0.5, 0.5, 3.4), s * 0.8, 1.1, 1.5), 0.7); // main guns
-        P(at(box(1.2, 0.8, 1.2), s * 0.8, 1.1, -0.4), 0.8);
+        T(s * 0.55, 0.8, 2.9, 0.85, 3); // main guns
+        T(s * 0.55, 0.8, 0.0, 0.85, 3);
         P(at(box(1.0, 1.2, 5.5), s * 2.1, 0, -4.8), 0.85); // armour sponsons
+        T(s * 2.1, 0.6, -3.4, 0.62, 2);
+        T(s * 2.1, 0.6, -6.2, 0.62, 2);
       }
       P(at(box(1.0, 1.4, 1.5), 0, 1.6, -3.0), 0.8); // bridge tower
       P(at(truss(5, 0.9), 0, 0, -10.8), 0.6);
@@ -253,10 +285,14 @@ function build(hull: string): ShipModel {
       P(at(box(4.4, 3.0, 10), 0, 0, -1.5), 1);
       P(at(box(6.5, 1.0, 7), 0, 0, -2.5), 0.9);
       for (const s of [-1, 1]) {
-        for (let i = 0; i < 3; i++) P(at(box(0.9, 0.7, 1.4), s * 2.6, 1.0, 1.5 - i * 3), 0.75);
+        for (let i = 0; i < 3; i++) T(s * 1.35, 1.5, 2.5 - i * 3, 1.05, 3);
         P(at(box(1.4, 2.2, 8), s * 3.8, 0, -3), 0.85);
+        T(s * 3.8, 1.1, -1, 0.8, 2);
+        T(s * 3.8, 1.1, -5, 0.8, 2);
       }
       P(at(box(1.6, 2.0, 2.4), 0, 2.4, -4), 0.8);
+      T(0, -1.5, 0.5, 0.9, 2, -1);
+      T(0, -1.5, -4, 0.9, 2, -1);
       const ring = new THREE.TorusGeometry(4.2, 0.35, 10, 36);
       P(at(ring, 0, 0, -9.5), 0.8);
       for (let i = 0; i < 6; i++) {
@@ -349,7 +385,7 @@ function build(hull: string): ShipModel {
   hullGeo.computeBoundingSphere();
   hullGeo.userData.shared = true;
   radGeo.userData.shared = true;
-  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad], guns: [] };
+  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad], turrets };
 }
 
 // ---------------------------------------------------------------------------
@@ -563,7 +599,7 @@ function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe,
     }
   };
   // Each species arms its ships in its own idiom; turrets sit on the hull's real surface.
-  const turret = (x: number, z: number, size: number, barrels: number, up = 1) => {
+  const turret = (x: number, z: number, size: number, barrels: number, up: 1 | -1 = 1) => {
     // Streamlined Thalassi ships carry their weapons in pairs off the centre line, like fins.
     if (style === "thalassi" && Math.abs(x) < 1e-6 && up === 1) {
       for (const sx of [-1, 1]) mount(sx * W * 0.32, z, size * 0.8, Math.max(1, barrels - 1), up);
@@ -571,63 +607,25 @@ function hullSignature(b: Builder, hull: string, box3: THREE.Box3, probe: Probe,
     }
     mount(x, z, size, barrels, up);
   };
-  const mount = (x: number, z: number, size0: number, barrels: number, up: number) => {
+  const mount = (x: number, z: number, size0: number, barrels: number, up: 1 | -1) => {
     const size = size0 * 1.3;
-    const d = deck(x, z, up);
+    // Open frames can leave nothing to stand on here: look along the hull, then on the other side.
+    let d: { x: number; y: number } | null = null;
+    for (const side of [up, -up as 1 | -1]) {
+      for (const dz of [0, 0.08, -0.08, 0.16, -0.16, 0.25, -0.25]) {
+        d = deck(x, z + dz * L, side);
+        if (d) {
+          z += dz * L;
+          up = side;
+          break;
+        }
+      }
+      if (d) break;
+    }
     if (!d) return;
     const y = d.y - up * sink;
-    const spread = (i: number) => (i - (barrels - 1) / 2) * size * 0.32;
-    switch (style) {
-      case "vashari": {
-        // Armoured casemate: a squat slab with thick square barrels.
-        b.P(at(box(size * 1.1, size * 0.4, size * 0.9), d.x, y + up * size * 0.2, z), 0.7);
-        b.P(at(box(size * 0.8, size * 0.12, size * 0.5), d.x, y + up * size * 0.45, z - size * 0.1), 1.3);
-        for (let i = 0; i < barrels; i++) {
-          b.P(at(box(size * 0.16, size * 0.16, size * 1.2), d.x + spread(i), y + up * size * 0.22, z + size * 0.95), 0.55);
-          b.gun?.(d.x + spread(i), y + up * size * 0.22, z + size * 1.55);
-        }
-        break;
-      }
-      case "lumenari": {
-        // Crystal emitters: a faceted focus on a short stem, prongs for extra beams.
-        b.P(at(cyl(size * 0.08, size * 0.12, size * 0.35, 5).rotateX(Math.PI / 2), d.x, y + up * size * 0.17, z), 0.8);
-        b.P(at(new THREE.OctahedronGeometry(size * 0.38, 0).scale(1, 0.8, 1.4), d.x, y + up * size * 0.5, z), 1.35);
-        for (let i = 0; i < barrels; i++) {
-          b.P(at(cone(size * 0.07, size * 0.9, 4), d.x + spread(i), y + up * size * 0.5, z + size * 0.7), 1.2);
-          b.gun?.(d.x + spread(i), y + up * size * 0.5, z + size * 1.15);
-        }
-        break;
-      }
-      case "kraal": {
-        // Living weapons: a swollen blister bristling with bone spines.
-        b.P(at(ellipsoid(size * 0.55, size * 0.4, size * 0.6, 10), d.x, y + up * size * 0.15, z), 0.85);
-        for (let i = 0; i < barrels; i++) {
-          b.P(at(rot(cone(size * 0.1, size * 1.1, 6), up * -0.25, 0, 0), d.x + spread(i), y + up * size * 0.35, z + size * 0.7), 0.65);
-          b.gun?.(d.x + spread(i), y + up * size * 0.48, z + size * 1.25);
-        }
-        break;
-      }
-      case "thalassi": {
-        // Smooth low dome with slim, flush barrels.
-        b.P(at(ellipsoid(size * 0.5, size * 0.28, size * 0.55, 14), d.x, y, z), 1.15);
-        for (let i = 0; i < barrels; i++) {
-          b.P(at(cyl(size * 0.05, size * 0.07, size * 1.1, 8), d.x + spread(i) * 0.8, y + up * size * 0.12, z + size * 0.75), 0.75);
-          b.gun?.(d.x + spread(i) * 0.8, y + up * size * 0.12, z + size * 1.3);
-        }
-        break;
-      }
-      case "aurelian": {
-        // Industrial gun mount: a post, a boxy breech and long rails with a collar.
-        b.P(at(box(size * 0.15, size * 0.45, size * 0.15), d.x, y + up * size * 0.22, z), 0.6);
-        b.P(at(box(size * 0.6, size * 0.35, size * 0.6), d.x, y + up * size * 0.55, z), 0.8);
-        for (let i = 0; i < barrels; i++) {
-          b.P(at(box(size * 0.07, size * 0.07, size * 1.6), d.x + spread(i), y + up * size * 0.55, z + size * 1.05), 0.55);
-          b.P(at(new THREE.TorusGeometry(size * 0.1, size * 0.03, 4, 8), d.x + spread(i), y + up * size * 0.55, z + size * 1.5), 0.9);
-          b.gun?.(d.x + spread(i), y + up * size * 0.55, z + size * 1.85);
-        }
-        break;
-      }
-    }
+    b.P(collar(size, up, d.x, y, z), 0.6);
+    b.turret?.({ pos: new THREE.Vector3(d.x, y, z), up, size, barrels });
   };
   /** A pod along the flank at (y, z), on a pylon reaching back to the hull. */
   const sidePod = (sx: number, y: number, z: number, geo: () => THREE.BufferGeometry, halfWidth: number, standOff: number, tint: number) => {
@@ -731,17 +729,17 @@ interface Builder {
   P(geo: THREE.BufferGeometry, tint?: number): void;
   R(geo: THREE.BufferGeometry): void;
   engine(x: number, y: number, z: number): void;
-  /** Marks a gun muzzle (barrel tip). */
-  gun?(x: number, y: number, z: number): void;
+  /** A gun turret (its head is a separate, turning object). */
+  turret?(m: TurretMount): void;
 }
 
-function ellipsoid(rx: number, ry: number, rz: number, seg = 14): THREE.BufferGeometry {
+export function ellipsoid(rx: number, ry: number, rz: number, seg = 14): THREE.BufferGeometry {
   const g = new THREE.SphereGeometry(1, seg, Math.max(6, Math.round(seg * 0.6)));
   g.scale(rx, ry, rz);
   return g;
 }
 
-function cone(r: number, len: number, seg = 8): THREE.BufferGeometry {
+export function cone(r: number, len: number, seg = 8): THREE.BufferGeometry {
   const g = new THREE.ConeGeometry(r, len, seg);
   g.rotateX(Math.PI / 2); // tip towards +Z
   return g;
@@ -908,12 +906,12 @@ function buildStyled(hull: string, style: Exclude<ShipStyle, "terran">): ShipMod
   const engines: THREE.Vector3[] = [];
   const role = HULL_MAP[hull]?.role ?? "military";
   const tier = TIER[hull] ?? 1;
-  const guns: THREE.Vector3[] = [];
+  const turrets: TurretMount[] = [];
   const builder: Builder = {
     P: (geo, tint = 1) => parts.push({ geo, tint }),
     R: (g) => rad.push(g),
     engine: (x, y, z) => engines.push(new THREE.Vector3(x, y, z)),
-    gun: (x, y, z) => guns.push(new THREE.Vector3(x, y, z)),
+    turret: (m) => turrets.push(m),
   };
   let length = STYLE_BUILDERS[style](builder, tier, role);
   const [px, py, pz] = PROPORTION.get(hull) ?? [1, 1, 1];
@@ -935,7 +933,7 @@ function buildStyled(hull: string, style: Exclude<ShipStyle, "terran">): ShipMod
   hullGeo.computeBoundingSphere();
   hullGeo.userData.shared = true;
   radGeo.userData.shared = true;
-  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad], guns };
+  return { hull: hullGeo, radiators: radGeo, engines, length, parts: [...parts.map((p) => p.geo), ...rad], turrets };
 }
 
 let radiatorMaterial: THREE.MeshStandardMaterial | null = null;

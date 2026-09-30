@@ -26,6 +26,7 @@ import { moonVisualRadius, planetVisualRadius, starVisualRadius, SystemLayout } 
 import { shipStats } from "../sim/modifiers";
 import { hullMaterial, hullNow, MAX_SCARS, radiatorMat, setHullScars, SHIP_STYLES, shipModel, styleForSpecies, type Scar } from "./ShipModels";
 import { makeScar, randomScar, SCAR_KINDS, scarKindFor, strikePoint } from "./Scarring";
+import { TurretRig, type Turret } from "./Turrets";
 import { stationGeometry, stationMaterial } from "./StationModels";
 
 interface BodyVisual {
@@ -58,10 +59,18 @@ interface FleetVisual {
   weldTimer?: number;
   /** Each shown ship's hull mesh (its material carries that ship's battle scars). */
   hulls: THREE.Mesh[];
-  /** The ship each hull shows, its model length, and its gun muzzles (model units). */
+  /** The ship each hull shows, its model length, and its turning gun turrets. */
   shipIds: string[];
   modelLens: number[];
-  guns: THREE.Vector3[][];
+  turrets: Turret[][];
+}
+
+/** A shot waiting for its turret to come to bear. */
+interface PendingShot {
+  e: Extract<SimEvent, { type: "shot" }>;
+  turret: Turret;
+  /** Fire regardless after this (hullNow() seconds): the sim already resolved it. */
+  until: number;
 }
 
 /**
@@ -85,6 +94,8 @@ const tmpV = { x: 0, y: 0, z: 0 };
 export class SystemView implements View {
   readonly scene = new THREE.Scene();
   readonly effects = new Effects();
+  readonly turretRig = new TurretRig();
+  private pendingShots: PendingShot[] = [];
   readonly shuttles = new Shuttles();
   private bodies = new Map<string, BodyVisual>();
   private fleets = new Map<string, FleetVisual>();
@@ -121,7 +132,7 @@ export class SystemView implements View {
       this.scene.environmentIntensity = 0.28;
     }
     this.scene.add(new THREE.AmbientLight(0x8090b0, 0.18));
-    this.scene.add(this.orbitLines, this.pathLines, this.battleMarkers, this.effects.group, this.shuttles.group);
+    this.scene.add(this.orbitLines, this.pathLines, this.battleMarkers, this.effects.group, this.shuttles.group, this.turretRig.group);
     for (const sid of sys.starIds) this.buildStar(game.state.bodies[sid]);
     for (const bid of sys.bodyIds) {
       const b = game.state.bodies[bid];
@@ -526,7 +537,7 @@ export class SystemView implements View {
     const hulls: THREE.Mesh[] = [];
     const shipIds: string[] = [];
     const modelLens: number[] = [];
-    const guns: THREE.Vector3[][] = [];
+    const turrets: Turret[][] = [];
     let maxLen = 0;
     for (const sh of shown) maxLen = Math.max(maxLen, shipVisualLength(HULL_MAP[sh.hull].length));
     const spacing = Math.max(0.6, maxLen * 0.75);
@@ -540,7 +551,7 @@ export class SystemView implements View {
       hulls.push(hm);
       shipIds.push(ship.id);
       modelLens.push(model.length);
-      guns.push(model.guns);
+      turrets.push(this.turretRig.add(hm, model.turrets, style, (hm.material as THREE.MeshStandardMaterial).color));
       const rm = new THREE.Mesh(model.radiators, radiatorMat());
       sg.add(hm, rm);
       for (const e of model.engines) {
@@ -568,7 +579,7 @@ export class SystemView implements View {
     group.add(marker);
     this.scene.add(group);
     this.pickables.push(pick);
-    const v: FleetVisual = { fleet: f, group, ships, engines, shipKey: key, heading: new THREE.Vector3(0, 0, 1), pos: new THREE.Vector3(), pick, radius, hulls, shipIds, modelLens, guns };
+    const v: FleetVisual = { fleet: f, group, ships, engines, shipKey: key, heading: new THREE.Vector3(0, 0, 1), pos: new THREE.Vector3(), pick, radius, hulls, shipIds, modelLens, turrets };
     this.fleetWorld(f, v.pos);
     group.position.copy(v.pos);
     this.fleets.set(f.id, v);
@@ -581,6 +592,7 @@ export class SystemView implements View {
     this.pickables = this.pickables.filter((p) => p !== v.pick);
     v.pick.geometry.dispose();
     for (const h of v.hulls) (h.material as THREE.Material).dispose();
+    for (const t of v.turrets) this.turretRig.remove(t);
     this.fleets.delete(id);
   }
 
@@ -800,6 +812,8 @@ export class SystemView implements View {
     this.updatePaths();
     this.updateBattles(time);
     this.updateRings();
+    this.firePending();
+    this.turretRig.update(dt);
     this.effects.update(dt);
   }
 
@@ -892,32 +906,75 @@ export class SystemView implements View {
     return i >= 0 ? { v, i } : null;
   }
 
-  /** Where a fleet's shot leaves from: one of its ships' gun muzzles, facing the target. */
-  private muzzle(ref: string, target: THREE.Vector3): THREE.Vector3 | null {
+  /** Draw one shot from `from` (a turret muzzle, or the shooter itself) and mark where it lands. */
+  private fireShot(e: Extract<SimEvent, { type: "shot" }>, muzzle: THREE.Vector3 | null): void {
+    const s = this.game.state;
+    let to = this.refWorld(e.toRef);
+    const from = muzzle ?? this.refWorld(e.fromRef);
+    if (!from || !to) return;
+    const color = new THREE.Color(s.empires[e.fromEmpire]?.color ?? "#fff");
+    // A hit lands on a real spot of the ship struck: on its shield, or on the hull.
+    const target = e.hit && e.toRef.startsWith("fleet:") ? this.hullOf(e.toRef.slice(6), e.toShip) : null;
+    const struck = target ? strikePoint(target.v.hulls[target.i], from) : null;
+    let shieldAt: { c: THREE.Vector3; r: number } | null = null;
+    if (target && struck) {
+      to = struck.world;
+      if (e.shielded) {
+        const mesh = target.v.hulls[target.i];
+        const sphere = mesh.geometry.boundingSphere!;
+        const c = mesh.localToWorld(sphere.center.clone());
+        const r = sphere.radius * mesh.getWorldScale(new THREE.Vector3()).x * 1.15;
+        const onShield = new THREE.Ray(from, to.clone().sub(from).normalize()).intersectSphere(new THREE.Sphere(c, r), new THREE.Vector3());
+        if (onShield) to = onShield;
+        shieldAt = { c, r };
+      }
+    }
+    const delay = this.effects.shot(e.weapon as never, from, to, e.hit, !!e.intercepted, color);
+    if (target && struck) {
+      if (shieldAt) this.effects.shield(shieldAt.c, shieldAt.r, to, color, delay);
+      else {
+        const entry = scarBook.get(e.toShip!) ?? { scars: [], d: 0 };
+        scarBook.set(e.toShip!, entry);
+        entry.scars.push(makeScar(scarKindFor(e.weapon), struck.local, struck.normal, target.v.modelLens[target.i], delay, e.weapon === "lance"));
+        if (entry.scars.length > MAX_SCARS) entry.scars.shift();
+      }
+    }
+  }
+
+  /** A turret on one of the fleet's warships, the one best placed to engage this point. */
+  private turretFor(ref: string, target: THREE.Vector3): Turret | null {
     if (!ref.startsWith("fleet:")) return null;
     const v = this.fleets.get(ref.slice(6));
-    if (!v?.hulls.length) return null;
-    const armed = v.hulls.map((_, i) => i).filter((i) => HULL_MAP[v.fleet.ships.find((sh) => sh.id === v.shipIds[i])?.hull ?? ""]?.weapons.length);
-    const i = armed.length ? armed[Math.floor(Math.random() * armed.length)] : 0;
-    const mesh = v.hulls[i];
-    mesh.updateWorldMatrix(true, false);
-    const guns = v.guns[i];
-    if (guns.length) {
-      // The barrel with the clearest line to the target.
-      let best: THREE.Vector3 | null = null;
-      let bestScore = -Infinity;
-      const c = mesh.localToWorld(new THREE.Vector3());
-      for (const g of guns) {
-        const w = mesh.localToWorld(g.clone());
-        const score = w.clone().sub(c).normalize().dot(target.clone().sub(c).normalize()) + Math.random() * 0.6;
-        if (score > bestScore) {
-          bestScore = score;
-          best = w;
-        }
-      }
-      return best;
+    if (!v) return null;
+    const all = v.turrets.flat();
+    return all.length ? this.turretRig.pick(all, target) : null;
+  }
+
+  /** Where a shot is aimed: the ship struck if we know it, else whatever it was fired at. */
+  private aimPoint(e: Extract<SimEvent, { type: "shot" }>): THREE.Vector3 | null {
+    const t = e.toRef.startsWith("fleet:") ? this.hullOf(e.toRef.slice(6), e.toShip) : null;
+    if (t) {
+      const mesh = t.v.hulls[t.i];
+      mesh.updateWorldMatrix(true, false);
+      return mesh.localToWorld(mesh.geometry.boundingSphere!.center.clone());
     }
-    return strikePoint(mesh, target)?.world ?? null;
+    return this.refWorld(e.toRef);
+  }
+
+  /** Turrets swing onto their targets; each shot goes off once its gun bears (or its time is up). */
+  private firePending(): void {
+    if (!this.pendingShots.length) return;
+    const now = hullNow();
+    this.pendingShots = this.pendingShots.filter((p) => {
+      if (p.turret.gone) return false;
+      const aim = this.aimPoint(p.e);
+      if (!aim) return false;
+      this.turretRig.aim(p.turret, aim, 1.5);
+      if (!this.turretRig.onTarget(p.turret) && now < p.until) return true;
+      this.fireShot(p.e, this.turretRig.muzzle(p.turret));
+      this.turretRig.fire(p.turret);
+      return false;
+    });
   }
 
   private updateShuttles(dt: number): void {
@@ -1030,37 +1087,21 @@ export class SystemView implements View {
       const ours = (e.type === "colonized" || e.type === "stationBuilt") && e.empireId === s.playerId;
       if (!present && !ours) continue;
       if (e.type === "shot") {
-        let to = this.refWorld(e.toRef);
-        let from = this.refWorld(e.fromRef);
-        if (!from || !to) continue;
-        from = this.muzzle(e.fromRef, to) ?? from;
-        const color = new THREE.Color(s.empires[e.fromEmpire]?.color ?? "#fff");
-        // A hit lands on a real spot of the ship struck: on its shield, or on the hull.
-        const target = e.hit && e.toRef.startsWith("fleet:") ? this.hullOf(e.toRef.slice(6), e.toShip) : null;
-        const struck = target ? strikePoint(target.v.hulls[target.i], from) : null;
-        let shieldAt: { c: THREE.Vector3; r: number } | null = null;
-        if (target && struck) {
-          to = struck.world;
-          if (e.shielded) {
-            const mesh = target.v.hulls[target.i];
-            const sphere = mesh.geometry.boundingSphere!;
-            const c = mesh.localToWorld(sphere.center.clone());
-            const r = sphere.radius * mesh.getWorldScale(new THREE.Vector3()).x * 1.15;
-            const onShield = new THREE.Ray(from, to.clone().sub(from).normalize()).intersectSphere(new THREE.Sphere(c, r), new THREE.Vector3());
-            if (onShield) to = onShield;
-            shieldAt = { c, r };
+        const aim = this.aimPoint(e);
+        const turret = aim ? this.turretFor(e.fromRef, aim) : null;
+        if (turret && aim) {
+          if (e.weapon === "pd") {
+            // Point defence snaps off bursts without waiting to traverse.
+            this.fireShot(e, this.turretRig.muzzle(turret));
+          } else {
+            this.turretRig.aim(turret, aim, 1.5);
+            this.pendingShots.push({ e, turret, until: hullNow() + 0.7 });
+            if (this.pendingShots.length > 240) {
+              const p = this.pendingShots.shift()!;
+              if (!p.turret.gone) this.fireShot(p.e, this.turretRig.muzzle(p.turret));
+            }
           }
-        }
-        const delay = this.effects.shot(e.weapon as never, from, to, e.hit, !!e.intercepted, color);
-        if (target && struck) {
-          if (shieldAt) this.effects.shield(shieldAt.c, shieldAt.r, to, color, delay);
-          else {
-            const entry = scarBook.get(e.toShip!) ?? { scars: [], d: 0 };
-            scarBook.set(e.toShip!, entry);
-            entry.scars.push(makeScar(scarKindFor(e.weapon), struck.local, struck.normal, target.v.modelLens[target.i], delay, e.weapon === "lance"));
-            if (entry.scars.length > MAX_SCARS) entry.scars.shift();
-          }
-        }
+        } else this.fireShot(e, null);
       } else if (e.type === "explosion") {
         const p = this.refWorld(e.ref) ?? new THREE.Vector3(...Object.values(this.layout.map(e.pos)) as [number, number, number]);
         this.effects.explosion(p, e.size);
@@ -1214,6 +1255,8 @@ export class SystemView implements View {
       if (mat && !Array.isArray(mat) && (mat instanceof THREE.ShaderMaterial || !mat.userData.shared)) mat.dispose();
     });
     this.effects.clear();
+    this.pendingShots = [];
+    this.turretRig.dispose();
     this.shuttles.clear();
   }
 }
