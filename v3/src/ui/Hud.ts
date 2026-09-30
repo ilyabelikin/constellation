@@ -74,6 +74,11 @@ export interface AppApi {
   readonly remote: { info: SessionInfo } | null;
   readonly chats: ChatMessage[];
   canChat(empireId: string): boolean;
+  /** Touch device: long-press replaces right-click, the Queue toggle replaces Shift. */
+  readonly touch: boolean;
+  /** Sticky Shift for devices without a keyboard. */
+  readonly queueMode: boolean;
+  toggleQueueMode(): void;
   sendChat(to: string, text: string): void;
   /** Send an automatic note about a diplomatic act, so its recipient can react. */
   announce(to: string, text: string, action?: DiploAction): void;
@@ -128,9 +133,15 @@ export class Hud {
       <div id="details" class="panel hidden"></div>
       <div id="log" class="panel"></div>
       <div id="viewbar" class="panel"></div>
-      <div id="minihelp" class="panel">Right-click to command the active fleet · <kbd>Shift</kbd> queues orders · <kbd>?</kbd> help</div>`;
+      <div id="minihelp" class="panel">${
+        app.touch
+          ? "Long-press to command the active fleet · long-press a button (or turn on Queue) to queue · pinch to zoom, two fingers to pan"
+          : "Right-click to command the active fleet · <kbd>Shift</kbd> queues orders · <kbd>?</kbd> help"
+      }</div>`;
     for (const id of ["topbar", "badges", "outliner", "details", "log", "viewbar"]) this.regions[id] = root.querySelector(`#${id}`)!;
     root.addEventListener("click", (e) => this.onClick(e));
+    this.setupLongPress(root);
+    this.setupLongPress(modalRoot);
     root.addEventListener("contextmenu", (e) => {
       const badge = (e.target as HTMLElement).closest<HTMLElement>('[data-action^="badge:"]');
       if (!badge) return;
@@ -256,12 +267,12 @@ export class Hud {
     const players = remote ? remote.info.seats.filter((x) => x.playerName) : [];
     this.set(
       "topbar",
-      `<span class="brand">CONSTELLATION</span>
+      `<span class="brand" title="Constellation"><svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M18.4 6.2A8 8 0 1 0 18.4 17.8" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><circle cx="18.6" cy="12" r="1.9" fill="currentColor"/><circle cx="8.6" cy="8.2" r="0.9" fill="currentColor" opacity="0.7"/><circle cx="10.4" cy="15.2" r="0.7" fill="currentColor" opacity="0.55"/></svg><span class="word">CONSTELLATION</span></span>
       ${res("credits")}${res("metals")}${res("energy")}${res("exotics")}
       <button class="res research" data-action="modal:research" title="Research per day. Current: ${cur ? `${esc(cur.name)} ${pct(progress)}` : "none"}\nClick to open research (R)"><span class="icon">${RES_ICON.research}</span>${fmt(inc.research, 1)}<span class="inc">${cur ? `<span class="tech-name">${esc(cur.name)}</span> ${pct(progress)}` : "idle"}</span></button>
       <div class="res cmd ${used >= capC ? "warn" : ""}" title="Fleet command points used / capacity. Found colonies and research hulls to raise it."><span class="icon">${icon("command")}</span>${used}/${capC}</div>
       <div class="spacer"></div>
-      <button data-action="modal:empires" title="Empires & diplomacy (E)">${icon("empires")} Empires${unread ? `<span class="unread">${unread}</span>` : ""}</button>
+      <button class="label-btn" data-action="modal:empires" title="Empires & diplomacy (E)">${icon("empires")}<span class="label"> Empires</span>${unread ? `<span class="unread">${unread}</span>` : ""}</button>
       ${remote ? `<div class="res online" title="${esc(players.map((x) => `${x.playerName} — ${x.empireName}${x.online ? "" : " (offline)"}`).join("\n"))}\nInvite code ${esc(remote.info.code)}"><span class="icon">${icon("players")}</span>${players.filter((x) => x.online).length}/${players.length}</div>` : ""}
       <div class="date">${dateString(g.state.day)}</div>
       <div class="speed">${speeds
@@ -470,7 +481,8 @@ export class Hud {
     const s = this.game.state;
     this.set(
       "viewbar",
-      `<button data-action="view:galaxy" class="${this.app.view === "galaxy" ? "active" : ""}" title="Galaxy map (G)">${icon("galaxy")} Galaxy</button>
+      `${this.app.touch ? `<button data-action="queuemode" class="queue-toggle ${this.app.queueMode ? "active" : ""}" title="Queue mode: while on, orders and builds are added after the current ones (like holding Shift)">${icon("queue")} Queue</button>` : ""}
+       <button data-action="view:galaxy" class="${this.app.view === "galaxy" ? "active" : ""}" title="Galaxy map (G)">${icon("galaxy")} Galaxy</button>
        <button data-action="view:system" class="${this.app.view === "system" ? "active" : ""}" title="Current system">${icon("system")} ${esc(s.systems[this.app.systemId].name)}</button>
        <button data-action="view:home" title="Home system (H)">${icon("home")} Home</button>`,
     );
@@ -534,7 +546,7 @@ export class Hud {
   private dispatch(pick: { fleet: Fleet; busy: boolean }, run: (queued: boolean) => { ok: boolean; error?: string }, what: string): void {
     const { fleet, busy } = pick;
     if (busy && !this.shiftHeld) {
-      this.app.toast(`${fleet.name} is busy — Shift+click to queue this after its current orders`, "info");
+      this.app.toast(`${fleet.name} is busy — ${this.qk} to queue this after its current orders`, "info");
       return;
     }
     const r = run(this.shiftHeld);
@@ -657,7 +669,7 @@ export class Hud {
         actions.push(`<button class="danger" disabled title="Research Ground Forces to build Troop Transports">${icon("war")} Invade</button>`);
       else if (t && troopsOf(t.fleet) >= need)
         actions.push(
-          `<button class="danger" data-action="invade:${colony.id}" title="${t.busy ? `${esc(t.fleet.name)} is busy — Shift+click to queue` : `Send ${esc(t.fleet.name)}; troops land once planetary defenses are down`}">${icon("war")} Invade · ${esc(t.fleet.name)}${t.busy ? " (busy)" : ""}</button>`,
+          `<button class="danger" data-action="invade:${colony.id}" title="${t.busy ? `${esc(t.fleet.name)} is busy — ${this.qk} to queue` : `Send ${esc(t.fleet.name)}; troops land once planetary defenses are down`}">${icon("war")} Invade · ${esc(t.fleet.name)}${t.busy ? " (busy)" : ""}</button>`,
         );
       else
         actions.push(
@@ -693,7 +705,7 @@ export class Hud {
       const pick = this.fleetFor("constructor", b.systemId);
       const cons = pick?.fleet;
       const queued = cons?.queue?.length ?? 0;
-      html += `<div class="section-title"><span>Build station</span><span>${cons ? `${esc(cons.name)}${pick!.busy ? ` · busy${queued ? ` (+${queued} queued)` : ""} · Shift+click to queue` : ""}` : "no constructor"}</span></div><div class="grid-buttons">`;
+      html += `<div class="section-title"><span>Build station</span><span>${cons ? `${esc(cons.name)}${pick!.busy ? ` · busy${queued ? ` (+${queued} queued)` : ""} · ${this.qk} to queue` : ""}` : "no constructor"}</span></div><div class="grid-buttons">`;
       for (const d of options) {
         const unlocked = stationUnlocked(p, d.id);
         const err = unlocked ? stationBuildError(s, p, d.id, b) : "Requires research";
@@ -706,7 +718,7 @@ export class Hud {
           (!cons
             ? "Build a Constructor first"
             : pick!.busy
-              ? `${cons.name} is busy — Shift+click to queue after its current orders`
+              ? `${cons.name} is busy — ${this.qk} to queue after its current orders`
               : !canAfford(p.resources, d.cost)
                 ? "Not enough resources yet — the crew will wait on site until they come in"
                 : d.description);
@@ -715,7 +727,7 @@ export class Hud {
       }
       html += `</div>`;
     }
-    if (this.app.activeFleetId && s.fleets[this.app.activeFleetId]) html += `<div class="hint">Right-click to send <b>${esc(s.fleets[this.app.activeFleetId].name)}</b> here.</div>`;
+    if (this.app.activeFleetId && s.fleets[this.app.activeFleetId]) html += `<div class="hint">${this.app.touch ? "Long-press" : "Right-click"} to send <b>${esc(s.fleets[this.app.activeFleetId].name)}</b> here.</div>`;
     return html;
   }
 
@@ -764,7 +776,7 @@ export class Hud {
       // What it would actually produce here (deposits, population).
       const out = buildingOutput(d, body, c.pop);
       const y = Object.fromEntries(Object.entries(out).filter(([, v]) => v > 0));
-      html += `<button class="build-btn ${afford ? "" : "short"}" data-action="build:${c.id}:${d.id}" ${full || dup ? "disabled" : ""} title="${esc(full ? "No free slots — grow population" : dup ? "Only one allowed" : afford ? d.description : `${d.description}\nNot enough resources yet — Shift+click to queue it; it starts once they come in.`)}">
+      html += `<button class="build-btn ${afford ? "" : "short"}" data-action="build:${c.id}:${d.id}" ${full || dup ? "disabled" : ""} title="${esc(full ? "No free slots — grow population" : dup ? "Only one allowed" : afford ? d.description : `${d.description}\nNot enough resources yet — ${this.qk} to queue it; it starts once they come in.`)}">
         <span class="t">${icon(d.icon)} ${esc(d.name)}</span><span class="c">${costHtml(d.cost, p.resources)} · ${d.days}d</span><span class="y">${yieldsHtml(y)}${d.defense ? ` +${d.defense}${icon("defense")}` : ""}${d.capacity ? ` +${d.capacity} pop cap` : ""}</span></button>`;
     }
     html += `</div>`;
@@ -777,7 +789,7 @@ export class Hud {
         const cost = hullCost(s, p, h.id);
         const overCap = h.command > 0 && used + h.command > capC;
         const afford = canAfford(p.resources, cost);
-        html += `<button class="build-btn ${afford ? "" : "short"}" data-action="ship:${c.id}:${h.id}" ${overCap ? "disabled" : ""} title="${esc(overCap ? "Fleet command capacity reached" : afford ? h.description : `${h.description}\nNot enough resources yet — Shift+click to queue it; it starts once they come in.`)}">
+        html += `<button class="build-btn ${afford ? "" : "short"}" data-action="ship:${c.id}:${h.id}" ${overCap ? "disabled" : ""} title="${esc(overCap ? "Fleet command capacity reached" : afford ? h.description : `${h.description}\nNot enough resources yet — ${this.qk} to queue it; it starts once they come in.`)}">
           <span class="t">${esc(h.name)}</span><span class="c">${costHtml(cost, p.resources)} · ${h.buildDays}d${h.command ? ` · ${icon("command")}${h.command}` : ""}</span></button>`;
       }
       html += `</div>`;
@@ -946,7 +958,7 @@ export class Hud {
             const cls = done ? "done" : t.id === cur ? "current" : p.research.queue.includes(t.id) ? "queued" : !avail ? "locked" : "";
             const eta = !done && g.player.income.research > 0 ? Math.ceil((cost * (1 - prog)) / g.player.income.research) : null;
             const qpos = p.research.queue.indexOf(t.id);
-            const tip = `${t.requires.length ? "Requires: " + t.requires.map((r) => TECH_MAP[r].name).join(", ") : "No prerequisites"}\nClick to research now · Shift+click to ${qpos >= 0 ? "remove from" : "add to"} the queue`;
+            const tip = `${t.requires.length ? "Requires: " + t.requires.map((r) => TECH_MAP[r].name).join(", ") : "No prerequisites"}\nClick to research now · ${this.qk} to ${qpos >= 0 ? "remove from" : "add to"} the queue`;
             return `<div class="tech ${cls}" data-action="tech:${t.id}" title="${esc(tip)}">
               <div class="tn">${qpos >= 0 ? `<span class="qpos">${qpos + 1}</span>` : ""}${esc(t.name)}</div><div class="tc">Tier ${t.tier} · ${fmt(cost)} ${icon("research")}${t.exoticsCost ? ` + ${t.exoticsCost} ${icon("exotics")}` : ""}${eta && !done ? ` · ~${eta}d` : ""}</div>
               <div class="td">${esc(t.description)}</div>${prog > 0 && !done ? `<div class="prog" style="width:${prog * 100}%"></div>` : ""}</div>`;
@@ -956,7 +968,7 @@ export class Hud {
       .join("");
     const curT = cur ? TECH_MAP[cur] : null;
     return `<header><h2>Research</h2><span class="res research"><span class="icon">${icon("research")}</span>${fmt(p.income.research, 1)}/day</span>
-      <span class="subtitle">${curT ? `Researching <b>${esc(curT.name)}</b>${p.research.queue.length ? ` then ${p.research.queue.map((q) => esc(TECH_MAP[q].name)).join(" → ")}` : ""}` : "Idle"} · <span class="hint">Shift+click to queue</span></span>
+      <span class="subtitle">${curT ? `Researching <b>${esc(curT.name)}</b>${p.research.queue.length ? ` then ${p.research.queue.map((q) => esc(TECH_MAP[q].name)).join(" → ")}` : ""}` : "Idle"} · <span class="hint">${this.qk} to queue</span></span>
       <button data-action="close">${icon("close")}</button></header>
       <div class="tech-grid">${cols}</div>`;
   }
@@ -1142,14 +1154,57 @@ export class Hud {
   }
 
   // ------------------------------------------------------------ input
+  /** On touch screens a long press on a button is Shift+click (queue, demolish…). */
+  private suppressClickUntil = 0;
+  /** How to queue on this device, for hints. */
+  private get qk(): string {
+    return this.app.touch ? "Long-press" : "Shift+click";
+  }
+  private setupLongPress(root: HTMLElement): void {
+    let timer: number | null = null;
+    let start: { x: number; y: number } | null = null;
+    const cancel = () => {
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      document.querySelectorAll(".pressing").forEach((el) => el.classList.remove("pressing"));
+    };
+    root.addEventListener("pointerdown", (e) => {
+      if (e.pointerType !== "touch") return;
+      const el = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
+      if (!el || (el as HTMLButtonElement).disabled) return;
+      start = { x: e.clientX, y: e.clientY };
+      el.classList.add("pressing");
+      timer = window.setTimeout(() => {
+        timer = null;
+        el.classList.remove("pressing");
+        this.suppressClickUntil = performance.now() + 700;
+        navigator.vibrate?.(15);
+        this.onClick({ target: el, shiftKey: true, longPress: true } as unknown as MouseEvent);
+      }, 480);
+    });
+    root.addEventListener("pointermove", (e) => {
+      if (timer !== null && start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) cancel();
+    });
+    root.addEventListener("pointerup", cancel);
+    root.addEventListener("pointercancel", cancel);
+    // No text-selection callouts or context menus from a long press.
+    root.addEventListener("contextmenu", (e) => {
+      if (this.app.touch) e.preventDefault();
+    });
+  }
+
   private onClick(e: MouseEvent): void {
+    // The click that ends a long press has already been handled as Shift+click.
+    if (!(e as unknown as { longPress?: boolean }).longPress && performance.now() < this.suppressClickUntil) return;
     const target = (e.target as HTMLElement).closest<HTMLElement>("[data-action]");
     if (!target) return;
     if (target.dataset.action === "backdrop" && (e.target as HTMLElement).closest("[data-stop]")) return;
     const [action, ...args] = target.dataset.action!.split(":");
     const g = this.game;
     const app = this.app;
-    this.shiftHeld = e.shiftKey;
+    // Shift, a long press, or the sticky Queue toggle all mean "queue this".
+    const shift = e.shiftKey || app.queueMode;
+    this.shiftHeld = shift;
     const res = (r: { ok: boolean; error?: string }, okMsg?: string) => {
       if (!r.ok) app.toast(r.error ?? "Cannot do that", "error");
       else if (okMsg) app.toast(okMsg, "good");
@@ -1161,6 +1216,9 @@ export class Hud {
       if (res(r, okMsg)) app.announce(to, text, action);
     };
     switch (action) {
+      case "queuemode":
+        app.toggleQueueMode();
+        break;
       case "speed":
         app.setSpeed(Number(args[0]));
         break;
@@ -1204,10 +1262,10 @@ export class Hud {
         break;
       }
       case "build":
-        res(g.queueBuilding(args[0], args[1], e.shiftKey));
+        res(g.queueBuilding(args[0], args[1], shift));
         break;
       case "ship":
-        res(g.queueShip(args[0], args[1], e.shiftKey));
+        res(g.queueShip(args[0], args[1], shift));
         break;
       case "cancel":
         res(g.cancelQueueItem(args[0], Number(args[1]), args[2]));
@@ -1221,7 +1279,9 @@ export class Hud {
         res(g.cancelFleetOrder(args[0], Number(args[1]), args[2]));
         break;
       case "demolish":
-        if (e.shiftKey) res(g.demolishBuilding(args[0], Number(args[1])), "Building demolished");
+        // Demolishing is destructive: a real Shift+click, or a confirmed long press.
+        if (e.shiftKey && (!(e as unknown as { longPress?: boolean }).longPress || window.confirm("Demolish this building?")))
+          res(g.demolishBuilding(args[0], Number(args[1])), "Building demolished");
         break;
       case "colonize": {
         const b = g.state.bodies[args[0]];
@@ -1321,7 +1381,7 @@ export class Hud {
         break;
       }
       case "tech":
-        res(e.shiftKey ? g.queueResearch(args[0]) : g.setResearch(args[0]));
+        res(shift ? g.queueResearch(args[0]) : g.setResearch(args[0]));
         break;
       case "war":
         if (window.confirm(`Declare war on ${g.state.empires[args[0]].name}?`))

@@ -27,6 +27,10 @@ export function helpHtml(): string {
       <kbd>Left-drag</kbd> rotate · <kbd>Right-drag</kbd>/<kbd>WASD</kbd> pan · <kbd>Wheel</kbd> zoom · <kbd>Click</kbd> select ·
       <kbd>Double-click</kbd> focus / enter system · <kbd>Space</kbd> pause · <kbd>1</kbd>–<kbd>4</kbd> speed · <kbd>G</kbd> galaxy map ·
       <kbd>H</kbd> home · <kbd>R</kbd> research · <kbd>E</kbd> empires · <kbd>F</kbd> focus selection · <kbd>Esc</kbd> menu · <kbd>Right-click</kbd> a badge or message to dismiss it
+      <h3>Touch (iPad)</h3>
+      <kbd>Tap</kbd> select · <kbd>Double-tap</kbd> focus / enter system · <kbd>Drag</kbd> rotate · <kbd>Pinch</kbd> zoom · <kbd>Two-finger drag</kbd> pan ·
+      <kbd>Long-press</kbd> the map to send the selected fleet (like right-click) · <kbd>Long-press</kbd> a button to queue it (like Shift+click), or turn on
+      <b>Queue</b> in the bottom bar so every tap queues · tap a message to dismiss it
     </div>
   </div>`;
 }

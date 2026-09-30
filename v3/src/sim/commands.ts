@@ -35,7 +35,7 @@ export function queueBuilding(state: GameState, empireId: string, colonyId: stri
   if (def.unique && (colony.buildings.some((b) => b.type === type) || colony.queue.some((q) => q.type === type)))
     return fail("Only one per colony");
   if (!canAfford(empire.resources, def.cost)) {
-    if (!deferred) return fail("Not enough resources (Shift+click to queue it until they are)");
+    if (!deferred) return fail("Not enough resources (queue it with Shift+click or a long press to wait for them)");
     colony.queue.push({ kind: "building", type, progress: 0, total: def.days, unpaid: true });
     return OK;
   }
@@ -64,7 +64,7 @@ export function queueShip(
     return fail("Fleet command capacity reached (found more colonies or research new hulls)");
   const cost = hullCost(state, empire, hullId);
   if (!canAfford(empire.resources, cost)) {
-    if (!deferred) return fail("Not enough resources (Shift+click to queue it until they are)");
+    if (!deferred) return fail("Not enough resources (queue it with Shift+click or a long press to wait for them)");
     colony.queue.push({ kind: "ship", type: hullId, progress: 0, total: hull.buildDays, unpaid: true, ...(then ? { then } : {}) });
     return OK;
   }

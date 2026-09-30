@@ -110,13 +110,22 @@ button.active {
   z-index: 10;
 }
 #topbar .brand {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   font-weight: 700;
   letter-spacing: 0.22em;
   font-size: 13px;
   color: var(--accent);
-  padding-right: 6px;
+  padding-right: 8px;
   border-right: 1px solid var(--line);
   margin-right: 2px;
+  flex: none;
+}
+#topbar .brand .logo {
+  width: 22px;
+  height: 22px;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 60%, transparent));
 }
 .res {
   display: flex;
@@ -705,6 +714,8 @@ kbd {
 }
 .toast {
   pointer-events: auto;
+  max-width: min(560px, 90vw);
+  text-align: center;
   padding: 8px 14px;
   border-radius: 8px;
   background: rgba(10, 16, 30, 0.92);
@@ -1266,4 +1277,184 @@ svg.i.bad {
 }
 .meta.warn {
   color: var(--warn);
+}
+
+/* ---------------------------------------------------------------- tablets & touch */
+/* The wordmark gives way to the logo when space is short. */
+@media (max-width: 1500px) {
+  #topbar .brand .word {
+    display: none;
+  }
+  #topbar .brand {
+    padding-right: 6px;
+  }
+}
+/* Compact top bar (iPad landscape and smaller). */
+@media (max-width: 1300px) {
+  #topbar {
+    gap: 6px;
+    padding: 5px 8px;
+  }
+  .res {
+    padding: 3px 7px;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .res.research .tech-name {
+    display: none;
+  }
+  #topbar button.label-btn .label {
+    display: none;
+  }
+  .date {
+    min-width: 0;
+    font-size: 12px;
+  }
+  .speed button {
+    min-width: 30px;
+    padding: 5px 6px;
+  }
+  #outliner {
+    width: 230px;
+  }
+  #details {
+    width: 330px;
+  }
+  #log {
+    width: 330px;
+    max-height: 170px;
+  }
+  /* Badges live in the gap between the side panels, wrapping if they must. */
+  #badges {
+    left: 250px;
+    right: 350px;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #minihelp {
+    display: none;
+  }
+}
+/* Portrait tablets: the top bar wraps onto two rows; panels move down and slim. */
+@media (max-width: 1000px) {
+  :root {
+    --hud-top: 104px;
+  }
+  #topbar {
+    flex-wrap: wrap;
+    row-gap: 5px;
+  }
+  #topbar .spacer {
+    flex-basis: 0;
+  }
+  #outliner {
+    top: var(--hud-top);
+    width: 215px;
+    max-height: calc(100vh - var(--hud-top) - 250px);
+  }
+  #details {
+    top: var(--hud-top);
+    width: 310px;
+    max-height: calc(100vh - var(--hud-top) - 76px);
+  }
+  #log {
+    width: 215px;
+    max-height: 200px;
+  }
+  #badges {
+    top: var(--hud-top);
+    left: 235px;
+    right: 330px;
+    transform: none;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  #minihelp {
+    display: none;
+  }
+}
+/* Touch: bigger targets, no text selection or callouts, no tap flash. */
+@media (pointer: coarse) {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  input,
+  textarea {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  button {
+    min-height: 36px;
+    touch-action: manipulation;
+  }
+  .orow,
+  .log-entry {
+    min-height: 34px;
+  }
+  #outliner,
+  #details,
+  #log,
+  .modal {
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+#canvas canvas {
+  touch-action: none;
+}
+/* Long-press feedback: a ring fills around the finger; buttons dim while held. */
+.press-ring {
+  position: fixed;
+  width: 56px;
+  height: 56px;
+  margin: -28px 0 0 -28px;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.4);
+  z-index: 30;
+}
+.press-ring.on {
+  animation: press-fill 0.5s linear forwards;
+}
+@keyframes press-fill {
+  0% {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  30% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0.9;
+    transform: scale(1);
+  }
+}
+[data-action].pressing {
+  transform: scale(0.97);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+  transition: transform 0.45s, box-shadow 0.45s;
+}
+.queue-toggle.active {
+  background: color-mix(in srgb, var(--accent) 25%, var(--bg));
+  border-color: var(--accent);
+}
+/* Notched iPads / home-screen web app: keep clear of the safe areas. */
+@supports (padding: env(safe-area-inset-left)) {
+  #topbar {
+    top: max(10px, env(safe-area-inset-top));
+    left: max(10px, env(safe-area-inset-left));
+    right: max(10px, env(safe-area-inset-right));
+  }
+  #viewbar {
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
+  #log {
+    bottom: max(10px, env(safe-area-inset-bottom));
+  }
 }

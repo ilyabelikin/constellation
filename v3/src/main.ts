@@ -97,6 +97,16 @@ class App implements AppApi {
   private autosaveTimer = 0;
   private running = false;
   private keys = new Set<string>();
+  /** Touch device (iPad, phone): long-press stands in for right-click, the Queue toggle for Shift. */
+  readonly touch = typeof window !== "undefined" && (window.matchMedia?.("(pointer: coarse)").matches || "ontouchstart" in window);
+  /** Sticky "Shift": while on, orders and builds are queued (for devices without a keyboard). */
+  queueMode = false;
+  toggleQueueMode(): void {
+    this.queueMode = !this.queueMode;
+    this.toast(this.queueMode ? "Queue mode on: orders and builds are added after the current ones" : "Queue mode off", "info");
+    this.hud?.invalidate();
+    this.hud?.render();
+  }
 
   constructor() {
     this.engine = new Engine(document.getElementById("canvas")!);
@@ -375,6 +385,8 @@ class App implements AppApi {
     hudRoot.classList.remove("hidden");
     if (!this.hud) this.hud = new Hud(hudRoot, document.getElementById("modal-root")!, this);
     else this.hud.reset();
+    if (this.touch)
+      setTimeout(() => this.toast("Touch controls: tap to select · long-press to send the selected fleet · long-press a button (or Queue) to queue · pinch to zoom", "info"), 600);
     this.galaxyView?.dispose();
     this.galaxyView = null;
     this.goHome();
@@ -732,7 +744,8 @@ class App implements AppApi {
       el.remove();
     });
     root.appendChild(el);
-    setTimeout(() => el.remove(), kind === "error" ? 3200 : 2400);
+    el.addEventListener("click", () => el.remove()); // tap to dismiss
+    setTimeout(() => el.remove(), Math.max(kind === "error" ? 3200 : 2400, msg.length * 50));
     while (root.children.length > 4) root.firstChild?.remove();
   }
 
@@ -794,15 +807,16 @@ class App implements AppApi {
   }
 
   // ---------------------------------------------------------------- input
-  private setupInput(): void {
-    const canvas = this.engine.renderer.domElement;
+  /** Left-drag rotates, right/shift-drag pans, click selects, right-click commands. */
+  private setupMouse(canvas: HTMLCanvasElement): void {
     let down: { x: number; y: number; button: number; moved: boolean } | null = null;
-    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
     canvas.addEventListener("pointerdown", (e) => {
+      if (e.pointerType === "touch") return;
       down = { x: e.clientX, y: e.clientY, button: e.button, moved: false };
       canvas.setPointerCapture(e.pointerId);
     });
     canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerType === "touch") return;
       if (down) {
         const dx = e.clientX - down.x;
         const dy = e.clientY - down.y;
@@ -821,26 +835,135 @@ class App implements AppApi {
       canvas.style.cursor = h ? "pointer" : "default";
     });
     canvas.addEventListener("pointerup", (e) => {
+      if (e.pointerType === "touch") return;
       const d = down;
       down = null;
       if (!d || d.moved || !this.running || this.gateJump) return;
       const pick = this.engine.pick(e.clientX, e.clientY);
-      if (d.button === 2) this.commandAt(pick, e.shiftKey);
+      if (d.button === 2) this.commandAt(pick, e.shiftKey || this.queueMode);
       else if (d.button === 0) {
         if (!pick || pick.kind === "point") this.select(null);
         else this.select(pick);
       }
     });
     canvas.addEventListener("dblclick", (e) => {
-      if (!this.running || this.gateJump) return;
-      const pick = this.engine.pick(e.clientX, e.clientY);
-      if (!pick || pick.kind === "point") return;
-      if (pick.kind === "system") this.enterSystem(pick.id);
-      else if (pick.kind === "gate") this.jumpThroughGate(pick.id);
-      else {
-        this.select(pick, true);
+      if (this.lastPointerType === "touch") return; // touch double-taps are handled below
+      this.openAt(e.clientX, e.clientY);
+    });
+  }
+
+  private lastPointerType = "mouse";
+
+  /** Double-click / double-tap: enter a star, jump a gate, or focus what is there. */
+  private openAt(x: number, y: number): void {
+    if (!this.running || this.gateJump) return;
+    const pick = this.engine.pick(x, y);
+    if (!pick || pick.kind === "point") return;
+    if (pick.kind === "system") this.enterSystem(pick.id);
+    else if (pick.kind === "gate") this.jumpThroughGate(pick.id);
+    else this.select(pick, true);
+  }
+
+  /**
+   * Touch: one finger drags to rotate, two fingers pinch to zoom and drag to
+   * pan; tap selects, double-tap opens, and a long press gives the active
+   * fleet its order there (the right-click of a mouse).
+   */
+  private setupTouch(canvas: HTMLCanvasElement): void {
+    const pts = new Map<number, { x: number; y: number }>();
+    let start: { x: number; y: number; t: number; moved: boolean; multi: boolean } | null = null;
+    let pressTimer: number | null = null;
+    let pressed = false;
+    let lastTap: { x: number; y: number; t: number } | null = null;
+    const ring = document.createElement("div");
+    ring.className = "press-ring";
+    document.body.appendChild(ring);
+    const cancelPress = () => {
+      if (pressTimer !== null) clearTimeout(pressTimer);
+      pressTimer = null;
+      ring.classList.remove("on");
+    };
+    const spread = () => {
+      const [a, b] = [...pts.values()];
+      return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    };
+    let pinch: { d: number; x: number; y: number } | null = null;
+    canvas.addEventListener("pointerdown", (e) => {
+      this.lastPointerType = e.pointerType;
+      if (e.pointerType !== "touch") return;
+      canvas.setPointerCapture(e.pointerId);
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size === 1) {
+        start = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false, multi: false };
+        pressed = false;
+        ring.style.left = `${e.clientX}px`;
+        ring.style.top = `${e.clientY}px`;
+        ring.classList.add("on");
+        pressTimer = window.setTimeout(() => {
+          pressTimer = null;
+          ring.classList.remove("on");
+          if (!start || start.moved || start.multi || !this.running || this.gateJump) return;
+          pressed = true;
+          navigator.vibrate?.(15);
+          this.commandAt(this.engine.pick(start.x, start.y), this.queueMode);
+        }, 500);
+      } else {
+        cancelPress();
+        if (start) start.multi = true;
+        pinch = spread();
       }
     });
+    canvas.addEventListener("pointermove", (e) => {
+      if (e.pointerType !== "touch" || !pts.has(e.pointerId)) return;
+      const prev = pts.get(e.pointerId)!;
+      const dx = e.clientX - prev.x;
+      const dy = e.clientY - prev.y;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size >= 2 && pinch) {
+        const now = spread();
+        if (now.d > 1 && pinch.d > 1) this.engine.rig.zoom(pinch.d / now.d);
+        this.engine.rig.pan(now.x - pinch.x, now.y - pinch.y);
+        pinch = now;
+        return;
+      }
+      if (!start) return;
+      if (!start.moved && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 10) {
+        start.moved = true;
+        cancelPress();
+      }
+      if (start.moved && !start.multi) this.engine.rig.rotate(dx, dy);
+    });
+    const end = (e: PointerEvent) => {
+      if (e.pointerType !== "touch" || !pts.has(e.pointerId)) return;
+      pts.delete(e.pointerId);
+      if (pts.size >= 2) pinch = spread();
+      else pinch = null;
+      if (pts.size > 0) return;
+      cancelPress();
+      const s = start;
+      start = null;
+      if (!s || s.moved || s.multi || pressed || e.type === "pointercancel" || !this.running || this.gateJump) return;
+      const now = performance.now();
+      // Double-tap opens (enter system, jump gate, focus); a single tap selects.
+      if (lastTap && now - lastTap.t < 320 && Math.hypot(s.x - lastTap.x, s.y - lastTap.y) < 30) {
+        lastTap = null;
+        this.openAt(s.x, s.y);
+        return;
+      }
+      lastTap = { x: s.x, y: s.y, t: now };
+      const pick = this.engine.pick(s.x, s.y);
+      if (!pick || pick.kind === "point") this.select(null);
+      else this.select(pick);
+    };
+    canvas.addEventListener("pointerup", end);
+    canvas.addEventListener("pointercancel", end);
+  }
+
+  private setupInput(): void {
+    const canvas = this.engine.renderer.domElement;
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    this.setupMouse(canvas);
+    this.setupTouch(canvas);
     canvas.addEventListener(
       "wheel",
       (e) => {
