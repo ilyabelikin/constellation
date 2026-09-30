@@ -12,9 +12,20 @@ import { TurretRig, type Turret } from "../render/Turrets";
 import { hullMaterial, hullNow, MAX_SCARS, radiatorMat, setHullScars, SHIP_STYLES, shipModel, styleForSpecies, type Scar, type ShipStyle } from "../render/ShipModels";
 import type { WeaponFamily } from "../sim/data/ships";
 
-/** Every hull, civilian and military alternating, so each species' whole fleet is on show. */
+/** Every hull, so each species' whole fleet is on show (in a random order, see shuffled). */
 const SHOWCASE = ["scout", "corvette", "constructor", "frigate", "colony", "destroyer", "freighter", "cruiser", "transport", "battleship", "liner", "titan", "tender"];
 const SECONDS_PER_SHIP = 4.2;
+
+/** SHOWCASE in a fresh random order, not starting with `notFirst` (so passes don't repeat a ship back to back). */
+function shuffled(notFirst?: string): string[] {
+  const a = [...SHOWCASE];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  if (a[0] === notFirst) [a[0], a[a.length - 1]] = [a[a.length - 1], a[0]];
+  return a;
+}
 
 export class ShipPreview {
   private renderer: THREE.WebGLRenderer | null = null;
@@ -27,8 +38,11 @@ export class ShipPreview {
   private species = "";
   private color = "#ffffff";
   private caption: HTMLElement;
-  /** Index into SHOWCASE; exposed for tests. */
+  /** Index into the current pass's order; exposed for tests. */
   index = 0;
+  /** This pass's order of hulls, reshuffled for every species and every pass. */
+  private order = shuffled();
+  private pass = 0;
   /** The ship on show: its hull (for hit points and damage) and role. */
   private hullMesh: THREE.Mesh | null = null;
   private role = "";
@@ -83,16 +97,17 @@ export class ShipPreview {
   }
 
   /** Keep a given hull on show (tests, screenshots). */
-  private pinned: number | null = null;
+  private pinned: string | null = null;
   showHull(hullId: string): void {
-    const i = SHOWCASE.indexOf(hullId);
-    this.pinned = i >= 0 ? i : null;
+    this.pinned = SHOWCASE.includes(hullId) ? hullId : null;
   }
 
   /** Show the ships of this species in this empire colour. */
   set(speciesId: string, color: string): void {
     if (speciesId === this.species && color === this.color) return;
     if (speciesId !== this.species) {
+      this.order = shuffled(this.order[this.index]);
+      this.pass = 0;
       this.index = 0;
       this.start = performance.now();
     }
@@ -102,7 +117,7 @@ export class ShipPreview {
   }
 
   private rebuild(): void {
-    const hullId = SHOWCASE[this.index % SHOWCASE.length];
+    const hullId = this.pinned ?? this.order[this.index % this.order.length];
     const style = styleForSpecies(this.species);
     const key = `${this.species}:${this.color}:${hullId}`;
     if (key === this.shown) return;
@@ -172,7 +187,13 @@ export class ShipPreview {
       this.camera.updateProjectionMatrix();
     }
     const elapsed = (performance.now() - this.start) / 1000;
-    this.index = this.pinned ?? Math.floor(elapsed / SECONDS_PER_SHIP) % SHOWCASE.length;
+    const slot = Math.floor(elapsed / SECONDS_PER_SHIP);
+    const pass = Math.floor(slot / SHOWCASE.length);
+    if (pass !== this.pass) {
+      this.order = shuffled(this.order[this.order.length - 1]);
+      this.pass = pass;
+    }
+    this.index = slot % SHOWCASE.length;
     this.rebuild();
     this.turntable.rotation.y = elapsed * 0.45;
     const now = performance.now();
